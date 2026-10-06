@@ -16,12 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -37,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.io.ByteArrayInputStream
 
 /**
@@ -81,7 +81,7 @@ fun SandboxedArtifactView(
                         label = { Text(stringResource(R.string.artifact_preview)) },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Visibility,
+                                imageVector = Icons.Rounded.Visibility,
                                 contentDescription = null,
                                 modifier = Modifier.padding(2.dp)
                             )
@@ -94,7 +94,7 @@ fun SandboxedArtifactView(
                         label = { Text(stringResource(R.string.artifact_code)) },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Code,
+                                imageVector = Icons.Rounded.Code,
                                 contentDescription = null,
                                 modifier = Modifier.padding(2.dp)
                             )

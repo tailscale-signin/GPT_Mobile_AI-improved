@@ -52,21 +52,20 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalTextStyle
@@ -142,6 +141,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -264,6 +264,13 @@ fun ChatScreen(
     var entryPositioned by remember { mutableStateOf(false) }
     var targetResponseOffset by remember { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    var showExportOptions by remember { mutableStateOf(false) }
+    if (showExportOptions) {
+        ChatExportDialog(onDismiss = { showExportOptions = false }) { format ->
+            showExportOptions = false
+            scope.launch { exportChat(context, chatViewModel, format) }
+        }
+    }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
@@ -434,7 +441,7 @@ fun ChatScreen(
                 scrollBehavior = scrollBehavior,
                 onChatTitleItemClick = chatViewModel::openChatTitleDialog,
                 onChatModelItemClick = chatViewModel::openChatModelDialog,
-                onExportChatItemClick = { scope.launch { exportChat(context, chatViewModel) } },
+                onExportChatItemClick = { showExportOptions = true },
                 onDisablePlatformClick = {
                     Toast.makeText(context, R.string.disable_platform, Toast.LENGTH_SHORT).show()
                 }
@@ -1247,7 +1254,7 @@ private fun ChatTopBar(
                 text = title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = if (isTitleCustomized) Color(0xFF67E8F9) else Color.Unspecified,
+                color = if (isTitleCustomized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
                     .clickable(enabled = isMenuItemEnabled, onClick = onChatTitleItemClick)
@@ -1255,18 +1262,13 @@ private fun ChatTopBar(
             )
         },
         navigationIcon = {
-            FilledIconButton(
+            IconButton(
                 onClick = onBackAction,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ),
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(40.dp)
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.padding(start = 8.dp).size(44.dp)
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = stringResource(R.string.go_back),
                     modifier = Modifier.size(21.dp)
                 )
@@ -1278,7 +1280,7 @@ private fun ChatTopBar(
                 onClick = onChatModelItemClick
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Build,
+                    imageVector = Icons.Rounded.Build,
                     tint = MaterialTheme.colorScheme.primary,
                     contentDescription = "Conversation settings"
                 )
@@ -1286,7 +1288,7 @@ private fun ChatTopBar(
             IconButton(
                 onClick = { isDropDownMenuExpanded = isDropDownMenuExpanded.not() }
             ) {
-                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.options), tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.options), tint = MaterialTheme.colorScheme.primary)
             }
 
             ChatDropdownMenu(
@@ -1304,6 +1306,7 @@ private fun ChatTopBar(
                 }
             )
         },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
         scrollBehavior = scrollBehavior
     )
 }
@@ -1369,7 +1372,7 @@ fun ChatBubbleDropdownMenu(
             enabled = canEdit,
             leadingIcon = {
                 Icon(
-                    Icons.Outlined.Edit,
+                    Icons.Rounded.Edit,
                     contentDescription = stringResource(R.string.edit)
                 )
             },
@@ -1396,17 +1399,18 @@ fun ChatBubbleDropdownMenu(
     }
 }
 
-private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel) {
+private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
     try {
-        val (fileName, fileContent) = chatViewModel.exportChat(
-            toolTraceLabels = context.toolTraceLabels(),
-            legacyOrderNotice = context.getString(R.string.legacy_assistant_order_unavailable)
-        )
+        val (fileName, fileContent) = chatViewModel.exportChat(format)
+        if (fileContent.isBlank()) {
+            Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val file = File(context.getExternalFilesDir(null), fileName)
         withContext(Dispatchers.IO) { file.writeText(fileContent) }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/markdown"
+            type = if (format == ChatExportFormat.PLAIN_TEXT) "text/plain" else "text/markdown"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -1555,7 +1559,7 @@ fun ChatInputBox(
                             ) {
                                 if (showStop) {
                                     Icon(
-                                        imageVector = Icons.Filled.Stop,
+                                        imageVector = Icons.Rounded.Stop,
                                         contentDescription = stringResource(R.string.cancel_active_runs)
                                     )
                                 } else {
@@ -1646,7 +1650,7 @@ internal fun FileThumbnail(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.remove),
                         tint = MaterialTheme.colorScheme.onError,
                         modifier = Modifier.size(10.dp)

@@ -4,11 +4,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -20,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import dev.chungjungsoo.gptmobile.data.model.SystemPromptPresets
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
 fun SystemPromptEditor(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -28,9 +28,9 @@ fun SystemPromptEditor(value: String, onValueChange: (String) -> Unit, modifier:
     Column(modifier) {
         Box {
             OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Psychology, null)
+                Icon(Icons.Rounded.Psychology, null)
                 Text(selected?.name ?: "Custom prompt", Modifier.weight(1f))
-                Icon(Icons.Default.ArrowDropDown, "Choose expert preset")
+                Icon(Icons.Rounded.ArrowDropDown, "Choose expert preset")
             }
             DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
                 DropdownMenuItem(text = { Text("Custom · keep editing") }, onClick = { expanded = false })

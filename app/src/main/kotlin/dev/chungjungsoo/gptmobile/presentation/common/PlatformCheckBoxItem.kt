@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
@@ -14,13 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -33,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlin.math.abs
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -103,9 +100,9 @@ fun PlatformCheckBoxItem(
                 )
                 if (isFavorite) {
                     Icon(
-                        imageVector = Icons.Filled.Star,
+                        imageVector = Icons.Rounded.Star,
                         contentDescription = "Favorite",
-                        tint = Color(0xFFFFB300),
+                        tint = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(16.dp)
                     )
                 }

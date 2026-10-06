@@ -52,10 +52,28 @@ class ToolConnectionsViewModel @Inject constructor(
     private val mcpClientManager: McpClientManager,
     private val settingRepository: SettingRepository,
     private val agentToolResolver: AgentToolResolver? = null,
-    private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null
+    private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
+    private val freeToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
 ) : ViewModel() {
     fun revokeToolGrants(connectionUid: String) {
         toolTrust?.revoke(connectionUid)
+        freeToolConsent?.revokeConnection(connectionUid)
+    }
+
+    fun revokePluginGrants(pluginId: String) {
+        if (pluginId.startsWith("connection:")) {
+            revokeToolGrants(pluginId.removePrefix("connection:"))
+        } else {
+            val toolName = when (pluginId) {
+                "calculator" -> "calculate_expression"
+                "read_files" -> "read_file_slice"
+                "model_delegation" -> "delegate_to_model"
+                else -> pluginId
+            }
+            freeToolConsent?.revoke("", "null:$toolName")
+            if (pluginId == "github") _uiState.value.connections.filter { it.type == "GITHUB" }.forEach { revokeToolGrants(it.connectionUid) }
+        }
+        _uiState.update { it.copy(errorMessage = null) }
     }
 
     val features = settingRepository.observeFeatureSettings().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())

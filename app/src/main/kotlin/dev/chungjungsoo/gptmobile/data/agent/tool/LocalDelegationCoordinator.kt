@@ -118,6 +118,7 @@ internal class LocalDelegationCoordinator(
         )
     }
     fun failureReason(): String? = lastFailure.get()
+    fun primaryOnlyRequested(): Boolean = delegationCanceledByUser.get()
     internal fun reviewerScoresSnapshot(): List<Int> = reviewerScores.toList()
     internal fun latestReviewerScore(): Int? = reviewerScores.toList().lastOrNull()
 
@@ -665,14 +666,14 @@ internal class LocalDelegationCoordinator(
     ): WorkerResolution {
         val budgetExhausted = failure.message.orEmpty().contains("DELEGATE_WASTE_BUDGET_EXHAUSTED")
         // REPAIR_WASTE already charged the complete provider usage before stopping.
+        val classified = classifyWorkerFailure(failure)
         val estimated = observedForFailure.takeIf { it > 0L } ?: estimatedDelegateTokens(prompt).toLong()
-        val chargedFailureTokens = if (!budgetExhausted && (dispatchedAtMs != null || observedForFailure > 0L)) {
+        val chargedFailureTokens = if (!budgetExhausted && (observedForFailure > 0L || (dispatchedAtMs != null && !classified.connectionUnavailable))) {
             estimated
         } else {
             0L
         }
         if (chargedFailureTokens > 0L) failedLocalTokens.addAndGet(chargedFailureTokens)
-        val classified = classifyWorkerFailure(failure)
         val message = classified.message
         lastFailure.set(message.ifBlank { failure.javaClass.simpleName })
         val failedUid = resolvedProfileUid ?: target.uid
@@ -998,7 +999,7 @@ internal class LocalDelegationCoordinator(
         val estimatedEffectiveInput = estimatedInput.toLong() + knownRequestOverhead
         if (estimatedEffectiveInput > hardInputTokenCap) {
             AppLogRecorder.record("Delegation", "DELEGATE_OVERSIZED · prompt=$estimatedInput · overhead=$knownRequestOverhead · effective=$estimatedEffectiveInput exceeds configured cap=$hardInputTokenCap · rejected before inference", "E")
-            failedLocalTokens.addAndGet(estimatedEffectiveInput)
+            // This request was rejected before inference; do not charge unspent tokens.
             logComputeTotals()
             return WorkerPreparation(resolvedProfileUid = profile.uid)
         }
@@ -1313,41 +1314,69 @@ internal class LocalDelegationCoordinator(
             AppLogRecorder.record("Delegation", "Research skipped · request budget exhausted · request=$requestIndex max=$effectiveResearchLimit · configured=${config.maxCallsPerTurn} · ownership=${config.processingOwnership}", "W")
             return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
         }
-        val result = try {
-            // Freeze the normalized settings used to authorize this research pass. Every
-            // planner/extractor/synthesis worker call receives the same snapshot so a UI/settings
-            // reload cannot disable an already-running job halfway through its evidence handoff.
-            val researchConfig = boundedConfig(target, config)
-            AppLogRecorder.record(
-                "Delegation",
-                "Research settings pinned · call=$callId · request=$requestIndex · target=${target.uid} · ownership=${researchConfig.processingOwnership}"
+        var result = if (config.processingOwnership == 0 && isGitHubTask(task)) {
+            LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
+        } else {
+            try {
+                // Freeze the normalized settings used to authorize this research pass. Every
+                // planner/extractor/synthesis worker call receives the same snapshot so a UI/settings
+                // reload cannot disable an already-running job halfway through its evidence handoff.
+                val researchConfig = boundedConfig(target, config)
+                AppLogRecorder.record(
+                    "Delegation",
+                    "Research settings pinned · call=$callId · request=$requestIndex · target=${target.uid} · ownership=${researchConfig.processingOwnership}"
+                )
+                LocalResearchWorkflow(
+                    researchConfig,
+                    tools,
+                    generate = { prompt, tokens ->
+                        workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true)
+                    },
+                    // Authorization is pinned above; live settings only apply to the next research run.
+                    stillEnabled = { !delegationCanceledByUser.get() }
+                ).run(task, "$callId:$requestIndex", automatic)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                AppLogRecorder.record("Delegation", "Research workflow failed · call=$callId", "E")
+                LocalResearchResult(
+                    delegationHandoff("", emptyList(), listOf("Local preparation was unavailable. No completed research is claimed."), config.handoffTokens),
+                    0,
+                    0,
+                    0,
+                    LocalResearchOutcome.FAILED
+                )
+            }
+        }
+        // At maximum delegation, non-web work also belongs to the selected worker.
+        // The public-web planner may explicitly decide no research is necessary.
+        if (config.processingOwnership == 0 && result.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED) {
+            val answer = workerText(
+                target,
+                task,
+                config.maxOutputTokens,
+                requirePrivate = false,
+                allowTools = true,
+                pinnedConfig = config,
+                interactiveRecovery = true
             )
-            LocalResearchWorkflow(
-                researchConfig,
-                tools,
-                generate = { prompt, tokens ->
-                    workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true)
-                },
-                // Authorization is pinned above; live settings only apply to the next research run.
-                stillEnabled = { !delegationCanceledByUser.get() }
-            ).run(task, "$callId:$requestIndex", automatic)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            AppLogRecorder.record("Delegation", "Research workflow failed · call=$callId", "E")
-            LocalResearchResult(
-                delegationHandoff("", emptyList(), listOf("Local preparation was unavailable. No completed research is claimed."), config.handoffTokens),
-                0,
-                0,
-                0,
-                LocalResearchOutcome.FAILED
+            result = result.copy(
+                handoff = answer.orEmpty(),
+                outcome = if (answer.isNullOrBlank()) LocalResearchOutcome.NO_USEFUL_OUTPUT else LocalResearchOutcome.SUCCESS
             )
         }
         retain(result)
         if (delegationCanceledByUser.get()) return result.copy(handoff = primaryOnlyHandoff(), outcome = LocalResearchOutcome.NO_USEFUL_OUTPUT)
         val reviewedResult = if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) {
             val handoff = runReviewer(userSelectedRecoveryProfile.get() ?: target, task, result.handoff, config)
-            result.copy(handoff = handoff, outcome = if (handoff.startsWith("[REVIEW_REJECTED]")) LocalResearchOutcome.FAILED else result.outcome)
+            result.copy(
+                handoff = handoff,
+                outcome = when {
+                    delegationCanceledByUser.get() -> LocalResearchOutcome.NO_USEFUL_OUTPUT
+                    handoff.startsWith("[REVIEW_REJECTED]") -> LocalResearchOutcome.FAILED
+                    else -> result.outcome
+                }
+            )
         } else {
             result
         }

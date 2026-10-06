@@ -16,14 +16,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -36,7 +36,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +73,7 @@ import dev.chungjungsoo.gptmobile.data.benchmark.delegateRankings
 import dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkRating
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -117,9 +117,9 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     Scaffold(topBar = {
         if (!embedded) {
             TopAppBar(title = { Text("AI profile benchmarks") }, navigationIcon = {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
             }, actions = {
-                IconButton(onClick = onUsage) { Icon(Icons.Default.BarChart, "Usage") }
+                IconButton(onClick = onUsage) { Icon(Icons.Rounded.BarChart, "Usage") }
             })
         }
     }) { padding ->
@@ -146,7 +146,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             LinearProgressIndicator(progress = { current.completed.toFloat() / current.total }, modifier = Modifier.fillMaxWidth(), color = tint)
                             Text("${current.completed} / ${current.total} tests · ${current.testName}")
                             TextButton(onClick = viewModel::cancel) {
-                                Icon(Icons.Default.Stop, null)
+                                Icon(Icons.Rounded.Stop, null)
                                 Text("Stop benchmark")
                             }
                         }
@@ -319,7 +319,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     Text("${selectedBenchmarks.size} of ${benchmarkCandidates.size} models selected", style = MaterialTheme.typography.labelLarge)
                                     Box {
                                         IconButton(onClick = { benchmarkOptionsExpanded = true }, enabled = progress == null) {
-                                            Icon(Icons.Default.Tune, "Choose benchmark models", tint = MaterialTheme.colorScheme.primary)
+                                            Icon(Icons.Rounded.Tune, "Choose benchmark models", tint = MaterialTheme.colorScheme.primary)
                                         }
                                         DropdownMenu(
                                             expanded = benchmarkOptionsExpanded,
@@ -360,7 +360,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = tint, contentColor = if (tint.luminance() > .5f) Color.Black else Color.White)
                                 ) {
-                                    Icon(Icons.Default.PlayArrow, null)
+                                    Icon(Icons.Rounded.PlayArrow, null)
                                     Text(
                                         "Benchmark ${selectedBenchmarks.size} selected model${if (selectedBenchmarks.size == 1) "" else "s"}",
                                         Modifier.padding(start = 8.dp)
@@ -530,13 +530,13 @@ private fun BenchmarkProfilePicker(profiles: List<PlatformV2>, selected: Platfor
         Card(onClick = { expanded = true }, enabled = enabled && profiles.isNotEmpty(), shape = RoundedCornerShape(20.dp)) {
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val local = selected?.compatibleType == ClientType.LITERT_LM
-                Icon(if (local) Icons.Default.Memory else Icons.Default.Cloud, null, tint = benchmarkTint(local), modifier = Modifier.size(28.dp))
+                Icon(if (local) Icons.Rounded.Memory else Icons.Rounded.Cloud, null, tint = benchmarkTint(local), modifier = Modifier.size(28.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(selected?.name ?: "Select an AI profile", style = MaterialTheme.typography.titleMedium)
                     Text(selected?.model.orEmpty(), style = MaterialTheme.typography.bodySmall)
                     if (selected != null) Text(if (local) "LOCAL · ${selected.accelerator?.uppercase() ?: "AUTO"}" else "REMOTE · ${selected.compatibleType.name}", style = MaterialTheme.typography.labelSmall, color = benchmarkTint(local))
                 }
-                Icon(Icons.Default.ExpandMore, "Choose AI profile")
+                Icon(Icons.Rounded.ExpandMore, "Choose AI profile")
             }
         }
         DropdownMenu(expanded, { expanded = false }) {
@@ -549,7 +549,7 @@ private fun BenchmarkProfilePicker(profiles: List<PlatformV2>, selected: Platfor
                             Text(item.model, style = MaterialTheme.typography.labelSmall)
                         }
                     },
-                    leadingIcon = { Icon(if (local) Icons.Default.Memory else Icons.Default.Cloud, if (local) "Local" else "Remote", tint = benchmarkTint(local)) },
+                    leadingIcon = { Icon(if (local) Icons.Rounded.Memory else Icons.Rounded.Cloud, if (local) "Local" else "Remote", tint = benchmarkTint(local)) },
                     onClick = {
                         onSelect(item)
                         expanded = false
@@ -693,7 +693,7 @@ private fun BenchmarkTypeBadge(local: Boolean) {
     val tint = benchmarkTint(local)
     Surface(color = tint.copy(alpha = .12f), shape = RoundedCornerShape(10.dp)) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(if (local) Icons.Default.Memory else Icons.Default.Cloud, null, tint = tint, modifier = Modifier.size(16.dp))
+            Icon(if (local) Icons.Rounded.Memory else Icons.Rounded.Cloud, null, tint = tint, modifier = Modifier.size(16.dp))
             Text(if (local) "Local" else "Remote", color = tint, style = MaterialTheme.typography.labelMedium)
         }
     }

@@ -30,10 +30,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
-import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
-import dev.chungjungsoo.gptmobile.data.database.entity.hasUnavailableAssistantOrder
 import dev.chungjungsoo.gptmobile.data.database.entity.rebuildAssistantTimelineForEdit
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.selectRevision
@@ -676,7 +674,7 @@ class ChatViewModel @Inject constructor(
                 if (unlockingAllTools) {
                     enableAllChatTools()
                 } else {
-                    // Every active free profile needs its own acknowledgement.
+                    // This saved tool permission now applies to every active model.
                     toggleChatTool(request.toolId)
                 }
             }
@@ -1221,38 +1219,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun exportChat(
-        toolTraceLabels: ToolTraceLabels = ToolTraceLabels.Default,
-        legacyOrderNotice: String = LEGACY_ORDER_NOTICE
-    ): Pair<String, String> {
+    suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
         val exported = groupPersistedMessages(completeWindowMessages(_groupedMessages.value), enabledPlatformsInChat, _chatRoom.value.id)
-        val platformNames = _platformsInApp.value.associate { it.uid to it.name }
-        // Build the chat history in Markdown format
-        val chatHistoryMarkdown = buildString {
-            appendLine("# Chat Export: \"${chatRoom.value.title}\"")
-            appendLine()
-            appendLine("**Exported on:** ${formatCurrentDateTime()}")
-            appendLine()
-            appendLine("---")
-            appendLine()
-            appendLine("## Chat History")
-            appendLine()
-            exported.userMessages.forEachIndexed { i, message ->
-                appendLine("**User:**")
-                appendLine(message.content)
-                appendLine()
-
-                exported.assistantMessages[i].forEach { message ->
-                    val platformName = message.platformType?.let { platformNames[it] } ?: "Unknown"
-                    append(formatAssistantExport(platformName, message, _toolEventsByRun.value, toolTraceLabels, legacyOrderNotice))
-                }
-            }
-        }
-
-        // Save the Markdown file
+        val content = exported.assistantMessages.flatten()
+            .map { assistantExportText(it, format) }
+            .filter(String::isNotBlank)
+            .joinToString("\n\n")
         val safeTitle = chatRoom.value.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
-        val fileName = "export_${safeTitle}_${System.currentTimeMillis()}.md"
-        return Pair(fileName, chatHistoryMarkdown)
+        return "export_${safeTitle}_${System.currentTimeMillis()}.md" to content
     }
 
     private fun completeChat(persistSnapshotFirst: Boolean = false) {
@@ -2322,80 +2296,14 @@ internal fun mergePersistedAssistantRow(
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun formatAssistantExport(
     platformName: String,
     message: MessageV2,
     toolEventsByRun: Map<String, List<ToolEvent>>,
     toolTraceLabels: ToolTraceLabels = ToolTraceLabels.Default,
     legacyOrderNotice: String = LEGACY_ORDER_NOTICE
-): String = buildString {
-    appendLine("**Assistant ($platformName):**")
-    val trace = message.effectiveRunId()
-        ?.let(toolEventsByRun::get)
-        .orEmpty()
-    val timeline = message.effectiveTimeline()
-    val content = message.effectiveContent()
-    val thoughts = message.effectiveThoughts()
-    if (hasUnavailableAssistantOrder(timeline, content, thoughts, trace.isNotEmpty())) {
-        appendLine("> $legacyOrderNotice")
-        appendLine()
-        thoughts.takeIf(String::isNotBlank)?.let {
-            appendLine("<details><summary>Thinking (order unavailable)</summary>")
-            appendLine()
-            appendLine(it)
-            appendLine()
-            appendLine("</details>")
-            appendLine()
-        }
-        content.takeIf(String::isNotBlank)?.let {
-            appendLine(it)
-            appendLine()
-        }
-        formatToolTraceMarkdown(trace, toolTraceLabels).takeIf { it.isNotBlank() }?.let {
-            appendLine(it)
-            appendLine()
-        }
-    } else if (timeline.isEmpty()) {
-        appendLine(content)
-        appendLine()
-        formatToolTraceMarkdown(trace, toolTraceLabels).takeIf { it.isNotBlank() }?.let {
-            appendLine(it)
-            appendLine()
-        }
-    } else {
-        val traceBySequence = trace.associateBy(ToolEvent::sequence)
-        val renderedSequences = timeline.mapNotNull { it.toolSequence }.toSet()
-        timeline.forEach { item ->
-            when (item.type) {
-                AssistantTimelineItemType.TEXT -> appendLine(item.content)
-
-                AssistantTimelineItemType.THINKING -> {
-                    appendLine("<details><summary>Thinking</summary>")
-                    appendLine()
-                    appendLine(item.content)
-                    appendLine()
-                    appendLine("</details>")
-                }
-
-                AssistantTimelineItemType.TOOL ->
-                    item.toolSequence
-                        ?.let(traceBySequence::get)
-                        ?.let { appendLine(formatToolTraceMarkdown(listOf(it), toolTraceLabels)) }
-
-                AssistantTimelineItemType.NOTICE -> appendLine("> ${item.content}")
-
-                AssistantTimelineItemType.LEGACY_ORDER -> Unit
-            }
-            appendLine()
-        }
-        trace.filterNot { it.sequence in renderedSequences }
-            .takeIf { it.isNotEmpty() }
-            ?.let {
-                appendLine(formatToolTraceMarkdown(it, toolTraceLabels))
-                appendLine()
-            }
-    }
-}
+): String = assistantExportText(message, ChatExportFormat.MARKDOWN).let { if (it.isBlank()) "" else "$it\n\n" }
 
 private fun isPersistableMessage(message: MessageV2): Boolean =
     message.effectiveContent().isNotBlank() ||

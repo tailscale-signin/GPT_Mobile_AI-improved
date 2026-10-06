@@ -500,7 +500,7 @@ class SettingViewModelV2 @Inject constructor(
         }
         if (state.selection.sections.isEmpty() || (state.requiresRecoveryKey && state.recoveryKeyUri == null)) return
         _backupUi.update { it.copy(restoreUri = null, isBusy = true) }
-        runBackupOperation {
+        runBackupOperation(restoring = true) {
             val password = state.legacyPassword.takeIf(String::isNotBlank)
             backupProtectionMutex.withLock {
                 val result = completeBackupManager.restore(uri, password, state.selection, state.recoveryKeyUri)
@@ -510,7 +510,10 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
-    private fun runBackupOperation(operation: suspend () -> BackupRestoreResult) {
+    private val _restoreCompleted = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val restoreCompleted = _restoreCompleted.asSharedFlow()
+
+    private fun runBackupOperation(restoring: Boolean = false, operation: suspend () -> BackupRestoreResult) {
         if (_backupUi.value.isWorking) return
         _backupUi.update { it.copy(isBusy = true, isWorking = true) }
         viewModelScope.launch {
@@ -527,6 +530,7 @@ class SettingViewModelV2 @Inject constructor(
                 _backupUi.update { it.copy(recentBackups = completeBackupManager.recentBackups()) }
                 if (result.success) {
                     fetchPlatforms()
+                    if (restoring) _restoreCompleted.emit(Unit)
                 }
             } catch (error: CancellationException) {
                 throw error

@@ -122,6 +122,57 @@ class LocalDelegationCoordinatorTest {
         }
     }
 
+    @Test fun `maximum delegation prepares repository work before isolated review`() = runTest {
+        val reviewer = target.copy(uid = "max-reviewer", name = "Reviewer", model = "review-model")
+        val calls = mutableListOf<String>()
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(processingOwnership = 0, researchEnabled = true, automaticResearch = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> error("Unexpected legacy generation") },
+            generateWithProgress = { profile, prompt, _, _, _ ->
+                calls += profile.uid
+                assertEquals("Inspect the GitHub repository", prompt)
+                "Verified repository files and prepared findings."
+            },
+            generateTextWithProgress = { _, _, _, _, _ -> error("Repository tasks must bypass web planning") },
+            generateReviewerWithProgress = { profile, _, _, _, _ ->
+                calls += profile.uid
+                """{"review_score":95,"verdict":"PASS","issues":[],"corrections":null}"""
+            }
+        )
+        val result = coordinator.prepare("Inspect the GitHub repository", emptyList(), "max", automatic = true)
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+        assertEquals(listOf(target.uid, reviewer.uid), calls)
+        assertTrue(result.handoff.contains("Reviewer Score: 95/100"))
+    }
+
+    @Test fun `maximum delegation handles a non web task after the planner declines research`() = runTest {
+        val reviewer = target.copy(uid = "direct-reviewer", model = "review-direct-model")
+        val stages = mutableListOf<String>()
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(processingOwnership = 0, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> error("Unexpected legacy generation") },
+            generateWithProgress = { _, _, _, _, _ ->
+                stages += "delegate"
+                "A concise prepared explanation."
+            },
+            generateTextWithProgress = { _, _, _, _, _ ->
+                stages += "plan"
+                """{"queries":[],"urls":[]}"""
+            },
+            generateReviewerWithProgress = { _, _, _, _, _ ->
+                stages += "review"
+                """{"review_score":90,"verdict":"PASS","issues":[],"corrections":null}"""
+            }
+        )
+        val result = coordinator.prepare("Explain a simple concept", emptyList(), "direct", automatic = true)
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+        assertEquals(listOf("plan", "delegate", "review"), stages)
+    }
+
     private val source = PlatformV2(uid = "remote", name = "Remote", compatibleType = ClientType.OPENAI, apiUrl = "https://api.example.com")
     private val target = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LLAMA, model = java.util.UUID.randomUUID().toString(), apiUrl = "http://192.168.1.2:8080")
     private val config = ModelDelegationSettings(enabled = true, processingOwnership = 50, targetProfileUid = "local", maxLocalModelCalls = 2)

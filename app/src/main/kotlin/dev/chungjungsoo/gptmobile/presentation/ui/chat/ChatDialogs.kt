@@ -15,12 +15,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -55,6 +54,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelOption
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ConversationDelegationCard
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LlamaModelPickerDialog
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
@@ -157,7 +157,7 @@ fun ChatModelDialog(
                         Box(Modifier.fillMaxWidth()) {
                             TextButton(onClick = { profileMenuOpen = true }, enabled = filteredProfiles.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                                 Text(displayedProfile?.let { platformNames[it] }.orEmpty().ifBlank { "No matching profiles" }, Modifier.weight(1f))
-                                Icon(Icons.Default.ArrowDropDown, "Select AI profile")
+                                Icon(Icons.Rounded.ArrowDropDown, "Select AI profile")
                             }
                             DropdownMenu(expanded = profileMenuOpen, onDismissRequest = { profileMenuOpen = false }) {
                                 filteredProfiles.forEach { uid ->
@@ -228,7 +228,7 @@ fun ChatModelDialog(
                                     trailingIcon = {
                                         IconButton(onClick = { activeCloudPickerUid = platformUid }) {
                                             Icon(
-                                                imageVector = Icons.Default.ArrowDropDown,
+                                                imageVector = Icons.Rounded.ArrowDropDown,
                                                 contentDescription = stringResource(R.string.unified_model_picker)
                                             )
                                         }
@@ -249,7 +249,7 @@ fun ChatModelDialog(
                                     trailingIcon = {
                                         IconButton(onClick = { activeLlamaPickerPlatformUid = platformUid }) {
                                             Icon(
-                                                imageVector = Icons.Default.ArrowDropDown,
+                                                imageVector = Icons.Rounded.ArrowDropDown,
                                                 contentDescription = stringResource(R.string.llama_select_router_model)
                                             )
                                         }
@@ -268,7 +268,7 @@ fun ChatModelDialog(
                                     label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
                                     trailingIcon = {
                                         IconButton(onClick = { activeCloudPickerUid = platformUid }) {
-                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Browse provider models")
+                                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Browse provider models")
                                         }
                                     }
                                 )

@@ -20,15 +20,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.ArrowDropUp
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.data.llama.LlamaModelInfo
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 /**
  * Fancy dropdown selector for Llama models supporting router mode, live search/filtering,
@@ -68,11 +68,14 @@ fun LlamaModelDropdown(
 
     val selectedModel = models.firstOrNull { it.id == selectedModelId }
     val filteredModels = remember(models, searchQuery) {
-        if (searchQuery.isBlank()) models
-        else models.filter {
-            it.name.contains(searchQuery, ignoreCase = true) ||
+        if (searchQuery.isBlank()) {
+            models
+        } else {
+            models.filter {
+                it.name.contains(searchQuery, ignoreCase = true) ||
                     it.id.contains(searchQuery, ignoreCase = true) ||
                     it.quantization.contains(searchQuery, ignoreCase = true)
+            }
         }
     }
 
@@ -101,7 +104,7 @@ fun LlamaModelDropdown(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Memory,
+                        imageVector = Icons.Rounded.Memory,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
@@ -129,14 +132,14 @@ fun LlamaModelDropdown(
                     } else if (onRefresh != null) {
                         IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                imageVector = Icons.Rounded.Refresh,
                                 contentDescription = "Refresh models",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
                     Icon(
-                        imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                        imageVector = if (expanded) Icons.Rounded.ArrowDropUp else Icons.Rounded.ArrowDropDown,
                         contentDescription = if (expanded) "Collapse" else "Expand",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -167,7 +170,7 @@ fun LlamaModelDropdown(
                         placeholder = { Text("Search router models...", style = MaterialTheme.typography.bodySmall) },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Search,
+                                imageVector = Icons.Rounded.Search,
                                 contentDescription = "Search",
                                 modifier = Modifier.size(16.dp)
                             )
@@ -204,8 +207,11 @@ fun LlamaModelDropdown(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(
-                                            if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                                            else MaterialTheme.colorScheme.surfaceContainerHigh
+                                            if (isSelected) {
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceContainerHigh
+                                            }
                                         )
                                         .clickable {
                                             onModelSelected(model.id)
@@ -262,7 +268,7 @@ fun LlamaModelDropdown(
                                     }
                                     if (isSelected) {
                                         Icon(
-                                            imageVector = Icons.Default.Check,
+                                            imageVector = Icons.Rounded.Check,
                                             contentDescription = "Selected",
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(18.dp)

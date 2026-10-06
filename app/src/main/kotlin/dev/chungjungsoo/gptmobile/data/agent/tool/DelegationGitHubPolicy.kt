@@ -67,6 +67,17 @@ internal fun primaryDelegationTools(
     }
 }
 
+/** The final pass cannot restart work already completed by the delegate and reviewer. */
+internal fun reviewedSynthesisTools(tools: List<ResolvedAgentTool>, processingOwnership: Int, followUpsEnabled: Boolean): List<ResolvedAgentTool> =
+    if (processingOwnership == 0) {
+        emptyList()
+    } else {
+        tools.filterNot {
+            it.realToolName == "delegate_to_model" ||
+                (!followUpsEnabled && (it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search"))
+        }
+    }
+
 internal fun gitHubCapabilityRefusal(task: String, response: String): Boolean {
     if (!isGitHubTask(task)) return false
     val text = response.lowercase().replace("**", "")

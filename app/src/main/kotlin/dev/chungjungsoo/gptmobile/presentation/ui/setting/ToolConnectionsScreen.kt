@@ -15,14 +15,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -30,33 +30,32 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Cable
-import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Storefront
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Cable
+import androidx.compose.material.icons.rounded.Calculate
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ListItem
@@ -71,24 +70,24 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -98,10 +97,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
@@ -110,7 +110,7 @@ import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
-import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
@@ -284,7 +284,7 @@ fun ToolConnectionsScreen(
                         CollapsibleToolConnectionCard(
                             connection = connection,
                             onEditClick = { onEditConnectionClick(connection.connectionUid) },
-                            onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Default.Tune) },
+                            onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Rounded.Tune) },
                             onPermissionsClick = { permissionsConnection = connection },
                             onBrowseClick = { browsingConnection = connection },
                             showBrowseAction = connection.type != ToolConnectionType.GITHUB ||
@@ -328,7 +328,7 @@ fun ToolConnectionsScreen(
                         },
                         leadingContent = {
                             Icon(
-                                imageVector = Icons.Filled.Storefront,
+                                imageVector = Icons.Rounded.Storefront,
                                 contentDescription = "MCP Marketplace",
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -353,7 +353,7 @@ fun ToolConnectionsScreen(
                 mcpConnections.forEach { connection ->
                     CollapsibleToolConnectionCard(
                         connection = connection,
-                        onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Default.Tune) },
+                        onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Rounded.Tune) },
                         onEditClick = { onEditConnectionClick(connection.connectionUid) },
                         onPermissionsClick = { permissionsConnection = connection },
                         onBrowseClick = { browsingConnection = connection },
@@ -395,7 +395,8 @@ fun ToolConnectionsScreen(
             onConnection = {
                 uiState.connections.firstOrNull { it.type == ToolConnectionType.GITHUB }?.let { onEditConnectionClick(it.connectionUid) } ?: onAddConnectionClick()
             },
-            onDismiss = { pluginSettings = null }
+            onDismiss = { pluginSettings = null },
+            onRevokePermissions = { viewModel.revokePluginGrants(plugin.id) }
         )
     }
 
@@ -447,15 +448,15 @@ private data class IntegratedPluginUi(
 )
 
 private val INTEGRATED_PLUGINS = listOf(
-    IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured delegate model.", Icons.Default.Psychology),
-    IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context.", Icons.Default.Memory),
-    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & Time", "Provides current date context without a remote MCP server.", Icons.Default.Schedule),
-    IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally.", Icons.Default.Calculate),
-    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read Files", "Reads bounded slices of files made available to the app.", Icons.Default.FolderOpen),
-    IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Default.Language),
-    IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Default.Code),
-    IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Default.Search),
-    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Default.LocationOn)
+    IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured delegate model.", Icons.Rounded.Psychology),
+    IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context.", Icons.Rounded.Memory),
+    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & Time", "Provides current date context without a remote MCP server.", Icons.Rounded.Schedule),
+    IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally.", Icons.Rounded.Calculate),
+    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read Files", "Reads bounded slices of files made available to the app.", Icons.Rounded.FolderOpen),
+    IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Rounded.Language),
+    IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Rounded.Code),
+    IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Rounded.Search),
+    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Rounded.LocationOn)
 )
 
 @Composable
@@ -528,7 +529,7 @@ private fun IntegratedPluginIcon(plugin: IntegratedPluginUi) {
             modifier = Modifier.align(Alignment.BottomEnd).size(18.dp)
         ) {
             Icon(
-                Icons.Default.AutoAwesome,
+                Icons.Rounded.AutoAwesome,
                 contentDescription = null,
                 modifier = Modifier.padding(4.dp)
             )
@@ -562,13 +563,13 @@ private fun RemoteMcpMasterCard(
 @Composable
 private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
     val icon = when (type) {
-        ToolConnectionType.MCP -> Icons.Filled.Hub
-        ToolConnectionType.FIRECRAWL -> Icons.Filled.Language
-        ToolConnectionType.PERPLEXITY -> Icons.Filled.Search
-        ToolConnectionType.EXA -> Icons.Filled.Search
-        ToolConnectionType.BRAVE -> Icons.Filled.Search
-        ToolConnectionType.GITHUB -> Icons.Filled.Code
-        else -> Icons.Filled.Cable
+        ToolConnectionType.MCP -> Icons.Rounded.Hub
+        ToolConnectionType.FIRECRAWL -> Icons.Rounded.Language
+        ToolConnectionType.PERPLEXITY -> Icons.Rounded.Search
+        ToolConnectionType.EXA -> Icons.Rounded.Search
+        ToolConnectionType.BRAVE -> Icons.Rounded.Search
+        ToolConnectionType.GITHUB -> Icons.Rounded.Code
+        else -> Icons.Rounded.Cable
     }
     Surface(
         modifier = modifier,
@@ -686,7 +687,7 @@ private fun CollapsibleToolConnectionCard(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = if (expanded) "Collapse" else "Expand",
                     modifier = Modifier.rotate(arrowRotation)
                 )
@@ -743,11 +744,11 @@ private fun CollapsibleToolConnectionCard(
                             Spacer(modifier = Modifier.width(4.dp))
                         }
                         IconButton(onClick = onEditClick) {
-                            Icon(imageVector = Icons.Filled.Edit, contentDescription = "Edit Connection")
+                            Icon(imageVector = Icons.Rounded.Edit, contentDescription = "Edit Connection")
                         }
                         IconButton(onClick = onDeleteClick) {
                             Icon(
-                                imageVector = Icons.Filled.Delete,
+                                imageVector = Icons.Rounded.Delete,
                                 contentDescription = "Delete Connection",
                                 tint = MaterialTheme.colorScheme.error
                             )
@@ -1095,19 +1096,19 @@ private fun ToolConnectionsTopBar(
                 modifier = Modifier.padding(4.dp),
                 onClick = onNavigationClick
             ) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
+                Icon(imageVector = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.go_back))
             }
         },
         actions = {
             IconButton(
                 onClick = onMarketplaceClick
             ) {
-                Icon(imageVector = Icons.Filled.Storefront, contentDescription = "MCP Marketplace")
+                Icon(imageVector = Icons.Rounded.Storefront, contentDescription = "MCP Marketplace")
             }
             IconButton(
                 onClick = onAddClick
             ) {
-                Icon(imageVector = Icons.Filled.Add, contentDescription = stringResource(R.string.add_tool_connection))
+                Icon(imageVector = Icons.Rounded.Add, contentDescription = stringResource(R.string.add_tool_connection))
             }
         },
         scrollBehavior = scrollBehavior
@@ -1501,7 +1502,7 @@ private fun CredentialField(
                         modifier = Modifier.padding(start = 4.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Delete,
+                            imageVector = Icons.Rounded.Delete,
                             contentDescription = stringResource(R.string.remove_api_key),
                             tint = MaterialTheme.colorScheme.error
                         )
@@ -1520,7 +1521,7 @@ private fun CredentialField(
                 }
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Add,
+                    imageVector = Icons.Rounded.Add,
                     contentDescription = stringResource(R.string.add_api_key),
                     modifier = Modifier.padding(end = 4.dp)
                 )
@@ -1592,7 +1593,7 @@ private fun ToolConnectionEditorTopBar(
                 modifier = Modifier.padding(4.dp),
                 onClick = onNavigationClick
             ) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
+                Icon(imageVector = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.go_back))
             }
         },
         actions = {

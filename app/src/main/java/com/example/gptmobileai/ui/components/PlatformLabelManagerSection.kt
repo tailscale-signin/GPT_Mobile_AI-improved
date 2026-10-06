@@ -1,8 +1,5 @@
 package com.example.gptmobileai.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,22 +16,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Label
-import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Label
+import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.data.label.PREDEFINED_LABEL_COLORS
 import dev.chungjungsoo.gptmobile.data.label.PlatformLabel
 import dev.chungjungsoo.gptmobile.data.label.PlatformLabelManager
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 /**
  * Interactive model & platform label selector supporting shared labels across platforms,
@@ -76,7 +69,7 @@ fun PlatformLabelManagerSection(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.Tag,
+                    imageVector = Icons.Rounded.Tag,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp)
@@ -89,7 +82,7 @@ fun PlatformLabelManagerSection(
                 )
             }
             TextButton(onClick = { showCreateDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("New Label", style = MaterialTheme.typography.labelMedium)
             }
@@ -177,7 +170,7 @@ fun CreatePlatformLabelDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.Label,
+                    imageVector = Icons.Rounded.Label,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(22.dp)
@@ -249,7 +242,7 @@ fun CreatePlatformLabelDialog(
                         ) {
                             if (isSelected) {
                                 Icon(
-                                    imageVector = Icons.Default.Check,
+                                    imageVector = Icons.Rounded.Check,
                                     contentDescription = "Selected",
                                     tint = Color.White,
                                     modifier = Modifier.size(16.dp)

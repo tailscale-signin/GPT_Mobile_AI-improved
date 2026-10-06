@@ -15,10 +15,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -37,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.PROFILE_LABEL_COLOR_PRESETS
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.normalizeLabelColor
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlin.math.abs
 
 @Composable
@@ -127,7 +127,7 @@ fun ProfileLabelEditorDialog(
                                         draftName = ""
                                     }
                                 }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Remove ${label.name}")
+                                    Icon(Icons.Rounded.Close, contentDescription = "Remove ${label.name}")
                                 }
                             }
                         }

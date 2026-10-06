@@ -18,31 +18,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Calculate
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -72,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,7 +106,7 @@ fun McpToolsSelectionScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(R.string.go_back)
                         )
                     }
@@ -187,7 +185,7 @@ fun McpToolsSelectionScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Language,
+                                    imageVector = Icons.Rounded.Language,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
@@ -217,7 +215,7 @@ fun McpToolsSelectionScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Calculate,
+                                    imageVector = Icons.Rounded.Calculate,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
@@ -253,7 +251,7 @@ fun McpToolsSelectionScreen(
                 placeholder = { Text("Search by tool name, server, description...") },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Default.Search,
+                        imageVector = Icons.Rounded.Search,
                         contentDescription = "Search"
                     )
                 },
@@ -286,7 +284,7 @@ fun McpToolsSelectionScreen(
                         label = { Text("All Providers (${allServerNames.size})") },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Public,
+                                imageVector = Icons.Rounded.Public,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -538,7 +536,7 @@ private fun McpProviderSectionCard(
                 }
 
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = if (isExpanded) "Collapse" else "Expand",
                     modifier = Modifier.rotate(arrowRotation)
                 )
@@ -616,7 +614,7 @@ private fun McpToolCard(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isSelected) Icons.Default.Check else icon,
+                    imageVector = if (isSelected) Icons.Rounded.Check else icon,
                     contentDescription = null,
                     tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
@@ -696,13 +694,13 @@ private fun mcpProviderBrandColor(name: String): Color = when {
 private fun mcpToolIconForName(toolName: String): ImageVector {
     val lower = toolName.lowercase()
     return when {
-        lower.contains("search") || lower.contains("find") || lower.contains("query") -> Icons.Default.Search
-        lower.contains("build") || lower.contains("compile") || lower.contains("run") -> Icons.Default.Build
-        lower.contains("code") || lower.contains("script") || lower.contains("git") -> Icons.Default.Code
-        lower.contains("file") || lower.contains("read") || lower.contains("write") || lower.contains("dir") -> Icons.Default.Folder
-        lower.contains("terminal") || lower.contains("exec") || lower.contains("cmd") || lower.contains("bash") -> Icons.Default.Terminal
-        lower.contains("calc") || lower.contains("math") -> Icons.Default.Calculate
-        lower.contains("web") || lower.contains("http") || lower.contains("fetch") || lower.contains("url") -> Icons.Default.Language
-        else -> Icons.Default.Extension
+        lower.contains("search") || lower.contains("find") || lower.contains("query") -> Icons.Rounded.Search
+        lower.contains("build") || lower.contains("compile") || lower.contains("run") -> Icons.Rounded.Build
+        lower.contains("code") || lower.contains("script") || lower.contains("git") -> Icons.Rounded.Code
+        lower.contains("file") || lower.contains("read") || lower.contains("write") || lower.contains("dir") -> Icons.Rounded.Folder
+        lower.contains("terminal") || lower.contains("exec") || lower.contains("cmd") || lower.contains("bash") -> Icons.Rounded.Terminal
+        lower.contains("calc") || lower.contains("math") -> Icons.Rounded.Calculate
+        lower.contains("web") || lower.contains("http") || lower.contains("fetch") || lower.contains("url") -> Icons.Rounded.Language
+        else -> Icons.Rounded.Extension
     }
 }

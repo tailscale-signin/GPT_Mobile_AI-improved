@@ -8,9 +8,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -29,6 +28,7 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeature
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
 internal fun PluginConfigurationDialog(
@@ -38,13 +38,14 @@ internal fun PluginConfigurationDialog(
     onFeature: (AppFeature, Boolean) -> Unit,
     onSave: (PluginExecutionSettings) -> Unit,
     onConnection: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onRevokePermissions: () -> Unit = {}
 ) {
     var config by remember(id) { mutableStateOf(features.pluginExecution[id] ?: PluginExecutionSettings()) }
     var options by remember(id) { mutableStateOf(features) }
     val validZone = config.timeZone.isBlank() || runCatching { java.time.ZoneId.of(config.timeZone) }.isSuccess
     AlertDialog(
-        icon = { Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.primary) },
+        icon = { Icon(Icons.Rounded.Tune, null, tint = MaterialTheme.colorScheme.primary) },
         onDismissRequest = onDismiss,
         title = { Text(name) },
         text = {
@@ -74,6 +75,7 @@ internal fun PluginConfigurationDialog(
                     OutlinedTextField(config.timeZone, { config = config.copy(timeZone = it.trim()) }, label = { Text("Time zone · blank uses device") }, placeholder = { Text("America/Toronto") }, isError = !validZone, singleLine = true)
                 }
                 if (id == ToolPluginId.DEVICE_LOCATION) {
+                    Text("A location fix is shared with enabled models for five minutes, then expires automatically.", style = MaterialTheme.typography.bodySmall)
                     PluginSwitch("Nearby place lookup", config.nearbyPlaces) { config = config.copy(nearbyPlaces = it) }
                     PluginSlider("Maximum search radius", config.nearbyRadiusMeters, 100..5000, "m") { config = config.copy(nearbyRadiusMeters = it) }
                 }
@@ -95,6 +97,7 @@ internal fun PluginConfigurationDialog(
                     PluginSlider("Timeout", config.timeoutSeconds, 5..120, "s") { config = config.copy(timeoutSeconds = it) }
                     PluginSlider("Maximum result characters", config.maxOutputCharacters, 1000..128000) { config = config.copy(maxOutputCharacters = it) }
                 }
+                TextButton(onClick = onRevokePermissions) { Text("Revoke saved permissions · all models") }
                 TextButton(onClick = {
                     config = PluginExecutionSettings()
                     options = AppFeatureSettings()

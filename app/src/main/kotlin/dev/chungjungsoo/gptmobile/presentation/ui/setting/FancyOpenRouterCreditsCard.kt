@@ -25,11 +25,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MonetizationOn
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.rounded.MonetizationOn
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCreditsData
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -82,9 +82,9 @@ fun FancyOpenRouterCreditsCard(
 
     val cardBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0xFF6366F1).copy(alpha = 0.92f), // Indigo
-            Color(0xFF8B5CF6).copy(alpha = 0.88f), // Purple
-            Color(0xFF06B6D4).copy(alpha = 0.85f) // Cyan
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
         ),
         start = androidx.compose.ui.geometry.Offset(gradientShift * 150f, 0f),
         end = androidx.compose.ui.geometry.Offset(800f, 400f)
@@ -99,8 +99,8 @@ fun FancyOpenRouterCreditsCard(
                 width = 1.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.35f),
-                        Color.White.copy(alpha = 0.10f)
+                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.35f),
+                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.10f)
                     )
                 ),
                 shape = RoundedCornerShape(16.dp)
@@ -130,13 +130,13 @@ fun FancyOpenRouterCreditsCard(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.2f)),
+                            .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.MonetizationOn,
+                            imageVector = Icons.Rounded.MonetizationOn,
                             contentDescription = stringResource(R.string.openrouter_credits),
-                            tint = Color(0xFFFFD700), // Gold
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -146,12 +146,12 @@ fun FancyOpenRouterCreditsCard(
                             text = stringResource(R.string.openrouter_credits),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                         Text(
                             text = "openrouter.ai/credits",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.75f),
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -211,14 +211,14 @@ fun FancyOpenRouterCreditsCard(
                         if (uiState is OpenRouterCreditsUiState.Loading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 strokeWidth = 2.dp
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                imageVector = Icons.Rounded.Refresh,
                                 contentDescription = stringResource(R.string.refresh),
-                                tint = Color.White.copy(alpha = 0.9f),
+                                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -241,14 +241,14 @@ fun FancyOpenRouterCreditsCard(
                     ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             text = stringResource(R.string.openrouter_fetching_credits),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.85f)
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                         )
                     }
                 }
@@ -263,9 +263,9 @@ fun FancyOpenRouterCreditsCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
+                            imageVector = Icons.Rounded.Warning,
                             contentDescription = null,
-                            tint = Color(0xFFFF8A80),
+                            tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -273,13 +273,13 @@ fun FancyOpenRouterCreditsCard(
                             Text(
                                 text = uiState.message,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.95f)
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = stringResource(R.string.tap_to_retry),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f),
                                 modifier = Modifier.clickable { onRefresh() }
                             )
                         }
@@ -302,13 +302,13 @@ fun FancyOpenRouterCreditsCard(
                             Text(
                                 text = stringResource(R.string.openrouter_remaining_credits),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color.White.copy(alpha = 0.8f)
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                             )
                             Text(
                                 text = remainingFormatted,
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
                         }
 
@@ -316,13 +316,13 @@ fun FancyOpenRouterCreditsCard(
                             Text(
                                 text = stringResource(R.string.openrouter_used_credits),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color.White.copy(alpha = 0.8f)
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                             )
                             Text(
                                 text = usedFormatted,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White.copy(alpha = 0.95f)
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.95f)
                             )
                         }
                     }
@@ -370,12 +370,12 @@ fun FancyOpenRouterCreditsCard(
                                 totalFormatted
                             ),
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.75f)
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
                         )
                         Text(
                             text = stringResource(R.string.openrouter_updated_at, uiState.lastUpdatedTime),
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.65f)
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.65f)
                         )
                     }
                 }

@@ -90,6 +90,13 @@ class DelegationGitHubPolicyTest {
         assertFalse(gitHubCapabilityRefusal("Explain this error message", "No GitHub integration is enabled."))
     }
 
+    @Test fun `maximum delegation final pass has no tools even when follow ups are enabled`() {
+        val tools = listOf(tool("delegate_to_model"), tool("web_search"), tool("read_url"), tool("github"), tool("device_location"))
+        assertTrue(reviewedSynthesisTools(tools, 0, false).isEmpty())
+        assertTrue(reviewedSynthesisTools(tools, 0, true).isEmpty())
+        assertEquals(listOf(tools[3], tools[4]), reviewedSynthesisTools(tools, 50, false))
+    }
+
     private fun tool(
         name: String,
         realName: String = name,

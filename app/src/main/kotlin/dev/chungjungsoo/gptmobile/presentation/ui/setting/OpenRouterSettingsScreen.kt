@@ -7,24 +7,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Cached
-import androidx.compose.material.icons.filled.CloudQueue
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Cached
+import androidx.compose.material.icons.rounded.CloudQueue
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterSettingsViewModel
 import java.text.NumberFormat
 import kotlin.math.roundToInt
@@ -77,7 +76,7 @@ fun OpenRouterSettingsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -102,7 +101,7 @@ fun OpenRouterSettingsScreen(
                 ProviderSettingsCard(
                     title = "Connection",
                     subtitle = "Shared provider connection used by OpenRouter AI profiles.",
-                    icon = Icons.Default.Link
+                    icon = Icons.Rounded.Link
                 ) {
                     OutlinedTextField(
                         value = apiKey,
@@ -111,7 +110,7 @@ fun OpenRouterSettingsScreen(
                             viewModel.updateSettings(settings.copy(apiKey = it))
                         },
                         label = { Text("API key") },
-                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                        leadingIcon = { Icon(Icons.Rounded.Key, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation()
@@ -138,7 +137,7 @@ fun OpenRouterSettingsScreen(
                 ProviderSettingsCard(
                     title = "Prompt cache & sticky routing",
                     subtitle = "Keep multi-turn chats on a consistent provider so supported prompt caches stay warm.",
-                    icon = Icons.Default.Route
+                    icon = Icons.Rounded.Route
                 ) {
                     ProviderToggle(
                         title = "Sticky session routing",
@@ -164,7 +163,7 @@ fun OpenRouterSettingsScreen(
                 ProviderSettingsCard(
                     title = "Batch API",
                     subtitle = "Queue asynchronous workloads through OpenRouter's production /api/v1/batches endpoint.",
-                    icon = Icons.Default.CloudQueue
+                    icon = Icons.Rounded.CloudQueue
                 ) {
                     ProviderToggle(
                         title = "Batch processing",
@@ -211,7 +210,7 @@ fun OpenRouterSettingsScreen(
                 ProviderSettingsCard(
                     title = "Local queue cache",
                     subtitle = "App-side cache for repeated batch/queue work. This is not OpenRouter prompt caching.",
-                    icon = Icons.Default.Cached
+                    icon = Icons.Rounded.Cached
                 ) {
                     ProviderToggle(
                         title = "Local identical-request cache",
@@ -254,7 +253,7 @@ private fun OpenRouterProviderOverview(
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Savings, contentDescription = null)
+                Icon(Icons.Rounded.Savings, contentDescription = null)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Provider overview", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -265,7 +264,7 @@ private fun OpenRouterProviderOverview(
                     )
                 }
                 IconButton(onClick = onRefresh, enabled = !loading) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh credits")
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Refresh credits")
                 }
             }
 

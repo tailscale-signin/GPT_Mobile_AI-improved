@@ -5,12 +5,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -24,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
 fun DelegateModelDropdown(
@@ -57,7 +57,7 @@ fun DelegateModelDropdown(
                         )
                     }
                 }
-                Icon(Icons.Default.ArrowDropDown, "Choose $roleLabel")
+                Icon(Icons.Rounded.ArrowDropDown, "Choose $roleLabel")
             }
             DropdownMenu(
                 expanded = expanded && enabled,
@@ -86,7 +86,7 @@ fun DelegateModelDropdown(
                                 )
                             }
                         },
-                        leadingIcon = { Icon(if (profile.isPrivateDestination()) Icons.Default.Memory else Icons.Default.Cloud, if (profile.isPrivateDestination()) "Local or private model" else "Online model") },
+                        leadingIcon = { Icon(if (profile.isPrivateDestination()) Icons.Rounded.Memory else Icons.Rounded.Cloud, if (profile.isPrivateDestination()) "Local or private model" else "Online model") },
                         onClick = {
                             expanded = false
                             onSelected(profile)

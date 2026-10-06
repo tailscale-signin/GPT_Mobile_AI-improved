@@ -17,14 +17,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -49,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.llama.LlamaModelInfo
 import dev.chungjungsoo.gptmobile.data.llama.LlamaRouterClient
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlinx.coroutines.launch
 
 @Composable
@@ -120,7 +120,7 @@ fun LlamaModelPickerDialog(
                 )
                 IconButton(onClick = { loadModels() }, enabled = !isLoading) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
+                        imageVector = Icons.Rounded.Refresh,
                         contentDescription = stringResource(R.string.fetch_models)
                     )
                 }
@@ -135,7 +135,7 @@ fun LlamaModelPickerDialog(
                     placeholder = { Text(stringResource(R.string.search_models)) },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.Search,
+                            imageVector = Icons.Rounded.Search,
                             contentDescription = stringResource(R.string.search)
                         )
                     },
@@ -143,7 +143,7 @@ fun LlamaModelPickerDialog(
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
+                                    imageVector = Icons.Rounded.Close,
                                     contentDescription = stringResource(R.string.clear)
                                 )
                             }
@@ -276,7 +276,7 @@ fun LlamaModelPickerDialog(
                                     if (isSelected) {
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Icon(
-                                            imageVector = Icons.Default.Check,
+                                            imageVector = Icons.Rounded.Check,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(20.dp)

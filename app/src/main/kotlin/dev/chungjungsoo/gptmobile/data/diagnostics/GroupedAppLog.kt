@@ -17,6 +17,7 @@ internal fun groupAppLogs(entries: List<AppLogEntry>): List<GroupedAppLog> {
             entry.message.startsWith("Worker timeout circuit") -> "GATEWAY_TIMEOUT"
             entry.message.startsWith("DELEGATE_WATCHDOG_CANCELLED") -> "DELEGATE_WATCHDOG_CANCELLED"
             entry.tag == "Thermal" -> "THERMAL_POLL"
+            entry.tag == "Android" && "TransportRuntime.CctTransportBackend" in entry.message -> "BACKGROUND_TELEMETRY"
             else -> null
         }
         val eventKey = event?.let { "${entry.tag}|${entry.level}|$it" }

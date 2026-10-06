@@ -26,4 +26,15 @@ class ToolTrustStoreTest {
         restored.revoke("test")
         assertFalse(restored.allows(connection, "write_file"))
     }
+
+    @Test fun `catalog refresh retains permanent grants until explicitly revoked`() {
+        val store = ToolTrustStore(RuntimeEnvironment.getApplication())
+        val connection = ToolConnection("catalog-test", "Name", "test", "MCP", "https://example.com/mcp", "NONE", null, null)
+        store.allow(connection, "write_file")
+        store.observeCatalog(connection.connectionUid, "first")
+        store.observeCatalog(connection.connectionUid, "updated")
+        assertTrue(store.allows(connection, "write_file"))
+        store.revoke(connection.connectionUid)
+        assertFalse(store.allows(connection, "write_file"))
+    }
 }

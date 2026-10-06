@@ -15,17 +15,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +52,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -88,12 +88,12 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Memory") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
             actions = {
                 IconButton(onClick = {
                     adding = true
                     draft = ""
-                }, enabled = !busy) { Icon(Icons.Default.Add, "Add a memory", tint = MaterialTheme.colorScheme.primary) }
+                }, enabled = !busy) { Icon(Icons.Rounded.Add, "Add a memory", tint = MaterialTheme.colorScheme.primary) }
             }
         )
     }) { padding ->
@@ -205,8 +205,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                         editing = entry
                                         draft = entry.fact.target.name
                                     }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Edit") }
-                                    IconButton(onClick = { viewModel.pin(entry.id, !entry.pinned) }, enabled = !busy) { Icon(Icons.Default.PushPin, if (entry.pinned) "Unpin" else "Pin", tint = if (entry.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline) }
-                                    IconButton(onClick = { deleting = entry.id }, enabled = !busy) { Icon(Icons.Default.Delete, "Forget memory") }
+                                    IconButton(onClick = { viewModel.pin(entry.id, !entry.pinned) }, enabled = !busy) { Icon(Icons.Rounded.PushPin, if (entry.pinned) "Unpin" else "Pin", tint = if (entry.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline) }
+                                    IconButton(onClick = { deleting = entry.id }, enabled = !busy) { Icon(Icons.Rounded.Delete, "Forget memory") }
                                 }
                             }
                         }
@@ -226,7 +226,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Icon(Icons.Outlined.Description, null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.Rounded.Description, null, tint = MaterialTheme.colorScheme.primary)
                                     Text(attachment.resolvedDisplayName, style = MaterialTheme.typography.titleMedium)
                                 }
                                 Text("Chat ${entry.chatId} · ${attachment.sizeBytes / 1024} KB · ${if (indexed != null) "Indexed" else "Original attachment"}", style = MaterialTheme.typography.labelSmall)

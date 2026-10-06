@@ -105,6 +105,9 @@ data class ModelDelegationSettings(
         val amount = value.coerceIn(0, 100)
         return copy(
             processingOwnership = 100 - amount,
+            automaticResearch = if (amount == 100) true else automaticResearch,
+            researchEnabled = if (amount == 100) true else researchEnabled,
+            reviewerEnabled = if (amount == 100) true else reviewerEnabled,
             maxLocalModelCalls = 4 + 16 * amount / 100,
             maxCallsPerTurn = 2 + 8 * amount / 100
         )
@@ -177,6 +180,9 @@ data class ModelDelegationSettings(
             localPlatformsOnly = !remoteWorkersAllowed(),
             strategy = strategy.coerceIn(0, 100),
             processingOwnership = processingOwnership.coerceIn(0, 100),
+            automaticResearch = automaticResearch || processingOwnership <= 0,
+            researchEnabled = researchEnabled || processingOwnership <= 0,
+            reviewerEnabled = reviewerEnabled || processingOwnership <= 0,
             reviewerOutputTokens = reviewerOutputTokens.coerceIn(128, 1024),
             reviewerMinimumScore = reviewerMinimumScore.coerceIn(0, 100),
             reviewerRetryLimit = reviewerRetryLimit.coerceIn(0, 5),

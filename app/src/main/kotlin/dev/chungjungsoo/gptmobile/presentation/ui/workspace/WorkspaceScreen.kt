@@ -15,13 +15,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -51,6 +50,7 @@ import dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskHandle
 import dev.chungjungsoo.gptmobile.data.workspace.ResearchPin
 import dev.chungjungsoo.gptmobile.data.workspace.TaskRecipe
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.util.Date
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -78,7 +78,7 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
     var evidenceEdit by remember { mutableStateOf<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent?>(null) }
     LaunchedEffect(initialChat, chats) { if (initialChat > 0) model.chatId.value = initialChat }
     inputs.firstOrNull()?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.McpInputDialog(it) { _, value -> model.interactions.respond(it.id, value) } }
-    Scaffold(topBar = { TopAppBar(title = { Text("Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("Tasks", "Context", "Evidence", "Branches", "Recipes", "Models", "Budgets", "GitHub", "Plugins").forEach { name -> FilterChip(tab == name, { tab = name }, label = { Text(name) }) }

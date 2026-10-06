@@ -1,8 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,35 +12,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,13 +39,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,47 +67,7 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsState()
     val debugMode by settingViewModel.debugMode.collectAsState()
     val featureSettings by settingViewModel.featureSettings.collectAsState()
-    val backupStatus by settingViewModel.backupStatus.collectAsState()
-    val backupUi by settingViewModel.backupUi.collectAsState()
-    val context = LocalContext.current
     var showDelegation by remember { mutableStateOf(false) }
-
-    val backupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
-        onResult = settingViewModel::backupDestinationSelected
-    )
-    val restoreLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-        onResult = settingViewModel::restoreSourceSelected
-    )
-
-    val recoveryKeyBackupLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
-        settingViewModel::backupRecoveryKeySelected
-    )
-    val recoveryKeyRestoreLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-        settingViewModel::restoreRecoveryKeySelected
-    )
-    LaunchedEffect(backupUi.backupUri) {
-        if (backupUi.backupUri != null) {
-            try {
-                recoveryKeyBackupLauncher.launch("gpt_mobile_${System.currentTimeMillis()}.gptkey")
-            } catch (_: android.content.ActivityNotFoundException) {
-                settingViewModel.cancelBackupPicker()
-                Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    LaunchedEffect(settingViewModel) {
-        settingViewModel.uiEvent.collect { event ->
-            when (event) {
-                is SettingViewModelV2.UiEvent.ShowToast ->
-                    Toast.makeText(context, event.message, Toast.LENGTH_LONG).show()
-            }
-        }
-    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -132,7 +77,7 @@ fun SettingScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(R.string.go_back)
                         )
                     }
@@ -148,7 +93,6 @@ fun SettingScreen(
             item {
                 SettingsDiscoveryPanel(
                     featureSettings,
-                    platforms,
                     destinations = buildMap {
                         put("Models · profiles · reasoning · search engines · crawler", onNavigateToAiPlatforms)
                         put("Memory · semantic recall · documents", onNavigateToFactVault)
@@ -160,20 +104,18 @@ fun SettingScreen(
                         put("Backup · restore · encryption", settingViewModel::openBackupRestoreDialog)
                         put("Local models · LiteRT · QNN", onNavigateToLocalModels)
                     },
-                    change = settingViewModel::updateFeature,
-                    preset = settingViewModel::applyExperiencePreset,
-                    resetOverrides = settingViewModel::resetConversationOverrides
+                    change = settingViewModel::updateFeature
                 )
             }
             item {
                 SettingsCategory(title = "AI") {
                     SettingsDestination(
-                        icon = Icons.Default.SmartToy,
+                        icon = Icons.Rounded.SmartToy,
                         title = "AI Platforms & Profiles",
                         onClick = onNavigateToAiPlatforms
                     )
                     SettingsDestination(
-                        icon = Icons.Default.Storage,
+                        icon = Icons.Rounded.Storage,
                         title = stringResource(R.string.local_models),
                         onClick = onNavigateToLocalModels
                     )
@@ -183,23 +125,23 @@ fun SettingScreen(
             item {
                 SettingsCategory(title = "Plugins/Tools") {
                     SettingsDestination(
-                        icon = Icons.Default.Build,
+                        icon = Icons.Rounded.Build,
                         title = "Plugins/Tools",
                         onClick = onNavigateToToolConnections
                     )
                     SettingsDestination(
-                        icon = Icons.Default.Psychology,
+                        icon = Icons.Rounded.Psychology,
                         title = "Model Delegation",
                         onClick = { showDelegation = true }
                     )
                     SettingsDestination(
-                        icon = Icons.Default.AccountTree,
+                        icon = Icons.Rounded.AccountTree,
                         title = "Memory",
                         onClick = onNavigateToFactVault
                     )
                     if (githubWorkspaceEnabled) {
                         SettingsDestination(
-                            icon = Icons.Default.Build,
+                            icon = Icons.Rounded.Build,
                             title = "GitHub Workspace",
                             onClick = onNavigateToWorkspaces
                         )
@@ -212,12 +154,12 @@ fun SettingScreen(
                     title = "Experience"
                 ) {
                     SettingsDestination(
-                        icon = Icons.Default.Palette,
+                        icon = Icons.Rounded.Palette,
                         title = stringResource(R.string.theme_settings),
                         onClick = settingViewModel::openThemeDialog
                     )
                     SettingsDestination(
-                        icon = Icons.Default.Tune,
+                        icon = Icons.Rounded.Tune,
                         title = "Advanced Settings",
                         onClick = onNavigateToAdvancedSettings
                     )
@@ -229,13 +171,13 @@ fun SettingScreen(
                     title = "Diagnostics & Data"
                 ) {
                     SettingsDestination(
-                        icon = Icons.Default.BugReport,
+                        icon = Icons.Rounded.BugReport,
                         title = "Debug & Statistics",
                         onClick = onNavigateToDebugDiagnostics
                     )
 
                     SettingsDestination(
-                        icon = Icons.Default.Backup,
+                        icon = Icons.Rounded.Backup,
                         title = stringResource(R.string.backup_and_restore),
                         onClick = settingViewModel::openBackupRestoreDialog
                     )
@@ -247,7 +189,7 @@ fun SettingScreen(
                     title = "About"
                 ) {
                     SettingsDestination(
-                        icon = Icons.Default.Info,
+                        icon = Icons.Rounded.Info,
                         title = stringResource(R.string.about),
                         onClick = onNavigateToAboutPage
                     )
@@ -265,130 +207,7 @@ fun SettingScreen(
         ThemeSettingDialog(settingViewModel)
     }
 
-    if (dialogState.isBackupRestoreDialogOpen) {
-        CompleteBackupDialog(
-            state = backupUi,
-            backupStatus = backupStatus,
-            onDismiss = settingViewModel::closeBackupRestoreDialog,
-            onBackup = {
-                if (settingViewModel.prepareBackupPicker(restoring = false)) {
-                    try {
-                        backupLauncher.launch("gpt_mobile_${System.currentTimeMillis()}.gptbackup")
-                    } catch (_: android.content.ActivityNotFoundException) {
-                        settingViewModel.cancelBackupPicker()
-                        Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
-                    }
-                }
-            },
-            onRestore = {
-                if (settingViewModel.prepareBackupPicker(restoring = true)) {
-                    try {
-                        restoreLauncher.launch(arrayOf("*/*"))
-                    } catch (_: android.content.ActivityNotFoundException) {
-                        settingViewModel.cancelBackupPicker()
-                        Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
-                    }
-                }
-            },
-            onRecentRestore = settingViewModel::restoreRecentBackup,
-            onSectionChange = settingViewModel::updateBackupSection,
-            onPasswordProtectionChange = settingViewModel::updateBackupPasswordProtection,
-            onPasswordChange = settingViewModel::updateBackupPassword
-        )
-    }
-
-    if (backupUi.restoreUri != null) {
-        AlertDialog(
-            title = { Text(stringResource(R.string.complete_restore_title)) },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(R.string.complete_restore_confirmation))
-                    BackupSelectionContent(backupUi, settingViewModel::updateBackupSection)
-                    if (backupUi.requiresRecoveryKey) {
-                        Text("Select the separate recovery key saved with this backup. No password is required.")
-                        Button(onClick = {
-                            try {
-                                recoveryKeyRestoreLauncher.launch(arrayOf("*/*"))
-                            } catch (_: android.content.ActivityNotFoundException) {
-                                Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
-                            }
-                        }) {
-                            Text(if (backupUi.recoveryKeyUri == null) "Choose recovery key" else "Recovery key selected")
-                        }
-                    }
-                    if (backupUi.requiresLegacyPassword) {
-                        Text(
-                            text = stringResource(R.string.complete_backup_legacy_password_required),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedTextField(
-                            value = backupUi.legacyPassword,
-                            onValueChange = settingViewModel::updateLegacyBackupPassword,
-                            label = { Text(stringResource(R.string.complete_backup_legacy_password)) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            },
-            onDismissRequest = settingViewModel::cancelBackupPicker,
-            confirmButton = {
-                Button(
-                    enabled = backupUi.selection.sections.isNotEmpty() &&
-                        (!backupUi.requiresLegacyPassword || backupUi.legacyPassword.isNotBlank()) &&
-                        (!backupUi.requiresRecoveryKey || backupUi.recoveryKeyUri != null),
-                    onClick = settingViewModel::confirmRestore
-                ) {
-                    Text("Restore")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = settingViewModel::cancelBackupPicker) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun SettingsHeroCard(
-    activeProfiles: Int,
-    totalProfiles: Int,
-    providerCount: Int,
-    runtime: String
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("GPT Mobile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                SettingsHelpIcon("Configure the parts of the app you actually use. Provider connections, AI behavior, memory, delegation and tools are kept in focused categories.")
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsStat("$activeProfiles/$totalProfiles", "AI Profiles", Modifier.weight(1f))
-                SettingsStat(providerCount.toString(), "Providers", Modifier.weight(1f))
-                SettingsStat(runtime, "Local Runtime", Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsStat(value: String, label: String, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
-    ) {
-        Column(Modifier.padding(10.dp)) {
-            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    BackupRestoreHost(settingViewModel)
 }
 
 @Composable

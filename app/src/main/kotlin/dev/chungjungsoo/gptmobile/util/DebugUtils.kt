@@ -3,12 +3,9 @@ package dev.chungjungsoo.gptmobile.util
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Enhanced debugging utilities with timestamped logging
@@ -59,13 +56,14 @@ object DebugUtils {
     /**
      * Format timestamp for logging
      */
-    private fun formatTimestamp(timestamp: Long): String {
-        return java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.getDefault())
-            .format(java.util.Date(timestamp))
-    }
+    private fun formatTimestamp(timestamp: Long): String = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.getDefault())
+        .format(java.util.Date(timestamp))
 
     enum class LogLevel {
-        DEBUG, INFO, WARN, ERROR
+        DEBUG,
+        INFO,
+        WARN,
+        ERROR
     }
 }
 

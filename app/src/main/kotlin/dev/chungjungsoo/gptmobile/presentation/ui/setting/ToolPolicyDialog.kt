@@ -32,7 +32,7 @@ internal fun ToolPolicyDialog(connection: ToolConnection, onDismiss: () -> Unit,
                 ToolPolicy.entries.forEach { value ->
                     FilterChip(selected = policy == value.name, onClick = { policy = value.name }, label = { Text(value.name.lowercase().replace('_', ' ')) })
                 }
-                TextButton(onClick = onResetGrants) { Text("Reset Always allow permissions") }
+                TextButton(onClick = onResetGrants) { Text("Revoke saved permissions · all models") }
                 OutlinedTextField(value = reads, onValueChange = { reads = it }, label = { Text(stringResource(R.string.tool_policy_reads)) })
             }
         },

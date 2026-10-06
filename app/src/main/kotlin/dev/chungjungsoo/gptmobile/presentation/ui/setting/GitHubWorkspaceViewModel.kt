@@ -99,6 +99,10 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun clearError() = _state.update { it.copy(error = null) }
+    fun unstage(path: String) {
+        if (_state.value.busy) return
+        _state.update { it.copy(staged = it.staged.filterNot { file -> file.path == path }) }
+    }
     fun discard() = _state.update { it.copy(staged = emptyList()) }
     fun moreRepositories() = work { loadRepositories(_state.value.repositoryPage + 1) }
 

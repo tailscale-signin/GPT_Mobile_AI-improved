@@ -16,6 +16,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class DeviceLocation(
@@ -31,12 +33,29 @@ data class DeviceLocation(
 class DeviceLocationProvider @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
+    private val fixMutex = Mutex()
+    private val sharedFix = SharedLocationFix()
+
     private fun hasFinePermission() = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     fun hasPermission(): Boolean = hasFinePermission() ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-    suspend fun getCurrentLocation(timeoutMillis: Long = 30_000L): DeviceLocation? {
+    suspend fun getCurrentLocation(timeoutMillis: Long = 30_000L): DeviceLocation? = fixMutex.withLock {
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        if (!hasPermission() || manager?.isLocationEnabled != true) {
+            sharedFix.clear()
+            return@withLock null
+        }
+        val precise = hasFinePermission()
+        sharedFix.get(SystemClock.elapsedRealtime(), precise)?.let {
+            AppLogRecorder.record("Location", "Reused device fix · sharedAcrossModels=true · expiresAfterMs=$LOCATION_RETENTION_MILLIS")
+            return@withLock it
+        }
+        acquireLocation(timeoutMillis)?.also { sharedFix.save(it, SystemClock.elapsedRealtime(), precise) }
+    }
+
+    private suspend fun acquireLocation(timeoutMillis: Long): DeviceLocation? {
         if (!hasPermission()) return null
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
         if (!manager.isLocationEnabled) return null

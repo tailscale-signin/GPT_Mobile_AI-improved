@@ -149,6 +149,7 @@ import kotlinx.coroutines.withContext
 private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
 
 private fun Modifier.chatViewportEdgeFade(
+    topFadeStart: Dp,
     topFade: Dp,
     bottomFadeStartFromBottom: Dp,
     bottomFadeEndFromBottom: Dp
@@ -160,7 +161,8 @@ private fun Modifier.chatViewportEdgeFade(
         drawContent()
         if (size.height <= 0f) return@drawWithContent
 
-        val topStop = (topFade.toPx() / size.height).coerceIn(0f, 0.45f)
+        val topStart = (topFadeStart.toPx() / size.height).coerceIn(0f, 0.45f)
+        val topStop = (topFade.toPx() / size.height).coerceIn(topStart, 0.5f)
         val bottomOpaqueStop = (1f - (bottomFadeStartFromBottom.toPx() / size.height))
             .coerceIn(topStop, 0.96f)
         val bottomTransparentStop = (1f - (bottomFadeEndFromBottom.toPx() / size.height))
@@ -168,6 +170,7 @@ private fun Modifier.chatViewportEdgeFade(
         drawRect(
             brush = Brush.verticalGradient(
                 0f to Color.Transparent,
+                topStart to Color.Transparent,
                 topStop to Color.Black,
                 bottomOpaqueStop to Color.Black,
                 bottomTransparentStop to Color.Transparent,
@@ -254,8 +257,9 @@ fun ChatScreen(
     )
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var isFollowingBottom by remember { mutableStateOf(!hasTargetMessage) }
+    var isHoldingEntryCenter by remember { mutableStateOf(hasTargetMessage) }
     var entryPositioned by remember { mutableStateOf(false) }
-    var targetResponseOffset by remember { mutableStateOf<Int?>(null) }
+    var targetResponseOffset by remember(chatViewModel.targetMessageId) { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showExportOptions by remember { mutableStateOf(false) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
@@ -409,9 +413,12 @@ fun ChatScreen(
         chatViewModel.refreshLocalNetworkRequirement()
     }
 
-    LaunchedEffect(isLoaded, groupedMessages.userMessages.size, historyHeaderCount) {
+    LaunchedEffect(isLoaded, groupedMessages.userMessages.size, historyHeaderCount, pendingPrompts.size, combinedTargetSelected) {
         if (!isLoaded || entryPositioned || groupedMessages.userMessages.isEmpty()) return@LaunchedEffect
-        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+        if (hasTargetAssistant && !combinedTargetSelected) return@LaunchedEffect
+        // The first measured layout can still contain the previous loading state.
+        val expectedItemCount = visibleTurnCount + historyHeaderCount + pendingPrompts.size + 1
+        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= expectedItemCount }
         val targetTurn = groupedMessages.userMessages.indices.firstOrNull { turn ->
             groupedMessages.userMessages[turn].id == chatViewModel.targetMessageId ||
                 groupedMessages.assistantMessages.getOrNull(turn)?.any { it.id == chatViewModel.targetMessageId } == true
@@ -435,8 +442,25 @@ fun ChatScreen(
         entryPositioned = true
     }
 
+    LaunchedEffect(isUserDragging) {
+        if (isUserDragging) isHoldingEntryCenter = false
+    }
+
+    LaunchedEffect(entryPositioned, isHoldingEntryCenter, hasTargetAssistant) {
+        if (!entryPositioned || !isHoldingEntryCenter || !hasTargetAssistant) return@LaunchedEffect
+        val targetTurn = groupedMessages.assistantMessages.indexOfFirst { responses -> responses.any { it.id == chatViewModel.targetMessageId } }
+        val itemIndex = targetTurn - firstVisibleTurn + historyHeaderCount
+        // The composer can shrink after entering a combined profile. Keep the
+        // response centered as that animation finishes, until the user scrolls.
+        snapshotFlow { Triple(listState.layoutInfo.beforeContentPadding, listState.layoutInfo.afterContentPadding, targetResponseOffset) }
+            .distinctUntilChanged()
+            .collect { (_, _, offset) ->
+                if (offset != null) listState.scrollToConversationEntry(itemIndex, offset, centerResponse = true)
+            }
+    }
+
     LaunchedEffect(isUserDragging, listState.isScrollInProgress, listState.canScrollForward, listState.lastScrolledBackward) {
-        if (entryPositioned) {
+        if (entryPositioned && (isFollowingBottom || isUserDragging || listState.isScrollInProgress)) {
             isFollowingBottom = nextFollowBottom(
                 isFollowing = isFollowingBottom,
                 isUserScrolling = isUserDragging || listState.isScrollInProgress,
@@ -449,6 +473,7 @@ fun ChatScreen(
     LaunchedEffect(groupedMessages.userMessages.size) {
         val currentCount = groupedMessages.userMessages.size
         if (currentCount > previousMessageCount && entryPositioned) {
+            isHoldingEntryCenter = false
             isFollowingBottom = true
         }
         previousMessageCount = currentCount
@@ -457,7 +482,6 @@ fun ChatScreen(
     ChatBottomAutoScroller(
         listState = listState,
         isEnabled = featureSettings.smoothStreaming &&
-            !isIdle &&
             entryPositioned &&
             shouldAutoScrollToBottom(
                 isFollowing = isFollowingBottom,
@@ -512,9 +536,10 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .chatViewportEdgeFade(
-                        // Scrolling text passes behind the transparent header and reaches
-                        // full opacity at the midpoint of its title and action icons.
-                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() - 32.dp).coerceAtLeast(0.dp) else 0.dp,
+                        // Keep scrolled text hidden across the title, then fade it in
+                        // below the entire header so the two never overlap.
+                        topFadeStart = if (featureSettings.edgeFades) innerPadding.calculateTopPadding() else 0.dp,
+                        topFade = if (featureSettings.edgeFades) innerPadding.calculateTopPadding() + 32.dp else 0.dp,
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades) composerHeight else 0.dp,
@@ -610,7 +635,7 @@ fun ChatScreen(
                 }
                 if (groupedMessages.userMessages.isNotEmpty()) {
                     item(key = "chat-bottom-anchor") {
-                        Spacer(if (hasTargetAssistant && !isFollowingBottom) Modifier.fillParentMaxHeight() else Modifier.size(1.dp))
+                        Spacer(if (hasTargetAssistant && !isFollowingBottom) Modifier.fillParentMaxHeight(0.5f) else Modifier.size(1.dp))
                     }
                 }
             }
@@ -623,6 +648,7 @@ fun ChatScreen(
                     contentAlignment = Alignment.BottomCenter
                 ) {
                     ScrollToBottomButton {
+                        isHoldingEntryCenter = false
                         scope.launch {
                             listState.animateScrollToLatestChatMessage()
                             isFollowingBottom = true
@@ -888,7 +914,6 @@ private fun ChatMessagePair(
         else -> platformIndexState
     }
     val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
-    val isTargetAssistantResponse = targetMessageId > 0 && selectedAssistantMessage?.id == targetMessageId
     val responseInsetPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
     val assistantContent = when {
@@ -941,7 +966,7 @@ private fun ChatMessagePair(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .onSizeChanged { if (isTargetAssistantResponse) onTargetResponseOffset(it.height + responseInsetPx) }
+                .onSizeChanged { if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx) }
                 .padding(horizontal = 8.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.End
         ) {
@@ -1188,7 +1213,16 @@ internal fun ChatBottomAutoScroller(
 internal suspend fun LazyListState.scrollToConversationEntry(targetItem: Int? = null, responseOffset: Int = 0, centerResponse: Boolean = false) {
     snapshotFlow { layoutInfo }.first { it.totalItemsCount > (targetItem ?: 0) && it.viewportSize.height > 0 }
     val index = targetItem ?: (layoutInfo.totalItemsCount - 1)
-    val offset = if (centerResponse) responseOffset - layoutInfo.viewportSize.height / 2 - layoutInfo.viewportStartOffset else responseOffset
+    val offset = if (centerResponse) {
+        responseOffset - conversationEntryCenter(
+            viewportStart = layoutInfo.viewportStartOffset,
+            viewportEnd = layoutInfo.viewportEndOffset,
+            topInset = layoutInfo.beforeContentPadding,
+            bottomInset = layoutInfo.afterContentPadding
+        )
+    } else {
+        responseOffset
+    }
     if (index >= 0) scrollToItem(index, if (targetItem == null) 0 else offset)
 }
 

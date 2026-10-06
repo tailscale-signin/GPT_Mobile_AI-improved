@@ -28,14 +28,16 @@ import org.robolectric.annotation.Config
 class ConversationEntryTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun unreadResponseBeginningAlignsAtTheViewportCenter() {
+    @Test fun unreadResponseBeginningAlignsBetweenHeaderAndComposer() {
         lateinit var state: LazyListState
         var responseOffset = 0
+        var expectedCenter = 0
         compose.setContent {
             state = rememberLazyListState()
             responseOffset = with(LocalDensity.current) { 48.dp.roundToPx() }
+            expectedCenter = with(LocalDensity.current) { 116.dp.roundToPx() }
             Box(Modifier.size(320.dp, 280.dp)) {
-                LazyColumn(Modifier.fillMaxSize(), state, contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 24.dp, bottom = 32.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state, contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 48.dp, bottom = 96.dp)) {
                     item { Spacer(Modifier.fillParentMaxHeight(0.5f)) }
                     item {
                         Column {
@@ -53,7 +55,8 @@ class ConversationEntryTest {
         compose.waitForIdle()
         compose.runOnIdle {
             val item = state.layoutInfo.visibleItemsInfo.first { it.index == 1 }
-            assertEquals(state.layoutInfo.viewportSize.height / 2, item.offset + responseOffset - state.layoutInfo.viewportStartOffset)
+            // 48px header + half of the remaining 136px above the 96px composer.
+            assertEquals(expectedCenter, item.offset + responseOffset - state.layoutInfo.viewportStartOffset)
         }
     }
 

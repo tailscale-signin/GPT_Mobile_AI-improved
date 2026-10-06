@@ -1,5 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.archive
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,14 +22,17 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,11 +43,11 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
-import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.home.FancySwipeChatCard
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeViewModel.ChatListState
 import dev.chungjungsoo.gptmobile.util.getPlatformName
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,28 +59,43 @@ fun ArchivedConversationsBar(
     onChatClick: (ChatRoomV2) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (archivedChats.isEmpty()) return
-    var expanded by remember { mutableStateOf(false) }
-    Box(modifier.fillMaxWidth().padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
-        IconButton(onClick = { expanded = true }, modifier = Modifier.size(64.dp)) {
-            Icon(Icons.Rounded.Archive, stringResource(R.string.archived_chats), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(archivedChats.isEmpty()) {
+        if (archivedChats.isEmpty()) expanded = false
+    }
+    AnimatedVisibility(
+        visible = archivedChats.isNotEmpty(),
+        modifier = modifier,
+        enter = slideInVertically(tween(300)) { it } + fadeIn(tween(300)),
+        exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(220))
+    ) {
+        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+            IconButton(onClick = { expanded = true }, modifier = Modifier.size(64.dp)) {
+                Icon(Icons.Rounded.Archive, stringResource(R.string.archived_chats), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+            }
         }
     }
-    if (expanded) {
+    if (expanded && archivedChats.isNotEmpty()) {
         val halfHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
-        val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
-        FadingModalBottomSheet(
+        ModalBottomSheet(
             onDismissRequest = { expanded = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            sheetState = sheetState,
             modifier = Modifier.heightIn(max = halfHeight)
         ) {
-            Column(Modifier.then(backFade.modifier).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Archived conversations", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                         Text("Swipe right to restore · swipe left to delete", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    IconButton(onClick = { backFade.fade { expanded = false } }) { Icon(Icons.Rounded.Close, stringResource(R.string.close), tint = MaterialTheme.colorScheme.primary) }
+                    IconButton(onClick = {
+                        scope.launch {
+                            sheetState.hide()
+                            expanded = false
+                        }
+                    }) { Icon(Icons.Rounded.Close, stringResource(R.string.close), tint = MaterialTheme.colorScheme.primary) }
                 }
                 LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(horizontal = 12.dp, vertical = 8.dp)) {
                     items(archivedChats, key = { it.id }) { room ->
@@ -96,7 +120,10 @@ fun ArchivedConversationsBar(
                             hasUnreadResponse = false,
                             dismissState = state,
                             profileLabels = collectReusableProfileLabels(profiles.map { it.labels }),
-                            onItemClick = { onChatClick(room) },
+                            onItemClick = {
+                                expanded = false
+                                onChatClick(room)
+                            },
                             onItemLongClick = {},
                             isArchived = true
                         )

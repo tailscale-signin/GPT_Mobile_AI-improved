@@ -442,6 +442,11 @@
     <string name="pinned_chat">Pinned</string>
     <string name="chat_pinned">Chat pinned to top</string>
     <string name="chat_unpinned">Chat unpinned</string>
+    <string name="drag_up_to_pin_chat">Drag up to pin</string>
+    <string name="drag_down_to_unpin_chat">Drag down to unpin</string>
+    <string name="release_to_pin_chat">Release to pin</string>
+    <string name="release_to_unpin_chat">Release to unpin</string>
+    <string name="all_profile_labels">All Labels</string>
     <string name="delete_chat_dialog_title">Delete Chat?</string>
     <string name="delete_chat_dialog_message">Are you sure you want to delete \"%1$s\"? This cannot be undone.</string>
     <string name="using_certain_platform">Using: %1$s</string>

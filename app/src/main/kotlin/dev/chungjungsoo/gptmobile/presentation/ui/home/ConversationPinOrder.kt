@@ -9,10 +9,12 @@ internal fun conversationPinDrop(
     windowHeight: Int,
     firstConversationTop: Float,
     pinTargetHeight: Float,
-    pinnedCenters: List<Pair<Int, Float>>
+    pinnedCenters: List<Pair<Int, Float>>,
+    verticalDrag: Float
 ): Int? = when {
-    isPinned && dropY >= windowHeight * 0.7f -> -1
-    dropY <= firstConversationTop + pinTargetHeight -> pinnedCenters.count { it.second < dropY }
+    kotlin.math.abs(verticalDrag) < pinTargetHeight -> null
+    isPinned && verticalDrag > 0f && dropY >= windowHeight * 0.5f -> -1
+    verticalDrag < 0f && dropY <= firstConversationTop + pinTargetHeight -> pinnedCenters.count { it.second < dropY }
     isPinned && pinnedCenters.isNotEmpty() && dropY <= pinnedCenters.maxOf { it.second } + pinTargetHeight -> pinnedCenters.count { it.second < dropY }
     else -> null
 }

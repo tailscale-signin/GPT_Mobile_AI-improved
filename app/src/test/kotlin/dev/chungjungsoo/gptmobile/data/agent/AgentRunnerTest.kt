@@ -133,7 +133,7 @@ class AgentRunnerTest {
     }
 
     @Test
-    fun `primary executes GitHub after delegate reports missing capabilities`() = runBlocking {
+    fun `partial delegation allows primary GitHub recovery after helper capability failure`() = runBlocking {
         var writes = 0
         val delegate = tool("delegate_to_model") { id, _ ->
             AgentToolResult(id, ToolResultContent.Text("Helper lacks GitHub access. Use primary GitHub tools."), true)
@@ -145,7 +145,7 @@ class AgentRunnerTest {
         val resolved = listOf(delegate, github).map {
             dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(it, null, null, it.definition.name, it.definition.name)
         }
-        val tools = dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools(resolved, true, 0).map { it.tool }
+        val tools = dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools(resolved, true, 25).map { it.tool }
         val events = AgentRunner().run(
             session { schemas, exchanges ->
                 flow {

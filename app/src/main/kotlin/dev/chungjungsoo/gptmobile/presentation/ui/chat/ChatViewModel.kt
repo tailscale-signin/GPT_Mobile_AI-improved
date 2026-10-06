@@ -2303,7 +2303,7 @@ internal fun formatAssistantExport(
     toolEventsByRun: Map<String, List<ToolEvent>>,
     toolTraceLabels: ToolTraceLabels = ToolTraceLabels.Default,
     legacyOrderNotice: String = LEGACY_ORDER_NOTICE
-): String = assistantExportText(message, ChatExportFormat.MARKDOWN).let { if (it.isBlank()) "" else "$it\n\n" }
+): String = assistantExportText(message, ChatExportFormat.MARKDOWN)
 
 private fun isPersistableMessage(message: MessageV2): Boolean =
     message.effectiveContent().isNotBlank() ||

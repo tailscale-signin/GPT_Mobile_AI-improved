@@ -161,6 +161,12 @@ private fun delegatedToolPriority(tool: ResolvedAgentTool): Int = when (tool.rea
     else -> 3
 }
 
+internal fun estimateDelegatedInputTokens(estimate: Int, providerFailure: String?, receivedResponse: Boolean): Long {
+    val failure = providerFailure.orEmpty().lowercase()
+    val neverConnected = listOf("unable to resolve host", "unknownhostexception", "connection refused", "network is unreachable", "connect timeout").any(failure::contains)
+    return if (neverConnected && !receivedResponse) 0L else estimate.toLong()
+}
+
 internal fun orderPrimaryTools(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> =
     tools.sortedWith(compareBy<ResolvedAgentTool> { !it.isGitHubTool() }.thenBy { delegatedToolPriority(it) }.thenBy { it.modelToolName })
 
@@ -798,6 +804,7 @@ class ChatRepositoryImpl(
         var maxRoundOutput = 0L
         var reasoningChars = 0
         var reasoningBytes = 0L
+        var receivedChildToolCall = false
         var hasInputUsage = false
         var hasOutputUsage = false
         var hasTotalUsage = false
@@ -896,7 +903,10 @@ class ChatRepositoryImpl(
                     }
                     else -> Unit
                 }
-                is AgentRunEvent.ToolStarted -> onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
+                is AgentRunEvent.ToolStarted -> {
+                    receivedChildToolCall = true
+                    onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
+                }
                 is AgentRunEvent.ToolFinished -> {
                     childTrace?.finish(event.call, event.result)?.let { onToolTrace?.invoke(it.copy(delegated = true)) }
                     onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
@@ -936,7 +946,15 @@ class ChatRepositoryImpl(
             "Delegation",
             "Child parsed · parentRun=$parentRunId · target=${target.uid} · status=$status · directChars=$directUsableChars · recoveredToolChars=$recoveredToolChars · reasoningChars=$reasoningChars · reasoningOnly=$reasoningOnly"
         )
-        val accountedInputTokens = if (hasInputUsage) usageInputTokens else estimatedRequestInputTokens.toLong()
+        val accountedInputTokens = if (hasInputUsage) {
+            usageInputTokens
+        } else {
+            estimateDelegatedInputTokens(
+                estimatedRequestInputTokens,
+                providerFailure,
+                receivedResponse = rawText.isNotEmpty() || reasoningChars > 0 || receivedChildToolCall
+            )
+        }
         val accountedOutputTokens = if (hasOutputUsage) usageOutputTokens else (rawText.toByteArray().size + reasoningBytes + 2) / 3
         val accountedTotalTokens = if (hasTotalUsage) usageTotalTokens else accountedInputTokens + accountedOutputTokens
         AppLogRecorder.record(

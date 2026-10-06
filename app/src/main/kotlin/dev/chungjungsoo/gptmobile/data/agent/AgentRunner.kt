@@ -188,7 +188,21 @@ class AgentRunner(
                 emit(failed(roundFailure))
                 return
             }
-            val calls = round.calls
+            val calls = round.calls.map { call ->
+                // The aggregate search surface can replace individual engine
+                // schemas after delegation. Reuse only the current authorized
+                // search tool, never discover or enable an unassigned connection.
+                if (call.name !in executableToolByName &&
+                    "web_search" in executableToolByName &&
+                    Regex("^mcp__[A-Za-z0-9_-]+__web_search$").matches(call.name) &&
+                    (call.arguments["query"] as? JsonPrimitive)?.isString == true
+                ) {
+                    AppLogRecorder.record("Agent", "SEARCH_ROUTED_TO_AGGREGATE · requested=${call.name} · assigned=web_search")
+                    call.copy(name = "web_search")
+                } else {
+                    call
+                }
+            }
             if (calls.isEmpty()) {
                 if (round.completed && !round.textEmitted) {
                     if (!emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {

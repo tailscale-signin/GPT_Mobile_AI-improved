@@ -1896,8 +1896,8 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        // Combined mode is a lossless presentation of the original contributions.
-        // Another model pass can silently omit unique details or impose a context cap.
+        // Align matching sections and dated events locally, retaining unique
+        // contributions and the untouched originals in their profile tabs.
         val merged = withContext(Dispatchers.Default) { mergeCombinedResponses(sources) }
         val completed = persisted.assistantMessage.copy(content = merged, createdAt = currentTimeStamp)
         chatRepository.updateAgentMessage(completed)

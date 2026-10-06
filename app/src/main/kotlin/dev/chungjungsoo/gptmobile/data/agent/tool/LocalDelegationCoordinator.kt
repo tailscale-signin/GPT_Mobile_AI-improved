@@ -158,7 +158,7 @@ internal class LocalDelegationCoordinator(
     private suspend fun runReviewer(delegate: PlatformV2, task: String, delegateOutput: String, config: ModelDelegationSettings): String =
         withTimeoutOrNull(config.reviewTimeoutSeconds * 1000L) {
             reviewWithinBudget(delegate, task, delegateOutput, config)
-        } ?: "[REVIEW_REJECTED][REVIEW_TIMEOUT] Review/correction time budget reached. Treat delegate claims as unverified and recover independently."
+        } ?: "[REVIEW_REJECTED][REVIEW_TIMEOUT] Review/correction time budget reached. Retained delegate claims are unverified; recover independently.\n\n$delegateOutput"
 
     private suspend fun reviewWithinBudget(
         delegate: PlatformV2,
@@ -293,6 +293,13 @@ internal class LocalDelegationCoordinator(
                     "Reviewer attempt failed · reviewer=${reviewer.uid} · delegate=${delegate.uid} · attempt=${attempt + 1}/${retryLimit + 1} · ${failure.javaClass.simpleName}: ${lastIssue.take(180)}",
                     "W"
                 )
+                val connectionUnavailable = generateSequence<Throwable>(failure) { it.cause }.take(12).any {
+                    it is java.net.UnknownHostException ||
+                        it.message.orEmpty().lowercase().let { message ->
+                            "unable to resolve host" in message || "connection refused" in message || "network is unreachable" in message
+                        }
+                }
+                if (connectionUnavailable) break
             }
         }
 

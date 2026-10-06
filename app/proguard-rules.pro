@@ -63,6 +63,12 @@
 -keep class com.google.android.gms.tflite.** { *; }
 -keep interface com.google.android.gms.tflite.** { *; }
 -dontwarn com.google.android.gms.tflite.**
+# MediaPipe's model options use protobuf-lite reflection (including fileContent_).
+# Preserve generated message fields in minified APKs, as required by protobuf-lite.
+-keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
+-keepclasseswithmembernames,includedescriptorclasses class com.google.mediapipe.** {
+    native <methods>;
+}
 # Don't optimize LiteRT-LM native binding JNI classes
 -keepclasseswithmembernames,includedescriptorclasses class com.google.ai.edge.** {
     native <methods>;

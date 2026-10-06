@@ -55,7 +55,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -288,7 +287,6 @@ fun HomeScreen(
         },
         floatingActionButton = {
             Column(
-                modifier = Modifier.padding(bottom = if (currentTab == HomeTab.CHATS && archivedChats.isNotEmpty() && !chatListState.isSelectionMode && !chatListState.isSearchMode) 72.dp else 0.dp),
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -557,15 +555,18 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                        }
-                        if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                            ArchivedConversationsBar(
-                                archivedChats = archivedChats,
-                                platformState = platformState,
-                                onUnarchiveChat = { room -> homeViewModel.unarchiveChat(room) },
-                                onDeleteChat = { room -> homeViewModel.deleteArchivedChat(room) },
-                                onChatClick = { room -> homeViewModel.openConversation(room, onExistingChatClick) }
-                            )
+                            if (archivedChats.isNotEmpty() && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                                item(key = "archived-conversations", contentType = "archive-button") {
+                                    ArchivedConversationsBar(
+                                        archivedChats = archivedChats,
+                                        platformState = platformState,
+                                        onUnarchiveChat = { room -> homeViewModel.unarchiveChat(room) },
+                                        onDeleteChat = { room -> homeViewModel.deleteArchivedChat(room) },
+                                        onChatClick = { room -> homeViewModel.openConversation(room, onExistingChatClick) },
+                                        modifier = Modifier.padding(bottom = 80.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -1569,9 +1570,9 @@ fun SelectPlatformDialog(
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 if (reusableLabels.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PlatformLabelFilter(name = stringResource(R.string.all_profile_labels), selected = selectedLabel == null, onClick = { selectedLabel = null })
+                        PlatformLabelFilter(label = dev.chungjungsoo.gptmobile.data.model.ProfileLabel(stringResource(R.string.all_profile_labels)), selected = selectedLabel == null, onClick = { selectedLabel = null })
                         reusableLabels.forEach { label ->
-                            PlatformLabelFilter(name = label.name, selected = selectedLabel == label.key, onClick = { selectedLabel = label.key })
+                            PlatformLabelFilter(label = label, selected = selectedLabel == label.key, onClick = { selectedLabel = label.key })
                         }
                     }
                 }
@@ -1619,23 +1620,14 @@ fun SelectPlatformDialog(
 }
 
 @Composable
-private fun PlatformLabelFilter(name: String, selected: Boolean, onClick: () -> Unit) {
-    TextButton(
-        onClick = onClick,
-        modifier = Modifier.heightIn(min = 48.dp).semantics { this.selected = selected },
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        if (selected) {
-            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(6.dp))
-        }
-        Text(
-            name,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1
-        )
-    }
+private fun PlatformLabelFilter(label: dev.chungjungsoo.gptmobile.data.model.ProfileLabel, selected: Boolean, onClick: () -> Unit) {
+    BeveledProfileLabel(
+        label = label,
+        selected = selected,
+        large = true,
+        modifier = Modifier.semantics { this.selected = selected },
+        onClick = onClick
+    )
 }
 
 @Composable

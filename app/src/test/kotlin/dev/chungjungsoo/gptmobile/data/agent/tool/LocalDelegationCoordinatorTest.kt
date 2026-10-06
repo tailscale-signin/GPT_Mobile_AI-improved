@@ -20,6 +20,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun `reviewer DNS failure retains unverified evidence and stops identical retries`() = runTest {
+        val reviewer = target.copy(uid = "dns-reviewer", model = "independent-review-model")
+        var reviews = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> "Research facts [S1] with unique details." },
+            generateReviewerWithProgress = { _, _, _, _, _ ->
+                reviews++
+                throw java.net.UnknownHostException("Unable to resolve host")
+            }
+        )
+        val result = coordinator.executeTask(target, "Check evidence", 512).orEmpty()
+        assertTrue(result.contains("REVIEW_FAILED"))
+        assertTrue(result.contains("unverified"))
+        assertTrue(result.contains("Research facts [S1]"))
+        assertEquals(1, reviews)
+        assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
+    }
+
     @Test fun `readiness cooldown persists across turns but model change retries immediately`() = runTest {
         val helper = target.copy(uid = "readiness-model-change", model = "missing-model")
         var active = helper

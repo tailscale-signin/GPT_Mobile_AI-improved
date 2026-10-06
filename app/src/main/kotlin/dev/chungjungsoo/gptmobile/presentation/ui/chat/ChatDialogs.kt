@@ -10,18 +10,33 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.rounded.CallSplit
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Done
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Web
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -54,6 +69,8 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelOption
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ConversationDelegationCard
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LlamaModelPickerDialog
@@ -123,24 +140,33 @@ fun ChatModelDialog(
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
             .heightIn(max = screenHeight - 80.dp),
-        title = { Text("Conversation settings") },
+        icon = { Icon(Icons.Rounded.Tune, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)) },
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Conversation Settings", style = MaterialTheme.typography.headlineSmall)
+                Text("${activePlatformUids.size} AI profiles · Your conversation, your controls", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        },
         text = {
             Column {
-                val sections = listOf("Models", "Options")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Temporary conversation", style = MaterialTheme.typography.labelLarge)
-                        if (isTemporary) Text("No memory · deleted from this device when closed", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(isTemporary, onTemporaryChanged)
-                }
-                Row {
-                    TextButton(onClick = onForgetMemories) { Text("Forget learned memories") }
-                    parentChatId?.let { id -> TextButton(onClick = { onOpenParent(id) }) { Text("Original branch") } }
-                }
+                val sections = listOf("Models", "Tools", "Privacy")
                 TabRow(selectedTabIndex = sections.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.surface) {
                     sections.forEach { label ->
-                        Tab(selected = section == label, onClick = { section = label }, text = { Text(label) })
+                        Tab(
+                            selected = section == label,
+                            onClick = { section = label },
+                            icon = {
+                                Icon(
+                                    when (label) {
+                                        "Models" -> Icons.Rounded.Memory
+                                        "Tools" -> Icons.Rounded.Hub
+                                        else -> Icons.Rounded.Shield
+                                    },
+                                    null
+                                )
+                            },
+                            text = { Text(label) }
+                        )
                     }
                 }
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -155,7 +181,9 @@ fun ChatModelDialog(
                         val filteredProfiles = platformOrder
                         val displayedProfile = selectedProfile.takeIf { it in filteredProfiles } ?: filteredProfiles.firstOrNull()
                         Box(Modifier.fillMaxWidth()) {
-                            TextButton(onClick = { profileMenuOpen = true }, enabled = filteredProfiles.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                            FilledTonalButton(onClick = { profileMenuOpen = true }, enabled = filteredProfiles.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                                Icon(Icons.Rounded.Memory, null)
+                                Spacer(Modifier.width(8.dp))
                                 Text(displayedProfile?.let { platformNames[it] }.orEmpty().ifBlank { "No matching profiles" }, Modifier.weight(1f))
                                 Icon(Icons.Rounded.ArrowDropDown, "Select AI profile")
                             }
@@ -275,14 +303,18 @@ fun ChatModelDialog(
                             }
                         }
                     }
-                    if (section == "Options") {
+                    if (section == "Tools") {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Psychology, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(10.dp))
                             Text("Reasoning", Modifier.weight(1f))
                             Switch(initialReasoning, onReasoningChanged)
                         }
                         Text("Applies immediately to this conversation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Location tools", modifier = Modifier.weight(1f))
+                            Icon(Icons.Rounded.LocationOn, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Location Tools", modifier = Modifier.weight(1f))
                             Switch(
                                 checked = locationToolsEnabled,
                                 enabled = locationToolsAvailable,
@@ -290,7 +322,9 @@ fun ChatModelDialog(
                             )
                         }
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Web search tools", modifier = Modifier.weight(1f))
+                            Icon(Icons.Rounded.Web, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Web Search", modifier = Modifier.weight(1f))
                             Switch(
                                 checked = webSearchToolsEnabled,
                                 enabled = webSearchToolsAvailable,
@@ -298,8 +332,11 @@ fun ChatModelDialog(
                             )
                         }
                         var showConnectedTools by rememberSaveable { mutableStateOf(false) }
-                        TextButton(onClick = { showConnectedTools = !showConnectedTools }) {
-                            Text("Connected tools · ${mcpTools.size} ${if (showConnectedTools) "▴" else "▾"}")
+                        FilledTonalButton(onClick = { showConnectedTools = !showConnectedTools }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Rounded.Hub, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Connected Tools · ${mcpTools.size}", Modifier.weight(1f))
+                            Icon(Icons.Rounded.ArrowDropDown, null)
                         }
                         if (showConnectedTools) {
                             mcpTools.forEach { tool ->
@@ -313,7 +350,7 @@ fun ChatModelDialog(
                         }
                         Text("Web search queries all enabled search connections and combines their results. Individual switches control which engines participate.", style = MaterialTheme.typography.bodySmall)
                     }
-                    if (section == "Options") {
+                    if (section == "Models") {
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         Text("Creativity · %.2f".format(creativity), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                         Slider(
@@ -324,13 +361,37 @@ fun ChatModelDialog(
                         )
                         Text("Focused answers at the left; more varied ideas at the right. Model and creativity changes apply when saved.", style = MaterialTheme.typography.bodySmall)
                     }
+                    if (section == "Privacy") {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(20.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Icon(Icons.Rounded.Shield, null, tint = MaterialTheme.colorScheme.primary)
+                                Column(Modifier.weight(1f)) {
+                                    Text("Temporary Conversation", style = MaterialTheme.typography.titleSmall)
+                                    if (isTemporary) Text("No memory · Removed when closed", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Switch(isTemporary, onTemporaryChanged)
+                            }
+                        }
+                        OutlinedButton(onClick = onForgetMemories, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                            Icon(Icons.Rounded.DeleteSweep, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Forget Learned Memories")
+                        }
+                        parentChatId?.let { id ->
+                            FilledTonalButton(onClick = { onOpenParent(id) }, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.CallSplit, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Open Original Branch")
+                            }
+                        }
+                    }
                 }
             }
         },
         onDismissRequest = onDismissRequest,
         confirmButton = {
             val hasBlank = activePlatformUids.any { models[it].orEmpty().trim().isBlank() }
-            TextButton(
+            Button(
                 enabled = !hasBlank,
                 onClick = {
                     onConfirmRequest(
@@ -339,7 +400,9 @@ fun ChatModelDialog(
                     )
                 }
             ) {
-                Text("Save changes")
+                Icon(Icons.Rounded.Done, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Save Changes")
             }
         },
         dismissButton = {

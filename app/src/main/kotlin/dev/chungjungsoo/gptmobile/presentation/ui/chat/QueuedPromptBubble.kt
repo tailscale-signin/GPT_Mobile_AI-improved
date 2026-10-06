@@ -11,7 +11,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +33,7 @@ import dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox
 import dev.chungjungsoo.gptmobile.data.queue.FollowUpPhase
 import dev.chungjungsoo.gptmobile.data.queue.FollowUpProgress
 import dev.chungjungsoo.gptmobile.data.queue.PendingPrompt
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlinx.coroutines.delay
 

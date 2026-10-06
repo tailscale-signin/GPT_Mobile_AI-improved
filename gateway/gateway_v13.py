@@ -1744,6 +1744,7 @@ def extract_prefetch_candidates(function_name, arguments, tool_text):
 
 def _run_prefetch_call(tool_name, arguments, signature, progress_callback=None):
     started=time.monotonic()
+    prefetch_call_id = "prefetch_" + uuid.uuid4().hex
     prefetch_generation = get_global_safe_read_generation()
     try:
         result=execute_mcp_tool(tool_name,arguments)
@@ -1763,6 +1764,7 @@ def _run_prefetch_call(tool_name, arguments, signature, progress_callback=None):
                     progress_callback,"prefetch",
                     "Preloaded "+gateway_tool_display_name(tool_name)+" — "+str(arguments.get("path","")),
                     event="prefetch_completed",status="completed",stage="prefetching",
+                    tool_call_id=prefetch_call_id,tool_result=tool_text,
                     tool_name=tool_name,tool_source="gateway",
                     server=gateway_server_name_for_tool(tool_name) or "github-official",
                     route="gateway_mcp",tool_args=sanitized_progress_arguments(arguments),
@@ -1778,6 +1780,7 @@ def _run_prefetch_call(tool_name, arguments, signature, progress_callback=None):
             emit_progress(
                 progress_callback,"prefetch","Background preload skipped — "+gateway_tool_display_name(tool_name),
                 event="prefetch_failed",status="failed",stage="prefetching",
+                tool_call_id=prefetch_call_id,tool_result=str(e),tool_args=sanitized_progress_arguments(arguments),
                 tool_name=tool_name,tool_source="gateway",
                 server=gateway_server_name_for_tool(tool_name) or "github-official",
                 route="gateway_mcp",prefetch=True,
@@ -6477,6 +6480,14 @@ def tool_result_to_text(result):
 # MESSAGE UTILITIES
 # ============================================================
 
+def task_text_without_saved_work(text):
+    """Classify the current request independently from untrusted saved research."""
+    marker = "\n\nSaved work from an incomplete response follows."
+    if marker in text and "<saved_response_resource>" in text and "</saved_response_resource>" in text:
+        return text.split(marker, 1)[0]
+    return text
+
+
 def get_latest_user_text(messages):
     for message in reversed(messages):
         if message.get("role") != "user":
@@ -6485,7 +6496,7 @@ def get_latest_user_text(messages):
         content = message.get("content", "")
 
         if isinstance(content, str):
-            return content
+            return task_text_without_saved_work(content)
 
         if isinstance(content, list):
             pieces = []
@@ -6501,7 +6512,7 @@ def get_latest_user_text(messages):
                     if value:
                         pieces.append(str(value))
 
-            return "\n".join(pieces)
+            return task_text_without_saved_work("\n".join(pieces))
 
     return ""
 
@@ -6539,6 +6550,7 @@ def get_effective_user_text(
         else:
             value = str(content or "").strip()
 
+        value = task_text_without_saved_work(value).strip()
         if not value:
             continue
 
@@ -6578,7 +6590,11 @@ def get_workflow_context_text(messages):
         ))
     )
 
-    if not referential_edit:
+    short_continuation = bool(re.fullmatch(
+        r"(?:please\s+)?(?:continue|retry|try again|finish(?: it| that| this)?|fix(?: it| that| this)?|go ahead|do it|proceed|yes|push|merge|publish|check again)[.!?\s]*",
+        lower,
+    ))
+    if not referential_edit and not short_continuation:
         return latest
 
     skipped_latest = False
@@ -10542,6 +10558,11 @@ def apply_workflow_tool_profile(
     tools,
     profile,
 ):
+    # General questions must not pay for or accidentally invoke repository tools.
+    # Apply this even when performance-focused schema selection is switched off.
+    if profile == "general":
+        return [tool for tool in (tools or []) if not is_repository_tool_name(get_tool_name(tool))]
+
     # v11: full GitHub exposure is opt-in; focused profiles are the default.
     # Schemas are compacted to keep the first-round prompt manageable; llama.cpp
     # then reuses that stable prefix on later rounds. Build workflows retain
@@ -12320,9 +12341,6 @@ def sanitize_progress_value(
     to a remote UI. This is intentionally stricter than logging.
     """
 
-    if depth > 8:
-        return "<max-depth>"
-
     sensitive_markers = (
         "token",
         "password",
@@ -12373,7 +12391,7 @@ def sanitize_progress_value(
                 key_name,
                 depth + 1,
             )
-            for child in value[:100]
+            for child in value
         ]
 
     if isinstance(
@@ -12386,7 +12404,7 @@ def sanitize_progress_value(
                 key_name,
                 depth + 1,
             )
-            for child in value[:100]
+            for child in value
         ]
 
     if isinstance(
@@ -12420,16 +12438,9 @@ def sanitized_progress_arguments(
     except Exception:
         return {}
 
-    if len(encoded) <= PROGRESS_TOOL_ARGS_MAX_CHARS:
-        return safe
-
-    # Keep the UI payload bounded rather than sending a huge argument
-    # object. The complete arguments remain local to the gateway.
-    return {
-        "summary":
-            encoded[:PROGRESS_TOOL_ARGS_MAX_CHARS]
-            + "…"
-    }
+    # The client persists these arguments as a recovery checkpoint. Only the
+    # visible hint is clipped; never discard the underlying non-secret data.
+    return safe
 
 
 def progress_tool_hint(
@@ -14163,7 +14174,11 @@ def _process_chat_payload_core(
     )
 
     # Gateway-discovered MCP tools are the LOCAL tool set.
-    local_tools_full = [tool for tool in mcp_tools if get_tool_name(tool) not in client_tool_names]
+    local_tools_full = [
+        tool for tool in mcp_tools
+        if get_tool_name(tool) not in client_tool_names
+        and (workflow_profile != "general" or not is_repository_tool_name(get_tool_name(tool)))
+    ]
 
     local_tools = (
         apply_workflow_tool_profile(
@@ -16399,6 +16414,10 @@ def _process_chat_payload_core(
                             )
                         )
 
+                        # Recovery checkpoints retain the complete result even when
+                        # the active model context needs a smaller excerpt.
+                        saved_tool_result = tool_text
+
                         tool_text = (
                             bound_repository_collection_result(
                                 function_name,
@@ -16623,6 +16642,8 @@ def _process_chat_payload_core(
                                     route,
                                 result_quality=
                                     "useful",
+                                tool_result=saved_tool_result,
+                                tool_args=sanitized_progress_arguments(arguments),
                                 duration_ms=(
                                     int(
                                         (
@@ -16695,6 +16716,8 @@ def _process_chat_payload_core(
                                     route,
                                 result_quality=
                                     "empty",
+                                tool_result=saved_tool_result,
+                                tool_args=sanitized_progress_arguments(arguments),
                                 no_progress=
                                     no_progress_tool_calls,
                                 empty_count=
@@ -16801,6 +16824,8 @@ def _process_chat_payload_core(
                                     route,
                                 result_quality=
                                     "hard_failure",
+                                tool_result=saved_tool_result,
+                                tool_args=sanitized_progress_arguments(arguments),
                                 duration_ms=(
                                     int(
                                         (
@@ -16894,6 +16919,8 @@ def _process_chat_payload_core(
                                     route,
                                 result_quality=
                                     "repeated",
+                                tool_result=saved_tool_result,
+                                tool_args=sanitized_progress_arguments(arguments),
                                 no_progress=
                                     no_progress_tool_calls,
                                 total_tool_calls=
@@ -16970,6 +16997,8 @@ def _process_chat_payload_core(
                                 ),
                             route=route,
                             result_quality="exception",
+                            tool_result=str(e),
+                            tool_args=sanitized_progress_arguments(arguments),
                             duration_ms=(
                                 int(
                                     (

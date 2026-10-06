@@ -173,6 +173,7 @@ class ToolExecutionBudget(
             return withBudgetState(
                 result.copy(
                     content = ToolResultContent.Text(message),
+                    retainedContent = result.retainedContent ?: result.content,
                     traceContent = ToolResultContent.Text(message),
                     isError = true,
                     outputBudgetExhausted = true,
@@ -213,6 +214,7 @@ class ToolExecutionBudget(
         return withBudgetState(
             result.copy(
                 content = if (changed) ToolResultContent.Text(safeText) else result.content,
+                retainedContent = result.retainedContent ?: result.content.takeIf { changed },
                 traceContent = trace,
                 outputBudgetExhausted = result.outputBudgetExhausted || size >= sharedAvailable,
                 toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()

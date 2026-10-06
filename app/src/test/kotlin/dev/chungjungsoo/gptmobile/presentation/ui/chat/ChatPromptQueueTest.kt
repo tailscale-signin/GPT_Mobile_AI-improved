@@ -47,6 +47,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -66,6 +67,9 @@ class ChatPromptQueueTest {
     private val submissions = mutableListOf<PersistAgentTurnRequest>()
     private val starts = mutableListOf<List<AgentRunRequest>>()
     private val synthesisGate = CompletableDeferred<Unit>()
+    private val synthesisMerged = CompletableDeferred<Unit>()
+    private val queuedTurnStarted = CompletableDeferred<Unit>()
+    private var synthesisCompletionGate: CompletableDeferred<Unit>? = null
     private var membershipGate: CompletableDeferred<Unit>? = null
     private var failMembershipUpdate = false
     private var nextId = 10
@@ -126,6 +130,7 @@ class ChatPromptQueueTest {
 
     @Test
     fun `queued prompt waits through combined synthesis persistence and generation`() = runTest(dispatcher) {
+        synthesisCompletionGate = CompletableDeferred()
         val model = createViewModel(combined = true)
         runCurrent()
         send(model, "Follow up")
@@ -137,16 +142,19 @@ class ChatPromptQueueTest {
         assertTrue(starts.isEmpty())
 
         synthesisGate.complete(Unit)
+        synthesisMerged.await()
+        runCurrent()
+        assertTrue(submissions.isEmpty())
+        assertTrue(starts.isEmpty())
+
+        synthesisCompletionGate!!.complete(Unit)
+        queuedTurnStarted.await()
         runCurrent()
         assertEquals(1, starts.size)
-        assertTrue(starts.single().single().runId.startsWith("combined-"))
-        assertTrue(submissions.isEmpty())
-
-        completePersistedRuns()
-        runCurrent()
-        activeRuns.value = emptyMap()
-        runCurrent()
+        assertTrue(starts.single().isNotEmpty())
+        assertFalse(starts.single().any { it.runId.startsWith("combined-") })
         assertEquals(listOf("Follow up"), submissions.map { it.userMessage.content })
+        assertTrue(runs.value.any { it.runId.startsWith("combined-") && it.status == AgentRunStatus.COMPLETED })
     }
 
     private fun send(model: ChatViewModel, text: String) {
@@ -343,6 +351,17 @@ class ChatPromptQueueTest {
             runs.value = runs.value + run
             PersistAgentRetryResult(assistant, run)
         }
+        coEvery { repository.updateAgentMessage(any()) } coAnswers {
+            val updated = firstArg<MessageV2>()
+            messages.value = messages.value.map { if (it.id == updated.id) updated else it }
+            if (updated.currentRunId?.startsWith("combined-") == true) synthesisMerged.complete(Unit)
+        }
+        coEvery { repository.finishQueuedAgentRun(any(), any(), any(), any()) } coAnswers {
+            val id = firstArg<String>()
+            if (id.startsWith("combined-")) synthesisCompletionGate?.await()
+            runs.value = runs.value.map { if (it.runId == id) it.copy(status = AgentRunStatus.COMPLETED) else it }
+            true
+        }
         val settings = mockk<SettingRepository>(relaxed = true)
         coEvery { settings.fetchPlatformV2s() } returns profiles
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
@@ -356,6 +375,7 @@ class ChatPromptQueueTest {
             val requests = firstArg<List<AgentRunRequest>>()
             starts += requests
             activeRuns.value = activeRuns.value + requests.associate { it.runId to ActiveAgentRun(it.runId, 7, it.platform.uid) }
+            queuedTurnStarted.complete(Unit)
         }
         val localModels = mockk<LocalModelRepository>(relaxed = true)
         every { localModels.observeAll() } returns flowOf(emptyList())

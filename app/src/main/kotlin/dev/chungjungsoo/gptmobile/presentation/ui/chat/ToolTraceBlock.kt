@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.agent.displayResult
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
@@ -543,7 +544,7 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
             if (event.resultType == ToolEventResultType.EMPTY) {
                 ToolTraceLine(labels.result, "✓ Completed — No results")
             } else {
-                event.result?.takeIf { it.isNotBlank() }?.let { ToolTraceBlockText(labels.result, it) }
+                event.displayResult()?.takeIf { it.isNotBlank() }?.let { ToolTraceBlockText(labels.result, it) }
             }
         }
     }
@@ -573,7 +574,7 @@ internal fun filterToolEvents(events: List<ToolEvent>, query: String): List<Tool
             event.status,
             event.callId,
             event.arguments,
-            event.result,
+            event.displayResult(),
             event.error,
             timingLabel(event, ToolTraceLabels.Default)
         ).any { normalizedQuery in it.lowercase(Locale.ROOT) }
@@ -715,7 +716,7 @@ internal fun formatToolTraceMarkdown(events: List<ToolEvent>, labels: ToolTraceL
             timingLabel(event, labels)?.let { appendLine("- ${labels.timing}: $it") }
             event.error?.takeIf { it.isNotBlank() }?.let { appendLine("- ${labels.error}: ${boundedText(it)}") }
             appendIndentedBlock(labels.arguments, event.arguments)
-            event.result?.takeIf { it.isNotBlank() }?.let { appendIndentedBlock(labels.result, it) }
+            event.displayResult()?.takeIf { it.isNotBlank() }?.let { appendIndentedBlock(labels.result, it) }
         }
     }.trimEnd()
 }

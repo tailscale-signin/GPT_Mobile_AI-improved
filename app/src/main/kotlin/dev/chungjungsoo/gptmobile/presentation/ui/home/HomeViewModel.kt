@@ -58,7 +58,8 @@ class HomeViewModel @Inject constructor(
     private val agentRunCoordinator: AgentRunCoordinator,
     private val managePlatformsUseCase: ManagePlatformsUseCase,
     private val conversationReadStateStore: dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore,
-    private val completionStore: GenerationCompletionStore
+    private val completionStore: GenerationCompletionStore,
+    private val pinnedOrderStore: dev.chungjungsoo.gptmobile.data.chat.PinnedConversationOrderStore
 ) : ViewModel() {
 
     companion object {
@@ -131,11 +132,13 @@ class HomeViewModel @Inject constructor(
     val activeChatIds = _activeChatIds.asStateFlow()
     val unreadChatIds = conversationReadStateStore.unreadChatIds
     val completedGenerations = completionStore.items
+    private var pinnedOrder = pinnedOrderStore.read()
 
     private fun sortChats(chats: List<ChatRoomV2>, activeIds: Set<Int> = _activeChatIds.value): List<ChatRoomV2> =
         chats.sortedWith(
-            compareByDescending<ChatRoomV2> { activeIds.contains(it.id) }
-                .thenByDescending { it.isFavorite }
+            compareByDescending<ChatRoomV2> { it.isFavorite }
+                .thenBy { if (it.isFavorite) pinnedOrder.indexOf(it.id).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE else Int.MAX_VALUE }
+                .thenByDescending { activeIds.contains(it.id) }
                 .thenByDescending { it.updatedAt }
         )
 
@@ -298,7 +301,19 @@ class HomeViewModel @Inject constructor(
 
     fun toggleChatFavorite(chatId: Int, isFavorite: Boolean) {
         viewModelScope.launch {
+            pinnedOrder = if (isFavorite) movePinnedConversation(pinnedOrder, chatId, 0) else pinnedOrder - chatId
+            pinnedOrderStore.save(pinnedOrder)
             chatRepository.setChatFavorite(chatId, isFavorite)
+            fetchChats()
+        }
+    }
+
+    fun moveConversationPin(chatId: Int, targetIndex: Int) {
+        viewModelScope.launch {
+            val currentPins = _chatListState.value.chats.filter { it.isFavorite }.map { it.id }
+            pinnedOrder = if (targetIndex < 0) pinnedOrder - chatId else movePinnedConversation((pinnedOrder.filter { it in currentPins } + currentPins).distinct(), chatId, targetIndex)
+            pinnedOrderStore.save(pinnedOrder)
+            chatRepository.setChatFavorite(chatId, targetIndex >= 0)
             fetchChats()
         }
     }
@@ -376,6 +391,18 @@ class HomeViewModel @Inject constructor(
             val sorted = sortChats(chats)
             _chatListState.update { it.copy(chats = sorted) }
             disableSelectionMode()
+        }
+    }
+
+    fun openConversation(room: ChatRoomV2, onOpen: (ChatRoomV2, Int?) -> Unit) {
+        viewModelScope.launch {
+            val target = if (room.id in conversationReadStateStore.unreadChatIds.value) {
+                chatRepository.newestAssistantMessageId(room.id)
+            } else {
+                null
+            }
+            markChatViewed(room.id)
+            onOpen(room, target)
         }
     }
 

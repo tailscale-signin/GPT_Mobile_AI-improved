@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.chungjungsoo.gptmobile.data.accounting.ModelPrice
+import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions
@@ -50,6 +50,7 @@ import dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskHandle
 import dev.chungjungsoo.gptmobile.data.workspace.ResearchPin
 import dev.chungjungsoo.gptmobile.data.workspace.TaskRecipe
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.util.Date
 import kotlinx.serialization.json.jsonPrimitive
@@ -180,8 +181,8 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
                             items(events.sortedByDescending { it.startedAt }, key = { it.eventId }) { event ->
                                 WorkspaceCard("${event.toolName} · ${event.status}") {
                                     Text(Date((event.completedAt ?: event.startedAt ?: 0) * if ((event.startedAt ?: 0) < 100000000000L) 1000 else 1).toString(), style = MaterialTheme.typography.labelSmall)
-                                    SelectionContainer { Text((event.result ?: event.error ?: "No retained result").take(5000)) }
-                                    if (event.result?.length ?: 0 > 5000) Text("Preview truncated; full retained result remains in the conversation tool trace.")
+                                    SelectionContainer { Text((event.recoveryResult() ?: event.error ?: "No retained result").take(5000)) }
+                                    if (event.recoveryResult()?.length ?: 0 > 5000) Text("Preview truncated; full retained result remains in the conversation tool trace.")
                                     TextButton(onClick = { evidenceEdit = event }) { Text("Pin excerpt & source") }
                                     if (event.isError) TextButton(onClick = { model.draft("Continue the interrupted research using retained evidence. Revisit only failed read-only sources; do not repeat completed writes. Failed tool: ${event.toolName}", onChat) }) { Text("Continue from evidence") }
                                 }
@@ -318,8 +319,8 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
         }
     }
     evidenceEdit?.let { event ->
-        var url by remember(event) { mutableStateOf(Regex("https?://[^\\s\"<>]+").find(event.result.orEmpty())?.value.orEmpty()) }
-        var excerpt by remember(event) { mutableStateOf(event.result.orEmpty().take(2000)) }
+        var url by remember(event) { mutableStateOf(Regex("https?://[^\\s\"<>]+").find(event.recoveryResult().orEmpty())?.value.orEmpty()) }
+        var excerpt by remember(event) { mutableStateOf(event.recoveryResult().orEmpty().take(2000)) }
         var claim by remember(event) { mutableStateOf("") }
         AlertDialog(onDismissRequest = { evidenceEdit = null }, title = { Text("Pin evidence") }, text = {
             Column {

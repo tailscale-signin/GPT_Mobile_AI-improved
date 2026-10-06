@@ -137,6 +137,13 @@ data class ResponseCompletedEvent(
     val response: ResponseObject
 ) : ResponsesStreamEvent()
 
+/** Output was saved, but the provider could not finish the answer. */
+@Serializable
+@SerialName("response.incomplete")
+data class ResponseIncompleteEvent(
+    @SerialName("response") val response: ResponseObject
+) : ResponsesStreamEvent()
+
 /**
  * Emitted when the response fails.
  */

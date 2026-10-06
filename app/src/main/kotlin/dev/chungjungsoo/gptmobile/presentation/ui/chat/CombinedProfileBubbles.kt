@@ -129,6 +129,12 @@ private fun CombinedProfileBubble(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
+    val completed = status == CombinedResponseStatus.COMPLETED
+    val opacity by animateFloatAsState(if (completed) 1f else 0.5f, tween(500), label = "Profile completion opacity")
+    val background by animateColorAsState(if (completed) colors.surfaceContainerHigh else Color(0xFF808080), tween(500), label = "Profile completion background")
+    val foreground by animateColorAsState(if (completed) (if (selected) colors.onPrimaryContainer else colors.onSurface) else Color(0xFFBDBDBD), tween(500), label = "Profile completion text")
+    val primaryTint by animateColorAsState(if (completed) colors.primaryContainer else Color(0xFF808080), tween(500), label = "Profile primary tint")
+    val secondaryTint by animateColorAsState(if (completed) colors.secondaryContainer else Color(0xFF808080), tween(500), label = "Profile secondary tint")
     val selection by animateFloatAsState(if (selected) 1f else 0f, tween(220), label = "Profile selection")
     val dotColor by animateColorAsState(
         when (status) {
@@ -158,14 +164,14 @@ private fun CombinedProfileBubble(
     }
     Surface(
         onClick = onClick,
-        modifier = modifier.semantics {
+        modifier = modifier.graphicsLayer { alpha = opacity }.semantics {
             this.selected = selected
             stateDescription = statusText
         },
         shape = RoundedCornerShape(24.dp),
-        color = colors.surfaceContainerHigh,
-        contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface,
-        border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.22f + selection * 0.5f)),
+        color = background,
+        contentColor = foreground,
+        border = BorderStroke(1.dp, (if (completed) colors.primary else Color.Gray).copy(alpha = 0.22f + selection * 0.5f)),
         shadowElevation = (2f + selection * 4f).dp
     ) {
         Row(
@@ -173,8 +179,8 @@ private fun CombinedProfileBubble(
                 .background(
                     Brush.linearGradient(
                         listOf(
-                            colors.primaryContainer.copy(alpha = 0.2f + selection * 0.65f),
-                            colors.secondaryContainer.copy(alpha = 0.15f + selection * 0.35f)
+                            primaryTint.copy(alpha = 0.2f + selection * 0.65f),
+                            secondaryTint.copy(alpha = 0.15f + selection * 0.35f)
                         )
                     )
                 )

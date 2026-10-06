@@ -14,6 +14,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import java.security.MessageDigest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -21,6 +22,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
 internal fun isFileReadingTool(toolName: String): Boolean {
@@ -198,7 +200,8 @@ internal fun mapMcpToolResult(
         callId = callId,
         content = modelContent,
         isError = result.isError == true,
-        traceContent = traceContent
+        traceContent = traceContent,
+        retainedContent = if (omitted.isEmpty()) null else ToolResultContent.Json(Json.encodeToJsonElement(result))
     )
 }
 

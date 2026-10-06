@@ -125,231 +125,119 @@ object ChatResponseActionParser {
                 )
     }
 
-    /**
-     * Extracts dynamic actionable options/buttons proposed by the assistant in natural language.
-     * Generates clean, concise short button labels (1 to 4 words) and full action prompts.
-     *
-     * Supports:
-     * 1. Numbered lists: "1. Search online", "1) Option", "1 - Option", "**1.** Option"
-     * 2. Lettered lists: "A. Option", "A) Option", "**A:** Option"
-     * 3. Bulleted option lists: "- Option 1", "* Option 2", "• Option 3"
-     * 4. Bold / Labelled options: "**Option 1:** Details", "Option A: Details"
-     * 5. Inline questions & choices: "Would you like to A, B, or C?", "Do you want to X or Y?"
-     * 6. Binary / Direct choices: "Yes or No?", "Accept or Decline?"
-     */
+    /** Short labels are presentation only; tapping a chip sends its complete question. */
     fun extractDynamicActions(text: String, isLoading: Boolean): List<DynamicActionOption> {
         if (isLoading || text.isBlank()) return emptyList()
-
-        // 1. Try extracting structured lists (numbered, lettered, bulleted, bold options)
-        val structuredOptions = extractStructuredListOptions(text)
-        if (structuredOptions.isNotEmpty() && structuredOptions.size in 2..6) {
-            return structuredOptions
+        val lines = proseLines(text)
+        val heading = Regex("""(?i)^(?:#{1,6}\s*)?(?:next questions|suggested questions|follow[- ]?up questions|quick replies|questions to explore)\s*:?\s*$""")
+        val offeredQuestions = lines.indices.filter { heading.matches(lines[it].replace("**", "")) }.flatMap { section ->
+            lines.drop(section + 1).takeWhile { listItem(it) != null }.mapNotNull { line ->
+                listItem(line)?.let { action(it, isOption = false, requireQuestion = true) }
+            }
         }
-
-        // 2. Try extracting inline question choices or alternative suggestions
-        val inlineOptions = extractInlineOffers(text)
-        if (inlineOptions.isNotEmpty() && inlineOptions.size in 2..6) {
-            return inlineOptions
-        }
-
-        // 3. Try binary question choices (e.g. Yes / No, Agree / Disagree)
-        val binaryOptions = extractBinaryChoices(text)
-        if (binaryOptions.isNotEmpty()) {
-            return binaryOptions
-        }
-
-        return emptyList()
+        val tail = lines.takeLast(12).joinToString("\n")
+        val offers = extractOffers(tail)
+        val structured = extractOfferedList(lines)
+        return (offeredQuestions + offers + structured)
+            .distinctBy { it.actionPrompt.lowercase(Locale.ROOT).replace(Regex("""\s+"""), " ") }
     }
 
-    private fun extractStructuredListOptions(text: String): List<DynamicActionOption> {
-        val lines = text.trim().lines().map { it.trim() }.filter { it.isNotBlank() }
-        if (lines.isEmpty()) return emptyList()
-
-        // Look at the tail portion of the message (up to last 12 lines)
-        val tailLines = lines.takeLast(12)
-
-        val numberedRegex = Regex("""^(?:\*\*|\b)?(\d+)[\.\)\:\-]\s*(?:\*\*)?\s*(.+)""")
-        val letteredRegex = Regex("""^(?:\*\*|\b)?([A-Da-d])[\.\)\:\-]\s*(?:\*\*)?\s*(.+)""")
-        val bulletRegex = Regex("""^[-*•]\s+(?:\*\*)?(?:Option\s+[A-Za-z0-9]+:\s*)?(.+)""")
-        val optionHeaderRegex = Regex("""^(?:\*\*)?Option\s+([A-Za-z0-9]+)[\:\-\.]\s*(?:\*\*)?\s*(.+)""", RegexOption.IGNORE_CASE)
-
-        val numberedMatches = mutableListOf<Pair<String, String>>()
-        val letteredMatches = mutableListOf<Pair<String, String>>()
-        val bulletMatches = mutableListOf<String>()
-
-        for (line in tailLines) {
-            val optMatch = optionHeaderRegex.matchEntire(line)
-            if (optMatch != null) {
-                letteredMatches.add(optMatch.groupValues[1] to optMatch.groupValues[2].trim())
-                continue
-            }
-            val numMatch = numberedRegex.matchEntire(line)
-            if (numMatch != null) {
-                numberedMatches.add(numMatch.groupValues[1] to numMatch.groupValues[2].trim())
-                continue
-            }
-            val letMatch = letteredRegex.matchEntire(line)
-            if (letMatch != null) {
-                letteredMatches.add(letMatch.groupValues[1] to letMatch.groupValues[2].trim())
-                continue
-            }
-            val bulMatch = bulletRegex.matchEntire(line)
-            if (bulMatch != null) {
-                bulletMatches.add(bulMatch.groupValues[1].trim())
-            }
-        }
-
-        val candidates: List<Pair<String?, String>> = when {
-            numberedMatches.size in 2..6 -> numberedMatches.map { it.first to it.second }
-            letteredMatches.size in 2..6 -> letteredMatches.map { it.first to it.second }
-            bulletMatches.size in 2..6 -> bulletMatches.map { null to it }
-            else -> emptyList()
-        }
-
-        if (candidates.isEmpty()) return emptyList()
-
-        return candidates.mapNotNull { (prefix, rawText) ->
-            val cleanText = sanitizeOptionText(rawText)
-            if (cleanText.isBlank()) return@mapNotNull null
-
-            val shortLabel = generateShortLabel(cleanText, prefix)
-            DynamicActionOption(
-                label = shortLabel,
-                actionPrompt = cleanText,
-                isOption = true,
-                iconType = classifyIconType(cleanText)
-            )
-        }.distinctBy { it.label.lowercase(Locale.ROOT) }
-    }
-
-    private fun extractInlineOffers(text: String): List<DynamicActionOption> {
-        val trimmed = text.trim()
-        val sentences = trimmed.split(Regex("""(?<=[.?!])\s+|\n\n+"""))
-        val candidateSentence = sentences.takeLast(2).firstOrNull { it.contains("?") || it.contains(":") } ?: sentences.lastOrNull() ?: trimmed
-        val cleanCandidate = candidateSentence.replace('\n', ' ').trim()
-
-        val patterns = listOf(
-            Regex("""(?i)\b(?:would you like|do you want|shall we|should we|can i|i can)\s+(?:me to\s+)?([^?]+)\?"""),
-            Regex("""(?i)\b(?:options|choices)(?:\s+are|\s+include)?:\s*([^.?!]+)"""),
-            Regex("""(?i)\bwhich(?:\s+one)?\s+(?:do you|would you)\s+prefer[:\s]+([^?]+)\?"""),
-            Regex("""(?i)\bprefer[:\s]+([^?]+)\?""")
-        )
-
-        for (pattern in patterns) {
-            val match = pattern.find(cleanCandidate)
-            if (match != null) {
-                val content = match.groupValues[1].trim()
-                val rawOptions = splitAlternatives(content)
-                if (rawOptions.size in 2..5) {
-                    return rawOptions.mapNotNull { raw ->
-                        val clean = sanitizeOptionText(raw)
-                        if (clean.isBlank()) return@mapNotNull null
-                        val shortLabel = generateShortLabel(clean, null)
-                        DynamicActionOption(
-                            label = shortLabel,
-                            actionPrompt = clean,
-                            isOption = false,
-                            iconType = classifyIconType(clean)
-                        )
-                    }.distinctBy { it.label.lowercase(Locale.ROOT) }
+    private fun proseLines(text: String): List<String> {
+        var fence: String? = null
+        return text.lines().mapNotNull { raw ->
+            val line = raw.trim()
+            val marker = Regex("""^(`{3,}|~{3,})""").find(line)?.value
+            if (marker != null) {
+                if (fence == null) {
+                    fence = marker.take(3)
+                } else if (marker.startsWith(fence)) {
+                    fence = null
                 }
+                null
+            } else {
+                line.takeIf { fence == null && it.isNotBlank() && !it.startsWith(">") }
             }
         }
-
-        return emptyList()
     }
 
-    private fun extractBinaryChoices(text: String): List<DynamicActionOption> {
-        val trimmed = text.trim()
-        val lastSentence = trimmed.lines().lastOrNull { it.isNotBlank() }?.trim() ?: trimmed
-        val lower = lastSentence.lowercase(Locale.ROOT)
+    private fun listItem(line: String): String? = Regex("""^(?:[-*•]\s+|(?:\*\*)?(?:\d+|[A-Za-z])[.):\-]\s*(?:\*\*)?)(.+)$""")
+        .matchEntire(line)?.groupValues?.get(1)
 
-        if (lower.contains("yes or no") || lower.endsWith("yes/no?") || lower.endsWith("(y/n)?")) {
+    private fun extractOfferedList(lines: List<String>): List<DynamicActionOption> {
+        val start = lines.indexOfLast {
+            Regex("""(?i)\b(options?|choices|ways to proceed|you can take|would you like|which .*prefer|explore next|suggested questions|next questions|follow[- ]?up questions)\b""").containsMatchIn(it) && listItem(it) == null
+        }
+        if (start < 0) return emptyList()
+        val exclusive = Regex("""(?i)\b(choose|prefer|which|option|choice)""").containsMatchIn(lines[start])
+        return lines.drop(start + 1).takeWhile { listItem(it) != null }
+            .mapNotNull { listItem(it)?.let { raw -> action(raw, isOption = exclusive) } }
+    }
+
+    private fun extractOffers(text: String): List<DynamicActionOption> {
+        val binaryOffer = Regex("""(?i)(?:would you like|do you want)\s+(?:me\s+to\s+)?([^?]+)\?\s*\(?yes\s*(?:or|/)\s*no\??\)?""").find(text)
+        if (binaryOffer != null) {
+            val body = binaryOffer.groupValues[1].trim()
+            val request = action(body, isOption = true) ?: return emptyList()
             return listOf(
-                DynamicActionOption("Yes", "Yes", isOption = true, iconType = ActionIconType.CONFIRM),
-                DynamicActionOption("No", "No", isOption = true, iconType = ActionIconType.CANCEL)
+                request.copy(actionPrompt = "Yes, please $body.", iconType = ActionIconType.CONFIRM),
+                DynamicActionOption("No thanks", "No, please don't $body.", true, ActionIconType.CANCEL)
             )
         }
-
-        if (lower.contains("agree or disagree") || lower.contains("accept or decline")) {
-            return listOf(
-                DynamicActionOption("Accept", "Accept", isOption = true, iconType = ActionIconType.CONFIRM),
-                DynamicActionOption("Decline", "Decline", isOption = true, iconType = ActionIconType.CANCEL)
-            )
+        val questions = Regex("""[^\n.!?]+\?""").findAll(text).map { it.value.trim() }.toList()
+        return questions.flatMap { question ->
+            val offered = Regex("""(?i)^(?:would you like|do you want)\s+(?:me\s+to\s+|to\s+)?(.+?)\?$|^(?:shall i|should i|can i)\s+(.+?)\?$""").find(question)
+            val content = offered?.groupValues?.drop(1)?.firstOrNull { it.isNotBlank() }
+                ?: return@flatMap emptyList()
+            val binary = Regex("""(?i)\s*\(?yes\s*(?:or|/)\s*no\)?\s*\??$""").replace(content, "").trim()
+            if (binary != content) {
+                val request = action(binary, isOption = true) ?: return@flatMap emptyList()
+                return@flatMap listOf(
+                    request.copy(label = request.label, actionPrompt = "Yes, please ${binary.replaceFirstChar { it.lowercase(Locale.ROOT) }}.", iconType = ActionIconType.CONFIRM),
+                    DynamicActionOption("No thanks", "No, please don't ${binary.replaceFirstChar { it.lowercase(Locale.ROOT) }}.", true, ActionIconType.CANCEL)
+                )
+            }
+            val alternatives = content.replace(Regex("""(?i)^either\s+"""), "")
+                .split(Regex("""(?i),\s*(?:or\s+)?|\s+or\s+"""))
+                .map { it.trim().removePrefix("to ") }.filter(String::isNotBlank)
+            alternatives.mapNotNull { action(it, isOption = alternatives.size > 1) }
         }
-
-        return emptyList()
     }
 
-    private fun splitAlternatives(raw: String): List<String> {
-        val cleaned = raw
-            .replace(Regex("""(?i)\beither\s+"""), "")
-            .replace(Regex("""(?i)\bto\s+"""), "")
-        val parts = cleaned.split(Regex("""(?i),\s*(?:or|and)\s*|\s+or\s+|\s*,\s*"""))
-            .map { it.trim() }
-            .filter { it.isNotBlank() && it.length > 1 && it.length < 80 }
-
-        return parts
+    private fun action(raw: String, isOption: Boolean, requireQuestion: Boolean = false): DynamicActionOption? {
+        val heading = Regex("""^\*\*([^*]+)\*\*\s*[:—–-]?\s*(.+)$""").matchEntire(raw.trim())
+        val topic = heading?.groupValues?.get(1)?.trim()?.trimEnd(':')
+            ?.takeUnless { Regex("""(?i)^option\s+[A-Za-z0-9]+$""").matches(it) }
+        val body = (heading?.groupValues?.get(2) ?: raw).trim()
+        val cleaned = sanitizeOptionText(body)
+        if (cleaned.isBlank() || (requireQuestion && !body.endsWith("?"))) return null
+        if (Regex("""(?i)^(?:continue|proceed|more(?: details| information)?|tell me more|learn more|examples|explain further|keep going)$""").matches(cleaned)) return null
+        // Do not turn the assistant's questions about unknown user details into invented answers.
+        if (Regex("""(?i)^(?:what|which|where|when|how)\b.*\b(?:are you|do you|is your|your (?:name|budget|location|version))\b""").containsMatchIn(cleaned)) return null
+        val prompt = if (body.endsWith("?")) cleaned + "?" else cleaned
+        return DynamicActionOption(
+            label = generateShortLabel(topic ?: cleaned, null),
+            actionPrompt = prompt,
+            isOption = isOption,
+            iconType = classifyIconType(prompt)
+        )
     }
 
-    /**
-     * Cleans raw text into readable text by stripping leading/trailing symbols, markdown syntax,
-     * bullet icons, and redundant colon descriptions.
-     */
-    fun sanitizeOptionText(raw: String): String {
-        var text = raw.trim()
-            .replace(Regex("""^(\*+|_+|`+)"""), "")
-            .replace(Regex("""(\*+|_+|`+)$"""), "")
-            .replace(Regex("""[\.:;?!]+$"""), "")
-            .trim()
+    fun sanitizeOptionText(raw: String): String = raw.trim()
+        .replace(Regex("""^(?:\*\*)?Option\s+[A-Za-z0-9]+\s*[:.\-]\s*(?:\*\*)?""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\[([^]]+)]\([^)]+\)"""), "$1")
+        .replace("**", "").replace("`", "").trim().trimEnd('.', ':', ';', '?', '!').trim()
 
-        // Strip leading prefixes like "**Step 1:** ", "1. ", "Option 1: "
-        text = text.replace(Regex("""^(?:Option\s+[A-Za-z0-9]+|Step\s+\d+|Part\s+\d+)[\:\-]\s*""", RegexOption.IGNORE_CASE), "")
-        return text.trim()
-    }
-
-    /**
-     * Produces a clean, concise, short label (1 to 4 words, max ~24 chars) suitable for a button pill.
-     * E.g.: "Search online for official docs" -> "Search Online"
-     * "1. Explain the architectural tradeoffs" -> "Explain Architecture"
-     */
+    /** Keep distinctive topic words, including Unicode, rather than generic sentence openings. */
     fun generateShortLabel(text: String, indexPrefix: String?): String {
         val clean = sanitizeOptionText(text)
-        // If bold heading exists (e.g. "**Search Online**: details"), use the heading
-        val headingMatch = Regex("""^([A-Za-z0-9\s\-/]+)[\:\-]\s+""").find(clean)
-        if (headingMatch != null) {
-            val heading = headingMatch.groupValues[1].trim()
-            if (heading.isNotBlank() && heading.length <= 22) {
-                return heading.split(" ")
-                    .take(3)
-                    .joinToString(" ") { it.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase(Locale.ROOT) else c.toString() } }
-            }
-        }
-
-        // Take the first 1-3 prominent words
-        val words = clean.split(Regex("""\s+""")).filter { it.isNotBlank() }
-        if (words.isEmpty()) return indexPrefix ?: "Option"
-
-        val filteredWords = mutableListOf<String>()
-        val stopWords = setOf("a", "an", "the", "to", "for", "in", "of", "and", "or", "me", "you", "i", "we")
-
-        for (w in words) {
-            val cleanWord = w.replace(Regex("""[^A-Za-z0-9\-]"""), "")
-            if (cleanWord.isBlank()) continue
-            if (cleanWord.lowercase(Locale.ROOT) in stopWords) continue
-            filteredWords.add(cleanWord.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() })
-            if (filteredWords.size >= 2) break
-        }
-
-        val candidate = filteredWords.joinToString(" ")
-        return if (candidate.isNotBlank() && candidate.length <= 24) {
-            candidate
-        } else if (clean.length <= 24) {
-            clean
-        } else {
-            val truncated = clean.take(20).trimEnd()
-            "$truncated..."
-        }
+        val stopWords = setOf("a", "an", "the", "to", "for", "in", "into", "of", "and", "or", "me", "you", "i", "we", "how", "what", "does", "do", "can", "could", "would", "should", "is", "are", "be", "please", "provide", "tell", "about", "this", "these", "more", "details", "up")
+        val words = Regex("""[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*""").findAll(clean)
+            .map { it.value }.filter { it.lowercase(Locale.ROOT) !in stopWords }.toList()
+        if (words.isEmpty()) return indexPrefix ?: clean.take(32)
+        val selected = (if (words.size <= 4) words else words.take(2) + words.takeLast(2)).toMutableList()
+        while (selected.joinToString(" ").length > 32 && selected.size > 2) selected.removeAt(1)
+        val label = selected.joinToString(" ") { it.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase(Locale.ROOT) else char.toString() } }
+        return if (label.length <= 32) label else label.take(31).trimEnd() + "…"
     }
 
     private fun classifyIconType(text: String): ActionIconType {
@@ -364,14 +252,11 @@ object ChatResponseActionParser {
         }
     }
 
-    /**
-     * Formats a high-efficiency on-device prompt for Local QNN / LiteRT to generate
-     * 2-4 clean, short response options for an assistant message when required.
-     */
     fun buildLocalQuickReplyPrompt(assistantMessage: String): String = """
-            Extract or suggest 2 to 4 very short user replies (1-3 words each) for this assistant message.
-            Format output strictly as a comma-separated list of short replies.
-            Message: "${assistantMessage.takeLast(250).replace('"', '\'')}"
-            Replies:
+        Suggest 2 to 4 specific follow-up questions grounded in this assistant response.
+        Prioritize questions or actions the assistant explicitly offers. Never invent user preferences or answers to personal questions.
+        Return a JSON array of objects with "label" (2-4 topic words) and "question" (the complete, relevant follow-up question).
+        Avoid vague labels such as More details, Continue, or Learn more. Keep each label under 32 characters.
+        Response: ${assistantMessage.takeLast(4000)}
     """.trimIndent()
 }

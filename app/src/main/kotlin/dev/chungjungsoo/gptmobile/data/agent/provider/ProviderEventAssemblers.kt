@@ -73,6 +73,11 @@ class OpenAIResponsesEventAssembler {
             toolCall(call.callId, call.name, event.arguments)
         }
 
+        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent -> buildList {
+            event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens)) }
+            add(ProviderEvent.Failed("The response was incomplete. Saved output and tool results will be used to continue on the next request."))
+        }
+
         is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed"))
 
         is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message))
@@ -162,7 +167,12 @@ class AnthropicEventAssembler {
             inputTokens = usage.inputTokens + (usage.cacheReadInputTokens ?: 0) + (usage.cacheCreationInputTokens ?: 0)
             listOf(ProviderEvent.Usage(inputTokens, usage.outputTokens, inputTokens!! + usage.outputTokens))
         }
-        is MessageDeltaResponseChunk -> listOf(ProviderEvent.Usage(inputTokens, event.usage.outputTokens, inputTokens?.plus(event.usage.outputTokens)))
+        is MessageDeltaResponseChunk -> buildList {
+            add(ProviderEvent.Usage(inputTokens, event.usage.outputTokens, inputTokens?.plus(event.usage.outputTokens)))
+            if (event.delta.stopReason == dev.chungjungsoo.gptmobile.data.dto.anthropic.response.StopReason.MAX_TOKENS) {
+                add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request."))
+            }
+        }
         is ContentStartResponseChunk -> {
             when (event.contentBlock.type) {
                 ContentBlockType.TEXT -> pendingText[event.index] = StringBuilder(event.contentBlock.text.orEmpty())
@@ -263,6 +273,9 @@ object GeminiEventMapper {
             part.functionCall?.let { call ->
                 events += ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args)
             }
+        }
+        if (response.candidates.orEmpty().any { it.finishReason == "MAX_TOKENS" }) {
+            events += ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request.")
         }
         return events
     }

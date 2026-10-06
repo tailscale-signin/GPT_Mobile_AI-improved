@@ -14,7 +14,7 @@ class CombinedModelResponseListConverter {
 
     @TypeConverter
     fun fromString(value: String): List<CombinedModelResponse> {
-        val trimmed = value.trim()
+        val trimmed = dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec.decode(value).trim()
         if (trimmed.isEmpty() || trimmed == "[]") return emptyList()
         return try {
             json.decodeFromString(trimmed)

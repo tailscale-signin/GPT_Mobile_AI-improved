@@ -45,11 +45,11 @@ internal fun combinedResponseStatus(
 
 /** Keep the exact source used for synthesis, including the lead response replaced by the final answer. */
 private fun sourceMessage(message: MessageV2?, source: CombinedModelResponse): MessageV2 {
-    if (message != null && !message.isCombinedSynthesis() && message.content.trim() == source.content.trim()) {
+    if (message != null && !message.isCombinedSynthesis() && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.content).trim() == source.content.trim()) {
         return message.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
     }
     val revision = message?.revisions?.firstOrNull {
-        it.runId?.startsWith("combined-synthesis:") != true && it.content.trim() == source.content.trim()
+        it.runId?.startsWith("combined-synthesis:") != true && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(it.content).trim() == source.content.trim()
     }
     return MessageV2(
         id = message?.id ?: 0,

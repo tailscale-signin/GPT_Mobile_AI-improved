@@ -38,6 +38,7 @@ class ToolProgressAndBudgetTest {
         })
         val result = tool.execute("search", buildJsonObject {})
         assertTrue(result.outputBudgetExhausted)
+        assertEquals("Kotlin documentation https://kotlinlang.org " + "snippet ".repeat(30), (result.retainedContent as ToolResultContent.Text).text)
         assertTrue((result.content as ToolResultContent.Text).text.contains("https://kotlinlang.org"))
         val trace = (result.traceContent as ToolResultContent.Text).text
         assertTrue(trace.contains("https://kotlinlang.org"))
@@ -186,6 +187,7 @@ class ToolProgressAndBudgetTest {
         assertFalse(result.isError)
         assertTrue((result.content as ToolResultContent.Text).text.contains("reviewed evidence"))
     }
+
     @Test fun `approval waiting is outside tool execution timeout and cancellation propagates`() = runBlocking {
         val budget = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 5))
         val tool = object : AgentTool {

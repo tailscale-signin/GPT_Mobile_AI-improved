@@ -76,6 +76,27 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test
+    fun `compatible and Ollama output limits save partial output as a failed run`() = runBlocking {
+        for (type in listOf(ClientType.CUSTOM, ClientType.LLAMA, ClientType.OLLAMA)) {
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flowOf(
+                            ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Saved research."), finishReason = "length")))
+                        )
+                    )
+                )
+            )
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(type))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals("Saved research.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertTrue(events.last() is ProviderEvent.Failed)
+            assertFalse(events.any { it is ProviderEvent.Completed })
+        }
+    }
+
     @Test fun `reasoning enabled reviewer still sends isolation and unique attempt headers`() = runBlocking {
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(kotlinx.coroutines.flow.emptyFlow())))
         val constraints = RequestConstraints(

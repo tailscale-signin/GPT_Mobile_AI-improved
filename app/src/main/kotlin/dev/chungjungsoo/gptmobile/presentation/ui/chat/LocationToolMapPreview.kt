@@ -33,6 +33,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.agent.tool.MapCoordinate
 import dev.chungjungsoo.gptmobile.data.agent.tool.NearbyPlace
 import dev.chungjungsoo.gptmobile.data.agent.tool.NearbyPlacesClient
@@ -76,7 +77,7 @@ internal fun locationMapData(events: List<ToolEvent>): LocationMapData? = events
     if (event.status != ToolEventStatus.COMPLETED || event.isError) return@firstNotNullOfOrNull null
     val identity = "${event.toolName} ${event.modelToolName}".lowercase(Locale.ROOT)
     if (listOf("location", "geo", "map").none { it in identity }) return@firstNotNullOfOrNull null
-    val raw = event.result.orEmpty().take(100_000)
+    val raw = event.recoveryResult().orEmpty().take(100_000)
     val obj = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
     fun number(vararg names: String): Double? = names.firstNotNullOfOrNull { name ->
         if (obj != null) {

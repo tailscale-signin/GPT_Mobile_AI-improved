@@ -60,7 +60,8 @@ data class AgentToolResult(
     val toolCallBudgetConfigured: Int? = null,
     val toolCallBudgetReserved: Int? = null,
     val toolResultBudgetUsedBytes: Int? = null,
-    val toolResultBudgetLimitBytes: Int? = null
+    val toolResultBudgetLimitBytes: Int? = null,
+    val retainedContent: ToolResultContent? = null
 )
 
 sealed interface ToolResultContent {

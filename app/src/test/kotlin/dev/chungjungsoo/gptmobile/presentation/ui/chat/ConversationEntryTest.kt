@@ -28,6 +28,35 @@ import org.robolectric.annotation.Config
 class ConversationEntryTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun unreadResponseBeginningAlignsAtTheViewportCenter() {
+        lateinit var state: LazyListState
+        var responseOffset = 0
+        compose.setContent {
+            state = rememberLazyListState()
+            responseOffset = with(LocalDensity.current) { 48.dp.roundToPx() }
+            Box(Modifier.size(320.dp, 280.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state, contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 24.dp, bottom = 32.dp)) {
+                    item { Spacer(Modifier.fillParentMaxHeight(0.5f)) }
+                    item {
+                        Column {
+                            Spacer(Modifier.height(48.dp))
+                            Spacer(Modifier.height(120.dp))
+                        }
+                    }
+                    item { Spacer(Modifier.fillParentMaxHeight()) }
+                }
+                LaunchedEffect(Unit) {
+                    state.scrollToConversationEntry(1, responseOffset, centerResponse = true)
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val item = state.layoutInfo.visibleItemsInfo.first { it.index == 1 }
+            assertEquals(state.layoutInfo.viewportSize.height / 2, item.offset + responseOffset - state.layoutInfo.viewportStartOffset)
+        }
+    }
+
     @Test fun openingConversationOverridesRestoredMiddlePositionAndShowsTrueBottom() {
         lateinit var state: LazyListState
         compose.setContent {

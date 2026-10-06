@@ -77,28 +77,23 @@ fun SetupPlatformWizardScreen(
     val canProceed by setupViewModel.canProceed.collectAsStateWithLifecycle()
     val isWaitingForDownload by setupViewModel.isWaitingForDownload.collectAsStateWithLifecycle()
 
-    // Handle back press
-    BackHandler {
+    val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
+    val backFromWizard: () -> Unit = {
         if (wizardStep > 0) {
-            setupViewModel.previousWizardStep()
+            backFade.fade(setupViewModel::previousWizardStep)
         } else {
             setupViewModel.resetWizard()
             onBackAction()
         }
     }
 
+    BackHandler(onBack = backFromWizard)
+
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.then(backFade.modifier).fillMaxSize(),
         topBar = {
             SetupAppBar(
-                backAction = {
-                    if (wizardStep > 0) {
-                        setupViewModel.previousWizardStep()
-                    } else {
-                        setupViewModel.resetWizard()
-                        onBackAction()
-                    }
-                }
+                backAction = backFromWizard
             )
         }
     ) { innerPadding ->

@@ -443,6 +443,7 @@ class OpenAIAPIImpl @Inject constructor(
                         receivedTerminal = receivedTerminal ||
                             streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent ||
                             streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent ||
+                            streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent ||
                             streamEvent is ResponseErrorEvent
                         receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
                         emit(streamEvent)

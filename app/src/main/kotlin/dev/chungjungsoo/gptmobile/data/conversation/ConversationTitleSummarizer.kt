@@ -38,30 +38,19 @@ class ConversationTitleSummarizer(
         val title = when (platform.compatibleType) {
             ClientType.OPENAI -> summarizeWithOpenAI(prompt, platform, config)
             ClientType.GROQ -> summarizeWithGroq(prompt, platform, config)
-            ClientType.NVIDIA, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM ->
+            ClientType.NVIDIA, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA ->
                 summarizeWithOpenAI(prompt, platform, config)
             ClientType.GOOGLE -> summarizeWithGemini(prompt, platform, config)
             else -> null
         }
-        title?.let(::cleanTitle)?.takeIf { cleaned ->
-            cleaned.split(Regex("\\s+")).count { it.isNotBlank() } in 4..8
-        }
+        title?.let(ConversationSubject::clean)
     }
 
     private fun buildProviderRequestConfig(platform: PlatformV2): ProviderRequestConfig {
         val activeKey = ApiCredentialRotator.parseKeys(platform.token).firstOrNull() ?: ""
-        val extraHeaders = if (platform.compatibleType == ClientType.OPENROUTER) {
-            mapOf(
-                "HTTP-Referer" to "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
-                "X-Title" to "GPT Mobile AI Improved"
-            )
-        } else {
-            emptyMap()
-        }
         return ProviderRequestConfig(
             apiUrl = platform.apiUrl,
-            token = activeKey,
-            extraHeaders = extraHeaders
+            token = activeKey
         )
     }
 
@@ -140,20 +129,10 @@ class ConversationTitleSummarizer(
     private fun buildPrompt(userMessage: String, assistantMessage: String): String =
         "User: ${userMessage.take(300)}\nAssistant: ${assistantMessage.take(300)}"
 
-    private fun cleanTitle(raw: String): String = raw.lineSequence().firstOrNull().orEmpty()
-        .trim()
-        .removeSurrounding("\"")
-        .removeSurrounding("“", "”")
-        .removeSurrounding("'")
-        .removePrefix("Title:")
-        .removePrefix("title:")
-        .trim()
-        .take(60)
-
     companion object {
         private const val TIMEOUT_MS = 10_000L
         private const val SYSTEM_INSTRUCTION =
-            "Create a specific, informative conversation subject of 4 to 8 words, preferably naming the main task, object, or topic. " +
-                "Keep it under 60 characters. Respond ONLY with the title text; do not wrap it in quotes or add an explanation."
+            "Create a specific conversation subject of 1 to 4 words naming the main task, object, or topic. Do not add generic filler words. " +
+                "Keep it at most 24 characters. Respond ONLY with the title text; do not wrap it in quotes or add an explanation."
     }
 }

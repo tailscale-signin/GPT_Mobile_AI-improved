@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.agent.displayResult
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -60,7 +61,7 @@ internal fun AssistantChronologicalContent(
             val automaticIds = timeline.flatMap { it.recalledFacts }.map { it.id }
             val toolIds = toolEvents
                 .filter { !it.isError && (isMemoryRecallTool(it.toolName) || isMemoryRecallTool(it.modelToolName)) }
-                .flatMap { rememberedMemoryIdsFromToolResult(it.result) }
+                .flatMap { rememberedMemoryIdsFromToolResult(it.displayResult()) }
             (automaticIds + toolIds).distinct().mapNotNull { debugMemorySources[it] }
         } else {
             emptyList()

@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.repository
 import dev.chungjungsoo.gptmobile.data.agent.AgentResourceLink
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.displayResult
+import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -16,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -35,6 +38,30 @@ class ToolEventRecorderTest {
     private val dao = FakeAgentPersistenceDao()
     private val runDao = FakeAgentRunDao()
     private val recorder = ToolEventRecorder(dao, runDao, eventIdFactory = { "event-${dao.rows.size + 1}" })
+
+    @Test
+    fun gatewayCheckpointKeepsFullResearchThroughSerializationAndPersistence() = runBlocking {
+        val research = "Verified evidence 😀 https://example.org/source\n".repeat(4000)
+        val arguments = buildJsonObject { put("query", "Complete query".repeat(1000)) }
+        val trace = ToolTraceSession("run-1", emptyList(), recorder, java.util.concurrent.atomic.AtomicInteger())
+        val started = GatewayProgress(event = "tool_started", toolSource = "gateway", toolCallId = "call-web", toolName = "web_search", toolArgs = arguments)
+        trace.gateway(started)
+        val completed = Json.decodeFromString<GatewayProgress>(
+            Json.encodeToString(GatewayProgress.serializer(), started.copy(event = "tool_completed", status = "completed", message = "Short UI summary", toolResult = research))
+        )
+        val state = trace.gateway(completed)
+        assertEquals(research, dao.rows.single().result)
+        assertEquals(arguments.toString(), dao.rows.single().arguments)
+        assertEquals(research.toByteArray(Charsets.UTF_8).size, state?.metrics?.resultBytes)
+    }
+
+    @Test
+    fun resumedGatewayStreamPreservesResearchEvenWhenStartWasNotReplayed() = runBlocking {
+        val trace = ToolTraceSession("run-1", emptyList(), recorder, java.util.concurrent.atomic.AtomicInteger())
+        trace.gateway(GatewayProgress(event = "prefetch_completed", toolSource = "gateway", toolCallId = "preload-1", toolName = "read_url", toolResult = "Full preloaded evidence", toolArgs = buildJsonObject { put("url", "https://example.org") }))
+        assertEquals("Full preloaded evidence", dao.rows.single().result)
+        assertEquals(ToolEventStatus.COMPLETED, dao.rows.single().status)
+    }
 
     @Test
     fun startTool_recordsRunningEventWithStableCallIdAndCallerSequence() = runBlocking {
@@ -64,7 +91,7 @@ class ToolEventRecorderTest {
     }
 
     @Test
-    fun startTool_boundsUtf8ArgumentsWithoutSplittingCodePoint() = runBlocking {
+    fun startTool_preservesCompleteUtf8Arguments() = runBlocking {
         val value = "a".repeat(65535) + "\uD83D\uDE00"
 
         val event = recorder.startTool(
@@ -77,7 +104,7 @@ class ToolEventRecorderTest {
             startedAt = 100L
         )
 
-        assertTrue(event.arguments.toByteArray(Charsets.UTF_8).size <= 64 * 1024)
+        assertEquals(buildJsonObject { put("value", value) }.toString(), event.arguments)
         assertTrue('\uFFFD' !in event.arguments)
         assertTrue(!event.arguments.last().isSurrogate())
     }
@@ -150,8 +177,9 @@ class ToolEventRecorderTest {
         assertEquals(null, stored.error)
         assertTrue(stored.result.orEmpty().contains("Reviewed delegated evidence"))
     }
+
     @Test
-    fun finishTool_boundsResultAndMarksErrorsFailed() = runBlocking {
+    fun finishTool_preservesCompleteResultAndMarksErrorsFailed() = runBlocking {
         val event = recorder.startTool("run-1", 0, "call-error", "echo", "echo", buildJsonObject {}, startedAt = 100L)
 
         recorder.finishTool(
@@ -166,11 +194,11 @@ class ToolEventRecorderTest {
         assertEquals(true, stored.isError)
         assertEquals("boom", stored.error)
         assertEquals(110L, stored.completedAt)
-        assertTrue(stored.result!!.toByteArray(Charsets.UTF_8).size <= 64 * 1024)
+        assertTrue(stored.result!!.toByteArray(Charsets.UTF_8).size >= 70 * 1024)
     }
 
     @Test
-    fun finishTool_persistsTraceOnlyContentWithoutChangingModelContent() = runBlocking {
+    fun finishTool_preservesFullContentAlongsideItsDisplayTrace() = runBlocking {
         val event = recorder.startTool("run-1", 0, "call-trace", "image", "image", buildJsonObject {}, startedAt = 100L)
 
         recorder.finishTool(
@@ -184,7 +212,8 @@ class ToolEventRecorderTest {
             completedAt = 110L
         )
 
-        assertEquals("image/png omitted from model context", dao.rows.single().result)
+        assertEquals("image/png omitted from model context", dao.rows.single().displayResult())
+        assertEquals("safe model result", dao.rows.single().recoveryResult())
     }
 
     @Test
@@ -237,7 +266,7 @@ class ToolEventRecorderTest {
     }
 
     @Test
-    fun finishTool_downgradesOversizedJsonResultToBoundedTextPreview() = runBlocking {
+    fun finishTool_preservesOversizedJsonForRecovery() = runBlocking {
         val event = recorder.startTool("run-1", 0, "call-json", "lookup", "lookup", buildJsonObject {}, startedAt = 100L)
 
         recorder.finishTool(
@@ -251,12 +280,12 @@ class ToolEventRecorderTest {
         )
 
         val stored = dao.rows.single()
-        assertEquals(ToolEventResultType.TEXT, stored.resultType)
-        assertTrue(stored.result!!.toByteArray(Charsets.UTF_8).size <= 64 * 1024)
+        assertEquals(ToolEventResultType.JSON, stored.resultType)
+        assertTrue(stored.result!!.toByteArray(Charsets.UTF_8).size >= 70 * 1024)
     }
 
     @Test
-    fun finishTool_downgradesOversizedResourceLinksResultToBoundedTextPreview() = runBlocking {
+    fun finishTool_preservesOversizedResourceLinksForRecovery() = runBlocking {
         val event = recorder.startTool("run-1", 0, "call-links", "files", "files", buildJsonObject {}, startedAt = 100L)
 
         recorder.finishTool(
@@ -272,8 +301,8 @@ class ToolEventRecorderTest {
         )
 
         val stored = dao.rows.single()
-        assertEquals(ToolEventResultType.TEXT, stored.resultType)
-        assertTrue(stored.result!!.toByteArray(Charsets.UTF_8).size <= 64 * 1024)
+        assertEquals(ToolEventResultType.RESOURCE_LINKS, stored.resultType)
+        assertTrue(stored.result!!.toByteArray(Charsets.UTF_8).size >= 70 * 1024)
     }
 
     @Test
@@ -396,20 +425,21 @@ private class FakeAgentRunDao : AgentRunDao {
 }
 
 private class FakeAgentPersistenceDao : AgentPersistenceDao {
+    override suspend fun removeArchiveSearchIndex(chatId: Int) = unused<Unit>()
     override suspend fun recoveryRun(runId: String): AgentRun? = unused()
-    override suspend fun recoveryMessage(messageId: Int): MessageV2? = unused()
+    override suspend fun rawRecoveryMessage(messageId: Int): MessageV2? = unused()
     override suspend fun pendingPrompt(id: String): dev.chungjungsoo.gptmobile.data.queue.PendingPrompt? = unused()
     override suspend fun consumePrompt(id: String, messageId: Int): Int = unused()
     override suspend fun firstPendingId(chatId: Int): String? = unused()
     override suspend fun activeRunCount(chatId: Int): Int = unused()
-    override suspend fun latestAssistantMessages(chatId: Int): List<MessageV2> = unused()
+    override suspend fun rawLatestAssistantMessages(chatId: Int): List<MessageV2> = unused()
 
     val rows = mutableListOf<ToolEvent>()
     val observedToolEvents = MutableStateFlow(emptyList<ToolEvent>())
     val observedChatIds = mutableListOf<Int>()
     var bulkQueryCount = 0
 
-    override fun observeRecentToolEvents(limit: Int): Flow<List<ToolEvent>> = observedToolEvents.map { events ->
+    override fun rawObserveRecentToolEvents(limit: Int): Flow<List<ToolEvent>> = observedToolEvents.map { events ->
         events.sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: it.startedAt ?: 0L }.thenByDescending { it.sequence }).take(limit)
     }
 
@@ -423,10 +453,11 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
     override suspend fun deleteMessages(messages: List<MessageV2>) = unused<Unit>()
     override suspend fun upsertModels(models: List<ChatPlatformModelV2>) = unused<Unit>()
     override suspend fun getChatRoom(chatId: Int): ChatRoomV2? = unused()
-    override suspend fun getMessages(chatId: Int): List<MessageV2> = unused()
+    override suspend fun rawGetMessages(chatId: Int): List<MessageV2> = unused()
     override suspend fun getModels(chatId: Int): List<ChatPlatformModelV2> = unused()
     override suspend fun getCompletedRuns(chatId: Int): List<AgentRun> = unused()
-    override suspend fun getToolEvents(runIds: List<String>): List<ToolEvent> {
+    override suspend fun getIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun> = unused()
+    override suspend fun rawGetToolEvents(runIds: List<String>): List<ToolEvent> {
         bulkQueryCount++
         return rows
             .filter { it.runId in runIds }
@@ -436,6 +467,10 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
     override suspend fun saveChatSnapshot(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>) = unused<Unit>()
     override suspend fun persistAgentRetry(request: PersistAgentRetryRequest): PersistAgentRetryResult = unused()
     override suspend fun duplicateChatWithHistory(sourceChatId: Int, title: String, timestamp: Long, editedUser: MessageV2?): ChatRoomV2 = unused()
+    override suspend fun archiveRunIds(chatId: Int): List<String> = emptyList()
+    override suspend fun updateArchiveMessage(id: Int, content: String, thoughts: String, revisions: String, timeline: String, sources: String) = Unit
+    override suspend fun updateArchiveTool(id: String, arguments: String, result: String?, error: String?) = Unit
+    override suspend fun updateArchiveFlag(chatId: Int, archived: Boolean) = Unit
     override suspend fun updateMessage(message: MessageV2) = unused<Unit>()
     override suspend fun updateRunStatus(
         runId: String,
@@ -445,13 +480,13 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
         terminalError: String?
     ) = unused<Unit>()
 
-    override suspend fun getToolEventsForRun(runId: String): List<ToolEvent> = rows
+    override suspend fun rawGetToolEventsForRun(runId: String): List<ToolEvent> = rows
         .filter { it.runId == runId }
         .sortedBy { it.sequence }
 
-    override suspend fun getToolEventById(eventId: String): ToolEvent? = rows.firstOrNull { it.eventId == eventId }
+    override suspend fun rawGetToolEventById(eventId: String): ToolEvent? = rows.firstOrNull { it.eventId == eventId }
 
-    override fun observeToolEventsForChat(chatId: Int): Flow<List<ToolEvent>> {
+    override fun rawObserveToolEventsForChat(chatId: Int): Flow<List<ToolEvent>> {
         observedChatIds += chatId
         return observedToolEvents
     }

@@ -218,15 +218,16 @@ class AgentRunner(
             val hostSuppressedIds = mutableSetOf<String>()
             calls.take(remainingCalls).forEach { call ->
                 val used = toolCallsByName[call.name] ?: 0
+                val repeatLimit = if (Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else MAX_SAME_TOOL_CALLS_PER_RUN
                 if (failureScope(call) in blockedReadScopes) {
                     deferredCalls += call
                     hostSuppressedIds += call.callId
-                } else if (used >= MAX_SAME_TOOL_CALLS_PER_RUN) {
+                } else if (used >= repeatLimit) {
                     deferredCalls += call
                     perToolSuppressedIds += call.callId
                     executableToolByName = executableToolByName - call.name
                     exposedDefinitions = exposedDefinitions.filterNot { it.name == call.name }
-                    AppLogRecorder.record("Agent", "TOOL_CALL_STORM_BLOCKED · tool=${call.name} · calls=$used · max=$MAX_SAME_TOOL_CALLS_PER_RUN", "W")
+                    AppLogRecorder.record("Agent", "TOOL_CALL_STORM_BLOCKED · tool=${call.name} · calls=$used · max=$repeatLimit", "W")
                 } else {
                     executableCalls += call
                     toolCallsByName[call.name] = used + 1

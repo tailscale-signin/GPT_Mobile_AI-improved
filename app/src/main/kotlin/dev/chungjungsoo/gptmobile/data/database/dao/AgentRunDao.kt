@@ -31,7 +31,7 @@ interface AgentRunDao {
     // Join on both IDs: retries reuse the message, but must not reuse its latest answer.
     // Count in SQLite so analytics never loads full response bodies into memory.
     @Query(
-        "SELECT r.run_id AS runId, LENGTH(TRIM(m.content)) AS characters " +
+        "SELECT r.run_id AS runId, CASE WHEN m.content LIKE '@gpt-archive:gzip:v1:%' THEN CAST(substr(m.content, 22, instr(substr(m.content, 22), ':') - 1) AS INTEGER) ELSE LENGTH(TRIM(m.content)) END AS characters " +
             "FROM (SELECT * FROM agent_runs ORDER BY created_at DESC, run_id DESC LIMIT :limit) r " +
             "JOIN messages_v2 m ON m.message_id = r.assistant_message_id AND m.current_run_id = r.run_id " +
             "WHERE r.output_tokens IS NULL AND r.status = 'COMPLETED' AND m.platform_type IS NOT NULL"

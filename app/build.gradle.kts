@@ -2,10 +2,22 @@
 
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
+import org.gradle.api.artifacts.transform.CacheableTransform
+import org.gradle.api.artifacts.transform.InputArtifact
+import org.gradle.api.artifacts.transform.TransformAction
+import org.gradle.api.artifacts.transform.TransformOutputs
+import org.gradle.api.artifacts.transform.TransformParameters
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+import org.gradle.api.attributes.Attribute
 import org.gradle.kotlin.dsl.aboutLibraries
 import org.gradle.kotlin.dsl.configure
 
@@ -20,6 +32,84 @@ plugins {
     jacoco
     kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
     alias(libs.plugins.objectbox)
+}
+
+/** Keep on-device embeddings while removing the SDK's remote statistics implementation. */
+@CacheableTransform
+abstract class PrivateMemoryRuntime : TransformAction<TransformParameters.None> {
+    @get:InputArtifact
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val inputArtifact: Provider<FileSystemLocation>
+
+    override fun transform(outputs: TransformOutputs) {
+        val source = inputArtifact.get().asFile
+        if (!source.name.contains("tasks-core")) {
+            outputs.file(source)
+            return
+        }
+        val destination = outputs.file(source.name)
+        ZipInputStream(source.inputStream()).use { input ->
+            ZipOutputStream(destination.outputStream()).use { output ->
+                while (true) {
+                    val entry = input.nextEntry ?: break
+                    val content = input.readBytes()
+                    output.putNextEntry(ZipEntry(entry.name).apply { time = 0 })
+                    output.write(if (entry.name == "classes.jar") withoutTelemetry(content) else content)
+                    output.closeEntry()
+                }
+            }
+        }
+    }
+
+    private fun withoutTelemetry(content: ByteArray): ByteArray {
+        val result = ByteArrayOutputStream()
+        var factoryPatched = false
+        ZipInputStream(ByteArrayInputStream(content)).use { input ->
+            ZipOutputStream(result).use { output ->
+                while (true) {
+                    val entry = input.nextEntry ?: break
+                    var bytes = input.readBytes()
+                    if (entry.name in REMOTE_LOGGERS) continue
+                    if (entry.name == "com/google/mediapipe/tasks/core/logging/TasksStatsLoggerFactory.class") {
+                        // The two class names have equal UTF-8 length. Only these constant-pool
+                        // references change; method descriptors and bytecode offsets stay valid.
+                        val original = bytes.toString(Charsets.ISO_8859_1)
+                        check(original.contains("TasksStatsProtoLogger")) { "Embedding SDK logger changed; review its privacy integration." }
+                        bytes = original.replace("TasksStatsProtoLogger", "TasksStatsDummyLogger").toByteArray(Charsets.ISO_8859_1)
+                        check(bytes.size == original.length)
+                        factoryPatched = true
+                    }
+                    output.putNextEntry(ZipEntry(entry.name).apply { time = 0 })
+                    output.write(bytes)
+                    output.closeEntry()
+                }
+            }
+        }
+        check(factoryPatched) { "Embedding SDK privacy transform did not replace its statistics factory." }
+        return result.toByteArray()
+    }
+
+    companion object {
+        private val REMOTE_LOGGERS = setOf(
+            "com/google/mediapipe/tasks/core/logging/TasksStatsProtoLogger.class",
+            "com/google/mediapipe/tasks/core/logging/RemoteLoggingClient.class",
+            "com/google/mediapipe/tasks/core/logging/LoggingClient.class"
+        )
+    }
+}
+
+val privateMemoryAttribute = Attribute.of("dev.chungjungsoo.gptmobile.private-memory", Boolean::class.javaObjectType)
+configurations.configureEach {
+    if (name.endsWith("CompileClasspath") || name.endsWith("RuntimeClasspath")) attributes.attribute(privateMemoryAttribute, true)
+    exclude(group = "com.google.android.datatransport")
+}
+
+dependencies {
+    artifactTypes.maybeCreate("aar").attributes.attribute(privateMemoryAttribute, false)
+    registerTransform(PrivateMemoryRuntime::class) {
+        from.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar").attribute(privateMemoryAttribute, false)
+        to.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar").attribute(privateMemoryAttribute, true)
+    }
 }
 
 extensions.configure<ApplicationExtension> {

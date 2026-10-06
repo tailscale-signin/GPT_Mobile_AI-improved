@@ -9,4 +9,4 @@ data class MessageSearch(val content: String, val revisions: String)
 
 /** Quote tokens so a search string is data, not FTS query syntax. */
 fun messageSearchQuery(query: String): String = Regex("[\\p{L}\\p{N}_]+").findAll(query).take(12)
-    .joinToString(" AND ") { "\"${it.value}\"*" }
+    .joinToString(" ") { "\"${it.value}*\"" }

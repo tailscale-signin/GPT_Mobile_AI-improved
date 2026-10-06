@@ -112,7 +112,7 @@ fun ChatMarkdown(
     val isDarkTheme = isSystemInDarkTheme()
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    val parsed = remember(content) { parseChatMarkdown(content) }
+    val parsed = remember(content) { parseChatMarkdown(dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)) }
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     val highlightsBuilder = remember(isDarkTheme) {
         Highlights.Builder().theme(SyntaxThemes.atom(isDarkTheme))

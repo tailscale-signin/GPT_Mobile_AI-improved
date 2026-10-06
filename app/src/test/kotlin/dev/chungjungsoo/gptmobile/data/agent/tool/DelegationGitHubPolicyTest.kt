@@ -12,6 +12,14 @@ import org.junit.Test
 
 class DelegationGitHubPolicyTest {
     @Test
+    fun `short follow-ups retain repository intent while new public questions do not`() {
+        val prior = listOf("Fix github.com/owner/repo", "Continue")
+        assertTrue(isGitHubTask(repositoryRoutingTask("Try again", prior)))
+        assertFalse(isGitHubTask(repositoryRoutingTask("What is the weather in London?", prior)))
+        assertFalse(isGitHubTask(repositoryRoutingTask("Continue", listOf("Find a restaurant"))))
+    }
+
+    @Test
     fun `local first keeps aggregate web search and GitHub available for primary recovery`() {
         val delegate = tool("delegate_to_model")
         val aggregateWeb = tool("web_search")
@@ -87,7 +95,7 @@ class DelegationGitHubPolicyTest {
 
         assertEquals(listOf(calculator, github), routed)
         assertFalse(routed.any { it.isShellExecutionTool() })
-        assertEquals(listOf(posix, calculator, github), preferNativeGitHubForTask(listOf(posix, calculator, github), "Calculate 2 + 2"))
+        assertEquals(listOf(posix, calculator), preferNativeGitHubForTask(listOf(posix, calculator, github), "Calculate 2 + 2"))
     }
 
     @Test

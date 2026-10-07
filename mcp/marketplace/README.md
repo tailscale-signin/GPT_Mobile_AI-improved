@@ -1,14 +1,47 @@
-# Optional location marketplace packages
+# Optional location marketplace plugins
 
-These are first-party GPT Mobile connection packages, not provider-endorsed plugins.
-Downloading a package does not authorize tools, enable billing, deploy a server, or
-install a Python/Node runtime in Android. Existing native plugins remain APK code.
-The Android marketplace distinguishes package downloads from saved connections.
+These are first-party GPT Mobile adapters, not provider-endorsed plugins.
 
-## Companion setup (Python 3.11 or newer)
+## Android installation and use
 
-Export `location_mcp.py` from the downloaded package and transfer it to your own
-computer, or get it from this directory at the commit shown in the app. Review
+For the twelve **Runs in app** entries, choose **Download & install**. The app
+verifies a commit-pinned package and installs its registration. The REST
+adapters are compiled into the APK; no downloaded Python/Node code is executed.
+Installed plugins appear in Marketplace and Settings > Tool connections > Plugins.
+
+Fill any required red-outlined field, save settings, then choose **Enable**.
+REFUGE and Toronto Open Data need no API key. Nominatim and Overpass need a
+permitted managed/self-hosted HTTPS search/interpreter endpoint but no API key;
+shared public endpoints are not defaults. Ticketmaster, TomTom, Yelp, Eventbrite,
+ArcGIS, OpenRouteService, Google Places and Foursquare require their own provider
+key/token. Keys are stored in the encrypted Android Keystore vault.
+
+The defaults are ten results (five where the provider requires it) and fifty
+request attempts per provider per UTC day. Each tool call makes one bounded
+request without automatic retries, with a one-second cooldown and sixty seconds
+after HTTP 429. Failed requests count. Provider limits, account access and charges
+still apply; the app allowance is not a spending cap. Use provider billing caps.
+No provider requests occur just by installing or opening the marketplace.
+
+Enabled adapters are available to the app's agent tool resolver and conversation
+tool controls. Turning a plugin off blocks subsequent calls, including tools
+already held by a chat. **Uninstall** disables it and removes the downloaded
+package, settings, saved key and permissions. Reinstall starts disabled with defaults.
+
+Hosted MCP entries require a saved connection and provider sign-in/key, followed
+by discovery and tool assignment. Their enable/disable and uninstall controls
+manage that connection and remove its saved credentials and assignments. Setup
+plans remain **View guide** entries, not installable apps. Download does not
+provide a subscription, authorize billing, deploy a server or install a runtime.
+
+## Optional computer-hosted companion (Python 3.11 or newer)
+
+The standalone `location_mcp.py` remains available in this directory for users
+who prefer to host the same providers on their own computer. It is separate from
+the Android installation above.
+
+Get `location_mcp.py` from this directory at the commit shown in the app and
+transfer it to your own computer. Review
 it before execution. No pip packages, Docker, telemetry, shell execution, or
 provider credentials are included.
 

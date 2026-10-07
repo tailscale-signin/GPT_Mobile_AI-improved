@@ -36,6 +36,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     private var store: BoxStore? = null
     private var embedder: TextEmbedder? = null
     private var lastUsed = 0L
+    private var retryAfter = 0L
     private val _status = MutableStateFlow(SemanticMemoryStatus())
     val status = _status.asStateFlow()
 
@@ -66,6 +67,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     /** Incremental and bounded; a large restored vault is completed over successive turns or Rebuild. */
     suspend fun synchronize(facts: List<VaultFact>, batchSize: Int = 128) = withContext(ownerDispatcher) {
         mutex.withLock {
+            if (retryDeferred()) return@withLock
             try {
                 val box = box()
                 val existing = box.all.filterNot { it.factId.startsWith("doc:") }.associateBy { it.factId }
@@ -91,6 +93,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
 
     suspend fun search(query: String, scope: String, limit: Int = 80, includePersonal: Boolean = true): Map<String, Double> = withContext(ownerDispatcher) {
         mutex.withLock {
+            if (retryDeferred()) return@withLock emptyMap()
             try {
                 if (query.isBlank()) return@withLock emptyMap()
                 val allowedScope = if (includePersonal) MemoryVector_.scope.equal("personal").or(MemoryVector_.scope.equal(scope)) else MemoryVector_.scope.equal(scope)
@@ -110,6 +113,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
 
     suspend fun indexDocument(document: dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDocument, chunks: List<dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk>) = withContext(ownerDispatcher) {
         mutex.withLock {
+            if (retryDeferred()) return@withLock
             try {
                 val box = box()
                 val prefix = "doc:${document.id}:"
@@ -152,6 +156,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             if (store != null || File(context.noBackupFilesDir, "memory-vectors-use-qa-v1").exists()) box().removeAll()
             embedder?.close()
             embedder = null
+            retryAfter = 0L
             _status.value = SemanticMemoryStatus()
         }
     }
@@ -173,9 +178,19 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     }
 
     private fun unavailable(failure: Throwable) {
+        // Retrying every profile and recall cannot repair a broken release schema.
+        // Other initialization errors get a cooldown; an explicit rebuild can retry.
+        val schemaFailure = generateSequence(failure) { it.cause }.take(12).any {
+            it is LinkageError || it.message.orEmpty().let { message -> "not found" in message && "Known fields" in message }
+        }
+        retryAfter = if (schemaFailure) Long.MAX_VALUE else android.os.SystemClock.elapsedRealtime() + 60_000L
+        runCatching { embedder?.close() }
+        embedder = null
         AppLogRecorder.record("Memory", "SEMANTIC_ENGINE_FAILED · cause=${failure.javaClass.simpleName} · detail=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.message.orEmpty()).take(240)}", "E")
         _status.value = _status.value.copy(available = false, detail = "Semantic engine unavailable · exact and topic recall remain active")
     }
+
+    private fun retryDeferred() = android.os.SystemClock.elapsedRealtime() < retryAfter
 
     private fun text(fact: VaultFact) = "${fact.fact.entity.name} ${fact.fact.relation.relationType.lowercase().replace('_', ' ')} ${fact.fact.target.name}"
     private fun fingerprint(fact: VaultFact) = MessageDigest.getInstance("SHA-256").digest(text(fact).encodeToByteArray()).joinToString("") { "%02x".format(it) }

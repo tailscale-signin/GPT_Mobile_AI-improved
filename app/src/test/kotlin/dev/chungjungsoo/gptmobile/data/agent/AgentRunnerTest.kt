@@ -21,6 +21,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun `unassigned MCP search routes through the authorized aggregate only`() = kotlinx.coroutines.test.runTest {
+        var searches = 0
+        val events = AgentRunner().run(
+            session { _, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        emit(toolCall("search", "mcp__usearch__web_search", buildJsonObject { put("query", "France timeline") }))
+                    } else {
+                        assertEquals("web_search", exchanges.single().calls.single().name)
+                        emit(ProviderEvent.TextDelta("Grounded answer"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(
+                tool("web_search") { id, arguments ->
+                    searches++
+                    assertEquals("France timeline", (arguments["query"] as kotlinx.serialization.json.JsonPrimitive).content)
+                    AgentToolResult(id, ToolResultContent.Text("Configured engine evidence"), false)
+                }
+            )
+        ).toList()
+        assertEquals(1, searches)
+        assertFalse(events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result.isError)
+    }
+
+    @Test fun `unassigned connections stay blocked when no aggregate is assigned`() = kotlinx.coroutines.test.runTest {
+        val events = AgentRunner().run(
+            session { _, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) emit(toolCall("search", "mcp__usearch__web_search", buildJsonObject { put("query", "France timeline") })) else emit(ProviderEvent.TextDelta("No search connection assigned"))
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            emptyList()
+        ).toList()
+        assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result.isError)
+    }
+
     @Test fun `malformed tool arguments recover once without executing any incomplete action`() = kotlinx.coroutines.test.runTest {
         var rounds = 0
         var actions = 0

@@ -258,6 +258,7 @@ fun ChatScreen(
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var isFollowingBottom by remember { mutableStateOf(!hasTargetMessage) }
     var isHoldingEntryCenter by remember { mutableStateOf(hasTargetMessage) }
+    var isModelTabPositionLocked by remember { mutableStateOf(false) }
     var entryPositioned by remember { mutableStateOf(false) }
     var targetResponseOffset by remember(chatViewModel.targetMessageId) { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -460,7 +461,8 @@ fun ChatScreen(
     }
 
     LaunchedEffect(isUserDragging, listState.isScrollInProgress, listState.canScrollForward, listState.lastScrolledBackward) {
-        if (entryPositioned && (isFollowingBottom || isUserDragging || listState.isScrollInProgress)) {
+        if (isModelTabPositionLocked && isUserDragging) isModelTabPositionLocked = false
+        if (entryPositioned && !isModelTabPositionLocked && (isFollowingBottom || isUserDragging || listState.isScrollInProgress)) {
             isFollowingBottom = nextFollowBottom(
                 isFollowing = isFollowingBottom,
                 isUserScrolling = isUserDragging || listState.isScrollInProgress,
@@ -474,6 +476,7 @@ fun ChatScreen(
         val currentCount = groupedMessages.userMessages.size
         if (currentCount > previousMessageCount && entryPositioned) {
             isHoldingEntryCenter = false
+            isModelTabPositionLocked = false
             isFollowingBottom = true
         }
         previousMessageCount = currentCount
@@ -481,8 +484,10 @@ fun ChatScreen(
 
     ChatBottomAutoScroller(
         listState = listState,
+        animate = !isIdle,
         isEnabled = featureSettings.smoothStreaming &&
             entryPositioned &&
+            !isModelTabPositionLocked &&
             shouldAutoScrollToBottom(
                 isFollowing = isFollowingBottom,
                 isUserDragging = isUserDragging,
@@ -535,15 +540,16 @@ fun ChatScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
+                    // Position the measured list before revealing an existing chat.
+                    // Restored positions and favourite targeting never animate on entry.
+                    .graphicsLayer { alpha = if (entryPositioned || groupedMessages.userMessages.isEmpty()) 1f else 0f }
                     .chatViewportEdgeFade(
-                        // Keep scrolled text hidden across the title, then fade it in
-                        // below the entire header so the two never overlap.
-                        topFadeStart = if (featureSettings.edgeFades) innerPadding.calculateTopPadding() else 0.dp,
-                        topFade = if (featureSettings.edgeFades) innerPadding.calculateTopPadding() + 32.dp else 0.dp,
+                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 32.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
-                        bottomFadeStartFromBottom = if (featureSettings.edgeFades) composerHeight else 0.dp,
-                        bottomFadeEndFromBottom = if (featureSettings.edgeFades) composerHeight * 0.5f else 0.dp
+                        bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,
+                        bottomFadeEndFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight * 0.5f else 0.dp
                     ),
                 state = listState,
                 contentPadding = PaddingValues(top = innerPadding.calculateTopPadding(), bottom = composerHeight + 16.dp)
@@ -599,6 +605,10 @@ fun ChatScreen(
                             inspectingCombinedSource && inspectedCombinedTurn == chatMessagePairKey(message, index)
                         },
                         onCombinedProfileClick = { uid ->
+                            isHoldingEntryCenter = false
+                            isFollowingBottom = false
+                            isModelTabPositionLocked = true
+                            listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
                             inspectedCombinedTurn = chatMessagePairKey(message, index).takeIf { uid != null }
                             inspectedCombinedProfileUid = uid
                         },
@@ -613,7 +623,13 @@ fun ChatScreen(
                                 clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(copiedText, copiedText)))
                             }
                         },
-                        onPlatformClick = chatViewModel::updateChatPlatformIndex,
+                        onPlatformClick = { turn, platform ->
+                            isHoldingEntryCenter = false
+                            isFollowingBottom = false
+                            isModelTabPositionLocked = true
+                            listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                            chatViewModel.updateChatPlatformIndex(turn, platform)
+                        },
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
@@ -635,7 +651,7 @@ fun ChatScreen(
                 }
                 if (groupedMessages.userMessages.isNotEmpty()) {
                     item(key = "chat-bottom-anchor") {
-                        Spacer(if (hasTargetAssistant && !isFollowingBottom) Modifier.fillParentMaxHeight(0.5f) else Modifier.size(1.dp))
+                        Spacer(Modifier.size(1.dp))
                     }
                 }
             }
@@ -649,6 +665,7 @@ fun ChatScreen(
                 ) {
                     ScrollToBottomButton {
                         isHoldingEntryCenter = false
+                        isModelTabPositionLocked = false
                         scope.launch {
                             listState.animateScrollToLatestChatMessage()
                             isFollowingBottom = true
@@ -910,7 +927,6 @@ private fun ChatMessagePair(
     val displayPlatformIndex = when {
         selectedProfile != null -> selectedProfile.assistantIndex
         isCombinedConversation -> combinedSynthesisIndex.takeIf { it >= 0 } ?: combinedProfiles.firstOrNull()?.assistantIndex ?: 0
-        targetAssistantIndex >= 0 -> targetAssistantIndex
         else -> platformIndexState
     }
     val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
@@ -962,7 +978,7 @@ private fun ChatMessagePair(
     }
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1190,9 +1206,10 @@ internal fun shouldAutoScrollToBottom(
 @Composable
 internal fun ChatBottomAutoScroller(
     listState: LazyListState,
-    isEnabled: Boolean
+    isEnabled: Boolean,
+    animate: Boolean = true
 ) {
-    LaunchedEffect(listState, isEnabled) {
+    LaunchedEffect(listState, isEnabled, animate) {
         if (!isEnabled) return@LaunchedEffect
 
         // Observe measured growth, not token count. User gestures cancel the animation.
@@ -1204,7 +1221,7 @@ internal fun ChatBottomAutoScroller(
             kotlinx.coroutines.delay(32)
             val latestItemIndex = totalItems - 1
             if (latestItemIndex >= 0 && listState.canScrollForward) {
-                listState.animateScrollToItem(latestItemIndex)
+                if (animate) listState.animateScrollToItem(latestItemIndex) else listState.scrollToItem(latestItemIndex)
             }
         }
     }

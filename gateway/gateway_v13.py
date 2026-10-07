@@ -9191,6 +9191,21 @@ def client_tool_cycle_in_progress(
     return False
 
 
+def has_repository_context(text):
+    # A report, commitment or historical release is not a repository request.
+    lower = str(text or "").lower()
+    return bool(re.search(
+        r"\b(?:github|git|repositories?|repo|gradle|codebase|pull[ -]request|"
+        r"source (?:tree|code)|draft[ -]pr)\b",
+        lower,
+    ) or re.search(
+        r"\b(?:commit|branch|release)\b.{0,80}\b(?:main|master|tag|v\d+\.\d+)\b"
+        r"|\b(?:fix|repair|create|checkout)\s+(?:the\s+|a\s+)?branch\b"
+        r"|\bcommit\s+(?:and|&)\s+push\b",
+        lower,
+    ))
+
+
 def classify_request_domain(
     user_text,
     workflow_profile=None,
@@ -9203,11 +9218,7 @@ def classify_request_domain(
     if profile not in {"", "general", "tool_inventory"}:
         return "repository"
 
-    repo_markers = (
-        "repo", "repository", "github", "branch", "pull request", " pr ",
-        "commit", "release", "gradle", "codebase", "source tree", "source code",
-    )
-    if any(marker in lower for marker in repo_markers):
+    if has_repository_context(lower):
         return "repository"
 
     local_place_markers = (
@@ -9977,14 +9988,14 @@ def classify_workflow_profile(
         return "repo_change_pr"
 
     release_action_patterns = (
-        r"\b(?:official\s+)?(?:full\s+)?release\b",
+        r"^\s*(?:(?:please|do|create|make|prepare|publish)\s+)*(?:an?\s+|the\s+)?(?:official\s+)?(?:full\s+)?release[.!?\s]*$",
         r"\bpublish\s+(?:a\s+)?release\b",
         r"\bprepare\s+(?:the\s+)?release\b",
         r"\bversion\s+bump\b",
         r"\brelease\s+v?\d+\.\d+(?:\.\d+)?",
     )
 
-    if any(
+    if (has_repository_context(lower) and re.search(r"\brelease\b", lower)) or any(
         re.search(pattern, lower)
         for pattern in release_action_patterns
     ):
@@ -10301,9 +10312,7 @@ def classify_workflow_profile(
         or (
             "issue" in lower
             and (
-                "repo" in lower
-                or "repository" in lower
-                or "github" in lower
+                has_repository_context(lower)
             )
             and (
                 "fix" in lower
@@ -10338,7 +10347,7 @@ def classify_workflow_profile(
 
     if (
         any(
-            marker in lower
+            re.search(r"\b" + re.escape(marker) + r"\b", lower)
             for marker in repo_analysis_targets
         )
         and any(

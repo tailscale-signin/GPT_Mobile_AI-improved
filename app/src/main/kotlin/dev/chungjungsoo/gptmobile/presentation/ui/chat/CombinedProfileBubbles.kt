@@ -10,10 +10,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -21,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -35,6 +34,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -130,7 +131,7 @@ private fun CombinedProfileBubble(
 ) {
     val colors = MaterialTheme.colorScheme
     val completed = status == CombinedResponseStatus.COMPLETED
-    val opacity by animateFloatAsState(if (completed) 1f else 0.5f, tween(500), label = "Profile completion opacity")
+    val opacity by animateFloatAsState(if (completed) 1f else 0.4f, tween(500), label = "Profile completion opacity")
     val background by animateColorAsState(if (completed) colors.surfaceContainerHigh else Color(0xFF808080), tween(500), label = "Profile completion background")
     val foreground by animateColorAsState(if (completed) (if (selected) colors.onPrimaryContainer else colors.onSurface) else Color(0xFFBDBDBD), tween(500), label = "Profile completion text")
     val primaryTint by animateColorAsState(if (completed) colors.primaryContainer else Color(0xFF808080), tween(500), label = "Profile primary tint")
@@ -164,23 +165,23 @@ private fun CombinedProfileBubble(
     }
     Surface(
         onClick = onClick,
-        modifier = modifier.graphicsLayer { alpha = opacity }.semantics {
+        modifier = modifier.semantics {
             this.selected = selected
             stateDescription = statusText
         },
         shape = RoundedCornerShape(24.dp),
-        color = background,
-        contentColor = foreground,
-        border = BorderStroke(1.dp, (if (completed) colors.primary else Color.Gray).copy(alpha = 0.22f + selection * 0.5f)),
-        shadowElevation = (2f + selection * 4f).dp
+        color = background.copy(alpha = opacity),
+        contentColor = foreground.copy(alpha = opacity),
+        border = BorderStroke(1.dp, (if (completed) colors.primary else Color.Gray).copy(alpha = (0.22f + selection * 0.5f) * opacity)),
+        shadowElevation = if (completed) (2f + selection * 4f).dp else 0.dp
     ) {
         Row(
             modifier = Modifier
                 .background(
                     Brush.linearGradient(
                         listOf(
-                            primaryTint.copy(alpha = 0.2f + selection * 0.65f),
-                            secondaryTint.copy(alpha = 0.15f + selection * 0.35f)
+                            primaryTint.copy(alpha = if (completed) 0.2f + selection * 0.65f else 0f),
+                            secondaryTint.copy(alpha = if (completed) 0.15f + selection * 0.35f else 0f)
                         )
                     )
                 )
@@ -213,14 +214,17 @@ internal fun CombinedChatComposer(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    // Keep a measured wrapper after the exit so the list's padding and edge fade also reach zero.
-    Box(modifier) {
+    // Keep the input's footprint during profile inspection. Fading the input
+    // must not change list padding or move the response under the user's eyes.
+    var measuredHeight by remember { mutableIntStateOf(0) }
+    val minimumHeight = with(LocalDensity.current) { measuredHeight.toDp() }
+    Box(modifier.heightIn(min = minimumHeight)) {
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(tween(500)) + expandVertically(tween(500), expandFrom = Alignment.Bottom),
-            exit = fadeOut(tween(2000)) + shrinkVertically(tween(2000), shrinkTowards = Alignment.Bottom)
+            enter = fadeIn(tween(500)),
+            exit = fadeOut(tween(2000))
         ) {
-            content()
+            Box(Modifier.onSizeChanged { measuredHeight = it.height }) { content() }
         }
     }
 }

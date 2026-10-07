@@ -11,6 +11,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -74,6 +77,37 @@ class ConversationEntryTest {
         }
         compose.waitForIdle()
         compose.runOnIdle { assertFalse(state.canScrollForward) }
+    }
+
+    @Test fun shorterModelTabRetainsTheConversationOffset() {
+        lateinit var state: LazyListState
+        var selected by mutableStateOf("long")
+        compose.setContent {
+            state = rememberLazyListState()
+            Box(Modifier.size(320.dp, 280.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state) {
+                    item {
+                        StableChatResponseViewport(selected) {
+                            Spacer(Modifier.height(if (selected == "long") 1400.dp else 200.dp))
+                        }
+                    }
+                    item { Spacer(Modifier.height(1.dp)) }
+                }
+                LaunchedEffect(Unit) { state.scrollToConversationEntry() }
+            }
+        }
+        compose.waitForIdle()
+        val before = compose.runOnIdle { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
+        compose.runOnIdle {
+            state.requestScrollToItem(before.first, before.second)
+            selected = "short"
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals(before.first, state.firstVisibleItemIndex)
+            assertEquals(before.second, state.firstVisibleItemScrollOffset)
+            assertFalse(state.canScrollForward)
+        }
     }
 
     @Test fun favouriteResponseAlignsAtTopEvenBelowLongPromptAndHistoryHeader() {

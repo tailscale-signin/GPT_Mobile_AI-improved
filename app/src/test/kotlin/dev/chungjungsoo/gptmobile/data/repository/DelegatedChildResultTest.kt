@@ -11,6 +11,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DelegatedChildResultTest {
+    @Test fun `DNS failures do not invent input usage but received content retains the estimate`() {
+        assertEquals(0L, estimateDelegatedInputTokens(2464, "Network error: Unable to resolve host.", receivedResponse = false))
+        assertEquals(2464L, estimateDelegatedInputTokens(2464, "Network error: Unable to resolve host.", receivedResponse = true))
+        assertEquals(2464L, estimateDelegatedInputTokens(2464, null, receivedResponse = false))
+    }
+
     @Test fun `repair jumps to final answer allowance and honors the profile ceiling`() {
         assertEquals(1024, delegationRepairOutputCap(384, 8192))
         assertEquals(1536, delegationRepairOutputCap(768, 8192))

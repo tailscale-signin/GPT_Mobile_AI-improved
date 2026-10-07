@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -36,7 +39,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
@@ -78,13 +82,19 @@ fun ArchivedConversationsBar(
         }
     }
     if (expanded && archivedChats.isNotEmpty()) {
-        val halfHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
+        val halfHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * 0.5f }
         ModalBottomSheet(
             onDismissRequest = { expanded = false },
             sheetState = sheetState,
-            modifier = Modifier.heightIn(max = halfHeight)
+            dragHandle = null,
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // The sheet measures half the window, so its only visible anchor is
+            // the midpoint. Back and a downward swipe use the normal sheet exit.
+            Column(Modifier.fillMaxWidth().height(halfHeight).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
+                    HorizontalDivider(Modifier.size(width = 32.dp, height = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                }
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Archived conversations", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
@@ -97,7 +107,7 @@ fun ArchivedConversationsBar(
                         }
                     }) { Icon(Icons.Rounded.Close, stringResource(R.string.close), tint = MaterialTheme.colorScheme.primary) }
                 }
-                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp, vertical = 8.dp)) {
                     items(archivedChats, key = { it.id }) { room ->
                         val state = rememberSwipeToDismissBoxState(
                             positionalThreshold = { it * 0.38f },

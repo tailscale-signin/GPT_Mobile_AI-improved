@@ -45,6 +45,7 @@ fun BeveledProfileLabel(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     compact: Boolean = false,
+    large: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
     val (background, border, textColor) = profileLabelColors(label, selected)
@@ -57,9 +58,24 @@ fun BeveledProfileLabel(
     ) {
         Text(
             text = label.name,
-            style = MaterialTheme.typography.labelSmall.let { if (compact) it.copy(fontSize = it.fontSize * 0.5f, lineHeight = it.lineHeight * 0.5f) else it },
+            style = if (large) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelSmall.let { if (compact) it.copy(fontSize = it.fontSize * 0.5f, lineHeight = it.lineHeight * 0.5f) else it },
             color = textColor,
-            modifier = Modifier.padding(horizontal = if (compact) 4.5.dp else 9.dp, vertical = if (compact) 2.dp else 4.dp)
+            modifier = Modifier.padding(
+                horizontal = if (large) {
+                    14.dp
+                } else if (compact) {
+                    4.5.dp
+                } else {
+                    9.dp
+                },
+                vertical = if (large) {
+                    14.dp
+                } else if (compact) {
+                    2.dp
+                } else {
+                    4.dp
+                }
+            )
         )
     }
 }

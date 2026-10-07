@@ -67,6 +67,7 @@ internal fun primaryDelegationTools(
     when {
         localResearch && processingOwnership == 0 -> tool.realToolName == "delegate_to_model"
         !localResearch || tool.isGitHubTool() -> true
+        tool.isAmazonProductTool() -> true
         tool.realToolName == "delegate_to_model" -> true
         tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true
         tool.connectionUid == null && tool.realToolName == "read_url" -> true

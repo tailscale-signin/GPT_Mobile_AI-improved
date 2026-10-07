@@ -1359,7 +1359,7 @@ internal class LocalDelegationCoordinator(
         }
         // At maximum delegation, non-web work also belongs to the selected worker.
         // The public-web planner may explicitly decide no research is necessary.
-        if (config.processingOwnership == 0 && result.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED) {
+        if ((config.processingOwnership == 0 || amazonShopping) && result.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED) {
             val answer = workerText(
                 target,
                 task,

@@ -21,6 +21,30 @@ import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
     @Test
+    fun `automatic shopping preparation uses product capable worker at partial ownership`() = runTest {
+        var calls = 0
+        val task = "Find headphones on Amazon.ca under $100"
+        val productTool = AmazonSearchTool({ error("No live provider requests in this fixture") })
+        val tools = listOf(ResolvedAgentTool(productTool, "shopping", "Amazon", AmazonSearchTool.SEARCH, productTool.definition.name))
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = true, automaticResearch = true, processingOwnership = 25) },
+            { listOf(target) },
+            { _, _, _ -> error("Unexpected legacy generation") },
+            generateWithProgress = { _, prompt, _, _, _ ->
+                calls++
+                assertTrue(prompt.contains(task))
+                "Product facts from the enabled shopping tool."
+            },
+            generateTextWithProgress = { _, _, _, _, _ -> error("Generic web preparation must not replace product lookup") }
+        )
+        val result = coordinator.prepare(task, tools, "shopping-preparation", automatic = true)
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+        assertTrue(result.handoff.contains("Product facts"))
+        assertEquals(1, calls)
+    }
+
+    @Test
     fun `Amazon shopping uses tool capable worker without generic web preparation`() = runTest {
         var calls = 0
         val task = "Find headphones on Amazon.ca under $100"

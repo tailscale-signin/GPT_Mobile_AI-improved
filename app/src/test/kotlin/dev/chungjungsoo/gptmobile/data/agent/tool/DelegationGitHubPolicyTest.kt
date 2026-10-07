@@ -12,6 +12,19 @@ import org.junit.Test
 
 class DelegationGitHubPolicyTest {
     @Test
+    fun `partial delegation retains Amazon MCP tools even when their descriptions mention web search`() {
+        val delegate = tool("delegate_to_model")
+        val agent = object : AgentTool {
+            override val definition = AgentToolDefinition("mcp__serpapi__search", "Search the web. For Amazon products use params.engine=amazon.", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("unused"), false)
+        }
+        val amazon = ResolvedAgentTool(agent, "serpapi", "Amazon", "search", agent.definition.name)
+        val tools = listOf(delegate, amazon)
+        assertEquals(tools, primaryDelegationTools(tools, true, 25))
+        assertEquals(listOf(delegate), primaryDelegationTools(tools, true, 0))
+    }
+
+    @Test
     fun `short follow-ups retain repository intent while new public questions do not`() {
         val prior = listOf("Fix github.com/owner/repo", "Continue")
         assertTrue(isGitHubTask(repositoryRoutingTask("Try again", prior)))

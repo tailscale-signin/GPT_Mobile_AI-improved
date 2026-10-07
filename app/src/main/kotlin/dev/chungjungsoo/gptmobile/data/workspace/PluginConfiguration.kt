@@ -26,6 +26,7 @@ object PluginConfiguration {
     fun validate(config: PluginExecutionSettings) {
         require(config == config.normalized()) { "Plugin option is out of range." }
         if (config.timeZone.isNotBlank()) java.time.ZoneId.of(config.timeZone)
+        require(dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts.marketplace(config.amazonMarketplace) != null) { "Choose a supported Amazon marketplace." }
     }
     fun export(settings: Map<String, PluginExecutionSettings>, connections: List<ToolConnection>): String = json.encodeToString(
         PortablePluginConfiguration(
@@ -48,7 +49,7 @@ object PluginConfiguration {
         }
         config.connections.forEach {
             require(it.name.length in 1..120 && it.alias.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
-            require(it.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB, ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY, ToolConnectionType.EXA, ToolConnectionType.BRAVE))
+            require(it.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB, ToolConnectionType.AMAZON_SERPAPI, ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY, ToolConnectionType.EXA, ToolConnectionType.BRAVE))
             require(it.origin.isEmpty() || URI(it.origin).let { uri -> uri.scheme == "https" && uri.host != null && uri.userInfo == null && uri.query == null && uri.fragment == null && uri.path.orEmpty().isEmpty() })
         }
         return config

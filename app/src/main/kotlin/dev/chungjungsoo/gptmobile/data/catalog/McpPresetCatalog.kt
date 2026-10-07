@@ -100,6 +100,38 @@ typealias McpServerPreset = McpPreset
 object McpPresetCatalog {
     val presets = LocalMcpPresets.presets + listOf(
         McpPreset(
+            id = "serpapi-amazon",
+            name = "Amazon Search · SerpApi MCP",
+            description = "Amazon marketplace product search and ASIN details through SerpApi's hosted MCP server.",
+            category = McpCategory.SEARCH,
+            commandOrUrl = "https://mcp.serpapi.com/mcp",
+            iconName = "shopping",
+            author = "SerpApi",
+            suggestedAuthType = "BEARER",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("SerpApi API key"),
+            toolCapabilities = listOf("Amazon product search", "Product details by ASIN"),
+            websiteUrl = "https://serpapi.com/amazon-search-api",
+            verifiedRemote = false,
+            setupInstructions = "Enter your SerpApi API key as the Bearer credential. Enable the search tool in a model profile. Use params.engine=amazon, params.k=<query>, params.amazon_domain=amazon.ca and mode=compact; for details use engine=amazon_product and asin=<ASIN>. Account search allowance applies. The integrated Amazon Search plugin is also available without MCP."
+        ),
+        McpPreset(
+            id = "bright-data-amazon",
+            name = "Amazon Search · Bright Data MCP",
+            description = "Amazon product search and details through Bright Data's ecommerce tool group.",
+            category = McpCategory.SEARCH,
+            commandOrUrl = "https://mcp.brightdata.com/mcp?groups=ecommerce",
+            iconName = "shopping",
+            author = "Bright Data",
+            pricing = McpPricingType.PAID,
+            requiredFields = listOf("Bright Data API token in endpoint token parameter"),
+            requiredEndpointQueryParameter = "token",
+            toolCapabilities = listOf("First-page Amazon search", "Amazon product details", "Amazon product reviews"),
+            websiteUrl = "https://docs.brightdata.com/products/mcp-server/tools",
+            verifiedRemote = false,
+            setupInstructions = "Append &token=<your actual Bright Data API token> to the endpoint, keeping groups=ecommerce. The app stores endpoint secrets in its vault. Enable web_data_amazon_product_search or web_data_amazon_product in a model profile. Product search returns the first page only. Ecommerce access and account charges apply."
+        ),
+        McpPreset(
             id = "linear",
             name = "Linear",
             description = "Search and manage issues, projects and comments in your Linear workspace.",

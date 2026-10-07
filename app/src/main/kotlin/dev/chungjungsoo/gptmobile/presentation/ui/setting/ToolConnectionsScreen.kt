@@ -302,8 +302,8 @@ fun ToolConnectionsScreen(
                                 }
                             },
                             onDeleteClick = { deletingConnection = connection },
-                            health = null,
-                            onRefreshHealth = {},
+                            health = uiState.connectionHealth[connection.connectionUid],
+                            onRefreshHealth = { if (connection.type == ToolConnectionType.AMAZON_SERPAPI) viewModel.testAmazonConnection(connection) },
                             enabled = uiState.pluginStates[pluginId] ?: true,
                             onEnabledChange = { viewModel.setPluginEnabled(pluginId, it) }
                         )
@@ -393,10 +393,13 @@ fun ToolConnectionsScreen(
             viewModel::updateFeature,
             onSave = { viewModel.configurePlugin(plugin.id, it) },
             onConnection = {
-                uiState.connections.firstOrNull { it.type == ToolConnectionType.GITHUB }?.let { onEditConnectionClick(it.connectionUid) } ?: onAddConnectionClick()
+                val selected = uiState.connections.firstOrNull { ToolPluginId.connection(it.connectionUid) == plugin.id }
+                    ?: uiState.connections.firstOrNull { it.type == if (plugin.id == ToolPluginId.AMAZON_SEARCH) ToolConnectionType.AMAZON_SERPAPI else ToolConnectionType.GITHUB }
+                selected?.let { onEditConnectionClick(it.connectionUid) } ?: onAddConnectionClick()
             },
             onDismiss = { pluginSettings = null },
-            onRevokePermissions = { viewModel.revokePluginGrants(plugin.id) }
+            onRevokePermissions = { viewModel.revokePluginGrants(plugin.id) },
+            isAmazon = plugin.id == ToolPluginId.AMAZON_SEARCH || uiState.connections.any { ToolPluginId.connection(it.connectionUid) == plugin.id && it.type == ToolConnectionType.AMAZON_SERPAPI }
         )
     }
 
@@ -455,6 +458,7 @@ private val INTEGRATED_PLUGINS = listOf(
     IntegratedPluginUi(ToolPluginId.READ_FILES, "Read Files", "Reads bounded slices of files made available to the app.", Icons.Rounded.FolderOpen),
     IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Rounded.Language),
     IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Rounded.Code),
+    IntegratedPluginUi(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Finds Amazon products with prices, ratings and product links. Add a SerpApi API key in Tool Connections.", Icons.Rounded.Storefront),
     IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Rounded.Search),
     IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Rounded.LocationOn)
 )
@@ -569,6 +573,7 @@ private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
         ToolConnectionType.EXA -> Icons.Rounded.Search
         ToolConnectionType.BRAVE -> Icons.Rounded.Search
         ToolConnectionType.GITHUB -> Icons.Rounded.Code
+        ToolConnectionType.AMAZON_SERPAPI -> Icons.Rounded.Storefront
         else -> Icons.Rounded.Cable
     }
     Surface(
@@ -648,7 +653,7 @@ private fun CollapsibleToolConnectionCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (connection.type == ToolConnectionType.MCP) {
+                    if (connection.type == ToolConnectionType.MCP || (connection.type == ToolConnectionType.AMAZON_SERPAPI && health != null)) {
                         Spacer(modifier = Modifier.height(4.dp))
                         ConnectionHealthLine(health)
                     }
@@ -698,7 +703,11 @@ private fun CollapsibleToolConnectionCard(
                     if (connection.type == ToolConnectionType.MCP && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Resources And Prompts") }
                     TextButton(onClick = onRuntimeSettings) { Text("Execution Settings") }
                     if (connection.type == ToolConnectionType.GITHUB && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Open GitHub Workspace") }
-                    if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB)) TextButton(onClick = onPermissionsClick) { Text(stringResource(R.string.tool_policy)) }
+                    if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB, ToolConnectionType.AMAZON_SERPAPI)) TextButton(onClick = onPermissionsClick) { Text(stringResource(R.string.tool_policy)) }
+                    if (connection.type == ToolConnectionType.AMAZON_SERPAPI) {
+                        Text(health?.message ?: "Test sends a sample search to SerpApi and uses one provider request.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(enabled = health?.status != ToolConnectionHealthStatus.CHECKING, onClick = onRefreshHealth) { Text("Test Amazon Search · 1 request") }
+                    }
                     connection.endpointUrl?.let { url ->
                         if (url.isNotBlank()) {
                             Text(
@@ -1171,7 +1180,7 @@ private fun ToolConnectionStepContent(
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 DestinationCard(
-                    title = "Search & GitHub APIs",
+                    title = "Search, Shopping & GitHub APIs",
                     description = "Connect your own search or GitHub API credential. No custom remote host is needed.",
                     onClick = { onPathSelected(ToolConnectionSetupPath.WEB_SEARCH) }
                 )
@@ -1357,6 +1366,11 @@ private fun ConnectionDetailsStep(
             TextButton(onClick = { uriHandler.openUri("https://api-dashboard.search.brave.com/app/keys") }) {
                 Text(stringResource(R.string.brave_search_get_api_key))
             }
+        }
+        if (provider?.type == ToolConnectionType.AMAZON_SERPAPI) {
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            Text("Use your own SerpApi API key. Search queries are sent to SerpApi; its account limits and pricing apply. Choose the marketplace in Amazon Search settings after saving.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+            TextButton(onClick = { uriHandler.openUri("https://serpapi.com/") }) { Text("Get a SerpApi API key") }
         }
     }
 }

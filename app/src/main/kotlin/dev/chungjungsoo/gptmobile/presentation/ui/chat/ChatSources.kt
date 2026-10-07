@@ -27,7 +27,8 @@ internal data class ChatSources(val engines: List<String>, val sources: List<Cha
 private val sourcePayloadKeys = setOf(
     "sources", "results", "result", "data", "web", "organic", "organic_results",
     "search_results", "items", "content", "text", "structuredContent", "resourceLinks",
-    "engines", "detail", "citations", "references", "evidence", "local_evidence", "pages", "urls", "links"
+    "engines", "detail", "citations", "references", "evidence", "local_evidence", "pages", "urls", "links",
+    "products", "product_results"
 )
 private val sourceUrls = Regex("https?://[^\\s<>\"`\\\\]+", RegexOption.IGNORE_CASE)
 private val sourceMarkdownLinks = Regex("(?<!!)\\[([^]\\n]+)]\\((https?://[^\\s]+?)\\)(?=\\s|$|[.,;:!?])", RegexOption.IGNORE_CASE)
@@ -80,6 +81,7 @@ internal fun collectChatSources(answer: String, events: List<ToolEvent>): ChatSo
             is JsonArray -> value.forEach { visit(it, depth + 1) }
             is JsonObject -> {
                 if (value.sourceString("status")?.lowercase(Locale.ROOT) in unavailableSourceStates) return
+                if (value.sourceString("schema") == "amazon_products_v1") value.sourceString("provider")?.let(::addEngine)
                 value.sourceString("engine")?.let { label ->
                     addEngine(chatSearchEngineBrand("${value.sourceString("tool").orEmpty()} $label")?.name ?: label)
                 }
@@ -105,7 +107,11 @@ internal fun collectChatSources(answer: String, events: List<ToolEvent>): ChatSo
 
     events.distinctBy { it.eventId }.forEach { event ->
         if (event.isError || event.status != ToolEventStatus.COMPLETED) return@forEach
-        if (!researchTool.containsMatchIn("${event.toolName} ${event.modelToolName}")) return@forEach
+        if (!researchTool.containsMatchIn("${event.toolName} ${event.modelToolName}") &&
+            event.toolName !in setOf("amazon_get_products", "web_data_amazon_product")
+        ) {
+            return@forEach
+        }
         val payload = event.recoveryResult() ?: return@forEach
         val reader = Regex("read|fetch|crawl|browse", RegexOption.IGNORE_CASE).containsMatchIn("${event.toolName} ${event.modelToolName}")
         visit(parseSearchPayload(payload))

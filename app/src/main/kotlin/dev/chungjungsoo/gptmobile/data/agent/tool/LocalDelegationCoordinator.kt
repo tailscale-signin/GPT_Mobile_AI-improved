@@ -1321,7 +1321,9 @@ internal class LocalDelegationCoordinator(
             AppLogRecorder.record("Delegation", "Research skipped · request budget exhausted · request=$requestIndex max=$effectiveResearchLimit · configured=${config.maxCallsPerTurn} · ownership=${config.processingOwnership}", "W")
             return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
         }
-        var result = if (config.processingOwnership == 0 && isGitHubTask(task)) {
+        // Retail prices need the product tools; the public-web preparation pass discards their fields.
+        val amazonShopping = isAmazonShoppingTask(task) && tools.any { it.isAmazonProductTool() }
+        var result = if (amazonShopping || (config.processingOwnership == 0 && isGitHubTask(task))) {
             LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
         } else {
             try {
@@ -1357,7 +1359,7 @@ internal class LocalDelegationCoordinator(
         }
         // At maximum delegation, non-web work also belongs to the selected worker.
         // The public-web planner may explicitly decide no research is necessary.
-        if (config.processingOwnership == 0 && result.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED) {
+        if ((config.processingOwnership == 0 || amazonShopping) && result.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED) {
             val answer = workerText(
                 target,
                 task,
@@ -1416,7 +1418,7 @@ internal class LocalDelegationCoordinator(
             AppLogRecorder.record("Delegation", "Delegation skipped · worker budget exhausted · call=$callId · calls=${localCalls.get()}/$effectiveCallLimit · configured=${config.maxLocalModelCalls} · ownership=${config.processingOwnership}", "W")
             return "The local delegation allowance for this turn is exhausted. Use evidence already available; do not retry this delegation in the same turn."
         }
-        if (researchAvailable() && !isGitHubTask(task)) {
+        if (researchAvailable() && !isGitHubTask(task) && !(isAmazonShoppingTask(task) && tools.any { it.isAmazonProductTool() })) {
             val result = prepare(task, tools, callId, targetOverride = turnTarget)
             if (delegationCanceledByUser.get()) return primaryOnlyHandoff()
             if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) return result.handoff

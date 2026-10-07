@@ -155,6 +155,8 @@ internal fun resolveDelegatedChildResult(
 }
 
 private fun delegatedToolPriority(tool: ResolvedAgentTool): Int = when (tool.realToolName.lowercase()) {
+    "amazon_search", "web_data_amazon_product_search" -> -1
+    "amazon_get_products", "web_data_amazon_product" -> 0
     "web_search", "read_url" -> 0
     "read_file_slice", "current_date", "calculate_expression" -> 1
     "device_location" -> 0

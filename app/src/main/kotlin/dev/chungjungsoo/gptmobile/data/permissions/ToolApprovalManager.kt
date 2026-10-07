@@ -117,7 +117,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
         val connection = connections.getConnection(connectionId) ?: return false
-        if (connection.type != "MCP" && tool != "github") return true
+        if (connection.type !in setOf("MCP", "AMAZON_SERPAPI") && tool != "github") return true
         val policy = runCatching { ToolPolicy.valueOf(connection.toolPolicy) }.getOrDefault(ToolPolicy.ASK_WRITES)
         val githubRead = tool != "github" ||
             arguments["action"]?.let {

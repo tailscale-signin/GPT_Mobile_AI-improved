@@ -85,6 +85,7 @@ internal class WebSearchEngineAdapter private constructor(
 
         fun forTool(realToolName: String, definition: AgentToolDefinition): WebSearchEngineAdapter? {
             val name = realToolName.lowercase()
+            if (name.startsWith("amazon_") || name.startsWith("web_data_amazon_")) return null
             if (isCrawlerTool(name)) return null
             if (name in setOf("multi_search", "search_engine_batch") &&
                 !Regex("(?i)web|internet|search engine").containsMatchIn(definition.description)

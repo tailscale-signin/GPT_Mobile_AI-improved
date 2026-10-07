@@ -41,6 +41,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test
+    fun `Amazon tools are available without bindings and respect plugin and chat switches`() = runBlocking {
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("shopping", ToolConnectionType.AMAZON_SERPAPI))
+        val tools = resolver(dao = dao).resolve("profile").filter { it.connectionUid == "shopping" }
+        assertEquals(setOf("amazon_search__shopping", "amazon_get_products__shopping"), tools.map { it.modelToolName }.toSet())
+        assertTrue(tools.all { it.shareableReadOnly && !it.isWebSearchEngine() })
+        assertFalse(resolver(dao = dao).resolve("profile", ChatMcpToolConfig(allowAllByDefault = true).withToolDisabled("shopping")).any { it.connectionUid == "shopping" })
+        val disabled = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(toolPluginStates = mapOf(ToolPluginId.AMAZON_SEARCH to false))
+        assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(features = disabled)).resolve("profile").any { it.connectionUid == "shopping" })
+        val disabledConnection = disabled.copy(toolPluginStates = mapOf(ToolPluginId.connection("shopping") to false))
+        assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(features = disabledConnection)).resolve("profile").any { it.connectionUid == "shopping" })
+    }
+
+    @Test
+    fun `Amazon tools obey remote tool disable and report missing credentials without network access`() = runBlocking {
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("shopping", ToolConnectionType.AMAZON_SERPAPI))
+        val profile = PlatformV2(uid = "profile", name = "Local only", disableRemoteTools = true)
+        assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile))).resolve(profile.uid).any { it.connectionUid == "shopping" })
+        val tool = resolver(dao = dao).resolve("profile").single { it.realToolName == AmazonSearchTool.SEARCH }
+        val result = tool.tool.execute("missing-key", buildJsonObject { put("query", "headphones") })
+        assertTrue(result.isError)
+        assertTrue(result.content.toString().contains("SerpApi API key"))
+    }
 
     @Test
     fun conversationDelegationCanEnableAndDisableTheActualToolIndependentlyOfDefaults() = runBlocking {

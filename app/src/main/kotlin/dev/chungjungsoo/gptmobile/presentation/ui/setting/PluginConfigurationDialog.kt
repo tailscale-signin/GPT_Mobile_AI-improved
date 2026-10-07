@@ -9,6 +9,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -23,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
@@ -39,10 +42,12 @@ internal fun PluginConfigurationDialog(
     onSave: (PluginExecutionSettings) -> Unit,
     onConnection: () -> Unit,
     onDismiss: () -> Unit,
-    onRevokePermissions: () -> Unit = {}
+    onRevokePermissions: () -> Unit = {},
+    isAmazon: Boolean = id == ToolPluginId.AMAZON_SEARCH
 ) {
-    var config by remember(id) { mutableStateOf(features.pluginExecution[id] ?: PluginExecutionSettings()) }
+    var config by remember(id) { mutableStateOf(features.pluginExecution[id] ?: (if (isAmazon) features.pluginExecution[ToolPluginId.AMAZON_SEARCH] else null) ?: PluginExecutionSettings()) }
     var options by remember(id) { mutableStateOf(features) }
+    var marketplaceMenu by remember(id) { mutableStateOf(false) }
     val validZone = config.timeZone.isBlank() || runCatching { java.time.ZoneId.of(config.timeZone) }.isSuccess
     AlertDialog(
         icon = { Icon(Icons.Rounded.Tune, null, tint = MaterialTheme.colorScheme.primary) },
@@ -51,6 +56,26 @@ internal fun PluginConfigurationDialog(
         text = {
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SettingsHero("Plugin controls", name, "")
+                if (isAmazon) {
+                    SettingsPanel("Amazon products") {
+                        Column {
+                            TextButton(onClick = { marketplaceMenu = true }) { Text("Marketplace · ${config.amazonMarketplace}") }
+                            DropdownMenu(expanded = marketplaceMenu, onDismissRequest = { marketplaceMenu = false }) {
+                                AmazonProducts.marketplaces.forEach { (domain, country) ->
+                                    DropdownMenuItem(text = { Text("$country · $domain") }, onClick = {
+                                        config = config.copy(amazonMarketplace = domain)
+                                        marketplaceMenu = false
+                                    })
+                                }
+                            }
+                        }
+                        PluginSlider("Products per search", config.searchResults, 1..10) { config = config.copy(searchResults = it) }
+                        PluginSwitch("Include sponsored products", config.amazonIncludeSponsored) { config = config.copy(amazonIncludeSponsored = it) }
+                        PluginSwitch("Always request fresh prices", config.amazonFreshPrices) { config = config.copy(amazonFreshPrices = it) }
+                        Text("SerpApi searches use your provider allowance. Fresh requests bypass its cache. Prices and availability may change at checkout.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = onConnection) { Text("API key & connection test") }
+                    }
+                }
                 if (id == ToolPluginId.GITHUB) {
                     SettingsPanel("Speed & efficiency") {
                         PluginSwitch("Conditional requests", options.githubConditionalReads) { options = options.copy(githubConditionalReads = it) }

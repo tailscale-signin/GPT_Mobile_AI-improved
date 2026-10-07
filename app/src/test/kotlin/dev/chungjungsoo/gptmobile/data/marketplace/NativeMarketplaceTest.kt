@@ -16,7 +16,9 @@ import java.io.IOException
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -85,6 +87,32 @@ class NativeMarketplaceTest {
         assertFalse(approvals.authorize(entry.id, "run", "invalid", "restrooms", buildJsonObject {}))
         registry.uninstall(entry)
         assertFalse(approvals.authorize(entry.id, "run", "removed", "restrooms", args))
+    }
+
+    @Test fun echoedKeysAreRedactedAndProviderResultsKeepTheirConfiguredBound() = runBlocking {
+        val entry = entry("ticketmaster")
+        val registry = registry()
+        registry.install(entry)
+        registry.configure(entry, "", "private-test-key", 3, 50)
+        registry.setEnabled(entry, true)
+        val tool = NativeMarketplaceTool(entry, NativeMarketplaceCatalog.definitions(entry).single(), registry) {
+            buildJsonObject {
+                put("_links", buildJsonObject { put("href", "https://provider.example/events?apikey=private-test-key") })
+                put("_embedded", buildJsonObject { put("events", JsonArray((1..20).map { JsonPrimitive("Event $it") })) })
+            }
+        }
+        val result = tool.execute(
+            "call",
+            buildJsonObject {
+                put("query", "concert")
+                put("location", "Toronto")
+            }
+        )
+        assertFalse(result.isError)
+        assertFalse(result.content.toString().contains("private-test-key"))
+        assertTrue(result.content.toString().contains("[redacted]"))
+        val json = (result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json).value.jsonObject
+        assertEquals(3, (json.getValue("data").jsonObject.getValue("_embedded").jsonObject.getValue("events") as JsonArray).size)
     }
 
     @Test fun requiredKeyUsesVaultAndUninstallDeletesIt() = runBlocking {

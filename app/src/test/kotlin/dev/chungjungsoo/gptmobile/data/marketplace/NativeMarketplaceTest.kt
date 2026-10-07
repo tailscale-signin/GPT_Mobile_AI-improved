@@ -4,9 +4,16 @@ import android.app.Application
 import dev.chungjungsoo.gptmobile.data.agent.tool.NativeMarketplaceTool
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.MarketplaceRuntime
+import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalDao
+import dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
+import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import io.mockk.every
+import io.mockk.mockk
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -55,6 +62,29 @@ class NativeMarketplaceTest {
         assertEquals(1, requests)
         assertTrue(registry().load().isEmpty())
         assertTrue(vault.records.isEmpty())
+    }
+
+    @Test fun nativeReadsPassChatApprovalOnlyWhileInstalledEnabledAndValid() = runBlocking {
+        val entry = entry("refuge")
+        val registry = registry()
+        val database = mockk<ChatDatabaseV2>()
+        val dao = mockk<ToolApprovalDao>()
+        every { database.toolApprovalDao() } returns dao
+        every { dao.pending() } returns flowOf(emptyList())
+        val approvals = ToolApprovalManager(database, mockk<ToolConnectionRepository>(), nativeMarketplace = registry)
+        val args = buildJsonObject {
+            put("latitude", 43.65)
+            put("longitude", -79.38)
+        }
+        assertFalse(approvals.authorize(entry.id, "run", "missing", "restrooms", args))
+        registry.install(entry)
+        assertFalse(approvals.authorize(entry.id, "run", "disabled", "restrooms", args))
+        registry.setEnabled(entry, true)
+        assertTrue(approvals.authorize(entry.id, "run", "enabled", "restrooms", args))
+        assertFalse(approvals.authorize(entry.id, "run", "unknown", "write", args))
+        assertFalse(approvals.authorize(entry.id, "run", "invalid", "restrooms", buildJsonObject {}))
+        registry.uninstall(entry)
+        assertFalse(approvals.authorize(entry.id, "run", "removed", "restrooms", args))
     }
 
     @Test fun requiredKeyUsesVaultAndUninstallDeletesIt() = runBlocking {

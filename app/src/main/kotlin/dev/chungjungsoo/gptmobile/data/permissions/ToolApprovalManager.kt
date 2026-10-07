@@ -69,7 +69,7 @@ interface ToolApprovalDao {
 
 /** User-owned permissions. Server readOnly annotations never grant authority. */
 @Singleton
-class ToolApprovalManager @Inject constructor(private val database: ChatDatabaseV2, private val connections: ToolConnectionRepository, private val trust: ToolTrustStore? = null) {
+class ToolApprovalManager @Inject constructor(private val database: ChatDatabaseV2, private val connections: ToolConnectionRepository, private val trust: ToolTrustStore? = null, private val nativeMarketplace: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null) {
     private val dao = database.toolApprovalDao()
     private val submissionMutex = Mutex()
     private val requestConnections = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -116,6 +116,20 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     }
     suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
+        val nativeEntry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(connectionId)
+        if (nativeEntry != null && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.supports(nativeEntry)) {
+            // Explicitly enabled, compiled-in adapters expose only this reviewed read-only allowlist.
+            if (tool !in dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.operations[nativeEntry.provider].orEmpty()) return false
+            return try {
+                nativeMarketplace?.configuration(nativeEntry) ?: return false
+                dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.validate(nativeEntry.provider, tool, arguments)
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+        }
         val connection = connections.getConnection(connectionId) ?: return false
         if (connection.type !in setOf("MCP", "AMAZON_SERPAPI") && tool != "github") return true
         val policy = runCatching { ToolPolicy.valueOf(connection.toolPolicy) }.getOrDefault(ToolPolicy.ASK_WRITES)

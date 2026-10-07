@@ -75,8 +75,8 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -147,8 +147,15 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
 fun McpMarketplaceScreen(
     installedAliases: Set<String>,
     onNavigationClick: () -> Unit,
-    onInstallPresetWithConfig: (preset: McpPreset, name: String, alias: String, endpointUrl: String,
-        authType: String, credential: String, allowCleartext: Boolean) -> Unit,
+    onInstallPresetWithConfig: (
+        preset: McpPreset,
+        name: String,
+        alias: String,
+        endpointUrl: String,
+        authType: String,
+        credential: String,
+        allowCleartext: Boolean
+    ) -> Unit,
     modifier: Modifier = Modifier,
     onOpenDelegation: (() -> Unit)? = null
 ) {
@@ -171,7 +178,8 @@ fun McpMarketplaceScreen(
     val pluginScroll = rememberLazyListState()
     val mcpScroll = rememberLazyListState()
     val presets = remember { GitHubMarketplaceCatalog.allPresets }
-    fun added(preset: McpPreset) = preset.isPreinstalled || preset.alias in installedAliases ||
+    fun added(preset: McpPreset) = preset.isPreinstalled ||
+        preset.alias in installedAliases ||
         ToolConnectionsViewModel.normalizeAlias(preset.alias) in installedAliases
     val addedIds = presets.filter(::added).map { it.id }.toSet() + downloaded
     val filtered = remember(presets, section, query, category, pricing, sort, addedIds) {
@@ -184,18 +192,20 @@ fun McpMarketplaceScreen(
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val entry = exportId?.let(GitHubMarketplaceCatalog::find)
         exportId = null
-        if (uri != null && entry != null) scope.launch {
-            try {
-                val bytes = store.exportBytes(entry)
-                withContext(Dispatchers.IO) {
-                    val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("No export destination.")
-                    output.use { it.write(bytes) }
+        if (uri != null && entry != null) {
+            scope.launch {
+                try {
+                    val bytes = store.exportBytes(entry)
+                    withContext(Dispatchers.IO) {
+                        val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("No export destination.")
+                        output.use { it.write(bytes) }
+                    }
+                    notice = "Package exported. Review its README before running companion code."
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    notice = "Export failed. The downloaded package is still available; retry with another destination."
                 }
-                notice = "Package exported. Review its README before running companion code."
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                notice = "Export failed. The downloaded package is still available; retry with another destination."
             }
         }
     }
@@ -208,109 +218,182 @@ fun McpMarketplaceScreen(
         }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(24.dp))
-                .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer.copy(alpha = .65f),
-                    MaterialTheme.colorScheme.surface))).padding(16.dp)) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(24.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .65f),
+                                MaterialTheme.colorScheme.surface
+                            )
+                        )
+                    ).padding(16.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(30.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Build your toolkit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("${GitHubMarketplaceCatalog.packages.size} optional GitHub packages · choose what you use",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "${GitHubMarketplaceCatalog.packages.size} optional GitHub packages · choose what you use",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Search plugins, tools or capabilities") }, singleLine = true,
-                    shape = RoundedCornerShape(16.dp), leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } })
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Search plugins, tools or capabilities") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } }
+                )
             }
-            TabRow(selectedTabIndex = section.ordinal, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                .clip(RoundedCornerShape(16.dp)), containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+            TabRow(
+                selectedTabIndex = section.ordinal,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                    .clip(RoundedCornerShape(16.dp)),
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            ) {
                 MarketplaceSection.entries.forEach { tab ->
-                    Tab(selected = section == tab, onClick = { section = tab },
+                    Tab(
+                        selected = section == tab,
+                        onClick = { section = tab },
                         text = { Text(tab.label, fontWeight = FontWeight.SemiBold) },
-                        icon = { Icon(if (tab == MarketplaceSection.PLUGINS) Icons.Rounded.Extension else Icons.Rounded.Dns, null) })
+                        icon = { Icon(if (tab == MarketplaceSection.PLUGINS) Icons.Rounded.Extension else Icons.Rounded.Dns, null) }
+                    )
                 }
             }
             FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarketplaceDropdown("Sort: ${sort.label}", MarketplaceSort.entries.toList(), sort, { it.label }) { sort = it }
-                MarketplaceDropdown(category?.displayName ?: "All categories", listOf<McpCategory?>(null) + McpCategory.entries,
-                    category, { it?.displayName ?: "All categories" }) { category = it }
-                MarketplaceDropdown(pricing?.let(::pricingLabel) ?: "All pricing", listOf<McpPricingType?>(null) + McpPricingType.entries,
-                    pricing, { it?.let(::pricingLabel) ?: "All pricing" }) { pricing = it }
+                MarketplaceDropdown(
+                    category?.displayName ?: "All categories",
+                    listOf<McpCategory?>(null) + McpCategory.entries,
+                    category,
+                    { it?.displayName ?: "All categories" }
+                ) { category = it }
+                MarketplaceDropdown(
+                    pricing?.let(::pricingLabel) ?: "All pricing",
+                    listOf<McpPricingType?>(null) + McpPricingType.entries,
+                    pricing,
+                    { it?.let(::pricingLabel) ?: "All pricing" }
+                ) { pricing = it }
             }
-            Text("${filtered.size} results · " + if (section == MarketplaceSection.PLUGINS) "Included native features" else "Downloads do not grant tool access",
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "${filtered.size} results · " + if (section == MarketplaceSection.PLUGINS) "Included native features" else "Downloads do not grant tool access",
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             notice?.let { message ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     IconButton(onClick = { notice = null }) { Icon(Icons.Rounded.Close, "Dismiss message") }
                 }
             }
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll,
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (filtered.isEmpty()) item {
-                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-                        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Rounded.Search, null, modifier = Modifier.size(36.dp))
-                            Text("No matching ${if (section == MarketplaceSection.PLUGINS) "plugins" else "tools"}", style = MaterialTheme.typography.titleMedium)
-                            TextButton(onClick = { query = ""; category = null; pricing = null }) { Text("Clear filters") }
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth(),
+                state = if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll,
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (filtered.isEmpty()) {
+                    item {
+                        Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                            Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Rounded.Search, null, modifier = Modifier.size(36.dp))
+                                Text("No matching ${if (section == MarketplaceSection.PLUGINS) "plugins" else "tools"}", style = MaterialTheme.typography.titleMedium)
+                                TextButton(onClick = {
+                                    query = ""
+                                    category = null
+                                    pricing = null
+                                }) { Text("Clear filters") }
+                            }
                         }
                     }
                 }
                 items(filtered, key = { it.id }) { preset ->
                     val entry = GitHubMarketplaceCatalog.find(preset.id)
-                    MarketplacePackageCard(preset, added(preset), onAddClick = {
-                        when {
-                            preset.integratedTool == "delegation" && onOpenDelegation != null -> onOpenDelegation()
-                            preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
-                            else -> configuring = preset
-                        }
-                    }, download = entry, downloaded = preset.id in downloaded, downloading = jobs.containsKey(preset.id),
+                    MarketplacePackageCard(
+                        preset, added(preset), onAddClick = {
+                            when {
+                                preset.integratedTool == "delegation" && onOpenDelegation != null -> onOpenDelegation()
+                                preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
+                                else -> configuring = preset
+                            }
+                        }, download = entry, downloaded = preset.id in downloaded, downloading = jobs.containsKey(preset.id),
                         error = errors[preset.id], onDownload = { approving = entry }, onCancel = { jobs[preset.id]?.cancel() },
-                        onExport = { exportId = preset.id; exporter.launch("${preset.id}.zip") }, onRemove = { removing = entry })
+                        onExport = {
+                            exportId = preset.id
+                            exporter.launch("${preset.id}.zip")
+                        }, onRemove = { removing = entry }
+                    )
                 }
             }
         }
     }
     approving?.let { entry ->
-        AlertDialog(onDismissRequest = { approving = null }, icon = { Icon(Icons.Rounded.Download, null) },
+        AlertDialog(
+            onDismissRequest = { approving = null },
+            icon = { Icon(Icons.Rounded.Download, null) },
             title = { Text("Download ${entry.preset.name}?") },
-            text = { Text("Download a pinned, checksum-checked package from ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}. " +
-                "GitHub receives this download request; no provider keys are sent. " +
-                (if (entry.runtime == MarketplaceRuntime.COMPANION) "Python runs on your computer, not inside Android. " else "") +
-                entry.serviceNotice + " Nothing is enabled or authorized by downloading.") },
-            confirmButton = { TextButton(onClick = {
-                approving = null
-                errors.remove(entry.id)
-                if (!jobs.containsKey(entry.id)) jobs[entry.id] = scope.launch {
-                    try {
-                        store.download(entry)
-                        downloaded = downloaded + entry.id
-                    } catch (cancelled: CancellationException) {
-                        errors[entry.id] = "Download cancelled. No tool access was granted."
-                        throw cancelled
-                    } catch (_: Exception) {
-                        errors[entry.id] = "Download or integrity check failed. Retry; no tools were enabled."
-                    } finally {
-                        jobs.remove(entry.id)
+            text = {
+                Text(
+                    "Download a pinned, checksum-checked package from ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}. " +
+                        "GitHub receives this download request; no provider keys are sent. " +
+                        (if (entry.runtime == MarketplaceRuntime.COMPANION) "Python runs on your computer, not inside Android. " else "") +
+                        entry.serviceNotice + " Nothing is enabled or authorized by downloading."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    approving = null
+                    errors.remove(entry.id)
+                    if (!jobs.containsKey(entry.id)) {
+                        jobs[entry.id] = scope.launch {
+                            try {
+                                store.download(entry)
+                                downloaded = downloaded + entry.id
+                            } catch (cancelled: CancellationException) {
+                                errors[entry.id] = "Download cancelled. No tool access was granted."
+                                throw cancelled
+                            } catch (_: Exception) {
+                                errors[entry.id] = "Download or integrity check failed. Retry; no tools were enabled."
+                            } finally {
+                                jobs.remove(entry.id)
+                            }
+                        }
                     }
-                }
-            }) { Text("Download package") } }, dismissButton = { TextButton(onClick = { approving = null }) { Text("Cancel") } })
+                }) { Text("Download package") }
+            },
+            dismissButton = { TextButton(onClick = { approving = null }) { Text("Cancel") } }
+        )
     }
     removing?.let { entry ->
-        AlertDialog(onDismissRequest = { removing = null }, title = { Text("Remove downloaded package?") },
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Remove downloaded package?") },
             text = { Text("This removes only the local package files. Existing connections, credentials and tool permissions must be managed separately in Tool connections.") },
-            confirmButton = { TextButton(onClick = {
-                removing = null
-                scope.launch {
-                    try { store.remove(entry); downloaded = downloaded - entry.id }
-                    catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { notice = "Unable to remove the package." }
-                }
-            }) { Text("Remove files") } }, dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } })
+            confirmButton = {
+                TextButton(onClick = {
+                    removing = null
+                    scope.launch {
+                        try {
+                            store.remove(entry)
+                            downloaded = downloaded - entry.id
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            notice = "Unable to remove the package."
+                        }
+                    }
+                }) { Text("Remove files") }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } }
+        )
     }
     configuring?.let { preset ->
         val native = preset.integratedTool
@@ -336,8 +419,14 @@ private fun <T> MarketplaceDropdown(label: String, options: List<T>, selected: T
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
-                DropdownMenuItem(text = { Text(text(option)) }, onClick = { expanded = false; onSelect(option) },
-                    trailingIcon = { if (option == selected) Icon(Icons.Rounded.Check, "Selected") })
+                DropdownMenuItem(
+                    text = { Text(text(option)) },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    },
+                    trailingIcon = { if (option == selected) Icon(Icons.Rounded.Check, "Selected") }
+                )
             }
         }
     }
@@ -352,8 +441,12 @@ private fun pricingLabel(pricing: McpPricingType): String = when (pricing) {
 @Composable
 private fun MarketplaceBadge(text: String) {
     Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .6f)) {
-        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer)
+        Text(
+            text,
+            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer
+        )
     }
 }
 
@@ -362,8 +455,16 @@ fun PricingBadge(pricing: McpPricingType) = MarketplaceBadge(pricingLabel(pricin
 
 @Composable
 fun PricingIcon(pricing: McpPricingType, modifier: Modifier = Modifier.size(16.dp), tint: Color = MaterialTheme.colorScheme.primary) {
-    Icon(when (pricing) { McpPricingType.FREE -> Icons.Rounded.Check; McpPricingType.FREE_WITH_SIGNUP -> Icons.Rounded.Key; McpPricingType.PAID -> Icons.Rounded.Star },
-        null, modifier = modifier, tint = tint)
+    Icon(
+        when (pricing) {
+            McpPricingType.FREE -> Icons.Rounded.Check
+            McpPricingType.FREE_WITH_SIGNUP -> Icons.Rounded.Key
+            McpPricingType.PAID -> Icons.Rounded.Star
+        },
+        null,
+        modifier = modifier,
+        tint = tint
+    )
 }
 
 @Composable
@@ -383,15 +484,25 @@ fun McpMarketplaceDetailCard(preset: McpPreset, isInstalled: Boolean, onAddClick
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MarketplacePackageCard(
-    preset: McpPreset, isInstalled: Boolean, onAddClick: () -> Unit,
-    download: GitHubMarketplacePackage? = null, downloaded: Boolean = false, downloading: Boolean = false,
-    error: String? = null, onDownload: () -> Unit = {}, onCancel: () -> Unit = {},
-    onExport: () -> Unit = {}, onRemove: () -> Unit = {}
+    preset: McpPreset,
+    isInstalled: Boolean,
+    onAddClick: () -> Unit,
+    download: GitHubMarketplacePackage? = null,
+    downloaded: Boolean = false,
+    downloading: Boolean = false,
+    error: String? = null,
+    onDownload: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    onExport: () -> Unit = {},
+    onRemove: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var expanded by rememberSaveable(preset.id) { mutableStateOf(false) }
-    ElevatedCard(Modifier.fillMaxWidth().animateContentSize(), shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    ElevatedCard(
+        Modifier.fillMaxWidth().animateContentSize(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ServiceIcon(preset.iconName, preset.category)
@@ -402,7 +513,15 @@ private fun MarketplacePackageCard(
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 PricingBadge(preset.pricing)
-                MarketplaceBadge(download?.runtime?.label ?: if (preset.isPreinstalled) "Included in app" else if (preset.documentationOnly) "Companion / guide" else "MCP connection")
+                MarketplaceBadge(
+                    download?.runtime?.label ?: if (preset.isPreinstalled) {
+                        "Included in app"
+                    } else if (preset.documentationOnly) {
+                        "Companion / guide"
+                    } else {
+                        "MCP connection"
+                    }
+                )
                 if (downloaded) MarketplaceBadge("Package downloaded")
                 if (isInstalled && !preset.isPreinstalled) MarketplaceBadge("Connection saved")
             }
@@ -419,7 +538,8 @@ private fun MarketplacePackageCard(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
                     download != null && !downloaded -> Button(onClick = onDownload, enabled = !downloading, shape = RoundedCornerShape(12.dp)) {
-                        Icon(Icons.Rounded.Download, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Rounded.Download, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(if (error == null) "Download" else "Retry download")
                     }
                     download != null -> {
@@ -439,15 +559,28 @@ private fun MarketplacePackageCard(
                 HorizontalDivider()
                 preset.toolCapabilities.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 if (preset.setupInstructions.isNotBlank()) Text(preset.setupInstructions, style = MaterialTheme.typography.bodySmall)
-                if (download != null) Text("Package source: ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}\nPinned commit: ${GitHubMarketplaceCatalog.SOURCE_COMMIT.take(12)}\nDownloads are inert; configure and approve tools separately.",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (download != null) {
+                    Text(
+                        "Package source: ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}\nPinned commit: ${GitHubMarketplaceCatalog.SOURCE_COMMIT.take(12)}\nDownloads are inert; configure and approve tools separately.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (preset.websiteUrl.isNotBlank()) TextButton(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
-                    }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Provider docs") }
-                    if (download != null) TextButton(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubMarketplaceCatalog.SOURCE_DIRECTORY))) }
-                    }) { Text("GitHub source") }
+                    if (preset.websiteUrl.isNotBlank()) {
+                        TextButton(onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
+                        }) {
+                            Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Provider docs")
+                        }
+                    }
+                    if (download != null) {
+                        TextButton(onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubMarketplaceCatalog.SOURCE_DIRECTORY))) }
+                        }) { Text("GitHub source") }
+                    }
                 }
             }
         }
@@ -456,7 +589,8 @@ private fun MarketplacePackageCard(
 
 @Composable
 fun McpPresetConfigureDialog(
-    preset: McpPreset, onDismissRequest: () -> Unit,
+    preset: McpPreset,
+    onDismissRequest: () -> Unit,
     onConfirm: (name: String, alias: String, endpoint: String, authType: String, credential: String, allowCleartext: Boolean) -> Unit
 ) {
     var name by remember(preset.id) { mutableStateOf(preset.name) }
@@ -481,22 +615,59 @@ fun McpPresetConfigureDialog(
                 }
                 if (preset.setupInstructions.isNotBlank()) Text(preset.setupInstructions, style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(name, { name = it }, label = { Text("Connection name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, isError = name.isBlank())
-                OutlinedTextField(alias, { alias = it }, label = { Text("Tool alias") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    isError = !validAlias, supportingText = { Text("Lowercase letters, numbers and underscores; start with a letter.") })
-                OutlinedTextField(endpoint, { endpoint = it }, label = { Text("MCP Streamable HTTP URL") }, modifier = Modifier.fillMaxWidth(),
-                    singleLine = true, isError = endpoint.isNotBlank() && !validEndpoint,
+                OutlinedTextField(
+                    alias,
+                    { alias = it },
+                    label = { Text("Tool alias") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = !validAlias,
+                    supportingText = { Text("Lowercase letters, numbers and underscores; start with a letter.") }
+                )
+                OutlinedTextField(
+                    endpoint,
+                    { endpoint = it },
+                    label = { Text("MCP Streamable HTTP URL") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = endpoint.isNotBlank() && !validEndpoint,
                     visualTransformation = if (preset.requiredEndpointQueryParameter != null) PasswordVisualTransformation() else VisualTransformation.None,
-                    supportingText = { Text(if (!preset.hasRequiredEndpointParameters(endpoint)) "Add a valid ${preset.requiredEndpointQueryParameter} parameter." else "Enter an MCP URL, not a provider REST or model inference URL.") })
-                if (endpoint.startsWith("http://", ignoreCase = true)) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(cleartext, { cleartext = it })
-                    Text("Allow cleartext HTTP on a trusted private network", style = MaterialTheme.typography.bodySmall)
+                    supportingText = { Text(if (!preset.hasRequiredEndpointParameters(endpoint)) "Add a valid ${preset.requiredEndpointQueryParameter} parameter." else "Enter an MCP URL, not a provider REST or model inference URL.") }
+                )
+                if (endpoint.startsWith("http://", ignoreCase = true)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(cleartext, { cleartext = it })
+                        Text("Allow cleartext HTTP on a trusted private network", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
-                MarketplaceDropdown("Authentication: " + when (auth) { ToolConnectionAuthType.OAUTH -> "Browser sign-in"; ToolConnectionAuthType.BEARER -> "Bearer token"; else -> "None / endpoint key" },
-                    listOf(ToolConnectionAuthType.NONE, ToolConnectionAuthType.BEARER, ToolConnectionAuthType.OAUTH), auth,
-                    { when (it) { ToolConnectionAuthType.OAUTH -> "Browser sign-in (OAuth)"; ToolConnectionAuthType.BEARER -> "Bearer / API token"; else -> "None / endpoint key" } }) { auth = it }
-                if (needsKey) OutlinedTextField(credential, { credential = it }, label = { Text(preset.requiredFields.firstOrNull() ?: "Bearer token") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true, isError = credential.isNotEmpty() && !validKey,
-                    visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                MarketplaceDropdown(
+                    "Authentication: " + when (auth) {
+                        ToolConnectionAuthType.OAUTH -> "Browser sign-in"
+                        ToolConnectionAuthType.BEARER -> "Bearer token"
+                        else -> "None / endpoint key"
+                    },
+                    listOf(ToolConnectionAuthType.NONE, ToolConnectionAuthType.BEARER, ToolConnectionAuthType.OAUTH),
+                    auth,
+                    {
+                        when (it) {
+                            ToolConnectionAuthType.OAUTH -> "Browser sign-in (OAuth)"
+                            ToolConnectionAuthType.BEARER -> "Bearer / API token"
+                            else -> "None / endpoint key"
+                        }
+                    }
+                ) { auth = it }
+                if (needsKey) {
+                    OutlinedTextField(
+                        credential,
+                        { credential = it },
+                        label = { Text(preset.requiredFields.firstOrNull() ?: "Bearer token") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = credential.isNotEmpty() && !validKey,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+                }
                 if (auth == ToolConnectionAuthType.OAUTH) Text("Save, then Authorize in connection settings. Provider client approval may be required.", style = MaterialTheme.typography.bodySmall)
                 Text("Saving a connection does not prove it is online. Discover its tools and grant only the access you need.", style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

@@ -43,16 +43,44 @@ class GitHubMarketplaceCatalogTest {
     @Test
     fun sortingAndSearchUseStableMetadata() {
         val presets = packages.map { it.preset }
-        val asc = MarketplacePresentation.filterAndSort(presets, MarketplaceSection.MCP, "", null, null,
-            MarketplaceSort.NAME_ASC, emptySet())
-        val desc = MarketplacePresentation.filterAndSort(presets, MarketplaceSection.MCP, "", null, null,
-            MarketplaceSort.NAME_DESC, emptySet())
+        val asc = MarketplacePresentation.filterAndSort(
+            presets,
+            MarketplaceSection.MCP,
+            "",
+            null,
+            null,
+            MarketplaceSort.NAME_ASC,
+            emptySet()
+        )
+        val desc = MarketplacePresentation.filterAndSort(
+            presets,
+            MarketplaceSection.MCP,
+            "",
+            null,
+            null,
+            MarketplaceSort.NAME_DESC,
+            emptySet()
+        )
         assertEquals(asc.reversed(), desc)
-        val result = MarketplacePresentation.filterAndSort(presets, MarketplaceSection.MCP, " EVENTBRITE ", null, null,
-            MarketplaceSort.RECOMMENDED, emptySet())
+        val result = MarketplacePresentation.filterAndSort(
+            presets,
+            MarketplaceSection.MCP,
+            " EVENTBRITE ",
+            null,
+            null,
+            MarketplaceSort.RECOMMENDED,
+            emptySet()
+        )
         assertEquals("optional-eventbrite", result.single().id)
-        val added = MarketplacePresentation.filterAndSort(presets, MarketplaceSection.MCP, "", null, null,
-            MarketplaceSort.ADDED_FIRST, setOf("optional-yelp"))
+        val added = MarketplacePresentation.filterAndSort(
+            presets,
+            MarketplaceSection.MCP,
+            "",
+            null,
+            null,
+            MarketplaceSort.ADDED_FIRST,
+            setOf("optional-yelp")
+        )
         assertEquals("optional-yelp", added.first().id)
     }
 
@@ -70,9 +98,13 @@ class GitHubMarketplaceCatalogTest {
     fun downloadsRejectMutableOrCredentialBearingUrls() {
         val valid = MarketplaceDownloadPolicy.assetUrl("README.md")
         MarketplaceDownloadPolicy.validateUrl(valid)
-        listOf(valid.replace("https://", "http://"), valid + "?key=secret", valid + "#fragment",
+        listOf(
+            valid.replace("https://", "http://"),
+            valid + "?key=secret",
+            valid + "#fragment",
             valid.replace("raw.githubusercontent.com", "raw.githubusercontent.com.evil.test"),
-            valid.replace(GitHubMarketplaceCatalog.SOURCE_COMMIT, "main")).forEach { url ->
+            valid.replace(GitHubMarketplaceCatalog.SOURCE_COMMIT, "main")
+        ).forEach { url ->
             try {
                 MarketplaceDownloadPolicy.validateUrl(url)
                 fail("Unapproved URL was accepted")

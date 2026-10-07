@@ -44,9 +44,15 @@ object MarketplaceDownloadPolicy {
 
     fun validateUrl(url: String) {
         val uri = URI(url)
-        require(uri.scheme == "https" && uri.host == "raw.githubusercontent.com" &&
-            uri.port == -1 && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
-            url in setOf(assetUrl("README.md"), assetUrl("location_mcp.py"))) { "Unapproved GitHub package URL." }
+        require(
+            uri.scheme == "https" &&
+                uri.host == "raw.githubusercontent.com" &&
+                uri.port == -1 &&
+                uri.rawUserInfo == null &&
+                uri.rawQuery == null &&
+                uri.rawFragment == null &&
+                url in setOf(assetUrl("README.md"), assetUrl("location_mcp.py"))
+        ) { "Unapproved GitHub package URL." }
     }
 
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
@@ -216,9 +222,11 @@ class MarketplacePackageStore(context: Context) {
                         continuation.resume(bytes)
                     }
                 } catch (error: Exception) {
-                    if (continuation.isActive) continuation.resumeWithException(
-                        IOException("Package download or integrity validation failed. Nothing was enabled.", error)
-                    )
+                    if (continuation.isActive) {
+                        continuation.resumeWithException(
+                            IOException("Package download or integrity validation failed. Nothing was enabled.", error)
+                        )
+                    }
                 }
             }
         })

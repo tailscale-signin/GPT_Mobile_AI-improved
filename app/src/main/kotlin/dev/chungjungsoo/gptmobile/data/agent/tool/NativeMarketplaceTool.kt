@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRequests
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -23,6 +24,20 @@ class NativeMarketplaceTool(
     private val registry: NativeMarketplaceRegistry,
     private val fetch: suspend (Request) -> JsonElement
 ) : AgentTool {
+    private fun boundedResult(data: JsonElement, limit: Int): JsonElement = when (data) {
+        is JsonArray -> JsonArray(data.take(limit))
+        is JsonObject -> JsonObject(
+            data.mapValues { (name, value) ->
+                when {
+                    value is JsonArray && name in setOf("results", "records", "businesses", "events", "candidates", "places", "elements", "features") -> JsonArray(value.take(limit))
+                    value is JsonObject && name in setOf("result", "_embedded") -> boundedResult(value, limit)
+                    else -> value
+                }
+            }
+        )
+        else -> data
+    }
+
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         try {
             val operation = definition.name.substringAfterLast("__")
@@ -30,12 +45,13 @@ class NativeMarketplaceTool(
             val configuration = registry.configuration(entry)
             val request = NativeMarketplaceRequests.build(entry, operation, arguments, configuration)
             registry.reserve(entry)
-            val data = fetch(request)
+            val data = boundedResult(fetch(request), configuration.installation.maxResults)
             if (configuration.apiKey.isNotEmpty() && data.toString().contains(configuration.apiKey)) throw NativeMarketplaceFailure("Provider response contained credential data and was withheld.")
             val result = buildJsonObject {
                 put("source", entry.preset.websiteUrl)
                 put("provider", entry.preset.name)
                 put("retrievedAt", Instant.now().toString())
+                put("maxResults", configuration.installation.maxResults)
                 put("coverage", "Bounded first response; missing access, fees, opening and accessibility attributes remain unknown.")
                 put("data", data)
             }

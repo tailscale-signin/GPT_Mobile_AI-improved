@@ -596,7 +596,13 @@ private class McpAgentTool(
             arguments
         }
 
-        val initialConfig = config(false, null)
+        val initialConfig = try {
+            config(false, null)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return AgentToolResult(callId, ToolResultContent.Text("MCP connection unavailable. Check installation, enable state and credentials in Tool connections."), true)
+        }
         val result = try {
             clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId)
         } catch (error: CancellationException) {

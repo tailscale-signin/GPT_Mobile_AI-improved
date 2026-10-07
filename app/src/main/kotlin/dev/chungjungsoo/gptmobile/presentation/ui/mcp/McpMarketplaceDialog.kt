@@ -687,6 +687,7 @@ fun McpPresetConfigureDialog(
                     alias,
                     { alias = it },
                     label = { Text("Tool alias") },
+                    readOnly = GitHubMarketplaceCatalog.find(preset.id) != null,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     isError = !validAlias,

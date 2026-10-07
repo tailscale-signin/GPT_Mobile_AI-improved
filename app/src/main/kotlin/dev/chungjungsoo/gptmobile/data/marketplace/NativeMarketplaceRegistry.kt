@@ -121,7 +121,13 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         check(!requireEnabled || record.enabled) { "This plugin is disabled." }
         check(record.ready(entry)) { "Complete the required plugin settings first." }
         val key = if (NativeMarketplaceCatalog.requiresKey(entry)) {
-            val bytes = record.credentialRef?.let { vault.read(it) } ?: error("API key is missing. Add it in plugin settings.")
+            val bytes = record.credentialRef?.let { vault.read(it) }
+            if (bytes == null) {
+                change(entry) { current ->
+                    if (current?.credentialRef == record.credentialRef) current?.copy(enabled = false, credentialRef = null) else current
+                }
+                error("API key is missing. Add it in plugin settings.")
+            }
             try {
                 bytes.decodeToString()
             } finally {

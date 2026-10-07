@@ -91,7 +91,7 @@ class GitHubMarketplaceCatalogTest {
         assertEquals("NONE", geoapify.suggestedAuthType)
         assertFalse(geoapify.hasRequiredEndpointParameters(geoapify.defaultEndpoint))
         assertEquals("OAUTH", packages.single { it.provider == "mapbox" }.preset.suggestedAuthType)
-        assertTrue(packages.filter { it.runtime == MarketplaceRuntime.NATIVE }.all { it.preset.defaultEndpoint.isEmpty() })
+        assertTrue(packages.filter { it.runtime == MarketplaceRuntime.NATIVE }.all { it.preset.commandOrUrl == "builtin://marketplace/${it.provider}" })
     }
 
     @Test

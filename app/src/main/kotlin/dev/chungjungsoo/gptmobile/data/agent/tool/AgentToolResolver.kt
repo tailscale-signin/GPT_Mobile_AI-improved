@@ -174,7 +174,14 @@ class AgentToolResolver @Inject constructor(
 
         if (!disableRemote) {
             if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
-                nativeMarketplaceRegistry.load().filterValues { it.enabled }.forEach { (id, installation) ->
+                val nativeInstallations = try {
+                    nativeMarketplaceRegistry.load()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+                nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
                     val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
                     if (installation.ready(entry) && featureSettings.isToolPluginEnabled(id)) {
                         dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).forEach { definition ->

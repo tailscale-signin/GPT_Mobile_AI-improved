@@ -242,6 +242,7 @@ fun ToolConnectionsScreen(
             val hasMcpConnection = uiState.connections.any { it.type == ToolConnectionType.MCP }
 
             if (!remoteMcpTab) {
+                dev.chungjungsoo.gptmobile.presentation.ui.mcp.InstalledNativePluginsPanel(search)
                 Text(
                     text = "Integrated Plugins",
                     style = MaterialTheme.typography.titleMedium,

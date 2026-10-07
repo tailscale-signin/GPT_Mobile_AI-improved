@@ -58,7 +58,9 @@ class AgentToolResolver @Inject constructor(
     private val memoryGraph: MemoryGraphRepository? = null,
     private val memoryDocuments: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
     private val freeModelToolConsentStore: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
-    private val gitHubWorkspaceStore: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceStore? = null
+    private val gitHubWorkspaceStore: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceStore? = null,
+    private val nativeMarketplaceRegistry: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
+    private val nativeMarketplaceClient: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceClient? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -171,6 +173,30 @@ class AgentToolResolver @Inject constructor(
         }
 
         if (!disableRemote) {
+            if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
+                val nativeInstallations = try {
+                    nativeMarketplaceRegistry.load()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+                nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
+                    val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
+                    if (installation.ready(entry) && featureSettings.isToolPluginEnabled(id)) {
+                        dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).forEach { definition ->
+                            resolved += ResolvedAgentTool(
+                                tool = NativeMarketplaceTool(entry, definition, nativeMarketplaceRegistry, nativeMarketplaceClient::fetch),
+                                connectionUid = id,
+                                connectionName = entry.preset.name,
+                                realToolName = definition.name.substringAfterLast("__"),
+                                modelToolName = definition.name,
+                                shareableReadOnly = true
+                            )
+                        }
+                    }
+                }
+            }
             if (featureSettings.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH)) {
                 connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabled(ToolPluginId.connection(it.connectionUid)) }
                     .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
@@ -215,6 +241,7 @@ class AgentToolResolver @Inject constructor(
         if (allowRemoteMcp) {
             val mcpGroups = bindings
                 .filter { it.connection?.type == ToolConnectionType.MCP }
+                .filter { pluginEnabledForBinding(featureSettings, it) }
                 .filterNot { binding ->
                     // Prefer the native GitHub API surface when it is connected.
                     // Keeping GitHub Official MCP visible at the same time causes
@@ -454,7 +481,13 @@ class AgentToolResolver @Inject constructor(
                 val tool = McpAgentTool(
                     definition = mcpToolDefinition(connection.alias, remoteTool),
                     authType = connection.authType,
-                    config = { forceRefresh, rejectedHeader -> mcpConfig(connection, forceRefresh, rejectedHeader) },
+                    config = { forceRefresh, rejectedHeader ->
+                        val current = toolConnectionRepository.getConnection(connection.connectionUid)
+                            ?: error("MCP connection was uninstalled.")
+                        val latest = settingRepository.getFeatureSettings()
+                        check(latest.remoteMcpConnections && latest.isToolPluginEnabled(ToolPluginId.connection(current.connectionUid))) { "MCP plugin is disabled." }
+                        mcpConfig(current, forceRefresh, rejectedHeader)
+                    },
                     remoteToolName = remoteTool.name,
                     outputSchema = remoteTool.outputSchema,
                     clientManager = mcpClientManager
@@ -570,7 +603,13 @@ private class McpAgentTool(
             arguments
         }
 
-        val initialConfig = config(false, null)
+        val initialConfig = try {
+            config(false, null)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return AgentToolResult(callId, ToolResultContent.Text("MCP connection unavailable. Check installation, enable state and credentials in Tool connections."), true)
+        }
         val result = try {
             clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId)
         } catch (error: CancellationException) {

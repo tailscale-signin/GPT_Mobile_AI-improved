@@ -24,7 +24,7 @@ class GitHubMarketplaceCatalogTest {
 
     @Test
     fun guidesCannotBecomeConnections() {
-        assertEquals(12, packages.count { it.runtime == MarketplaceRuntime.COMPANION })
+        assertEquals(12, packages.count { it.runtime == MarketplaceRuntime.NATIVE })
         assertEquals(2, packages.count { it.runtime == MarketplaceRuntime.HOSTED })
         assertEquals(6, packages.count { !it.canConnect })
         packages.filter { !it.canConnect }.forEach {
@@ -37,7 +37,7 @@ class GitHubMarketplaceCatalogTest {
     fun nativeAndRemoteSectionsRemainSeparate() {
         val native = packages.first().preset.copy(id = "native", commandOrUrl = "builtin://device_location")
         assertEquals(MarketplaceSection.PLUGINS, MarketplacePresentation.section(native))
-        packages.forEach { assertEquals(MarketplaceSection.MCP, MarketplacePresentation.section(it.preset)) }
+        packages.forEach { assertEquals(if (it.runtime == MarketplaceRuntime.NATIVE) MarketplaceSection.PLUGINS else MarketplaceSection.MCP, MarketplacePresentation.section(it.preset)) }
     }
 
     @Test
@@ -64,7 +64,7 @@ class GitHubMarketplaceCatalogTest {
         assertEquals(asc.reversed(), desc)
         val result = MarketplacePresentation.filterAndSort(
             presets,
-            MarketplaceSection.MCP,
+            MarketplaceSection.PLUGINS,
             " EVENTBRITE ",
             null,
             null,
@@ -74,7 +74,7 @@ class GitHubMarketplaceCatalogTest {
         assertEquals("optional-eventbrite", result.single().id)
         val added = MarketplacePresentation.filterAndSort(
             presets,
-            MarketplaceSection.MCP,
+            MarketplaceSection.PLUGINS,
             "",
             null,
             null,
@@ -91,7 +91,7 @@ class GitHubMarketplaceCatalogTest {
         assertEquals("NONE", geoapify.suggestedAuthType)
         assertFalse(geoapify.hasRequiredEndpointParameters(geoapify.defaultEndpoint))
         assertEquals("OAUTH", packages.single { it.provider == "mapbox" }.preset.suggestedAuthType)
-        assertTrue(packages.filter { it.runtime == MarketplaceRuntime.COMPANION }.all { it.preset.defaultEndpoint.isEmpty() })
+        assertTrue(packages.filter { it.runtime == MarketplaceRuntime.NATIVE }.all { it.preset.commandOrUrl == "builtin://marketplace/${it.provider}" })
     }
 
     @Test

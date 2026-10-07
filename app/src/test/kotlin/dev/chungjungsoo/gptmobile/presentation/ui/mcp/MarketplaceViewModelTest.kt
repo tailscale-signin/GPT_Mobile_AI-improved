@@ -3,13 +3,18 @@ package dev.chungjungsoo.gptmobile.presentation.ui.mcp
 import androidx.lifecycle.ViewModelStore
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
+import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
+import dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation
+import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -26,12 +31,16 @@ import org.junit.Test
 class MarketplaceViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val store = mockk<MarketplacePackageStore>()
+    private val registry = mockk<NativeMarketplaceRegistry>(relaxed = true)
+    private val connections = mockk<ToolConnectionRepository>(relaxed = true)
     private val viewModels = ViewModelStore()
     private val entry = GitHubMarketplaceCatalog.packages.first()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
+        every { registry.state } returns MutableStateFlow<Map<String, NativePluginInstallation>>(emptyMap())
+        coEvery { connections.listConnections() } returns emptyList()
         coEvery { store.downloadedIds() } returns emptySet()
         coEvery { store.download(any()) } returns Unit
         coEvery { store.remove(any()) } returns Unit
@@ -43,7 +52,20 @@ class MarketplaceViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun model() = MarketplaceViewModel(store).also { viewModels.put("marketplace", it) }
+    private fun model() = MarketplaceViewModel(store, registry, connections).also { viewModels.put("marketplace", it) }
+
+    @Test
+    fun downloadInstallsNativeAdapterAndRemovalClearsRegistryAndPackage() = runTest(dispatcher) {
+        val model = model()
+        model.download(entry)
+        runCurrent()
+        coVerify(exactly = 1) { registry.install(entry) }
+        model.remove(entry)
+        runCurrent()
+        coVerify(exactly = 1) { registry.uninstall(entry) }
+        coVerify(exactly = 1) { store.remove(entry) }
+        assertTrue(model.uiState.value.downloadedIds.isEmpty())
+    }
 
     @Test
     fun startupScanCannotOverwriteNewDownload() = runTest(dispatcher) {

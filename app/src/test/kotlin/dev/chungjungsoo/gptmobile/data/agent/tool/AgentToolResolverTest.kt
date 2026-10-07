@@ -13,6 +13,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
+import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceClient
+import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
+import dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
@@ -24,6 +27,7 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
+import io.mockk.coEvery
 import io.mockk.mockk
 import java.time.Clock
 import java.time.Instant
@@ -41,6 +45,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test
+    fun `installed enabled native adapters join conversation tools and respect disable switches`() = runBlocking {
+        val registry = mockk<NativeMarketplaceRegistry>()
+        val records = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages
+            .filter { dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.supports(it) }
+            .associate { it.id to NativePluginInstallation(enabled = true, endpoint = "https://managed.example/search", credentialRef = "saved") }
+        coEvery { registry.load() } returns records
+        val client = mockk<NativeMarketplaceClient>()
+        val resolver = resolver(nativeRegistry = registry, nativeClient = client)
+        val tools = resolver.resolve("profile").filter { it.connectionUid in records.keys }
+        assertEquals(13, tools.size)
+        assertEquals(13, tools.map { it.modelToolName }.toSet().size)
+        assertTrue(tools.all { it.shareableReadOnly })
+        assertFalse(resolver.resolve("profile", ChatMcpToolConfig(allowAllByDefault = true).withToolDisabled("optional-refuge")).any { it.connectionUid == "optional-refuge" })
+        coEvery { registry.load() } returns records.mapValues { (_, record) -> record.copy(enabled = false) }
+        assertFalse(resolver.resolve("profile").any { it.connectionUid in records.keys })
+        coEvery { registry.load() } throws java.io.IOException("corrupt optional registry")
+        assertTrue(resolver.resolve("profile").any { it.realToolName == "current_date" })
+        coEvery { registry.load() } returns records
+        val local = PlatformV2(uid = "local", name = "Local", disableRemoteTools = true)
+        assertFalse(resolver(settings = ResolverFakeSettingRepository(listOf(local)), nativeRegistry = registry, nativeClient = client).resolve(local.uid).any { it.connectionUid in records.keys })
+    }
+
     @Test
     fun `Amazon tools are available without bindings and respect plugin and chat switches`() = runBlocking {
         val dao = ResolverFakeToolConnectionDao()
@@ -389,6 +416,24 @@ class AgentToolResolverTest {
     }
 
     @Test
+    fun `disabled and uninstalled MCP connections stop already resolved tools`() = runBlocking {
+        McpClientManagerTest.McpFixtureServer().use { server ->
+            val dao = ResolverFakeToolConnectionDao()
+            val settings = ResolverFakeSettingRepository()
+            dao.bind(connection("mcp-1", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true), binding("profile", "mcp-1", "echo"))
+            val resolver = resolver(dao = dao, settings = settings)
+            val held = resolver.resolve("profile").single { it.connectionUid == "mcp-1" }
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.connection("mcp-1"), false)
+            assertFalse(resolver.resolve("profile").any { it.connectionUid == "mcp-1" })
+            assertTrue(held.tool.execute("disabled", buildJsonObject { put("text", "hello") }).isError)
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.connection("mcp-1"), true)
+            dao.deleteConnectionByUid("mcp-1")
+            assertTrue(held.tool.execute("removed", buildJsonObject { put("text", "hello") }).isError)
+            assertFalse(resolver.resolve("profile").any { it.connectionUid == "mcp-1" })
+        }
+    }
+
+    @Test
     fun `MCP bearer binding reads vault token and authenticates discovery and call`() = runBlocking {
         McpClientManagerTest.McpFixtureServer(acceptedAuthorization = "Bearer secret-token").use { server ->
             val dao = ResolverFakeToolConnectionDao()
@@ -683,7 +728,9 @@ class AgentToolResolverTest {
         vault: ResolverFakeSecretVault = ResolverFakeSecretVault(),
         settings: SettingRepository = ResolverFakeSettingRepository(),
         facts: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
-        consent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
+        consent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
+        nativeRegistry: NativeMarketplaceRegistry? = null,
+        nativeClient: NativeMarketplaceClient? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -697,7 +744,9 @@ class AgentToolResolverTest {
             mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
             deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true)),
             factVault = facts,
-            freeModelToolConsentStore = consent
+            freeModelToolConsentStore = consent,
+            nativeMarketplaceRegistry = nativeRegistry,
+            nativeMarketplaceClient = nativeClient
         )
     }
 
@@ -742,7 +791,7 @@ class AgentToolResolverTest {
 
 private class ResolverFakeSettingRepository(
     private val profiles: List<PlatformV2> = emptyList(),
-    private val features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+    var features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
 ) : SettingRepository {
     override suspend fun getFeatureSettings() = features
 

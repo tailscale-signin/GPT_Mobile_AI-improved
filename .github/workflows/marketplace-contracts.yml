@@ -10,6 +10,9 @@ on:
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModel.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/NativePluginSettings.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NativeMarketplaceTool.kt'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
       - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt'
       - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModelTest.kt'
 
@@ -44,7 +47,10 @@ jobs:
             -o "$RUNNER_TEMP/ktlint"
           files=(
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt
-            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/MarketplacePackageStore.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/*.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NativeMarketplaceTool.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/NativePluginSettings.kt
+            app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/*.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModel.kt
             app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt

@@ -69,6 +69,11 @@ native resources across callers. The new PR workflow runs it on an Android 16
 x86-64 emulator. An arm64 physical-device prompt check is still needed before
 calling the installed-phone crash resolved.
 
+The instrumented test APK is also minified. Its runner entry point is preserved
+with test-only rules, and `check_native_memory_smoke.py` requires the exact
+encoder/index test case in the JUnit report, rejecting empty, skipped or failed
+runs. A green Gradle task with zero executed tests does not satisfy this check.
+
 With app log tracking enabled, a healthy first initialization records
 `EMBEDDING_ENGINE_STARTING`, `EMBEDDING_ENGINE_CREATED`,
 `EMBEDDING_FIRST_INPUT_STARTED`, then `EMBEDDING_FIRST_INPUT_COMPLETED`.

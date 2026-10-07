@@ -6,11 +6,13 @@ on:
     paths:
       - 'app/build.gradle.kts'
       - 'app/proguard-rules.pro'
+      - 'app/native-smoke-test-rules.pro'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
       - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
       - 'gradle/**'
       - 'scripts/check_mediapipe_jni.py'
       - 'scripts/check_local_runtime_apk.py'
+      - 'scripts/check_native_memory_smoke.py'
       - '.github/workflows/native-memory-smoke.yml'
   workflow_dispatch:
 
@@ -52,6 +54,8 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
           script: ./gradlew :app:connectedNativeSmokeAndroidTest -PnativeMemorySmoke=true -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
+      - name: Require the real native test to execute and pass
+        run: python3 scripts/check_native_memory_smoke.py app/build/outputs/androidTest-results/connected/nativeSmoke
       - name: Save native smoke evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -61,4 +65,5 @@ jobs:
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             app/build/outputs/mapping/nativeSmoke/
+            app/build/outputs/mapping/nativeSmokeAndroidTest/
           if-no-files-found: ignore

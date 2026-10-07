@@ -200,6 +200,9 @@ extensions.configure<ApplicationExtension> {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".nativesmoke"
             matchingFallbacks += listOf("release")
+            // The runner selects tests by their source class name. R8 also
+            // shrinks the test APK, so keep its reflection/discovery entry point.
+            testProguardFiles("native-smoke-test-rules.pro")
         }
         testBuildType = "nativeSmoke"
     }

@@ -81,9 +81,9 @@ object GitHubMarketplaceCatalog {
     const val SOURCE_REPOSITORY = "tailscale-signin/GPT_Mobile_AI-improved"
 
     // Immutable assets. Never follow main/latest or accept a checksum supplied by the download itself.
-    const val SOURCE_COMMIT = "f6e00d81946e29983f439566aa43957a86da08a5"
-    const val GUIDE_SHA256 = "4dc819a557414bc1d8e2e53aeb9e06aecf3459666dc5c0a5a90dc021a008c1e1"
-    const val COMPANION_SHA256 = "49cd0e7e50c7518e77dac361e7a82428157b6e12c8d0c5d8e89bbccab1b871bc"
+    const val SOURCE_COMMIT = "03db5902a5e03fa3be406921ceed70806dd1d441"
+    const val GUIDE_SHA256 = "22679f9c32abb64add785f8002add779306da75ce18643e2ad47417873a3b41c"
+    const val COMPANION_SHA256 = "25970252ec77a5fccbce6632d278ce4ecb9aa358ccd21f17986d92a07d7a3850"
     const val SOURCE_DIRECTORY = "https://github.com/$SOURCE_REPOSITORY/tree/$SOURCE_COMMIT/mcp/marketplace"
 
     private fun companion(

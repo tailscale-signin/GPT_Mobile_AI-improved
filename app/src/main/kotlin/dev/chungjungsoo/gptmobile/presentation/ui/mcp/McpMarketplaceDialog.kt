@@ -71,12 +71,12 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +92,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplacePackage
@@ -103,13 +105,12 @@ import dev.chungjungsoo.gptmobile.data.catalog.McpCategory
 import dev.chungjungsoo.gptmobile.data.catalog.McpPreset
 import dev.chungjungsoo.gptmobile.data.catalog.McpPricingType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
-import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -157,10 +158,12 @@ fun McpMarketplaceScreen(
         allowCleartext: Boolean
     ) -> Unit,
     modifier: Modifier = Modifier,
-    onOpenDelegation: (() -> Unit)? = null
+    onOpenDelegation: (() -> Unit)? = null,
+    marketplaceViewModel: MarketplaceViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val store = remember(context.applicationContext) { MarketplacePackageStore(context.applicationContext) }
+    val packageState by marketplaceViewModel.uiState.collectAsStateWithLifecycle()
+    val downloaded = packageState.downloadedIds
     val scope = rememberCoroutineScope()
     var section by rememberSaveable { mutableStateOf(MarketplaceSection.PLUGINS) }
     var sort by rememberSaveable { mutableStateOf(MarketplaceSort.RECOMMENDED) }
@@ -170,11 +173,7 @@ fun McpMarketplaceScreen(
     var configuring by remember { mutableStateOf<McpPreset?>(null) }
     var approving by remember { mutableStateOf<GitHubMarketplacePackage?>(null) }
     var removing by remember { mutableStateOf<GitHubMarketplacePackage?>(null) }
-    var downloaded by remember { mutableStateOf<Set<String>>(emptySet()) }
     var exportId by rememberSaveable { mutableStateOf<String?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    val jobs = remember { mutableStateMapOf<String, Job>() }
-    val errors = remember { mutableStateMapOf<String, String>() }
     val pluginScroll = rememberLazyListState()
     val mcpScroll = rememberLazyListState()
     val presets = remember { GitHubMarketplaceCatalog.allPresets }
@@ -185,9 +184,12 @@ fun McpMarketplaceScreen(
     val filtered = remember(presets, section, query, category, pricing, sort, addedIds) {
         MarketplacePresentation.filterAndSort(presets, section, query, category, pricing, sort, addedIds)
     }
-    LaunchedEffect(store) { downloaded = store.downloadedIds() }
-    LaunchedEffect(section, query, category, pricing, sort) {
-        (if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll).scrollToItem(0)
+    LaunchedEffect(Unit) {
+        // Keep each tab's position, including restored state after rotation.
+        snapshotFlow { listOf(query, category, pricing, sort) }.drop(1).collect {
+            pluginScroll.scrollToItem(0)
+            mcpScroll.scrollToItem(0)
+        }
     }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val entry = exportId?.let(GitHubMarketplaceCatalog::find)
@@ -195,16 +197,16 @@ fun McpMarketplaceScreen(
         if (uri != null && entry != null) {
             scope.launch {
                 try {
-                    val bytes = store.exportBytes(entry)
+                    val bytes = marketplaceViewModel.exportBytes(entry)
                     withContext(Dispatchers.IO) {
                         val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("No export destination.")
                         output.use { it.write(bytes) }
                     }
-                    notice = "Package exported. Review its README before running companion code."
+                    marketplaceViewModel.showMessage("Package exported. Review its README before running companion code.")
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    notice = "Export failed. The downloaded package is still available; retry with another destination."
+                    marketplaceViewModel.showMessage("Export failed. Retry with another destination or download the package again.")
                 }
             }
         }
@@ -288,10 +290,10 @@ fun McpMarketplaceScreen(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            notice?.let { message ->
+            packageState.message?.let { message ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    IconButton(onClick = { notice = null }) { Icon(Icons.Rounded.Close, "Dismiss message") }
+                    IconButton(onClick = { marketplaceViewModel.showMessage(null) }) { Icon(Icons.Rounded.Close, "Dismiss message") }
                 }
             }
             LazyColumn(
@@ -324,8 +326,9 @@ fun McpMarketplaceScreen(
                                 preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
                                 else -> configuring = preset
                             }
-                        }, download = entry, downloaded = preset.id in downloaded, downloading = jobs.containsKey(preset.id),
-                        error = errors[preset.id], onDownload = { approving = entry }, onCancel = { jobs[preset.id]?.cancel() },
+                        }, download = entry, downloaded = preset.id in downloaded,
+                        downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
+                        error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
                         onExport = {
                             exportId = preset.id
                             exporter.launch("${preset.id}.zip")
@@ -351,22 +354,7 @@ fun McpMarketplaceScreen(
             confirmButton = {
                 TextButton(onClick = {
                     approving = null
-                    errors.remove(entry.id)
-                    if (!jobs.containsKey(entry.id)) {
-                        jobs[entry.id] = scope.launch {
-                            try {
-                                store.download(entry)
-                                downloaded = downloaded + entry.id
-                            } catch (cancelled: CancellationException) {
-                                errors[entry.id] = "Download cancelled. No tool access was granted."
-                                throw cancelled
-                            } catch (_: Exception) {
-                                errors[entry.id] = "Download or integrity check failed. Retry; no tools were enabled."
-                            } finally {
-                                jobs.remove(entry.id)
-                            }
-                        }
-                    }
+                    marketplaceViewModel.download(entry)
                 }) { Text("Download package") }
             },
             dismissButton = { TextButton(onClick = { approving = null }) { Text("Cancel") } }
@@ -380,16 +368,7 @@ fun McpMarketplaceScreen(
             confirmButton = {
                 TextButton(onClick = {
                     removing = null
-                    scope.launch {
-                        try {
-                            store.remove(entry)
-                            downloaded = downloaded - entry.id
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            notice = "Unable to remove the package."
-                        }
-                    }
+                    marketplaceViewModel.remove(entry)
                 }) { Text("Remove files") }
             },
             dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } }
@@ -490,6 +469,7 @@ private fun MarketplacePackageCard(
     download: GitHubMarketplacePackage? = null,
     downloaded: Boolean = false,
     downloading: Boolean = false,
+    removing: Boolean = false,
     error: String? = null,
     onDownload: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -543,9 +523,9 @@ private fun MarketplacePackageCard(
                         Text(if (error == null) "Download" else "Retry download")
                     }
                     download != null -> {
-                        if (download.canConnect && !isInstalled) Button(onClick = onAddClick, shape = RoundedCornerShape(12.dp)) { Text("Set up connection") }
-                        OutlinedButton(onClick = onExport, shape = RoundedCornerShape(12.dp)) { Text("Export package") }
-                        TextButton(onClick = onRemove) { Text("Remove files") }
+                        if (download.canConnect && !isInstalled) Button(onClick = onAddClick, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Set up connection") }
+                        OutlinedButton(onClick = onExport, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Export package") }
+                        TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Removing…" else "Remove files") }
                     }
                     preset.integratedTool != null -> Button(onClick = onAddClick) { Text("Configure") }
                     !isInstalled -> Button(onClick = onAddClick) { Text(if (preset.documentationOnly) "View guide" else "Set up") }

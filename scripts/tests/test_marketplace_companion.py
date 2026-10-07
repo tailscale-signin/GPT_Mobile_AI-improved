@@ -4,6 +4,7 @@ import http.client
 import io
 import re
 import hashlib
+import socket
 import threading
 from pathlib import Path
 import tempfile
@@ -102,15 +103,58 @@ class CompanionTests(unittest.TestCase):
         self.assertEqual(result['error']['code'], -32601)
 
     def test_no_automatic_redirects(self):
+        body = io.BytesIO(b'private provider response')
         with self.assertRaises(m.SafeError):
-            m.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://evil.test')
+            m.NoRedirect().redirect_request(None, body, 302, '', {}, 'https://evil.test')
+        self.assertTrue(body.closed)
+
+    def test_allowlist_accepts_spaces_without_enabling_extra_providers(self):
+        companion = m.Companion(dict(self.env, MARKETPLACE_ENABLED=' refuge, toronto, '),
+                                Path(self.temp.name) / 'spaced.db')
+        self.assertEqual(companion.enabled, {'refuge', 'toronto'})
+
+    def test_parallel_reservations_enforce_one_shared_cooldown(self):
+        barrier = threading.Barrier(8)
+        accepted = []
+
+        def reserve():
+            barrier.wait(timeout=2)
+            try:
+                self.companion.reserve('refuge')
+                accepted.append(True)
+            except m.SafeError:
+                accepted.append(False)
+
+        with patch.object(m.time, 'monotonic', return_value=100):
+            threads = [threading.Thread(target=reserve) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=3)
+        self.assertEqual(accepted.count(True), 1)
+        self.assertEqual(len(accepted), 8)
+        with m.closing(m.sqlite3.connect(self.companion.db)) as db:
+            self.assertEqual(db.execute('SELECT calls FROM usage').fetchone(), (1,))
+
+    def test_http_error_body_closed_and_429_cooldown_shared(self):
+        body = io.BytesIO(b'secret-example')
+        error = m.urllib.error.HTTPError('https://provider/?key=secret-example', 429, 'limited', {}, body)
+        with patch.object(m.urllib.request, 'build_opener') as opener:
+            opener.return_value.open.side_effect = error
+            result = self.companion.dispatch('refuge', self.request('tools/call', name='restrooms',
+                                            arguments=dict(latitude=0, longitude=0)))
+        self.assertTrue(body.closed)
+        self.assertTrue(result['result']['isError'])
+        self.assertNotIn('secret-example', json.dumps(result))
+        with self.assertRaisesRegex(m.SafeError, 'cooldown'):
+            self.companion.reserve('refuge')
 
 
 class TransportTests(unittest.TestCase):
     # Exercise the actual Streamable HTTP handler locally, never a real provider.
     def setUp(self):
         CompanionTests.setUp(self)
-        self.server = m.HTTPServer(('127.0.0.1', 0), m.handler_for(self.companion))
+        self.server = m.CompanionServer(('127.0.0.1', 0), m.handler_for(self.companion))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -150,6 +194,49 @@ class TransportTests(unittest.TestCase):
 
     def test_protocol_mismatch_rejected(self):
         self.assertEqual(self.http(self.request('tools/list'), {'MCP-Protocol-Version': 'invalid'})[0], 400)
+
+    def test_idle_client_does_not_block_discovery(self):
+        with socket.create_connection(('127.0.0.1', self.server.server_port), timeout=2) as idle:
+            idle.sendall(b'POST /mcp/refuge HTTP/1.1\r\n')
+            status, body = self.http(self.request('tools/list'))
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)['result']['tools'])
+
+    def test_slow_provider_does_not_block_ping(self):
+        started, release = threading.Event(), threading.Event()
+        responses = []
+
+        def upstream(*args, **kwargs):
+            started.set()
+            if not release.wait(timeout=3):
+                raise TimeoutError()
+            return io.BytesIO(b'[]')
+
+        with patch.object(m.urllib.request, 'build_opener') as opener:
+            opener.return_value.open.side_effect = upstream
+            worker = threading.Thread(target=lambda: responses.append(self.http(
+                self.request('tools/call', name='restrooms', arguments=dict(latitude=0, longitude=0)))))
+            worker.start()
+            try:
+                self.assertTrue(started.wait(timeout=1))
+                self.assertEqual(self.http(self.request('ping'))[0], 200)
+            finally:
+                release.set()
+                worker.join(timeout=3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(responses[0][0], 200)
+
+    def test_worker_limit_closes_excess_clients_and_recovers(self):
+        # Occupy every worker permit without depending on socket accept timing.
+        for _ in range(self.server.max_workers):
+            self.assertTrue(self.server.workers.acquire(blocking=False))
+        try:
+            with socket.create_connection(('127.0.0.1', self.server.server_port), timeout=2) as extra:
+                self.assertEqual(extra.recv(1), b'')
+        finally:
+            for _ in range(self.server.max_workers):
+                self.server.workers.release()
+        self.assertEqual(self.http(self.request('ping'))[0], 200)
 
     def test_valid_tool_response_and_provider_error(self):
         request = self.request('tools/call', name='restrooms', arguments=dict(latitude=0, longitude=0))

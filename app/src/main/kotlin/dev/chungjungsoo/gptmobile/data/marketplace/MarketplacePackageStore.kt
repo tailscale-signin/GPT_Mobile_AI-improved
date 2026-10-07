@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.marketplace
 
 import android.content.Context
 import android.util.AtomicFile
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplacePackage
 import dev.chungjungsoo.gptmobile.data.catalog.MarketplaceRuntime
@@ -15,6 +16,8 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
@@ -65,7 +68,8 @@ object MarketplaceDownloadPolicy {
 }
 
 /** Stores inert ZIP packages. Never extracts or executes downloaded source on Android. */
-class MarketplacePackageStore(context: Context) {
+@Singleton
+class MarketplacePackageStore @Inject constructor(@ApplicationContext context: Context) {
     private val directory = File(context.noBackupFilesDir, "optional_marketplace_v1")
     private val client = OkHttpClient.Builder()
         .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
@@ -73,14 +77,15 @@ class MarketplacePackageStore(context: Context) {
         .callTimeout(45, TimeUnit.SECONDS).build()
 
     suspend fun downloadedIds(): Set<String> = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            GitHubMarketplaceCatalog.packages.filter { readVerified(it) != null }.map { it.id }.toSet()
-        }
+        GitHubMarketplaceCatalog.packages.filter { entry ->
+            ensureActive()
+            locks.getValue(entry.id).withLock { readVerified(entry) != null }
+        }.map { it.id }.toSet()
     }
 
     suspend fun download(entry: GitHubMarketplacePackage) = withContext(Dispatchers.IO) {
         requireKnown(entry)
-        mutex.withLock {
+        locks.getValue(entry.id).withLock {
             if (readVerified(entry) != null) return@withLock
             val files = linkedMapOf("setup.json" to descriptor(entry))
             files["README.md"] = fetchAsset("README.md", GitHubMarketplaceCatalog.GUIDE_SHA256)
@@ -99,11 +104,13 @@ class MarketplacePackageStore(context: Context) {
                 buffer.toByteArray()
             }
             check(verifyPackage(entry, bytes)) { "Package validation failed." }
-            check(directory.isDirectory || directory.mkdirs()) { "Unable to create package storage." }
+            ensureActive()
+            check(directory.isDirectory || directory.mkdirs() || directory.isDirectory) { "Unable to create package storage." }
             val file = packageFile(entry)
             val output = file.startWrite()
             try {
                 output.write(bytes)
+                ensureActive()
                 file.finishWrite(output)
             } catch (error: Exception) {
                 file.failWrite(output)
@@ -114,12 +121,16 @@ class MarketplacePackageStore(context: Context) {
 
     suspend fun exportBytes(entry: GitHubMarketplacePackage): ByteArray = withContext(Dispatchers.IO) {
         requireKnown(entry)
-        mutex.withLock { readVerified(entry) ?: throw IOException("Download the package again before exporting.") }
+        locks.getValue(entry.id).withLock { readVerified(entry) ?: throw IOException("Download the package again before exporting.") }
     }
 
     suspend fun remove(entry: GitHubMarketplacePackage) = withContext(Dispatchers.IO) {
         requireKnown(entry)
-        mutex.withLock { packageFile(entry).delete() }
+        locks.getValue(entry.id).withLock {
+            val file = packageFile(entry)
+            file.delete()
+            check(!file.baseFile.exists()) { "Unable to remove package files." }
+        }
     }
 
     private fun requireKnown(entry: GitHubMarketplacePackage) {
@@ -233,6 +244,7 @@ class MarketplacePackageStore(context: Context) {
     }
 
     private companion object {
-        val mutex = Mutex()
+        // Serialize changes to the same package without blocking unrelated downloads or exports.
+        val locks = GitHubMarketplaceCatalog.packages.associate { it.id to Mutex() }
     }
 }

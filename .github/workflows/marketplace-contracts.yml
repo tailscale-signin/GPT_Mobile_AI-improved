@@ -9,7 +9,9 @@ on:
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModel.kt'
       - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModelTest.kt'
 
 permissions:
   contents: read
@@ -44,7 +46,9 @@ jobs:
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/MarketplacePackageStore.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModel.kt
             app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt
+            app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModelTest.kt
           )
           java -jar "$RUNNER_TEMP/ktlint" --format "${files[@]}"
           java -jar "$RUNNER_TEMP/ktlint" "${files[@]}"

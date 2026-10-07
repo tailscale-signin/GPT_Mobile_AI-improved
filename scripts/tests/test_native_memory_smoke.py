@@ -33,5 +33,51 @@ class NativeMemorySmokeReportTest(unittest.TestCase):
                 self.check_xml(content)
 
 
+class NativeMemoryInstrumentationTest(unittest.TestCase):
+    START = f"""INSTRUMENTATION_STATUS: class={smoke.TEST_CLASS}
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: test={smoke.TEST_METHOD}
+INSTRUMENTATION_STATUS_CODE: 1
+"""
+    SUCCESS = f"""INSTRUMENTATION_STATUS: class={smoke.TEST_CLASS}
+INSTRUMENTATION_STATUS: test={smoke.TEST_METHOD}
+INSTRUMENTATION_STATUS_CODE: 0
+"""
+    FINISH = "INSTRUMENTATION_RESULT: stream=\nOK (1 test)\nINSTRUMENTATION_CODE: -1\n"
+
+    def check_output(self, content):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "instrumentation.txt")
+            path.write_text(content)
+            smoke.check_instrumentation(path)
+
+    def test_real_test_protocol_passes_with_unix_or_adb_line_endings(self):
+        output = self.START + self.SUCCESS + self.FINISH
+        self.check_output(output)
+        self.check_output(output.replace("\n", "\r\n"))
+
+    def test_zero_tests_wrong_test_and_incomplete_crash_cannot_pass(self):
+        for output in [self.FINISH, self.START, self.START + self.FINISH, self.START + self.SUCCESS, (self.START + self.SUCCESS + self.FINISH).replace(smoke.TEST_CLASS, "OtherTest")]:
+            with self.subTest(output=output), self.assertRaisesRegex(ValueError, "did not execute"):
+                self.check_output(output)
+
+    def test_assertions_errors_and_skips_cannot_pass(self):
+        for code in [-1, -2, -3, -4]:
+            output = self.START + self.SUCCESS.replace("STATUS_CODE: 0", f"STATUS_CODE: {code}") + self.FINISH
+            with self.subTest(code=code), self.assertRaisesRegex(ValueError, "failed or was skipped"):
+                self.check_output(output)
+
+    def test_aborted_or_invalid_completion_cannot_pass(self):
+        output = self.START + self.SUCCESS
+        for ending in ["INSTRUMENTATION_FAILED: Unable to find instrumentation info", "INSTRUMENTATION_ABORTED: System has crashed", "INSTRUMENTATION_CODE: 0", "INSTRUMENTATION_CODE: -2"]:
+            with self.subTest(ending=ending), self.assertRaises(ValueError):
+                self.check_output(output + ending)
+        for invalid in [self.SUCCESS + self.FINISH, self.START + self.START + self.SUCCESS + self.FINISH, self.START + self.SUCCESS + self.SUCCESS + self.FINISH]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.check_output(invalid)
+
+
 if __name__ == "__main__":
     unittest.main()

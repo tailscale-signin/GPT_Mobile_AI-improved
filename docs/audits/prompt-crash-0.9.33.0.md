@@ -57,8 +57,8 @@ python3 -m unittest discover -s scripts/tests
 Run the real native-memory test against a minified app on Android 16:
 
 ```sh
-./gradlew :app:connectedNativeSmokeAndroidTest -PnativeMemorySmoke=true \
-  -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest
+./gradlew :app:assembleNativeSmoke :app:assembleNativeSmokeAndroidTest -PnativeMemorySmoke=true
+bash scripts/run_native_memory_smoke.sh
 ```
 
 This build inherits release shrinking and uses the separate
@@ -71,8 +71,12 @@ calling the installed-phone crash resolved.
 
 The instrumented test APK is also minified. Its runner entry point is preserved
 with test-only rules, and `check_native_memory_smoke.py` requires the exact
-encoder/index test case in the JUnit report, rejecting empty, skipped or failed
-runs. A green Gradle task with zero executed tests does not satisfy this check.
+encoder/index test's start and success packets and successful instrumentation
+termination, rejecting empty, skipped, failed or aborted runs. CI invokes Android
+instrumentation directly and retains the raw protocol transcript and logcat.
+The connected Gradle task produced empty reports despite preserved test/runner
+definitions in its R8 mapping, so its green exit status cannot establish native
+execution. The checker also accepts JUnit reports for local connected-test runs.
 
 With app log tracking enabled, a healthy first initialization records
 `EMBEDDING_ENGINE_STARTING`, `EMBEDDING_ENGINE_CREATED`,

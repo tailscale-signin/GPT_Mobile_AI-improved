@@ -27,10 +27,53 @@ def check_reports(directory):
     print(f"Native memory smoke: {TEST_CLASS}.{TEST_METHOD} passed on {len(matched)} device(s)")
 
 
+def check_instrumentation(output):
+    """Validate raw am instrument packets; adb's exit code is not a test result."""
+    packet = {}
+    started = False
+    passed = False
+    finished = False
+    for line in Path(output).read_text().splitlines():
+        if line.startswith(("INSTRUMENTATION_FAILED:", "INSTRUMENTATION_ABORTED:")):
+            raise ValueError(f"Native instrumentation aborted: {line}")
+        if line.startswith("INSTRUMENTATION_STATUS: "):
+            key, separator, value = line.removeprefix("INSTRUMENTATION_STATUS: ").partition("=")
+            if separator:
+                packet[key] = value
+        elif line.startswith("INSTRUMENTATION_STATUS_CODE: "):
+            code = int(line.removeprefix("INSTRUMENTATION_STATUS_CODE: "))
+            if code < 0:
+                raise ValueError(f"Native smoke failed or was skipped: {packet}")
+            if packet.get("class") == TEST_CLASS and packet.get("test") == TEST_METHOD:
+                if code == 1:
+                    if started or finished:
+                        raise ValueError("Native test has duplicate or out-of-order start packets")
+                    started = True
+                elif code == 0:
+                    if not started or passed or finished:
+                        raise ValueError("Native test completion has no matching start packet")
+                    passed = True
+            packet = {}
+        elif line.startswith("INSTRUMENTATION_CODE: "):
+            if int(line.removeprefix("INSTRUMENTATION_CODE: ")) != -1 or finished:
+                raise ValueError(f"Native instrumentation did not finish successfully: {line}")
+            finished = True
+    if not (started and passed and finished):
+        raise ValueError("Native encoder/index test did not execute and complete successfully")
+    print(f"Native memory smoke: {TEST_CLASS}.{TEST_METHOD} executed and passed")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("reports", type=Path)
-    check_reports(parser.parse_args().reports)
+    parser.add_argument("reports", type=Path, nargs="?")
+    parser.add_argument("--instrumentation-output", type=Path)
+    args = parser.parse_args()
+    if (args.reports is None) == (args.instrumentation_output is None):
+        parser.error("provide either a JUnit report directory or --instrumentation-output")
+    if args.instrumentation_output:
+        check_instrumentation(args.instrumentation_output)
+    else:
+        check_reports(args.reports)
 
 
 if __name__ == "__main__":

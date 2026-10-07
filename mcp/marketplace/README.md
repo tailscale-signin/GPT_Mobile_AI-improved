@@ -121,7 +121,7 @@ Primary documentation checked during implementation:
 Run mocked contract/security tests from the repository root:
 
 ```sh
-python -m unittest discover -s tests -p 'test_marketplace_companion.py' -v
+python -m unittest discover -s scripts/tests -p 'test_marketplace_companion.py' -v
 ```
 
 These tests do not establish provider availability, complete MCP conformance,

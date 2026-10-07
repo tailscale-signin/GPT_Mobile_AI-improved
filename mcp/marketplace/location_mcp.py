@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -166,7 +167,7 @@ class Companion:
         if not 1 <= self.limit <= 1000:
             raise SafeError("Daily request limit must be between 1 and 1000.")
         self.db, self.last = str(database), {}
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db, db:
             db.execute("CREATE TABLE IF NOT EXISTS usage (day TEXT, provider TEXT, calls INTEGER, PRIMARY KEY(day, provider))")
 
     def reserve(self, provider):
@@ -174,7 +175,7 @@ class Companion:
         if now - self.last.get(provider, -10) < 1:
             raise SafeError("Provider cooldown active. Try again later.")
         day = dt.datetime.now(dt.timezone.utc).date().isoformat()
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT calls FROM usage WHERE day=? AND provider=?", (day, provider)).fetchone()
             if row and row[0] >= self.limit:
@@ -212,6 +213,8 @@ class Companion:
                 if len(raw) > MAX_RESPONSE:
                     raise SafeError("Provider response exceeded the safe size limit. Narrow the request.")
                 data = json.loads(raw)
+                if isinstance(data, dict) and (data.get("error") or data.get("errors") or data.get("success") is False):
+                    raise SafeError("Provider returned an error. Check host credentials and service access.")
                 text = json.dumps(dict(source=urllib.parse.urlsplit(req.full_url).hostname, retrievedAt=dt.datetime.now(dt.timezone.utc).isoformat(), coverage="Bounded first response, not exhaustive; unknown attributes remain unknown.", data=data), allow_nan=False)
                 if len(text) > 100_000:
                     raise SafeError("Result exceeds the output allowance. No partial JSON was returned.")
@@ -276,7 +279,7 @@ def handler_for(companion):
                 self.reply(202 if result is None else 200, result)
             except Exception as exc:
                 request_id = message.get("id") if isinstance(message, dict) else None
-                if isinstance(request_id, (dict, list, bool)):
+                if not isinstance(request_id, (str, int)) or isinstance(request_id, bool):
                     request_id = None
                 text = str(exc) if isinstance(exc, SafeError) else "Invalid request."
                 self.reply(400, dict(jsonrpc="2.0", id=request_id, error={"code": -32600, "message": text}))

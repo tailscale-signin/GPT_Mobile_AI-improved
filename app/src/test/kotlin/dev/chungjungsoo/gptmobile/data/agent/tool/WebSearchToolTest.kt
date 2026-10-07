@@ -72,6 +72,7 @@ class WebSearchToolTest {
         )
         assertTrue(!server.request.query.toString().contains("brave-key"))
         assertNormalized(result.content, "Kotlin & Android", "https://docs.allowed.example/kotlin", "Useful documentation", "2026-07-31")
+        assertEquals("Brave Search", (result.content as ToolResultContent.Json).value.jsonObject.getValue("engines").jsonArray.single().jsonPrimitive.content)
     }
 
     @Test
@@ -177,6 +178,7 @@ class WebSearchToolTest {
         val liteResult = (successful.content as ToolResultContent.Json).value.jsonObject.getValue("results").jsonArray.single().jsonObject
         assertEquals("Kotlin docs", liteResult.getValue("title").jsonPrimitive.content)
         assertEquals("https://docs.allowed.example/kotlin", liteResult.getValue("url").jsonPrimitive.content)
+        assertEquals("DuckDuckGo", liteResult.getValue("engine").jsonPrimitive.content)
 
         val blocked = server("/blocked", "blocked", status = 403)
         val gate = AtomicLong(0L)

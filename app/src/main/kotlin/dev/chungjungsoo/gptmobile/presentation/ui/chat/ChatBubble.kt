@@ -101,8 +101,10 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -168,23 +170,26 @@ fun UserChatBubble(
             shape = RoundedCornerShape(32.dp),
             colors = cardColor
         ) {
-            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp)) {
-                ChatMarkdown(content = text, modifier = Modifier.alpha(0.7f))
-                if (formattedTime.isNotBlank()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        Text(
-                            text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
-                        )
-                    }
-                }
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Text(
+                    text = text,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 1f),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
+                    )
+                )
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            if (formattedTime.isNotBlank()) {
+                Text(
+                    text = formattedTime,
+                    modifier = Modifier.padding(end = 8.dp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                )
+            }
             AnimatedVisibility(visible = actionsExpanded) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CopyTextIcon(onCopyClick)
@@ -229,6 +234,7 @@ fun OpponentChatBubble(
     runNotices: List<ChatRunNotice> = emptyList(),
     toolEvents: List<ToolEvent> = emptyList(),
     locationToolEvents: List<ToolEvent> = toolEvents,
+    sourceToolEvents: List<ToolEvent> = toolEvents,
     contentIdentity: Any = text,
     canEdit: Boolean = false,
     isFavorite: Boolean = false,
@@ -715,6 +721,13 @@ fun OpponentChatBubble(
                 }
             }
         }
+        ChatResponseSources(
+            answer = text,
+            events = sourceToolEvents,
+            contentIdentity = contentIdentity,
+            isLoading = isLoading,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
     }
 }
 
@@ -823,7 +836,7 @@ fun GPTMobileIcon(loading: Boolean) {
                 trackColor = Color.Transparent
             )
         }
-        dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
+        dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp), emblemScale = 0.78f)
     }
 }
 

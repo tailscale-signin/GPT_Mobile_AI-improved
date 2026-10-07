@@ -794,4 +794,14 @@
     <string name="output_tokens_use_recommended">Use recommended (%1$d)</string>
     <string name="free_tool_permissions_reset">MCP data-sharing permissions reset for this profile.</string>
     <string name="free_tool_permissions_reset_failed">Could not reset MCP data-sharing permissions.</string>
+    <string name="chat_sources_title">Sources</string>
+    <string name="chat_sources_engines">Search engines used</string>
+    <string name="chat_sources_open">View all sources · %1$s</string>
+    <string name="chat_sources_close">Close sources</string>
+    <string name="chat_sources_none">No source links were returned by these engines.</string>
+    <string name="chat_sources_link_error">Unable to open this source.</string>
+    <plurals name="chat_source_count">
+        <item quantity="one">%d source</item>
+        <item quantity="other">%d sources</item>
+    </plurals>
 </resources>

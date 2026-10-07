@@ -34,6 +34,8 @@ internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<Jso
                         val highlights = (value["highlights"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.joinToString("\n")
                         put("snippet", value.stringValue("snippet", "description", "content", "text", "raw_content") ?: highlights.orEmpty())
                         value.stringValue("publishedDate", "published_date", "date")?.let { put("publishedDate", it) }
+                        value.stringValue("engine")?.let { put("engine", it) }
+                        (value["engines"] as? JsonArray)?.let { put("engines", it) }
                     }
                 )
             } else {

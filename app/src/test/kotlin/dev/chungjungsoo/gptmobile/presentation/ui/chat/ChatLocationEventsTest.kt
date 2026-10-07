@@ -28,7 +28,7 @@ class ChatLocationEventsTest {
             "unrelated-turn" to listOf(location("unrelated-turn", 30))
         )
 
-        val result = locationEventsForResponse(lead, listOf(lead, other), true, emptySet(), events)
+        val result = toolEventsForResponse(lead, listOf(lead, other), true, emptySet(), events)
 
         assertEquals(listOf("other-run", "lead-run"), result.map { it.runId })
     }
@@ -49,7 +49,7 @@ class ChatLocationEventsTest {
         )
         val events = mapOf("original" to listOf(location("original", 10)), "retry" to listOf(location("retry", 20)))
 
-        val result = locationEventsForResponse(lead, listOf(lead, other), true, setOf("lead", "other"), events)
+        val result = toolEventsForResponse(lead, listOf(lead, other), true, setOf("lead", "other"), events)
 
         assertEquals(listOf("original"), result.map { it.runId })
     }
@@ -65,7 +65,7 @@ class ChatLocationEventsTest {
         )
         val events = mapOf("older" to listOf(location("older", 10)), "latest" to listOf(location("latest", 20)))
 
-        val result = locationEventsForResponse(selected, listOf(selected), false, setOf("lead"), events)
+        val result = toolEventsForResponse(selected, listOf(selected), false, setOf("lead"), events)
 
         assertEquals(listOf("older"), result.map { it.runId })
     }
@@ -76,7 +76,7 @@ class ChatLocationEventsTest {
         val paused = MessageV2(content = "Paused", platformType = "paused", currentRunId = "paused-run")
         val events = mapOf("lead-run" to listOf(location("lead-run", 10)), "paused-run" to listOf(location("paused-run", 20)))
 
-        val result = locationEventsForResponse(selected, listOf(selected, paused), true, setOf("lead"), events)
+        val result = toolEventsForResponse(selected, listOf(selected, paused), true, setOf("lead"), events)
 
         assertEquals(listOf("lead-run"), result.map { it.runId })
     }

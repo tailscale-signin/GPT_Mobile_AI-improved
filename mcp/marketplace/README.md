@@ -26,8 +26,11 @@ TLS reverse proxy to loopback, or bind to your private VPN address with
 `--host <private-address> --allow-network`. Restrict the firewall to trusted
 clients. Never publish the plaintext port to the Internet. There is no TLS in
 this development companion. Use a production server/proxy with request and
-connection limits for broader deployment; this is a single-process, serialized
-companion, not a public multi-tenant service.
+connection limits for broader deployment; this is a single-process companion
+with at most eight concurrent clients, not a public multi-tenant service. A slow
+provider or idle connection does not block other clients. Excess connections
+are closed; retry later. Provider cooldowns and daily counts are shared across
+the workers, so concurrency does not multiply the allowance.
 
 Add `https://<your-host>/mcp/refuge` (or `/mcp/toronto`) in the app and choose
 Bearer authentication with MARKETPLACE_MCP_TOKEN. A LAN/VPN HTTP endpoint

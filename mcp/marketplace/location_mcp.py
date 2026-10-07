@@ -14,12 +14,13 @@ import math
 import os
 import re
 import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import closing
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 MAX_REQUEST = 16_384
@@ -64,7 +65,34 @@ class SafeError(Exception):
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None:
+            fp.close()
         raise SafeError("Upstream redirect refused; check the provider configuration.")
+
+
+class CompanionServer(ThreadingHTTPServer):
+    """Keep slow providers/idle clients independent, with a fixed worker bound."""
+    max_workers = 8
+
+    def __init__(self, *args, **kwargs):
+        self.workers = threading.BoundedSemaphore(self.max_workers)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.workers.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.workers.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.workers.release()
 
 
 def validate(provider, operation, args):
@@ -157,7 +185,7 @@ def request_spec(provider, operation, a, env):
 class Companion:
     def __init__(self, env, database):
         self.env = dict(env)
-        self.enabled = set(filter(None, env.get("MARKETPLACE_ENABLED", "").split(",")))
+        self.enabled = {value.strip() for value in env.get("MARKETPLACE_ENABLED", "").split(",") if value.strip()}
         if not self.enabled or not self.enabled <= OPERATIONS.keys():
             raise SafeError("MARKETPLACE_ENABLED must explicitly list supported provider IDs.")
         self.token = env.get("MARKETPLACE_MCP_TOKEN", "")
@@ -167,21 +195,23 @@ class Companion:
         if not 1 <= self.limit <= 1000:
             raise SafeError("Daily request limit must be between 1 and 1000.")
         self.db, self.last = str(database), {}
+        self.usage_lock = threading.Lock()
         with closing(sqlite3.connect(self.db)) as db, db:
             db.execute("CREATE TABLE IF NOT EXISTS usage (day TEXT, provider TEXT, calls INTEGER, PRIMARY KEY(day, provider))")
 
     def reserve(self, provider):
-        now = time.monotonic()
-        if now - self.last.get(provider, -10) < 1:
-            raise SafeError("Provider cooldown active. Try again later.")
-        day = dt.datetime.now(dt.timezone.utc).date().isoformat()
-        with closing(sqlite3.connect(self.db)) as db, db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT calls FROM usage WHERE day=? AND provider=?", (day, provider)).fetchone()
-            if row and row[0] >= self.limit:
-                raise SafeError("Daily companion request allowance exhausted.")
-            db.execute("INSERT INTO usage VALUES (?, ?, 1) ON CONFLICT(day,provider) DO UPDATE SET calls=calls+1", (day, provider))
-        self.last[provider] = now
+        with self.usage_lock:
+            now = time.monotonic()
+            if now - self.last.get(provider, -10) < 1:
+                raise SafeError("Provider cooldown active. Try again later.")
+            day = dt.datetime.now(dt.timezone.utc).date().isoformat()
+            with closing(sqlite3.connect(self.db)) as db, db:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute("SELECT calls FROM usage WHERE day=? AND provider=?", (day, provider)).fetchone()
+                if row and row[0] >= self.limit:
+                    raise SafeError("Daily companion request allowance exhausted.")
+                db.execute("INSERT INTO usage VALUES (?, ?, 1) ON CONFLICT(day,provider) DO UPDATE SET calls=calls+1", (day, provider))
+            self.last[provider] = now
 
     def dispatch(self, provider, message):
         if provider not in self.enabled:
@@ -220,8 +250,11 @@ class Companion:
                     raise SafeError("Result exceeds the output allowance. No partial JSON was returned.")
                 result = {"content": [{"type": "text", "text": text}], "isError": False}
             except Exception as exc:
-                if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
-                    self.last[provider] = time.monotonic() + 59
+                if isinstance(exc, urllib.error.HTTPError):
+                    if exc.code == 429:
+                        with self.usage_lock:
+                            self.last[provider] = time.monotonic() + 59
+                    exc.close()
                 text = str(exc) if isinstance(exc, SafeError) else "Provider request failed. Check host credentials, allowance and service availability."
                 result = {"content": [{"type": "text", "text": text}], "isError": True}
         else:
@@ -240,12 +273,15 @@ def handler_for(companion):
 
         def reply(self, status, payload=None):
             raw = b"" if payload is None else json.dumps(payload, allow_nan=False).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                pass  # A closed client must not cause a second response or log payloads.
 
         def do_GET(self):
             self.reply(405)
@@ -274,7 +310,10 @@ def handler_for(companion):
                 if not re.fullmatch(r"/mcp/[a-z-]+", self.path):
                     self.reply(404)
                     return
-                message = json.loads(self.rfile.read(length))
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    raise SafeError("Incomplete request body.")
+                message = json.loads(raw)
                 result = companion.dispatch(self.path.rsplit("/", 1)[1], message)
                 self.reply(202 if result is None else 200, result)
             except Exception as exc:
@@ -296,7 +335,7 @@ def main():
     if args.host not in ("127.0.0.1", "localhost") and not args.allow_network:
         parser.error("Non-loopback binding needs --allow-network and protected TLS/private-network deployment.")
     companion = Companion(os.environ, args.usage_db)
-    server = HTTPServer((args.host, args.port), handler_for(companion))
+    server = CompanionServer((args.host, args.port), handler_for(companion))
     print("Optional companion started. Provider keys stay on this host. Ctrl+C stops it.")
     try:
         server.serve_forever()

@@ -14,6 +14,16 @@ import org.junit.Test
 
 class AmazonProductResultsTest {
     @Test
+    fun `product searches and detail lookups also populate the source picker`() {
+        for (name in listOf("amazon_search", "amazon_get_products")) {
+            val saved = event(1, "Blue", "$49.99").copy(toolName = name, modelToolName = "${name}__shopping")
+            val sources = collectChatSources("", listOf(saved))
+            assertEquals("https://www.amazon.ca/dp/B000000001", sources.sources.single().url)
+            assertEquals("Headphones", sources.sources.single().title)
+        }
+    }
+
+    @Test
     fun `checkpoint results restore cards and the latest facts win without merging variants`() {
         val older = event(1, "Blue", "$49.99")
         val newer = event(2, "Blue", "$39.99")

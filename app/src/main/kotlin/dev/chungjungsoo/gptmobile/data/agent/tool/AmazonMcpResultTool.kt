@@ -21,7 +21,7 @@ internal class AmazonMcpResultTool private constructor(
     override val definition = if (provider == "SerpApi") {
         delegate.definition.copy(
             description = delegate.definition.description + " For Amazon products use params.engine=amazon, params.k=<query>, " +
-                "params.amazon_domain=${settings.amazonMarketplace}; for details use params.engine=amazon_product and params.asin=<ASIN>."
+                "params.amazon_domain=${settings.amazonMarketplace}; for details use params.engine=amazon_product and params.asin=<ASIN>. Amazon results use JSON for product cards."
         )
     } else {
         delegate.definition
@@ -32,8 +32,9 @@ internal class AmazonMcpResultTool private constructor(
         val params = arguments["params"] as? JsonObject ?: arguments
         val engine = AmazonProducts.text(params, "engine")
         val amazon = if (provider == "SerpApi") engine in setOf("amazon", "amazon_product") else remoteName in BRIGHT_DATA_TOOLS
-        val boundedArguments = if (amazon && provider == "SerpApi" && settings.amazonFreshPrices) {
-            JsonObject(arguments + ("params" to JsonObject(params + ("no_cache" to kotlinx.serialization.json.JsonPrimitive(true)))))
+        val boundedArguments = if (amazon && provider == "SerpApi") {
+            val jsonParams = params - "output"
+            JsonObject(arguments + ("params" to JsonObject(if (settings.amazonFreshPrices) jsonParams + ("no_cache" to kotlinx.serialization.json.JsonPrimitive(true)) else jsonParams)))
         } else {
             arguments
         }
@@ -48,7 +49,7 @@ internal class AmazonMcpResultTool private constructor(
             is ToolResultContent.ResourceLinks -> null
         } ?: return result
         val data = AmazonProducts.unwrap(payload)
-        if ((data as? JsonObject)?.containsKey("error") == true) {
+        if ((data as? JsonObject)?.let { AmazonProducts.text(it, "error") } != null) {
             return result.copy(content = ToolResultContent.Text("The Amazon provider could not complete this request. Check the connection and provider account."), isError = true, traceContent = null, retainedContent = null)
         }
         val products = AmazonProducts.normalize(payload, domain, provider, includeSponsored = settings.amazonIncludeSponsored, maxResults = settings.searchResults)

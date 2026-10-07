@@ -18,6 +18,22 @@ import org.junit.Test
 
 class AmazonMcpResultToolTest {
     @Test
+    fun `Amazon MCP always requests JSON so Markdown output cannot lose product facts`() = runBlocking {
+        var request = JsonObject(emptyMap())
+        val result = AgentToolResult("mcp", ToolResultContent.Json(payload), false)
+        val delegate = object : AgentTool {
+            override val definition = fake(result).definition
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                request = arguments
+                return result
+            }
+        }
+        val params = (arguments["params"] as JsonObject) + ("output" to kotlinx.serialization.json.JsonPrimitive("md"))
+        AmazonMcpResultTool.wrap(delegate, "https://mcp.serpapi.com/mcp", "search").execute("amazon", JsonObject(arguments + ("params" to JsonObject(params))))
+        assertFalse((request["params"] as JsonObject).containsKey("output"))
+    }
+
+    @Test
     fun `empty MCP searches keep the retail schema and provider errors remain failures`() = runBlocking {
         val empty = AgentToolResult("mcp", ToolResultContent.Json(buildJsonObject { put("result", "{\"organic_results\":[]}") }), false)
         val tool = AmazonMcpResultTool.wrap(fake(empty), "https://mcp.serpapi.com/mcp", "search")

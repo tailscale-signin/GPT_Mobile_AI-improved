@@ -89,6 +89,8 @@ class AmazonSearchToolTest {
 
     @Test
     fun `provider errors do not claim successful empty searches or reveal raw bodies`() = runBlocking {
+        val nullableError = JsonObject(response + ("error" to kotlinx.serialization.json.JsonNull))
+        assertFalse(AmazonSearchTool({ nullableError }).execute("success", buildJsonObject { put("query", "audio") }).isError)
         for (payload in listOf("""{"error":"api_key=super-secret"}""", "{}", """{"organic_results":[{"title":"No ASIN"}]}""")) {
             val tool = AmazonSearchTool({ Json.parseToJsonElement(payload) as JsonObject })
             val result = tool.execute("failure", buildJsonObject { put("query", "audio") })

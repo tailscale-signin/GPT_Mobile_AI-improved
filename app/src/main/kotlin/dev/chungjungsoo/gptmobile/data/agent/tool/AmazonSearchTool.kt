@@ -164,7 +164,7 @@ class AmazonSearchTool(
             for (id in ids) {
                 try {
                     val payload = fetch(if (productDetails) params + ("asin" to id) else params)
-                    if (payload["error"] != null || (payload["search_metadata"] as? JsonObject)?.let { AmazonProducts.text(it, "status") } == "Error") {
+                    if (AmazonProducts.text(payload, "error") != null || (payload["search_metadata"] as? JsonObject)?.let { AmazonProducts.text(it, "status") } == "Error") {
                         throw AmazonProviderException("SerpApi could not complete this Amazon request. Check provider diagnostics and account access.")
                     }
                     val expected = if (productDetails) "product_results" else "organic_results"

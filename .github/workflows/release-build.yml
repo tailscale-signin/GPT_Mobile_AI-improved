@@ -147,6 +147,9 @@ jobs:
           done < <(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | sort)
           test -n "$(find release-artifacts -name '*.apk' -print -quit)"
           python3 scripts/check_local_runtime_apk.py release-artifacts/*.apk
+          python3 scripts/check_no_telemetry.py release-artifacts/*.apk
+          python3 scripts/check_mediapipe_jni.py app/build/outputs/bundle/release/*.aab
+          python3 scripts/check_objectbox_jni.py app/build/outputs/bundle/release/*.aab
           cp app/build/outputs/bundle/release/*.aab release-artifacts/app-release.aab
           jarsigner -keystore "$KEYSTORE_PATH" -storepass:env KEYSTORE_PASSWORD -keypass:env KEY_PASSWORD -sigalg SHA256withRSA -digestalg SHA-256 release-artifacts/app-release.aab "$KEY_ALIAS"
           jarsigner -verify release-artifacts/app-release.aab

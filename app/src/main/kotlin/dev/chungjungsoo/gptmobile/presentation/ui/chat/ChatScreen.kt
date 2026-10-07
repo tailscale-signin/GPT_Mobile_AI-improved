@@ -544,8 +544,8 @@ fun ChatScreen(
                     // Restored positions and favourite targeting never animate on entry.
                     .graphicsLayer { alpha = if (entryPositioned || groupedMessages.userMessages.isEmpty()) 1f else 0f }
                     .chatViewportEdgeFade(
-                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
-                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 32.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 16.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 48.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,
@@ -956,6 +956,13 @@ private fun ChatMessagePair(
         selectedRunId?.let(activeAgentRuns::get)
     }
     val toolEvents = selectedRunId?.let(toolEventsByRun::get).orEmpty()
+    val provenanceToolEvents = toolEventsForResponse(
+        selected = selectedAssistantMessage,
+        responses = assistantMessages,
+        combined = isCombinedConversation,
+        activeProfileUids = activePlatformUids - disabledPlatformUids,
+        eventsByRun = toolEventsByRun
+    )
     val canShowPreviousRevision = !hasCombinedTabs &&
         (
             selectedAssistantMessage?.let { assistantMessage ->
@@ -1095,13 +1102,8 @@ private fun ChatMessagePair(
                     ),
                     runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
                     toolEvents = toolEvents,
-                    locationToolEvents = locationEventsForResponse(
-                        selected = selectedAssistantMessage,
-                        responses = assistantMessages,
-                        combined = isCombinedConversation,
-                        activeProfileUids = activePlatformUids - disabledPlatformUids,
-                        eventsByRun = toolEventsByRun
-                    ),
+                    locationToolEvents = provenanceToolEvents,
+                    sourceToolEvents = provenanceToolEvents,
                     contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
                     revisionIndexLabel = selectedAssistantMessage?.takeIf { !isCombinedConversation && it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1

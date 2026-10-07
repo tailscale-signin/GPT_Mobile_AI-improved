@@ -1,0 +1,74 @@
+name: Minified native memory smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/build.gradle.kts'
+      - 'app/proguard-rules.pro'
+      - 'app/app-native-smoke-rules.pro'
+      - 'app/native-smoke-test-rules.pro'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
+      - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
+      - 'gradle/**'
+      - 'scripts/check_mediapipe_jni.py'
+      - 'scripts/check_objectbox_jni.py'
+      - 'scripts/check_local_runtime_apk.py'
+      - 'scripts/check_native_memory_smoke.py'
+      - 'scripts/tests/test_mediapipe_jni.py'
+      - 'scripts/tests/test_objectbox_jni.py'
+      - 'scripts/tests/test_native_memory_smoke.py'
+      - 'scripts/run_native_memory_smoke.sh'
+      - '.github/workflows/native-memory-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-memory-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: R8 and real JNI on Android 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Enable KVM
+        run: sudo chmod 666 /dev/kvm
+      - name: Build the minified native test app
+        run: |
+          ./gradlew :app:assembleNativeSmoke :app:assembleNativeSmokeAndroidTest -PnativeMemorySmoke=true --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
+          python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/nativeSmoke/*.apk
+          python3 scripts/check_no_telemetry.py app/build/outputs/apk/nativeSmoke/*.apk
+      - name: Exercise encoder callbacks, vector search and engine reopening
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          script: bash scripts/run_native_memory_smoke.sh
+      - name: Save native smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: minified-native-memory-evidence
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/mapping/nativeSmoke/
+            app/build/outputs/mapping/nativeSmokeAndroidTest/
+            app/build/native-memory-smoke/
+          if-no-files-found: ignore

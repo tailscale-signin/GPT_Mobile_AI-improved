@@ -8,11 +8,11 @@ import java.net.URI
 import java.time.Clock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -194,17 +194,19 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 val url = (source["url"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
                 val key = canonicalSearchUrl(url)
                 val previous = sourceIndexes[key].takeIf { deduplicate }
+                val provenance = ((source["engines"] as? JsonArray).orEmpty() + listOfNotNull(source["engine"], JsonPrimitive(label))).distinct()
                 if (previous == null) {
                     sourceIndexes[key] = sources.size
-                    sources += JsonObject(source + mapOf("engine" to JsonPrimitive(label), "engines" to JsonArray(listOf(JsonPrimitive(label)))))
+                    sources += JsonObject(source + mapOf("engine" to (source["engine"] ?: JsonPrimitive(label)), "engines" to JsonArray(provenance)))
                 } else {
                     val existing = sources[previous] as JsonObject
-                    val labels = ((existing["engines"] as? JsonArray).orEmpty() + JsonPrimitive(label)).distinct()
+                    val labels = ((existing["engines"] as? JsonArray).orEmpty() + provenance).distinct()
                     sources[previous] = JsonObject(existing + ("engines" to JsonArray(labels)))
                 }
             }
             buildJsonObject {
                 put("engine", label)
+                (payload as? JsonObject)?.get("engines")?.let { put("engines", it) }
                 put("tool", engine.realToolName)
                 put("status", if (result.isError) "unavailable" else "completed")
                 put("results", extracted.size)

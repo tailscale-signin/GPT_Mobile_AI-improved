@@ -5,8 +5,10 @@ import android.app.Application
 import android.content.Context
 import android.os.Bundle
 import android.os.Process
+import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
 import java.io.File
+import java.io.FileOutputStream
 import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,8 +27,9 @@ data class AppLogEntry(val time: Long, val level: String, val tag: String, val m
 
 /** Opt-in, app-process-only diagnostics. No network upload and no HTTP bodies. */
 object AppLogRecorder {
+    private const val QUEUE_CAPACITY = 512
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val queue = Channel<AppLogEntry>(512, BufferOverflow.DROP_OLDEST)
+    private val queue = Channel<AppLogEntry>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST)
     private val mutableEnabled = MutableStateFlow(false)
     private val mutableEntries = MutableStateFlow<List<AppLogEntry>>(emptyList())
     private val mutableError = MutableStateFlow<String?>(null)
@@ -131,11 +134,28 @@ object AppLogRecorder {
             }
         }
         record("Diagnostics", "Log tracking enabled")
+        scope.launch {
+            checkpoint("Application", "version=${BuildConfig.VERSION_NAME} · versionCode=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · process=${Process.myPid()}")
+        }
     }
 
     fun record(tag: String, message: String, level: String = "I") {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
         queue.trySend(AppLogEntry(System.currentTimeMillis(), level, tag.take(64), redactLogMessage(message).take(8000)))
+    }
+
+    /** IO-thread startup markers survive an abort before the async log queue drains. */
+    internal fun checkpoint(tag: String, message: String) {
+        if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
+        val entry = AppLogEntry(System.currentTimeMillis(), "I", tag.take(64), redactLogMessage(message).take(8000))
+        synchronized(fileLock) {
+            if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
+            recent.addLast(entry)
+            while (recent.size > 500) recent.removeFirst()
+            mutableEntries.value = recent.toList()
+            runCatching { append(entry.line(), durable = true) }
+                .onFailure { mutableError.value = "Unable to save logs. Check available storage." }
+        }
     }
 
     fun clear() {
@@ -157,6 +177,12 @@ object AppLogRecorder {
         val context = app ?: return@synchronized null
         val folder = directory() ?: return@synchronized null
         val target = File(context.cacheDir, "diagnostics/app-diagnostics.log").also { it.parentFile?.mkdirs() }
+        var drained = 0
+        while (drained < QUEUE_CAPACITY) {
+            val entry = queue.tryReceive().getOrNull() ?: break
+            if (mutableEnabled.value && privateSessions.isEmpty()) append(entry.line())
+            drained++
+        }
         target.bufferedWriter().use { output ->
             listOf("previous.log", "current.log").map { File(folder, it) }.filter { it.exists() }.forEach { file ->
                 file.bufferedReader().useLines { lines -> lines.forEach { output.appendLine(it) } }
@@ -166,7 +192,7 @@ object AppLogRecorder {
     }
 
     private fun directory(): File? = app?.let { File(it.filesDir, "diagnostics").also { folder -> folder.mkdirs() } }
-    private fun append(line: String) {
+    private fun append(line: String, durable: Boolean = false) {
         val directory = directory() ?: return
         val current = File(directory, "current.log")
         if (current.length() > 1_000_000) {
@@ -174,7 +200,10 @@ object AppLogRecorder {
             previous.delete()
             check(current.renameTo(previous))
         }
-        current.appendText(line + "\n")
+        FileOutputStream(current, true).use { output ->
+            output.write((line + "\n").encodeToByteArray())
+            if (durable) output.fd.sync()
+        }
     }
 }
 

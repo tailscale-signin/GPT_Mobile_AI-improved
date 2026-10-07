@@ -192,6 +192,23 @@ extensions.configure<ApplicationExtension> {
         isMinifyEnabled = false
         isShrinkResources = false
     }
+    // Exercise the production R8/native boundary without release signing keys
+    // or touching an installed app's data. Normal device tests remain debug.
+    if (providers.gradleProperty("nativeMemorySmoke").orNull == "true") {
+        buildTypes.create("nativeSmoke") {
+            initWith(buildTypes.getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            applicationIdSuffix = ".nativesmoke"
+            matchingFallbacks += listOf("release")
+            // The runner/test APK also uses shared APIs that the app alone can
+            // remove (for example kotlin.LazyKt). These roots are test-only.
+            proguardFiles("app-native-smoke-rules.pro")
+            // The runner selects tests by their source class name. R8 also
+            // shrinks the test APK, so keep its reflection/discovery entry point.
+            testProguardFiles("native-smoke-test-rules.pro")
+        }
+        testBuildType = "nativeSmoke"
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21

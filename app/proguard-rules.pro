@@ -63,16 +63,28 @@
 -keep class com.google.android.gms.tflite.** { *; }
 -keep interface com.google.android.gms.tflite.** { *; }
 -dontwarn com.google.android.gms.tflite.**
+# MediaPipe's AAR does not include consumer rules. Its native code also calls
+# Java callbacks, Packet.create/getNativeHandle/release, exception constructors
+# and SerializedMessage fields by name. Keeping native methods alone lets R8
+# rename/remove these Java entry points and causes an ART abort on first input.
+# Keep the complete SDK boundary, including callback implementations. The
+# privacy transform removes remote loggers before R8 sees these classes.
+-keep class com.google.mediapipe.** { *; }
+-keep interface com.google.mediapipe.** { *; }
 # MediaPipe's model options use protobuf-lite reflection (including fileContent_).
 # Preserve generated message fields in minified APKs, as required by protobuf-lite.
 -keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
--keepclasseswithmembernames,includedescriptorclasses class com.google.mediapipe.** {
-    native <methods>;
-}
 # Don't optimize LiteRT-LM native binding JNI classes
 -keepclasseswithmembernames,includedescriptorclasses class com.google.ai.edge.** {
     native <methods>;
 }
+
+# ObjectBox 5.4.2 creates scored vector-query results through JNI. Its consumer
+# rules preserve native methods but omit these Java-only result constructors.
+# Keep the classes and members that nativeFindWithScores/nativeFindIdsWithScores
+# look up by name, even though Java never directly constructs the wrappers.
+-keep class io.objectbox.query.ObjectWithScore { *; }
+-keep class io.objectbox.query.IdWithScore { *; }
 
 # -------------------------------------------------------------
 # Hilt / Dagger & WorkManager

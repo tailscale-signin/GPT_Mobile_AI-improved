@@ -219,10 +219,18 @@ class WebSearchTool(
         if (localResults.isEmpty() && webResults == null) {
             return@coroutineScope error(callId, "Web search failed: could not retrieve search results.")
         }
-        val results = (localResults + webResults.orEmpty()).distinctBy {
+        val localEngine = "Local search"
+        val results = (
+            localResults.map { JsonObject(it + ("engine" to JsonPrimitive(localEngine))) } +
+                webResults.orEmpty().map { JsonObject(it + ("engine" to JsonPrimitive("DuckDuckGo"))) }
+            ).distinctBy {
             canonicalSearchUrl(it["url"]?.jsonPrimitive?.content.orEmpty())
         }
-        AgentToolResult(callId, ToolResultContent.Json(compactSearchResults(results, request.maxResults * 2)), false)
+        val engines = buildList {
+            if (localResults.isNotEmpty()) add(localEngine)
+            if (!webResults.isNullOrEmpty()) add("DuckDuckGo")
+        }
+        AgentToolResult(callId, ToolResultContent.Json(compactSearchResults(results, request.maxResults * 2, engines)), false)
     }
 
     private suspend fun tryTermuxMcpSearch(request: WebSearchRequest): List<JsonObject>? {
@@ -472,6 +480,13 @@ class WebSearchTool(
     }
 
     private fun normalized(provider: WebSearchProvider, body: String, request: WebSearchRequest): JsonObject {
+        val engine = when (provider) {
+            WebSearchProvider.FIRECRAWL -> "Firecrawl"
+            WebSearchProvider.PERPLEXITY -> "Perplexity"
+            WebSearchProvider.EXA -> "Exa"
+            WebSearchProvider.BRAVE -> "Brave Search"
+            WebSearchProvider.AUTO -> "Web search"
+        }
         val root = NetworkClient.json.parseToJsonElement(body).jsonObject
         val rawResults = when (provider) {
             WebSearchProvider.FIRECRAWL -> root["data"]?.jsonObject?.get("web")?.jsonArray
@@ -499,6 +514,7 @@ class WebSearchTool(
                 put("title", if (provider == WebSearchProvider.BRAVE) cleanHtml(title) else title)
                 put("url", url)
                 put("snippet", if (provider == WebSearchProvider.BRAVE) cleanHtml(snippet) else snippet)
+                put("engine", engine)
                 (value.string("publishedDate") ?: value.string("date"))?.let { put("publishedDate", it) }
             }
         }
@@ -507,10 +523,10 @@ class WebSearchTool(
         } else {
             results
         }
-        return compactSearchResults(filtered, request.maxResults)
+        return compactSearchResults(filtered, request.maxResults, listOf(engine))
     }
 
-    private fun compactSearchResults(results: List<JsonObject>, maxResults: Int): JsonObject {
+    private fun compactSearchResults(results: List<JsonObject>, maxResults: Int, engines: List<String> = emptyList()): JsonObject {
         val compact = mutableListOf<JsonObject>()
         var bytes = 0
         for (result in results.take(maxResults)) {
@@ -519,6 +535,7 @@ class WebSearchTool(
                 // Keep links intact so the model and UI can still open the source.
                 put("url", result.string("url").orEmpty())
                 put("snippet", truncateUtf8(result.string("snippet").orEmpty(), 768))
+                result.string("engine")?.let { put("engine", it) }
                 result.string("publishedDate")?.let { put("publishedDate", it.take(64)) }
             }
             val size = entry.toString().toByteArray(Charsets.UTF_8).size
@@ -526,7 +543,11 @@ class WebSearchTool(
             compact += entry
             bytes += size
         }
-        return buildJsonObject { put("results", JsonArray(compact)) }
+        return buildJsonObject {
+            put("results", JsonArray(compact))
+            val used = (engines + results.mapNotNull { it.string("engine") }).distinct()
+            if (used.isNotEmpty()) put("engines", JsonArray(used.map(::JsonPrimitive)))
+        }
     }
 
     private fun domains(element: JsonElement?): List<String> = element

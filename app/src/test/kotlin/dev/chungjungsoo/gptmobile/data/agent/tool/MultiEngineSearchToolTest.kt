@@ -29,6 +29,42 @@ import org.junit.Test
 
 class MultiEngineSearchToolTest {
     @Test
+    fun `built-in provider provenance survives aggregation and duplicate URLs`() = runBlocking {
+        fun provider(name: String, connection: String) = engine(connection) { id, _ ->
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("engines", JsonArray(listOf(JsonPrimitive(name))))
+                        put(
+                            "results",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("url", "https://example.org/same")
+                                        put("title", "Same source")
+                                        put("engine", name)
+                                    }
+                                )
+                            )
+                        )
+                    }
+                ),
+                false
+            )
+        }
+        val result = MultiEngineSearchTool(listOf(provider("DuckDuckGo", "Built-in search"), provider("Brave Search", "Brave MCP")))
+            .execute("provenance", buildJsonObject { put("query", "reference") })
+        val value = (result.content as ToolResultContent.Json).value.jsonObject
+        val sources = value["results"] as JsonArray
+
+        assertEquals(1, sources.size)
+        val providers = sources.single().jsonObject["engines"] as JsonArray
+        assertTrue(providers.map { it.jsonPrimitive.content }.containsAll(listOf("DuckDuckGo", "Brave Search")))
+        assertEquals("DuckDuckGo", (value["engines"] as JsonArray).first().jsonObject["engines"]?.let { (it as JsonArray).single().jsonPrimitive.content })
+    }
+
+    @Test
     fun `one stalled engine preserves other engines and all enabled engines are queried`() = runBlocking {
         val queried = mutableSetOf<String>()
         val engines = (1..4).map { index ->

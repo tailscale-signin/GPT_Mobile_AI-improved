@@ -4,8 +4,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 
-/** Keep source location results visible after a combined answer replaces its lead response. */
-internal fun locationEventsForResponse(
+/** Keep candidate tool provenance visible after a combined answer replaces its lead response. */
+internal fun toolEventsForResponse(
     selected: MessageV2?,
     responses: List<MessageV2>,
     combined: Boolean,
@@ -21,7 +21,7 @@ internal fun locationEventsForResponse(
         selected.combinedSources.forEach { source ->
             val response = responses.firstOrNull { it.platformType == source.platformUid } ?: return@forEach
             // The lead candidate is saved as a revision when synthesis starts. Match
-            // the actual candidate, so a later retry cannot replace its map result.
+            // the actual candidate, so a later retry cannot replace its sources or map result.
             val sourceRunId = if (response.content.trim() == source.content.trim()) {
                 response.currentRunId
             } else {

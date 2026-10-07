@@ -75,8 +75,12 @@ encoder/index test's start and success packets and successful instrumentation
 termination, rejecting empty, skipped, failed or aborted runs. CI invokes Android
 instrumentation directly and retains the raw protocol transcript and logcat.
 The connected Gradle task produced empty reports despite preserved test/runner
-definitions in its R8 mapping, so its green exit status cannot establish native
-execution. The checker also accepts JUnit reports for local connected-test runs.
+definitions in its R8 mapping. Direct instrumentation exposed an earlier runner
+startup failure: `TestDirCalculator` referenced `kotlin.LazyKt`, a shared stdlib
+facade removed from the app before the test APK was built. Smoke-only app rules
+retain shared Kotlin and test API entry points. Production MediaPipe rules and
+native payloads remain the same as release. The checker also accepts JUnit
+reports for local connected-test runs.
 
 With app log tracking enabled, a healthy first initialization records
 `EMBEDDING_ENGINE_STARTING`, `EMBEDDING_ENGINE_CREATED`,

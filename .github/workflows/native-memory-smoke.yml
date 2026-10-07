@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/build.gradle.kts'
       - 'app/proguard-rules.pro'
+      - 'app/app-native-smoke-rules.pro'
       - 'app/native-smoke-test-rules.pro'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
       - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'

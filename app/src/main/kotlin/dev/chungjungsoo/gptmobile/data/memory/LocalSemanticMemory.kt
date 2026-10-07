@@ -50,18 +50,26 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
 
     private fun embed(text: String): FloatArray {
         lastUsed = android.os.SystemClock.elapsedRealtime()
-        val engine = embedder ?: TextEmbedder.createFromOptions(
+        val firstInput = embedder == null
+        val engine = embedder ?: createEmbedder().also { embedder = it }
+        if (firstInput) AppLogRecorder.checkpoint("Memory", "EMBEDDING_FIRST_INPUT_STARTED")
+        val vector = engine.embed(text.take(4000)).embeddingResult().embeddings().first().floatEmbedding()
+        require(vector.size == 100 && vector.all(Float::isFinite)) { "Embedding model dimensions changed." }
+        if (firstInput) AppLogRecorder.checkpoint("Memory", "EMBEDDING_FIRST_INPUT_COMPLETED · dimensions=${vector.size}")
+        return vector
+    }
+
+    private fun createEmbedder(): TextEmbedder {
+        MediaPipeJniContract.verify()
+        AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_STARTING · jniBindings=verified")
+        return TextEmbedder.createFromOptions(
             context,
             TextEmbedder.TextEmbedderOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("memory/universal_sentence_encoder.tflite").build())
                 .build()
         ).also {
-            embedder = it
-            AppLogRecorder.record("Memory", "EMBEDDING_ENGINE_CREATED · instance=${System.identityHashCode(this)} · lazy=true · singleton=true")
+            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_CREATED · instance=${System.identityHashCode(this)} · lazy=true · singleton=true")
         }
-        val vector = engine.embed(text.take(4000)).embeddingResult().embeddings().first().floatEmbedding()
-        require(vector.size == 100 && vector.all(Float::isFinite)) { "Embedding model dimensions changed." }
-        return vector
     }
 
     /** Incremental and bounded; a large restored vault is completed over successive turns or Rebuild. */

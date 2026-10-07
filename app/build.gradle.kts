@@ -192,6 +192,17 @@ extensions.configure<ApplicationExtension> {
         isMinifyEnabled = false
         isShrinkResources = false
     }
+    // Exercise the production R8/native boundary without release signing keys
+    // or touching an installed app's data. Normal device tests remain debug.
+    if (providers.gradleProperty("nativeMemorySmoke").orNull == "true") {
+        buildTypes.create("nativeSmoke") {
+            initWith(buildTypes.getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            applicationIdSuffix = ".nativesmoke"
+            matchingFallbacks += listOf("release")
+        }
+        testBuildType = "nativeSmoke"
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21

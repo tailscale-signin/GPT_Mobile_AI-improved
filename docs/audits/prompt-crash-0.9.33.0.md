@@ -82,6 +82,20 @@ retain shared Kotlin and test API entry points. Production MediaPipe rules and
 native payloads remain the same as release. The checker also accepts JUnit
 reports for local connected-test runs.
 
+The first real scored query then exposed a second JNI boundary missing from
+ObjectBox 5.4.2's consumer rules. The minified run at commit
+`04e3c3a7ae8ff87557f7bd7d6ed92a4e6293237a` completed encoder initialization and
+indexed both test facts, but logcat reported `ObjectWithScore class not found`.
+R8's usage report confirmed removal of `ObjectWithScore`, its constructor and
+fields, and `IdWithScore`. ObjectBox's native library loads these classes by name
+and calls `(Object, double)` and `(long, double)` constructors. Release rules now
+preserve both small wrappers. `check_objectbox_jni.py` checks actual DEX class and
+constructor definitions in APKs and bundles, including split DEX files, and
+rejects references to stripped definitions. APK runtime checks and both release
+bundle workflows run this gate. Native smoke assertions name the failed stage
+and require a healthy engine after deletion/clear so fallback cannot silently
+satisfy an empty-results assertion.
+
 With app log tracking enabled, a healthy first initialization records
 `EMBEDDING_ENGINE_STARTING`, `EMBEDDING_ENGINE_CREATED`,
 `EMBEDDING_FIRST_INPUT_STARTED`, then `EMBEDDING_FIRST_INPUT_COMPLETED`.

@@ -79,6 +79,13 @@
     native <methods>;
 }
 
+# ObjectBox 5.4.2 creates scored vector-query results through JNI. Its consumer
+# rules preserve native methods but omit these Java-only result constructors.
+# Keep the classes and members that nativeFindWithScores/nativeFindIdsWithScores
+# look up by name, even though Java never directly constructs the wrappers.
+-keep class io.objectbox.query.ObjectWithScore { *; }
+-keep class io.objectbox.query.IdWithScore { *; }
+
 # -------------------------------------------------------------
 # Hilt / Dagger & WorkManager
 # -------------------------------------------------------------

@@ -76,6 +76,7 @@ jobs:
           rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
           ./gradlew bundleRelease -PenableAbiSplits=false --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
           python3 scripts/check_mediapipe_jni.py app/build/outputs/bundle/release/*.aab
+          python3 scripts/check_objectbox_jni.py app/build/outputs/bundle/release/*.aab
           cp app/build/outputs/bundle/release/app-release.aab release-assets/app-release-unsigned.aab
           cd release-assets
           sha256sum *.apk *.aab > SHA256SUMS.txt

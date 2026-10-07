@@ -7,6 +7,7 @@ from pathlib import Path
 import struct
 from zipfile import ZipFile
 from check_mediapipe_jni import check_bindings
+from check_objectbox_jni import check_bindings as check_objectbox_bindings
 
 
 def check_host_alignment(name, binary):
@@ -53,6 +54,7 @@ def check_apk(apk_path, manifest):
         forbidden = {"libLiteRtCompilerPlugin_Qualcomm.so", "libqnn_delegate_jni.so", "libQnnTFLiteDelegate.so", "libQnnIr.so", "libQnnSaver.so"}
         assert not any(Path(name).name in forbidden for name in names), "Unexpected second QNN integration/compiler payload"
         check_bindings(apk, apk_path.name)
+        check_objectbox_bindings(apk, apk_path.name)
         print(f"{apk_path.name}: {checked} pinned runtime libraries verified; {aligned} Android host libraries passed 16KB LOAD alignment")
 
 

@@ -32,11 +32,12 @@ def uleb(value):
     return bytes(result + bytes([value]))
 
 
-def dex_fixture(classes):
+def dex_fixture(classes, references=None):
     """Build small DEX identifier/class-data fixtures; no executable code."""
-    method_rows = {(owner, name, desc) for owner, item in CONTRACT.items() for name, desc, _ in item.get("methods", [])}
+    references = CONTRACT if references is None else references
+    method_rows = {(owner, name, desc) for owner, item in references.items() for name, desc, _ in item.get("methods", [])}
     method_rows.update((owner, name, desc) for owner, item in classes.items() for name, desc, _ in item.get("methods", []))
-    field_rows = {(owner, name, desc) for owner, item in CONTRACT.items() for name, desc in item.get("fields", [])}
+    field_rows = {(owner, name, desc) for owner, item in references.items() for name, desc in item.get("fields", [])}
     field_rows.update((owner, name, desc) for owner, item in classes.items() for name, desc in item.get("fields", []))
 
     def signature(desc):

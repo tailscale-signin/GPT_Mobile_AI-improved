@@ -12,8 +12,12 @@ on:
       - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
       - 'gradle/**'
       - 'scripts/check_mediapipe_jni.py'
+      - 'scripts/check_objectbox_jni.py'
       - 'scripts/check_local_runtime_apk.py'
       - 'scripts/check_native_memory_smoke.py'
+      - 'scripts/tests/test_mediapipe_jni.py'
+      - 'scripts/tests/test_objectbox_jni.py'
+      - 'scripts/tests/test_native_memory_smoke.py'
       - 'scripts/run_native_memory_smoke.sh'
       - '.github/workflows/native-memory-smoke.yml'
   workflow_dispatch:

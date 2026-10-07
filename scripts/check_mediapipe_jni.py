@@ -30,7 +30,7 @@ REQUIRED_FIELDS = {
 CALLBACK = FRAMEWORK + "PacketListCallback;"
 
 
-def dex_definitions(data):
+def dex_definitions(data, extra_classes=()):
     if len(data) < 112 or data[:8] not in {
         b"dex\n035\0", b"dex\n037\0", b"dex\n038\0", b"dex\n039\0", b"dex\n040\0",
     }:
@@ -82,7 +82,7 @@ def dex_definitions(data):
         offset = u32(100) + index * 32
         owner = types[u32(offset)]
         interfaces = type_list(u32(offset + 12))
-        if not owner.startswith(FRAMEWORK) and CALLBACK not in interfaces:
+        if not owner.startswith(FRAMEWORK) and CALLBACK not in interfaces and owner not in extra_classes:
             continue
         item = {"methods": {}, "fields": set(), "interfaces": interfaces}
         definitions[owner] = item
@@ -117,20 +117,25 @@ def dex_definitions(data):
     return definitions
 
 
-def check_bindings(archive, label):
+def archive_definitions(archive, label, extra_classes=()):
     definitions = {}
     dex_files = [name for name in archive.namelist() if re.fullmatch(r"(?:base/dex/)?classes(?:[0-9]+)?\.dex", name)]
     if not dex_files:
         raise ValueError(f"{label}: no application DEX files")
     for name in dex_files:
         try:
-            found = dex_definitions(archive.read(name))
+            found = dex_definitions(archive.read(name), extra_classes)
         except (IndexError, struct.error, ValueError) as error:
             raise ValueError(f"{label}/{name}: {error}") from error
         duplicates = definitions.keys() & found.keys()
         if duplicates:
             raise ValueError(f"{label}: duplicate JNI class definitions: {sorted(duplicates)}")
         definitions.update(found)
+    return definitions, len(dex_files)
+
+
+def check_bindings(archive, label):
+    definitions, dex_count = archive_definitions(archive, label)
     missing = []
     for owner, required in REQUIRED_METHODS.items():
         methods = definitions.get(owner, {}).get("methods", {})
@@ -146,7 +151,7 @@ def check_bindings(archive, label):
             missing.append(owner + "->process(Ljava/util/List;)V")
     if missing:
         raise ValueError(f"{label}: missing/renamed MediaPipe JNI definitions:\n  " + "\n  ".join(missing))
-    print(f"{label}: MediaPipe Java/JNI definitions verified across {len(dex_files)} DEX files")
+    print(f"{label}: MediaPipe Java/JNI definitions verified across {dex_count} DEX files")
 
 
 def main():

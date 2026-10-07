@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.33.0] - 2026-10-06
+
+- Move Archive after active conversations and use a dismissible half-screen bottom sheet.
+- Match platform filters to profile-label shapes and colours.
+- Open existing chats immediately at the bottom, preserve favourite-response entry, and keep model-tab viewports stable.
+- Raise the upper fade, stabilize the bottom scroll anchor, use 60% transparency for grey combined-profile content, and fix the inverted generation icon.
+- Align equivalent combined-response sections and merge matching timelines chronologically while retaining unique evidence and disjoint periods.
+- Preserve protobuf-lite reflection fields, bound embedding initialization retries, route authorized aggregate search aliases, and improve gateway/reviewer failure handling.
+- Release version `0.9.33.0`, version code `102`.
+
 ## [0.9.19.1] - 2026-09-27
 
 - Budget local system instructions, history, tool definitions and results against the effective engine context; reject oversized current input before native allocation.

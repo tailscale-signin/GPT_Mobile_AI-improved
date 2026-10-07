@@ -1,27 +1,32 @@
-# GPT Mobile AI 0.9.32.0
+# GPT Mobile AI 0.9.33.0
 
-## Home menu and conversation controls
-- Match the Chats and Favorites button backgrounds to the main menu, with theme-colored labels, icons, and indicator.
-- Add animated pin and unpin feedback, row movement, and haptics. Drag upward to pin or reorder; drag a pinned conversation downward into the lower half to unpin.
-- Keep the archive control at the bottom and open archived conversations in a bottom-anchored sheet that slides upward.
-- Enlarge Select Platform label filters and remove filled button backgrounds; show a checkmark for selected labels.
+## Conversation and menu fixes
+- Place Archive after active conversations and open archived chats in a bottom sheet covering half the screen. Back and downward swipe close the sheet.
+- Match Select Platform filters to the profile labels, including their beveled shape and colours.
+- Open existing chats immediately at the bottom while preserving favourite-response entry.
+- Keep the conversation viewport stable when switching AI tabs in multi-chat and combined mode.
+- Raise the upper conversation fade by 5% of screen height and fix bottom scroll-range jumps.
+- Show grey combined-profile bubbles and text with 60% transparency while keeping status lights fully opaque.
+- Correct the inverted speech-bubble detail in the generation icon.
 
-## Conversation reading
-- Move the upper fade below the title while masking scrolled content across the header.
-- Open existing conversations at the true bottom after the message layout is ready.
-- Open unread responses with their beginning centered in the reading area, preserving that position through composer transitions until the user scrolls.
-- Keep following the bottom as late content grows when bottom following is enabled.
+## Better combined responses
+- Group matching labelled sections across model replies even when their order and common wording differ.
+- Interleave matching timelines chronologically, including BCE dates, while keeping disjoint time periods separate.
+- Preserve unique details, citations, contradictions, Markdown tables and code. Original model responses remain available.
+
+## Reliability corrections
+- Preserve protobuf-lite fields required by semantic embedding initialization in optimized APKs, and prevent repeated initialization-failure loops.
+- Route web-search aliases through the existing authorized aggregate search tool.
+- Avoid treating history reports as GitHub repository requests in the gateway.
+- Stop repeated unreachable reviewer attempts, retain delegated evidence as unverified, and avoid estimated token charges for requests that never reach a model.
 
 ## Validation
-- All 1,654 JVM and Robolectric tests passed for the merged implementation, including Compose conversation-entry geometry checks.
-- Kotlin formatting, Android lint, CodeQL, debug APK builds, and packaged runtime/privacy checks passed.
-- The signed release workflow validates this release commit, checks APK and bundle identity, verifies signing-certificate continuity, and publishes checksums and provenance.
+- The merged implementation passed 1,668 Android unit tests, 90 gateway tests, formatting, Android lint and CodeQL.
+- The signed release workflow revalidates this release commit, verifies package/version identity and signing-certificate continuity, and publishes checksums and provenance.
 - Physical-device animation and gesture validation remains pending.
 
-## Version
-- Version: 0.9.32.0
-- Version code: 101
-
-## Installation
-- Install the signed Android APK from this release.
-- Existing installations can update using the same release signing certificate.
+## Version and installation
+- Version: 0.9.33.0
+- Version code: 102
+- Install the signed Android APK from this release. Existing installations can update with the same signing certificate.
+- Changes: https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/611

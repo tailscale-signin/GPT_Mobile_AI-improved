@@ -389,6 +389,24 @@ class AgentToolResolverTest {
     }
 
     @Test
+    fun `disabled and uninstalled MCP connections stop already resolved tools`() = runBlocking {
+        McpClientManagerTest.McpFixtureServer().use { server ->
+            val dao = ResolverFakeToolConnectionDao()
+            val settings = ResolverFakeSettingRepository()
+            dao.bind(connection("mcp-1", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true), binding("profile", "mcp-1", "echo"))
+            val resolver = resolver(dao = dao, settings = settings)
+            val held = resolver.resolve("profile").single { it.connectionUid == "mcp-1" }
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.connection("mcp-1"), false)
+            assertFalse(resolver.resolve("profile").any { it.connectionUid == "mcp-1" })
+            assertTrue(held.tool.execute("disabled", buildJsonObject { put("text", "hello") }).isError)
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.connection("mcp-1"), true)
+            dao.deleteConnectionByUid("mcp-1")
+            assertTrue(held.tool.execute("removed", buildJsonObject { put("text", "hello") }).isError)
+            assertFalse(resolver.resolve("profile").any { it.connectionUid == "mcp-1" })
+        }
+    }
+
+    @Test
     fun `MCP bearer binding reads vault token and authenticates discovery and call`() = runBlocking {
         McpClientManagerTest.McpFixtureServer(acceptedAuthorization = "Bearer secret-token").use { server ->
             val dao = ResolverFakeToolConnectionDao()
@@ -742,7 +760,7 @@ class AgentToolResolverTest {
 
 private class ResolverFakeSettingRepository(
     private val profiles: List<PlatformV2> = emptyList(),
-    private val features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+    var features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
 ) : SettingRepository {
     override suspend fun getFeatureSettings() = features
 

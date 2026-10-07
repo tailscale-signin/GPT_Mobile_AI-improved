@@ -148,14 +148,16 @@ class ToolConnectionsViewModel @Inject constructor(
         }
     }
 
-    fun setPluginEnabled(pluginId: String, enabled: Boolean) {
+    fun setPluginEnabled(pluginId: String, enabled: Boolean) = setPluginsEnabled(setOf(pluginId), enabled)
+
+    fun setPluginsEnabled(pluginIds: Set<String>, enabled: Boolean) {
         viewModelScope.launch {
             runCatching {
                 val latest = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(latest.withToolPluginEnabled(pluginId, enabled))
+                settingRepository.updateFeatureSettings(pluginIds.fold(latest) { settings, id -> settings.withToolPluginEnabled(id, enabled) })
             }.onSuccess {
                 _uiState.update { state ->
-                    state.copy(pluginStates = state.pluginStates + (pluginId to enabled))
+                    state.copy(pluginStates = state.pluginStates + pluginIds.associateWith { enabled })
                 }
             }.onFailure(::showError)
         }
@@ -269,6 +271,7 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 mcpClientManager.close(connectionUid)
+                revokeToolGrants(connectionUid)
                 toolConnectionRepository.deleteConnection(connectionUid)
             }
                 .onSuccess { refresh() }

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.catalog
 
 /** A downloadable connection package is not an Android executable plugin. */
 enum class MarketplaceRuntime(val label: String) {
+    NATIVE("Runs in app"),
     COMPANION("Computer-hosted MCP"),
     HOSTED("Hosted MCP"),
     GUIDE("Setup guide only")
@@ -81,8 +82,8 @@ object GitHubMarketplaceCatalog {
     const val SOURCE_REPOSITORY = "tailscale-signin/GPT_Mobile_AI-improved"
 
     // Immutable assets. Never follow main/latest or accept a checksum supplied by the download itself.
-    const val SOURCE_COMMIT = "03db5902a5e03fa3be406921ceed70806dd1d441"
-    const val GUIDE_SHA256 = "22679f9c32abb64add785f8002add779306da75ce18643e2ad47417873a3b41c"
+    const val SOURCE_COMMIT = "0ca3ae2cfd98e7c68c1e9396d1d06a2baed60ed1"
+    const val GUIDE_SHA256 = "a77835d5170110cd782227e87b16239100fef86d3fb07b1631b282ff51b8a5bc"
     const val COMPANION_SHA256 = "25970252ec77a5fccbce6632d278ce4ecb9aa358ccd21f17986d92a07d7a3850"
     const val SOURCE_DIRECTORY = "https://github.com/$SOURCE_REPOSITORY/tree/$SOURCE_COMMIT/mcp/marketplace"
 
@@ -100,16 +101,14 @@ object GitHubMarketplaceCatalog {
         provider,
         McpPreset(
             id = "optional-$provider", name = name, description = description, category = category,
-            commandOrUrl = "", alias = "places_${provider.replace('-', '_')}", iconName = "location",
-            author = "GPT Mobile · companion adapter", suggestedAuthType = "BEARER", pricing = pricing,
-            requiredFields = listOf("Companion MCP token (not the provider API key)"), toolCapabilities = tools,
+            commandOrUrl = "builtin://marketplace/$provider", alias = "places_${provider.replace('-', '_')}", iconName = "location",
+            author = "GPT Mobile · Android adapter", suggestedAuthType = "NONE", pricing = pricing,
+            requiredFields = if (provider in dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.keyedProviders) listOf(credential) else emptyList(), toolCapabilities = tools,
             websiteUrl = docs,
-            setupInstructions = "Download and export the package. Run its Python 3.11+ companion on your computer. " +
-                "Enable $provider in MARKETPLACE_ENABLED; use your host's /mcp/$provider URL and " +
-                "MARKETPLACE_MCP_TOKEN as the Bearer credential. " +
-                (if (credential.isBlank()) "" else "Set $credential on the host. ") + notice
+            setupInstructions = "Download and install, complete any red required fields, then enable the plugin. " +
+                "Runs directly in Android. " + notice
         ),
-        MarketplaceRuntime.COMPANION,
+        MarketplaceRuntime.NATIVE,
         credential,
         notice
     )
@@ -120,7 +119,7 @@ object GitHubMarketplaceCatalog {
             id = "optional-$provider", name = name, description = description, category = McpCategory.PRODUCTIVITY,
             commandOrUrl = "", alias = "guide_${provider.replace('-', '_')}", author = "GPT Mobile · integration plan",
             iconName = "folder", websiteUrl = docs, documentationOnly = true,
-            setupInstructions = "Downloadable setup plan only. No executable Android plugin, MCP endpoint or offline dataset is installed."
+            setupInstructions = "Documentation only. No executable Android plugin, MCP endpoint or offline dataset is installed."
         ),
         MarketplaceRuntime.GUIDE,
         serviceNotice = "Adapter/data pipeline not implemented in this first pass."

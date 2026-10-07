@@ -60,6 +60,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -104,7 +105,10 @@ import dev.chungjungsoo.gptmobile.data.catalog.MarketplaceSort
 import dev.chungjungsoo.gptmobile.data.catalog.McpCategory
 import dev.chungjungsoo.gptmobile.data.catalog.McpPreset
 import dev.chungjungsoo.gptmobile.data.catalog.McpPricingType
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
+import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
@@ -113,6 +117,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 // Public helpers are retained for existing connection/settings consumers.
 data class ServiceBrand(
@@ -159,11 +164,15 @@ fun McpMarketplaceScreen(
     ) -> Unit,
     modifier: Modifier = Modifier,
     onOpenDelegation: (() -> Unit)? = null,
-    marketplaceViewModel: MarketplaceViewModel = hiltViewModel()
+    marketplaceViewModel: MarketplaceViewModel = hiltViewModel(),
+    connectionsViewModel: ToolConnectionsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val packageState by marketplaceViewModel.uiState.collectAsStateWithLifecycle()
     val downloaded = packageState.downloadedIds
+    val installations by marketplaceViewModel.installations.collectAsStateWithLifecycle()
+    val connectionsState by connectionsViewModel.uiState.collectAsStateWithLifecycle()
+    val features by connectionsViewModel.features.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var section by rememberSaveable { mutableStateOf(MarketplaceSection.PLUGINS) }
     var sort by rememberSaveable { mutableStateOf(MarketplaceSort.RECOMMENDED) }
@@ -173,6 +182,8 @@ fun McpMarketplaceScreen(
     var configuring by remember { mutableStateOf<McpPreset?>(null) }
     var approving by remember { mutableStateOf<GitHubMarketplacePackage?>(null) }
     var removing by remember { mutableStateOf<GitHubMarketplacePackage?>(null) }
+    var removingConnection by remember { mutableStateOf<ToolConnection?>(null) }
+    var pendingHostedSetup by rememberSaveable { mutableStateOf<String?>(null) }
     var exportId by rememberSaveable { mutableStateOf<String?>(null) }
     val pluginScroll = rememberLazyListState()
     val mcpScroll = rememberLazyListState()
@@ -180,9 +191,22 @@ fun McpMarketplaceScreen(
     fun added(preset: McpPreset) = preset.isPreinstalled ||
         preset.alias in installedAliases ||
         ToolConnectionsViewModel.normalizeAlias(preset.alias) in installedAliases
-    val addedIds = presets.filter(::added).map { it.id }.toSet() + downloaded
+    val addedIds = presets.filter(::added).map { it.id }.toSet() + downloaded + installations.keys
     val filtered = remember(presets, section, query, category, pricing, sort, addedIds) {
         MarketplacePresentation.filterAndSort(presets, section, query, category, pricing, sort, addedIds)
+    }
+    LaunchedEffect(downloaded, packageState.errors) {
+        pendingHostedSetup?.let { id ->
+            if (id in downloaded) {
+                configuring = GitHubMarketplaceCatalog.find(id)?.preset
+                pendingHostedSetup = null
+            } else if (id in packageState.errors) {
+                pendingHostedSetup = null
+            }
+        }
+    }
+    LaunchedEffect(packageState.removingIds) {
+        if (packageState.removingIds.isEmpty()) connectionsViewModel.refresh()
     }
     LaunchedEffect(Unit) {
         // Keep each tab's position, including restored state after rotation.
@@ -202,7 +226,7 @@ fun McpMarketplaceScreen(
                         val output = context.contentResolver.openOutputStream(uri, "wt") ?: error("No export destination.")
                         output.use { it.write(bytes) }
                     }
-                    marketplaceViewModel.showMessage("Package exported. Review its README before running companion code.")
+                    marketplaceViewModel.showMessage("Package exported. Review its README for supported app setup.")
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -285,7 +309,7 @@ fun McpMarketplaceScreen(
                 ) { pricing = it }
             }
             Text(
-                "${filtered.size} results · " + if (section == MarketplaceSection.PLUGINS) "Included native features" else "Downloads do not grant tool access",
+                "${filtered.size} results · " + if (section == MarketplaceSection.PLUGINS) "Install, configure and enable" else "Hosted and external MCP connections",
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -319,6 +343,17 @@ fun McpMarketplaceScreen(
                 }
                 items(filtered, key = { it.id }) { preset ->
                     val entry = GitHubMarketplaceCatalog.find(preset.id)
+                    val native = entry?.let(NativeMarketplaceCatalog::supports) == true
+                    val installation = installations[preset.id]
+                    val connection = connectionsState.connections.firstOrNull { it.alias == preset.alias }
+                    val builtinId = when (preset.id) {
+                        "builtin-memory" -> ToolPluginId.LOCAL_MEMORY
+                        "builtin-model-delegation" -> ToolPluginId.MODEL_DELEGATION
+                        "builtin-web" -> ToolPluginId.WEB_SEARCH
+                        "device-location" -> ToolPluginId.DEVICE_LOCATION
+                        else -> null
+                    }
+                    val enabled = if (native) installation?.enabled else (connection?.let { ToolPluginId.connection(it.connectionUid) } ?: builtinId)?.let { features.isToolPluginEnabled(it) }
                     MarketplacePackageCard(
                         preset, added(preset), onAddClick = {
                             when {
@@ -326,13 +361,31 @@ fun McpMarketplaceScreen(
                                 preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
                                 else -> configuring = preset
                             }
-                        }, download = entry, downloaded = preset.id in downloaded,
+                        }, download = entry?.takeUnless { it.runtime == MarketplaceRuntime.GUIDE },
+                        downloaded = if (native) installation != null else preset.id in downloaded,
                         downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
                         error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
                         onExport = {
                             exportId = preset.id
                             exporter.launch("${preset.id}.zip")
-                        }, onRemove = { removing = entry }
+                        }, onRemove = { removing = entry },
+                        enabled = enabled, canEnable = !native || installation?.ready(requireNotNull(entry)) == true,
+                        onEnabledChange = { value ->
+                            if (native && entry != null) {
+                                marketplaceViewModel.setEnabled(entry, value)
+                            } else {
+                                (connection?.let { ToolPluginId.connection(it.connectionUid) } ?: builtinId)?.let { id ->
+                                    connectionsViewModel.setPluginsEnabled(if (preset.id == "builtin-web") setOf(id, ToolPluginId.READ_URL) else setOf(id), value)
+                                }
+                            }
+                        },
+                        onRemoveConnection = connection?.let { { removingConnection = it } },
+                        nativeSettings = if (native && entry != null && installation != null) {
+                            { NativePluginSettings(entry, installation, marketplaceViewModel, preset.id in packageState.removingIds) }
+                        } else {
+                            null
+                        },
+                        needsSetup = native && installation != null && !installation.ready(requireNotNull(entry))
                     )
                 }
             }
@@ -342,20 +395,21 @@ fun McpMarketplaceScreen(
         AlertDialog(
             onDismissRequest = { approving = null },
             icon = { Icon(Icons.Rounded.Download, null) },
-            title = { Text("Download ${entry.preset.name}?") },
+            title = { Text("Download and install ${entry.preset.name}?") },
             text = {
                 Text(
                     "Download a pinned, checksum-checked package from ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}. " +
                         "GitHub receives this download request; no provider keys are sent. " +
-                        (if (entry.runtime == MarketplaceRuntime.COMPANION) "Python runs on your computer, not inside Android. " else "") +
-                        entry.serviceNotice + " Nothing is enabled or authorized by downloading."
+                        (if (entry.runtime == MarketplaceRuntime.NATIVE) "Installs the Android adapter. Enable it after installation and any required setup. " else "Installs a hosted MCP connection package. Complete its connection setup. ") +
+                        entry.serviceNotice
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     approving = null
+                    if (entry.runtime == MarketplaceRuntime.HOSTED) pendingHostedSetup = entry.id
                     marketplaceViewModel.download(entry)
-                }) { Text("Download package") }
+                }) { Text("Download & install") }
             },
             dismissButton = { TextButton(onClick = { approving = null }) { Text("Cancel") } }
         )
@@ -363,15 +417,30 @@ fun McpMarketplaceScreen(
     removing?.let { entry ->
         AlertDialog(
             onDismissRequest = { removing = null },
-            title = { Text("Remove downloaded package?") },
-            text = { Text("This removes only the local package files. Existing connections, credentials and tool permissions must be managed separately in Tool connections.") },
+            title = { Text("Uninstall ${entry.preset.name}?") },
+            text = { Text("Disables and removes the installed plugin, its package files, saved credentials and matching MCP connection and tool assignments.") },
             confirmButton = {
                 TextButton(onClick = {
                     removing = null
                     marketplaceViewModel.remove(entry)
-                }) { Text("Remove files") }
+                    connectionsViewModel.refresh()
+                }) { Text("Uninstall") }
             },
             dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } }
+        )
+    }
+    removingConnection?.let { connection ->
+        AlertDialog(
+            onDismissRequest = { removingConnection = null },
+            title = { Text("Remove ${connection.name}?") },
+            text = { Text("Remove the MCP connection, its credentials, saved grants and tool assignments.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    connectionsViewModel.deleteConnection(connection.connectionUid)
+                    removingConnection = null
+                }) { Text("Uninstall") }
+            },
+            dismissButton = { TextButton(onClick = { removingConnection = null }) { Text("Cancel") } }
         )
     }
     configuring?.let { preset ->
@@ -474,7 +543,13 @@ private fun MarketplacePackageCard(
     onDownload: () -> Unit = {},
     onCancel: () -> Unit = {},
     onExport: () -> Unit = {},
-    onRemove: () -> Unit = {}
+    onRemove: () -> Unit = {},
+    enabled: Boolean? = null,
+    canEnable: Boolean = true,
+    onEnabledChange: (Boolean) -> Unit = {},
+    onRemoveConnection: (() -> Unit)? = null,
+    nativeSettings: (@Composable () -> Unit)? = null,
+    needsSetup: Boolean = false
 ) {
     val context = LocalContext.current
     var expanded by rememberSaveable(preset.id) { mutableStateOf(false) }
@@ -502,7 +577,8 @@ private fun MarketplacePackageCard(
                         "MCP connection"
                     }
                 )
-                if (downloaded) MarketplaceBadge("Package downloaded")
+                if (downloaded) MarketplaceBadge(if (download?.runtime == MarketplaceRuntime.NATIVE) "Installed in app" else "Connection package installed")
+                enabled?.let { MarketplaceBadge(if (it) "Enabled" else "Disabled") }
                 if (isInstalled && !preset.isPreinstalled) MarketplaceBadge("Connection saved")
             }
             Text(preset.description, style = MaterialTheme.typography.bodyMedium)
@@ -520,28 +596,33 @@ private fun MarketplacePackageCard(
                     download != null && !downloaded -> Button(onClick = onDownload, enabled = !downloading, shape = RoundedCornerShape(12.dp)) {
                         Icon(Icons.Rounded.Download, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (error == null) "Download" else "Retry download")
+                        Text(if (error == null) "Download & install" else "Retry install")
                     }
                     download != null -> {
-                        if (download.canConnect && !isInstalled) Button(onClick = onAddClick, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Set up connection") }
-                        OutlinedButton(onClick = onExport, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Export package") }
-                        TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Removing…" else "Remove files") }
+                        if (download.runtime != MarketplaceRuntime.NATIVE && download.canConnect && !isInstalled) Button(onClick = onAddClick, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Set up connection") }
+                        TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
                     }
                     preset.integratedTool != null -> Button(onClick = onAddClick) { Text("Configure") }
                     !isInstalled -> Button(onClick = onAddClick) { Text(if (preset.documentationOnly) "View guide" else "Set up") }
                 }
+                enabled?.let { value ->
+                    Button(onClick = { onEnabledChange(!value) }, enabled = !removing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
+                }
+                if (download == null && onRemoveConnection != null) TextButton(onClick = onRemoveConnection) { Text("Uninstall") }
                 TextButton(onClick = { expanded = !expanded }) {
                     Text(if (expanded) "Less" else "Details")
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
                 }
             }
+            if (nativeSettings != null && (needsSetup || expanded)) nativeSettings()
             if (expanded) {
                 HorizontalDivider()
                 preset.toolCapabilities.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 if (preset.setupInstructions.isNotBlank()) Text(preset.setupInstructions, style = MaterialTheme.typography.bodySmall)
                 if (download != null) {
+                    OutlinedButton(onClick = onExport, enabled = downloaded && !removing) { Text("Export package") }
                     Text(
-                        "Package source: ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}\nPinned commit: ${GitHubMarketplaceCatalog.SOURCE_COMMIT.take(12)}\nDownloads are inert; configure and approve tools separately.",
+                        "Package source: ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}\nPinned commit: ${GitHubMarketplaceCatalog.SOURCE_COMMIT.take(12)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -579,12 +660,19 @@ fun McpPresetConfigureDialog(
     var auth by remember(preset.id) { mutableStateOf(preset.suggestedAuthType) }
     // Never put credentials or secret-bearing endpoint values in rememberSaveable.
     var credential by remember(preset.id) { mutableStateOf("") }
+    var endpointKey by remember(preset.id) { mutableStateOf("") }
     var cleartext by remember(preset.id) { mutableStateOf(false) }
     val normalized = ToolConnectionsViewModel.normalizeAlias(alias)
     val validAlias = ToolConnectionsViewModel.isValidAlias(normalized)
-    val validEndpoint = ToolConnectionsViewModel.isValidMcpEndpoint(endpoint.trim(), cleartext) && preset.hasRequiredEndpointParameters(endpoint)
+    val actualEndpoint = if (preset.requiredEndpointQueryParameter != null && endpointKey.isNotBlank()) {
+        runCatching { endpoint.trim().toHttpUrlOrNull()?.newBuilder()?.setQueryParameter(preset.requiredEndpointQueryParameter, endpointKey.trim())?.build()?.toString().orEmpty() }.getOrDefault("")
+    } else {
+        endpoint.trim()
+    }
+    val validEndpoint = ToolConnectionsViewModel.isValidMcpEndpoint(actualEndpoint, cleartext) && preset.hasRequiredEndpointParameters(actualEndpoint)
     val needsKey = auth == ToolConnectionAuthType.BEARER
-    val validKey = !needsKey || (credential.isNotBlank() && '\r' !in credential && '\n' !in credential)
+    val validKey = !needsKey || NativeMarketplaceCatalog.validKey(credential.trim())
+    val requiredColors = OutlinedTextFieldDefaults.colors(errorBorderColor = Color(0xFFFF5252), errorLabelColor = Color(0xFFFF5252), errorSupportingTextColor = Color(0xFFFF5252), errorCursorColor = Color(0xFFFF5252))
     val canSave = name.isNotBlank() && validAlias && validEndpoint && validKey
     Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth(.95f).padding(8.dp), shape = RoundedCornerShape(24.dp), tonalElevation = 6.dp) {
@@ -610,10 +698,20 @@ fun McpPresetConfigureDialog(
                     label = { Text("MCP Streamable HTTP URL") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    isError = endpoint.isNotBlank() && !validEndpoint,
+                    isError = !ToolConnectionsViewModel.isValidMcpEndpoint(endpoint.trim(), cleartext),
                     visualTransformation = if (preset.requiredEndpointQueryParameter != null) PasswordVisualTransformation() else VisualTransformation.None,
-                    supportingText = { Text(if (!preset.hasRequiredEndpointParameters(endpoint)) "Add a valid ${preset.requiredEndpointQueryParameter} parameter." else "Enter an MCP URL, not a provider REST or model inference URL.") }
+                    supportingText = { Text("Enter an MCP URL, not a provider REST or model inference URL.") },
+                    colors = requiredColors
                 )
+                preset.requiredEndpointQueryParameter?.let { parameter ->
+                    OutlinedTextField(
+                        endpointKey, { endpointKey = it }, label = { Text("$parameter · API key required") },
+                        supportingText = { Text("Required before use. Stored through the endpoint-secret vault.") },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        isError = !preset.hasRequiredEndpointParameters(actualEndpoint), colors = requiredColors
+                    )
+                }
                 if (endpoint.startsWith("http://", ignoreCase = true)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(cleartext, { cleartext = it })
@@ -626,7 +724,11 @@ fun McpPresetConfigureDialog(
                         ToolConnectionAuthType.BEARER -> "Bearer token"
                         else -> "None / endpoint key"
                     },
-                    listOf(ToolConnectionAuthType.NONE, ToolConnectionAuthType.BEARER, ToolConnectionAuthType.OAUTH),
+                    when {
+                        preset.suggestedAuthType == ToolConnectionAuthType.BEARER && preset.requiredFields.isNotEmpty() -> listOf(ToolConnectionAuthType.BEARER)
+                        preset.requiredEndpointQueryParameter != null -> listOf(ToolConnectionAuthType.NONE)
+                        else -> listOf(ToolConnectionAuthType.NONE, ToolConnectionAuthType.BEARER, ToolConnectionAuthType.OAUTH)
+                    },
                     auth,
                     {
                         when (it) {
@@ -643,7 +745,8 @@ fun McpPresetConfigureDialog(
                         label = { Text(preset.requiredFields.firstOrNull() ?: "Bearer token") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        isError = credential.isNotEmpty() && !validKey,
+                        isError = !validKey,
+                        colors = requiredColors,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
                     )
@@ -652,7 +755,7 @@ fun McpPresetConfigureDialog(
                 Text("Saving a connection does not prove it is online. Discover its tools and grant only the access you need.", style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismissRequest) { Text("Cancel") }
-                    Button(onClick = { onConfirm(name.trim(), normalized, endpoint.trim(), auth, if (needsKey) credential.trim() else "", cleartext) }, enabled = canSave) {
+                    Button(onClick = { onConfirm(name.trim(), normalized, actualEndpoint, auth, if (needsKey) credential.trim() else "", cleartext) }, enabled = canSave) {
                         Text("Add to connections")
                     }
                 }

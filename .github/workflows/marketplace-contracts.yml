@@ -1,0 +1,65 @@
+name: Marketplace contracts
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/marketplace-contracts.yml'
+      - 'mcp/marketplace/**'
+      - 'scripts/tests/test_marketplace_companion.py'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-contracts-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test companion transport and package integrity
+        run: |
+          python3 -m py_compile mcp/marketplace/location_mcp.py
+          python3 -W error::ResourceWarning -m unittest discover -s scripts/tests -p test_marketplace_companion.py -v
+
+      - name: Prepare formatting corrections for review
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Match the existing Kotlin lint workflow; no repository write token is available.
+          curl --proto '=https' --tlsv1.2 --fail --location --max-time 120 \
+            https://github.com/ktlint/ktlint/releases/download/1.3.1/ktlint \
+            -o "$RUNNER_TEMP/ktlint"
+          files=(
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/MarketplacePackageStore.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt
+            app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt
+          )
+          java -jar "$RUNNER_TEMP/ktlint" --format "${files[@]}"
+          java -jar "$RUNNER_TEMP/ktlint" "${files[@]}"
+          mkdir -p "$RUNNER_TEMP/marketplace-review"
+          tar -czf "$RUNNER_TEMP/marketplace-review/formatted-source.tar.gz" "${files[@]}"
+          git diff --check
+          git diff -- "${files[@]}" > "$RUNNER_TEMP/marketplace-review/formatting.patch"
+          # Fail on required corrections, rather than silently passing reformatted code.
+          git diff --exit-code -- "${files[@]}"
+
+      - name: Upload formatting review files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: marketplace-formatting-review
+          path: ${{ runner.temp }}/marketplace-review/
+          if-no-files-found: ignore
+          retention-days: 7

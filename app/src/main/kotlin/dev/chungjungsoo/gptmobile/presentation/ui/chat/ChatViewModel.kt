@@ -803,7 +803,7 @@ class ChatViewModel @Inject constructor(
                 }
             val available = ChatToolUtils.buildAvailableChatTools(
                 connections.filter {
-                    (it.connectionUid in boundConnectionIds || (it.type == ToolConnectionType.GITHUB && remoteProfiles.isNotEmpty())) && it.type != ToolConnectionType.MCP
+                    (it.connectionUid in boundConnectionIds || (it.type in setOf(ToolConnectionType.GITHUB, ToolConnectionType.AMAZON_SERPAPI) && remoteProfiles.isNotEmpty())) && it.type != ToolConnectionType.MCP
                 }
             ) + if (features.remoteMcpConnections) {
                 bindings.filter { it.profileUid in remoteProfiles }

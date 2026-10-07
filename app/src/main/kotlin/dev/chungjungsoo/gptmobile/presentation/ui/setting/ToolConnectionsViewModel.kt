@@ -72,6 +72,7 @@ class ToolConnectionsViewModel @Inject constructor(
             }
             freeToolConsent?.revoke("", "null:$toolName")
             if (pluginId == "github") _uiState.value.connections.filter { it.type == "GITHUB" }.forEach { revokeToolGrants(it.connectionUid) }
+            if (pluginId == "amazon_search") _uiState.value.connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI }.forEach { revokeToolGrants(it.connectionUid) }
         }
         _uiState.update { it.copy(errorMessage = null) }
     }
@@ -277,6 +278,23 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun clearError() = _uiState.update { it.copy(errorMessage = null) }
 
+    fun testAmazonConnection(connection: ToolConnection) {
+        val resolver = agentToolResolver ?: return
+        if (_uiState.value.connectionHealth[connection.connectionUid]?.status == ToolConnectionHealthStatus.CHECKING) return
+        _uiState.update { it.copy(connectionHealth = it.connectionHealth + (connection.connectionUid to ToolConnectionHealth(ToolConnectionHealthStatus.CHECKING, message = "Testing Amazon Search…"))) }
+        viewModelScope.launch {
+            try {
+                val result = resolver.testAmazonConnection(connection)
+                val message = if (result.isError) (result.content as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text)?.text ?: "Amazon Search test failed." else "Amazon Search is connected. One provider request was used."
+                _uiState.update { it.copy(connectionHealth = it.connectionHealth + (connection.connectionUid to ToolConnectionHealth(if (result.isError) ToolConnectionHealthStatus.OFFLINE else ToolConnectionHealthStatus.ONLINE, message = message, checkedAt = System.currentTimeMillis()))) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.update { it.copy(connectionHealth = it.connectionHealth + (connection.connectionUid to ToolConnectionHealth(ToolConnectionHealthStatus.OFFLINE, message = "Amazon Search test failed. Check the saved connection."))) }
+            }
+        }
+    }
+
     fun probeConnections(connections: List<ToolConnection> = _uiState.value.connections, force: Boolean = false) {
         val resolver = agentToolResolver ?: return
         connections
@@ -403,6 +421,7 @@ class ToolConnectionsViewModel @Inject constructor(
             ToolConnectionProvider("Exa", ToolConnectionType.EXA, "https://api.exa.ai/search", ToolConnectionAuthType.API_KEY),
             ToolConnectionProvider("Brave Search", ToolConnectionType.BRAVE, "https://api.search.brave.com/res/v1/web/search", ToolConnectionAuthType.API_KEY),
             ToolConnectionProvider("GitHub API", ToolConnectionType.GITHUB, "https://api.github.com", ToolConnectionAuthType.BEARER),
+            ToolConnectionProvider("Amazon Search · SerpApi", ToolConnectionType.AMAZON_SERPAPI, dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient.ENDPOINT, ToolConnectionAuthType.API_KEY),
             ToolConnectionProvider("MCP server", ToolConnectionType.MCP, "", ToolConnectionAuthType.NONE)
         )
 

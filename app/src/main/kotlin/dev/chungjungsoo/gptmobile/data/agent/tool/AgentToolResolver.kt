@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -15,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
@@ -169,6 +171,10 @@ class AgentToolResolver @Inject constructor(
         }
 
         if (!disableRemote) {
+            if (featureSettings.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH)) {
+                connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabled(ToolPluginId.connection(it.connectionUid)) }
+                    .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
+            }
             if (featureSettings.isToolPluginEnabled(ToolPluginId.READ_URL)) {
                 resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
             }
@@ -224,7 +230,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(mcpBindings.first().connection)
                         try {
-                            resolveMcpTools(connection, mcpBindings) to null
+                            resolveMcpTools(connection, mcpBindings, featureSettings) to null
                         } catch (error: CancellationException) {
                             throw error
                         } catch (_: Exception) {
@@ -276,6 +282,7 @@ class AgentToolResolver @Inject constructor(
                 }
                 val fallback = when {
                     resolved.isWebSearchEngine() -> ToolPluginId.WEB_SEARCH
+                    resolved.realToolName in setOf(AmazonSearchTool.SEARCH, AmazonSearchTool.GET_PRODUCTS) -> ToolPluginId.AMAZON_SEARCH
                     resolved.realToolName == "github" -> ToolPluginId.GITHUB
                     else -> id
                 }
@@ -293,6 +300,7 @@ class AgentToolResolver @Inject constructor(
             return false
         }
         return when (connection?.type) {
+            ToolConnectionType.AMAZON_SERPAPI -> settings.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH)
             ToolConnectionType.GITHUB -> settings.isToolPluginEnabled(ToolPluginId.GITHUB)
             ToolConnectionType.FIRECRAWL,
             ToolConnectionType.PERPLEXITY,
@@ -341,6 +349,37 @@ class AgentToolResolver @Inject constructor(
         BuiltInAgentTool.GITHUB -> resolveGitHub(binding.connection)
 
         else -> null
+    }
+
+    private suspend fun resolveAmazon(connection: ToolConnection, features: AppFeatureSettings): List<ResolvedAgentTool> {
+        val token = connection.secretRef?.let { secretVault.read(it) }?.let { bytes ->
+            try {
+                bytes.decodeToString().trim()
+            } finally {
+                bytes.fill(0)
+            }
+        }.orEmpty()
+        val client = SerpApiAmazonClient(networkClient, token)
+        val settings = features.pluginExecution[ToolPluginId.connection(connection.connectionUid)]
+            ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings()
+        return listOf(false, true).map { details ->
+            val name = if (details) AmazonSearchTool.GET_PRODUCTS else AmazonSearchTool.SEARCH
+            AmazonSearchTool(client::fetch, settings, details, "${name}__${connection.alias}")
+                .resolved(connection.connectionUid, connection.name, name)
+        }
+    }
+
+    /** Explicit settings test only: it spends one search request and never runs during discovery. */
+    suspend fun testAmazonConnection(connection: ToolConnection): AgentToolResult {
+        require(connection.type == ToolConnectionType.AMAZON_SERPAPI)
+        val tool = resolveAmazon(connection, settingRepository.getFeatureSettings()).first().tool
+        return tool.execute(
+            "amazon-connection-test",
+            kotlinx.serialization.json.buildJsonObject {
+                put("query", kotlinx.serialization.json.JsonPrimitive("headphones"))
+                put("maxResults", kotlinx.serialization.json.JsonPrimitive(1))
+            }
+        )
     }
 
     private suspend fun resolveGitHub(connection: ToolConnection?): ResolvedAgentTool {
@@ -404,7 +443,8 @@ class AgentToolResolver @Inject constructor(
 
     private suspend fun resolveMcpTools(
         connection: ToolConnection,
-        bindings: List<AgentToolBindingWithConnection>
+        bindings: List<AgentToolBindingWithConnection>,
+        features: AppFeatureSettings
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = discoverMcpTools(connection)
@@ -420,7 +460,7 @@ class AgentToolResolver @Inject constructor(
                     clientManager = mcpClientManager
                 )
                 ResolvedAgentTool(
-                    tool = tool,
+                    tool = AmazonMcpResultTool.wrap(tool, connection.endpointUrl.orEmpty(), remoteTool.name, features.pluginExecution[ToolPluginId.connection(connection.connectionUid)] ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings()),
                     connectionUid = connection.connectionUid,
                     connectionName = connection.name,
                     realToolName = remoteTool.name,
@@ -490,6 +530,8 @@ class AgentToolResolver @Inject constructor(
             BuiltInAgentTool.READ_FILE_SLICE,
             BuiltInAgentTool.READ_URL,
             BuiltInAgentTool.DEVICE_LOCATION,
+            AmazonSearchTool.SEARCH,
+            AmazonSearchTool.GET_PRODUCTS,
             WEB_SEARCH_TOOL
         )
         val SEARCH_PROVIDERS = mapOf(

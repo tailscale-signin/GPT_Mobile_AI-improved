@@ -197,6 +197,7 @@ object ToolPluginId {
     const val READ_FILES = "read_files"
     const val READ_URL = "read_url"
     const val GITHUB = "github"
+    const val AMAZON_SEARCH = "amazon_search"
     const val WEB_SEARCH = "web_search"
     const val DEVICE_LOCATION = "device_location"
 

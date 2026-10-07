@@ -13,7 +13,10 @@ data class PluginExecutionSettings(
     val nearbyRadiusMeters: Int = 1500,
     val includePageLinks: Boolean = true,
     val fileExcerptLines: Int = 200,
-    val githubCacheSeconds: Int = 15
+    val githubCacheSeconds: Int = 15,
+    val amazonMarketplace: String = "amazon.ca",
+    val amazonIncludeSponsored: Boolean = false,
+    val amazonFreshPrices: Boolean = false
 ) {
     fun normalized() = copy(
         nearbyRadiusMeters = nearbyRadiusMeters.coerceIn(100, 5000),

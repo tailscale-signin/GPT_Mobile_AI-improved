@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
@@ -39,6 +40,11 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
         }
         val result = withTimeoutOrNull(settings.timeoutSeconds * 1000L) { delegate.execute(callId, bounded) }
             ?: return AgentToolResult(callId, ToolResultContent.Text("Plugin timed out after ${settings.timeoutSeconds} seconds."), true)
+        val retail = (result.content as? ToolResultContent.Json)?.value as? JsonObject
+        if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {
+            val content = ToolResultContent.Json(AmazonProducts.limitResult(retail, settings.maxOutputCharacters))
+            return result.copy(content = content, traceContent = content)
+        }
         val text = when (val content = result.content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> content.value.toString()

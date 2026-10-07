@@ -65,6 +65,7 @@ object ToolConnectionType {
     const val EXA = "EXA"
     const val BRAVE = "BRAVE"
     const val GITHUB = "GITHUB"
+    const val AMAZON_SERPAPI = "AMAZON_SERPAPI"
     val WEB_SEARCH_TYPES = setOf(FIRECRAWL, PERPLEXITY, EXA, BRAVE)
 }
 

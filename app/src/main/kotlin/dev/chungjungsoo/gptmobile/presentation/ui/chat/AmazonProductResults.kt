@@ -83,7 +83,8 @@ internal fun amazonResultNotice(events: List<ToolEvent>): String? {
 
 internal fun amazonProductPrice(product: JsonObject): String {
     val currency = AmazonProducts.text(product, "currency")
-    return AmazonProducts.text(product, "price", "priceAmount")?.let { price ->
+    val display = AmazonProducts.text(product, "price")?.takeIf { AmazonProducts.hasPrice(JsonObject(product - "priceAmount")) }
+    return (display ?: AmazonProducts.text(product, "priceAmount"))?.let { price ->
         if (currency != null && currency !in price) "$price $currency" else price
     } ?: "Price unavailable"
 }

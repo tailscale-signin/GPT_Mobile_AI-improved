@@ -119,6 +119,10 @@ class AmazonProductResultsTest {
             put("currency", "CAD")
         }
         assertEquals("49.99 CAD", amazonProductPrice(product))
+        for (label in listOf("Price unavailable", "Unavailable (2 offers)", "N/A")) {
+            val conflicting = JsonObject(product + ("price" to kotlinx.serialization.json.JsonPrimitive(label)))
+            assertEquals("49.99 CAD", amazonProductPrice(conflicting))
+        }
         assertEquals("Price unavailable", amazonProductPrice(JsonObject(emptyMap())))
     }
 

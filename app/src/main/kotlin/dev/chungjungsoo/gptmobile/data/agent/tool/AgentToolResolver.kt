@@ -48,7 +48,8 @@ data class ResolvedAgentTool(
     val connectionName: String?,
     val realToolName: String,
     val modelToolName: String,
-    val shareableReadOnly: Boolean = false
+    val shareableReadOnly: Boolean = false,
+    val canReuseResult: (suspend () -> Boolean)? = null
 )
 
 class AgentToolResolver @Inject constructor(
@@ -68,7 +69,8 @@ class AgentToolResolver @Inject constructor(
     private val nativeMarketplaceClient: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceClient? = null,
     private val amazonFreeProvider: AmazonHtmlProvider? = null,
     private val amazonHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
-    private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null
+    private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
+    private val amazonPublicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryProvider? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -184,7 +186,7 @@ class AgentToolResolver @Inject constructor(
 
         if (!disableLocal && amazonHistory != null && amazonAccess != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
             resolved += listOf(false, true).map { watches ->
-                AmazonLocalTool(profileUid, amazonHistory, amazonAccess, { settingRepository.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings() }, watches)
+                AmazonLocalTool(profileUid, amazonHistory, amazonAccess, { settingRepository.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings() }, watches, amazonPublicHistory)
                     .resolved(null, "Amazon Research Free", if (watches) "amazon_list_price_watches" else "amazon_get_price_history").copy(shareableReadOnly = false)
             }
         }
@@ -359,6 +361,19 @@ class AgentToolResolver @Inject constructor(
                 }
                 (featureSettings.pluginExecution[id] ?: featureSettings.pluginExecution[fallback])?.let { config -> resolved.copy(tool = ConfiguredPluginTool(resolved.tool, config)) } ?: resolved
             }
+            .map { resolved ->
+                if (!resolved.isAmazonProductTool()) return@map resolved
+                val plugin = if (resolved.modelToolName in AmazonNativeTool.names) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH
+                resolved.copy(canReuseResult = {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val features = settingRepository.getFeatureSettings()
+                    current?.enabled == true &&
+                        !current.disableAllTools &&
+                        !current.disableRemoteTools &&
+                        features.isToolPluginEnabledForProfile(profileUid, plugin) &&
+                        (resolved.connectionUid == null || features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(resolved.connectionUid)))
+                })
+            }
             .sortedBy { it.modelToolName }
     }
 
@@ -496,6 +511,32 @@ class AgentToolResolver @Inject constructor(
             AmazonSearchTool(client::fetch, settings, details, "${name}__${connection.alias}")
                 .resolved(connection.connectionUid, connection.name, name)
         }
+    }
+
+    /** A product-card click spends at most one configured SerpApi detail request, without MCP discovery. */
+    suspend fun amazonProductDetails(profileUid: String, marketplace: String, asin: String): JsonObject? {
+        suspend fun allowed(connection: ToolConnection): Boolean {
+            val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+            val features = settingRepository.getFeatureSettings()
+            return profile?.enabled == true &&
+                !profile.disableAllTools &&
+                !profile.disableRemoteTools &&
+                features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH) &&
+                features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid)) &&
+                features.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(connection).id)
+        }
+        val connection = toolConnectionRepository.listConnections().firstOrNull { it.type == ToolConnectionType.AMAZON_SERPAPI && allowed(it) } ?: return null
+        val tool = resolveAmazon(connection, settingRepository.getFeatureSettings()).first { it.realToolName == AmazonSearchTool.GET_PRODUCTS }.tool
+        val result = tool.execute(
+            "amazon-product-card-${java.util.UUID.randomUUID()}",
+            kotlinx.serialization.json.buildJsonObject {
+                put("marketplace", kotlinx.serialization.json.JsonPrimitive(marketplace))
+                put("asins", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(asin))))
+            }
+        )
+        if (result.isError || !allowed(connection)) return null
+        val payload = (result.content as? ToolResultContent.Json)?.value as? JsonObject ?: return null
+        return (payload["products"] as? kotlinx.serialization.json.JsonArray)?.filterIsInstance<JsonObject>()?.firstOrNull()
     }
 
     /** Explicit settings test only: it spends one search request and never runs during discovery. */

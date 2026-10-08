@@ -219,7 +219,7 @@ private fun viewModelOrphanOwners(viewModel: AmazonDataViewModel): List<String> 
 }
 
 @Composable
-private fun AmazonObservationPlot(points: List<AmazonObservationEntity>) {
+internal fun AmazonObservationPlot(points: List<AmazonObservationEntity>) {
     if (points.size < 2) return
     val prices = points.mapNotNull { it.amount.toDoubleOrNull() }
     if (prices.size != points.size) return

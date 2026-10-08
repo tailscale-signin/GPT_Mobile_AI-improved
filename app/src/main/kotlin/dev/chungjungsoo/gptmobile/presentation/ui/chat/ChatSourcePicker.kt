@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,55 +98,30 @@ internal fun ChatResponseSources(answer: String, events: List<ToolEvent>, conten
 internal fun ChatSourcePicker(sources: ChatSources, contentIdentity: Any, modifier: Modifier = Modifier) {
     if (sources.isEmpty) return
     var origin by remember(contentIdentity) { mutableStateOf<Offset?>(null) }
-    val sites = remember(sources.sources) { sources.sources.distinctBy { it.host } }
     val label = pluralStringResource(R.plurals.chat_source_count, sources.sources.size, sources.sources.size)
-    LazyRow(
+    Row(
         modifier = modifier.fillMaxWidth().testTag("response-sources"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+        horizontalArrangement = Arrangement.Center
     ) {
-        items(sources.engines, key = { "engine:$it" }) { engine ->
-            SourcePickerButton(chatSearchEngineBrand(engine), true, engine) { origin = it }
-        }
-        if (sources.engines.isNotEmpty() && sites.isNotEmpty()) {
-            item(key = "separator") {
-                Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 20.dp).background(MaterialTheme.colorScheme.outlineVariant))
-            }
-        }
-        items(sites, key = { "site:${it.host}" }) { source ->
-            SourcePickerButton(chatSourceBrand(source.host), false, source.host) { origin = it }
-        }
-        item(key = "source-count") {
-            var center by remember { mutableStateOf(Offset.Zero) }
-            Box(
-                modifier = Modifier
-                    .onGloballyPositioned { center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
-                    .heightIn(min = 48.dp)
-                    .clickable(role = Role.Button) { origin = center }
-                    .padding(horizontal = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        var center by remember { mutableStateOf(Offset.Zero) }
+        Surface(
+            modifier = Modifier
+                .onGloballyPositioned { center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
+                .size(52.dp)
+                .clickable(role = Role.Button) { origin = center }
+                .semantics { contentDescription = label },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Icon(Icons.Rounded.Public, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                Text(sources.sources.size.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
         }
     }
     origin?.let { anchor -> SourceListDialog(sources, anchor) { origin = null } }
-}
-
-@Composable
-private fun SourcePickerButton(brand: ChatSourceBrand?, engine: Boolean, label: String, onClick: (Offset) -> Unit) {
-    var center by remember { mutableStateOf(Offset.Zero) }
-    val description = stringResource(R.string.chat_sources_open, label)
-    Box(
-        modifier = Modifier
-            .onGloballyPositioned { center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
-            .size(48.dp)
-            .clickable(role = Role.Button) { onClick(center) }
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center
-    ) {
-        SourceLogo(brand, engine, Modifier.size(32.dp))
-    }
 }
 
 @Composable
@@ -183,6 +159,9 @@ private fun SourceListDialog(sources: ChatSources, origin: Offset, onDismiss: ()
     var center by remember { mutableStateOf<Offset?>(null) }
     val scope = rememberCoroutineScope()
     val title = stringResource(R.string.chat_sources_title)
+    var group by remember { mutableStateOf<String?>(null) }
+    val groups = remember(sources) { sources.sources.mapNotNull { chatSourceBrand(it.host) }.distinctBy { it.id }.sortedBy { it.name } }
+    val visibleSources = remember(sources, group) { filterChatSources(sources.sources, group) }
     val dismiss: () -> Unit = {
         if (!closing) {
             closing = true
@@ -241,6 +220,16 @@ private fun SourceListDialog(sources: ChatSources, origin: Offset, onDismiss: ()
                             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                             IconButton(onClick = dismiss) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_sources_close)) }
                         }
+                        Text(pluralStringResource(R.plurals.chat_source_count, sources.sources.size, sources.sources.size), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item { FilterChip(selected = group == null, onClick = { group = null }, label = { Text("All") }) }
+                            items(groups, key = { it.id }) { brand ->
+                                FilterChip(selected = group == brand.id, onClick = { group = brand.id }, leadingIcon = { SourceLogo(brand, false, Modifier.size(22.dp)) }, label = { Text(brand.name) })
+                            }
+                            if (sources.sources.any { sourceGroupId(it) == "other" }) {
+                                item { FilterChip(selected = group == "other", onClick = { group = "other" }, label = { Text("Other") }) }
+                            }
+                        }
                         if (sources.engines.isNotEmpty()) {
                             Text(stringResource(R.string.chat_sources_engines), Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.labelMedium)
                             LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -257,7 +246,7 @@ private fun SourceListDialog(sources: ChatSources, origin: Offset, onDismiss: ()
                             Text(stringResource(R.string.chat_sources_none), Modifier.padding(20.dp), style = MaterialTheme.typography.bodyMedium)
                         } else {
                             LazyColumn(Modifier.weight(1f, fill = false).testTag("response-source-list")) {
-                                items(sources.sources, key = { it.url }) { source -> SourceListRow(source) }
+                                items(visibleSources, key = { it.url }) { source -> SourceListRow(source) }
                             }
                         }
                         Spacer(Modifier.height(12.dp))

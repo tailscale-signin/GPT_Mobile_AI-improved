@@ -5,6 +5,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CompleteBackupSelectionTest {
+    @Test fun statisticsIncludesEveryDependentRecordAndCanBeDeselected() {
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.STATISTICS)).normalized()
+        assertTrue(selection.includes(CompleteBackupSection.AGENT_HISTORY))
+        assertTrue(selection.includes(CompleteBackupSection.PLATFORMS))
+        assertTrue(selection.includes(CompleteBackupSection.CONVERSATIONS))
+        assertFalse(selection.toggled(CompleteBackupSection.AGENT_HISTORY, false).includes(CompleteBackupSection.STATISTICS))
+    }
+
     @Test fun clearingSelectAllAlsoClearsDependentConversationSections() {
         var selection = CompleteBackupSelection.ALL
         CompleteBackupSection.entries.forEach { selection = selection.toggled(it, false) }

@@ -401,6 +401,46 @@ class CompleteBackupManagerTest {
         return result
     }
 
+    @Test fun encryptedLegacyUserBackupIsConvertedAndRespectsSelectedSections() = runBlocking {
+        val input = File(context.cacheDir, "legacy-user.gptbackup")
+        input.outputStream().use {
+            AppBackupCrypto.encryptUserBackup(UserBackupData(chatRooms = listOf(ChatRoomV2(id = 91, title = "legacy")), messages = listOf(MessageV2(id = 92, chatId = 91, content = "preserved", platformType = null)), platforms = listOf(PlatformV2(uid = "old-profile", name = "Legacy profile", token = "private-token"))), it, "legacy-password")
+        }
+        val restored = manager.restore(Uri.fromFile(input), "legacy-password", CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS)))
+        assertTrue(restored.message, restored.success)
+        assertTrue(restored.message.contains("converted"))
+        assertEquals("legacy", database.chatRoomDao().getChatRooms().single().title)
+        assertTrue(database.platformDao().getPlatforms().isEmpty())
+        val next = File(context.cacheDir, "converted-current.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(next), CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS)), encrypt = false).success)
+        val manifest = CompleteBackupArchive.read(next, File(context.cacheDir, "converted-inspection").apply { mkdirs() }, Long.MAX_VALUE)
+        assertEquals(LegacyBackupConverter.CURRENT_VERSION, manifest.version)
+    }
+
+    @Test fun wrongLegacyPasswordLeavesLiveDataAndPreferencesUnchanged() = runBlocking {
+        database.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Keep me"))
+        preferences.edit { it[intPreferencesKey("existing")] = 7 }
+        val input = File(context.cacheDir, "legacy-password.gptbackup")
+        input.outputStream().use { AppBackupCrypto.encryptDatabase(DatabaseBackupPayload(chatRooms = listOf(ChatRoomV2(id = 2, title = "incoming"))), it, "correct-password") }
+        assertFalse(manager.restore(Uri.fromFile(input), "wrong-password").success)
+        assertEquals("Keep me", database.chatRoomDao().getChatRooms().single().title)
+        assertEquals(7, preferences.data.first()[intPreferencesKey("existing")])
+    }
+
+    @Test fun statisticsRoundTripRestoresModelInvocationsAndDependentRuns() = runBlocking {
+        seed(File(context.cacheDir, "statistics-attachment.txt").apply { writeText("fixture") })
+        database.invocationDao().save(dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation("invocation", "run", "turn", "OPENAI", "model", "PRIMARY", 120, 45, status = "COMPLETED"))
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.STATISTICS))
+        val output = File(context.cacheDir, "statistics.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(output), selection, encrypt = false).success)
+        database.invocationDao().clear()
+        database.agentRunDao().updateStatus("run", "COMPLETED", null, null, null)
+        val restored = manager.restore(Uri.fromFile(output), selection = selection)
+        assertTrue(restored.message, restored.success)
+        assertEquals(1, database.invocationDao().statistics().first().size)
+        assertEquals(45, database.invocationDao().statistics().first().single().outputTokens)
+    }
+
     private suspend fun seed(attachment: File) {
         database.chatRoomDao().addChatRoom(ChatRoomV2(id = 7, title = "saved", enabledPlatform = listOf("profile"), isFavorite = true, draftText = "draft"))
         database.messageDao().addMessages(

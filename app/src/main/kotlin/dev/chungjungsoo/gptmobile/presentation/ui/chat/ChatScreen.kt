@@ -663,11 +663,11 @@ fun ChatScreen(
                         .padding(bottom = composerHeight + 12.dp),
                     contentAlignment = Alignment.BottomCenter
                 ) {
-                    ScrollToBottomButton {
+                    ScrollToBottomButton(isGenerating = !isIdle) {
                         isHoldingEntryCenter = false
                         isModelTabPositionLocked = false
                         scope.launch {
-                            listState.animateScrollToLatestChatMessage()
+                            listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
                             isFollowingBottom = true
                         }
                     }
@@ -1809,11 +1809,26 @@ private fun isImageFile(extension: String?): Boolean {
 }
 
 @Composable
-fun ScrollToBottomButton(onClick: () -> Unit) {
+fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
+    var bright by remember { mutableStateOf(true) }
+    LaunchedEffect(isGenerating) {
+        bright = true
+        while (isGenerating) {
+            kotlinx.coroutines.delay(1_000)
+            bright = !bright
+        }
+    }
+    val opacity by androidx.compose.animation.core.animateFloatAsState(
+        if (bright) 1f else 0.45f,
+        animationSpec = androidx.compose.animation.core.tween(200),
+        label = "latest-response-flash"
+    )
     SmallFloatingActionButton(
         onClick = onClick,
-        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+        modifier = Modifier.size(52.dp).graphicsLayer { alpha = opacity },
+        shape = androidx.compose.foundation.shape.CircleShape,
+        containerColor = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary
     ) {
         Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon))
     }

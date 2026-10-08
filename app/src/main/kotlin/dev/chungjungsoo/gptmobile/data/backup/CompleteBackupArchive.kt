@@ -11,7 +11,7 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 internal data class CompleteBackupManifest(
-    val version: Int = 2,
+    val version: Int = LegacyBackupConverter.CURRENT_VERSION,
     val preferences: Map<String, BackupValue> = emptyMap(),
     val sharedPreferences: Map<String, Map<String, BackupValue>> = emptyMap(),
     val secrets: Map<String, String> = emptyMap(),
@@ -58,7 +58,7 @@ internal object CompleteBackupArchive {
             copyExactly(input, out, metadata.size)
             json.decodeFromString<CompleteBackupManifest>(out.toString(Charsets.UTF_8.name()))
         }
-        require(manifest.version in 1..2) { "This backup requires a newer app version." }
+        require(manifest.version in 1..LegacyBackupConverter.CURRENT_VERSION) { "This backup requires a newer app version." }
         if (manifest.version == 1) {
             require("database.sqlite" in manifest.files) { "Incomplete legacy complete backup." }
         }
@@ -74,7 +74,7 @@ internal object CompleteBackupArchive {
             check(target.parentFile!!.mkdirs() || target.parentFile!!.isDirectory)
             zip.getInputStream(entry).use { input -> target.outputStream().buffered().use { output -> copyExactly(input, output, size) } }
         }
-        manifest
+        LegacyBackupConverter.upgrade(manifest)
     }
 
     fun validatePath(path: String) {

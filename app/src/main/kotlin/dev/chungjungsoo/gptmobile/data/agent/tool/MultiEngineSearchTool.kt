@@ -135,8 +135,8 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         // passes its existing consent and shared-budget wrapper before execution.
         val selected = engines.distinctBy { it.selectionId() }
             .sortedByDescending { reliability[it.modelToolName]?.get() ?: 0 }
-        val permits = Semaphore(if (parallel) 3 else 1)
-        val responses = selected.mapIndexed { index, engine ->
+        val permits = Semaphore(if (parallel) selected.size.coerceAtLeast(1) else 1)
+        val initialResponses = selected.mapIndexed { index, engine ->
             async {
                 permits.withPermit {
                     try {
@@ -170,6 +170,40 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 }
             }
         }.awaitAll()
+        val claimed = linkedSetOf<String>()
+        val refill = initialResponses.map { (engine, result) ->
+            val urls = if (result.isError) {
+                emptyList()
+            } else {
+                resultSources(result).filter {
+                    matchesSearchDomains((it["url"] as? JsonPrimitive)?.contentOrNull.orEmpty(), includeDomains, excludeDomains)
+                }
+            }
+            val unique = urls.count { source -> claimed.add(canonicalSearchUrl((source["url"] as JsonPrimitive).content)) }
+            if (deduplicate && unique < maxResults && urls.size >= maxResults) {
+                WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition)?.nextPage(arguments, clock)
+            } else {
+                null
+            }
+        }
+        val responses = initialResponses.mapIndexed { index, (engine, result) ->
+            async {
+                val next = refill[index]
+                if (next == null || !canExecute() || remainingBytes() < 1024) return@async engine to result
+                val extra = try {
+                    withTimeoutOrNull(engineTimeoutMillis) { engine.tool.execute("$callId:engine:$index:unique", next) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                if (extra == null || extra.isError) return@async engine to result
+                engine to extra.copy(
+                    callId = result.callId,
+                    content = ToolResultContent.Json(buildJsonObject { put("results", JsonArray(resultSources(result) + resultSources(extra))) })
+                )
+            }
+        }.awaitAll()
         val sourceIndexes = mutableMapOf<String, Int>()
         val sources = mutableListOf<JsonElement>()
         val statuses = responses.map { (engine, result) ->
@@ -189,16 +223,21 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
             val rawSources = if (result.isError) emptyList() else extractSearchSources(payload)
             val extracted = rawSources
                 .filter { source -> matchesSearchDomains((source["url"] as? JsonPrimitive)?.contentOrNull.orEmpty(), includeDomains, excludeDomains) }
-                .take(maxResults)
+                .take(maxResults * 2)
+            var uniqueCount = 0
+            var duplicateCount = 0
             extracted.forEach { source ->
                 val url = (source["url"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
                 val key = canonicalSearchUrl(url)
                 val previous = sourceIndexes[key].takeIf { deduplicate }
                 val provenance = ((source["engines"] as? JsonArray).orEmpty() + listOfNotNull(source["engine"], JsonPrimitive(label))).distinct()
                 if (previous == null) {
+                    if (uniqueCount >= maxResults) return@forEach
+                    uniqueCount++
                     sourceIndexes[key] = sources.size
                     sources += JsonObject(source + mapOf("engine" to (source["engine"] ?: JsonPrimitive(label)), "engines" to JsonArray(provenance)))
                 } else {
+                    duplicateCount++
                     val existing = sources[previous] as JsonObject
                     val labels = ((existing["engines"] as? JsonArray).orEmpty() + provenance).distinct()
                     sources[previous] = JsonObject(existing + ("engines" to JsonArray(labels)))
@@ -210,6 +249,8 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 put("tool", engine.realToolName)
                 put("status", if (result.isError) "unavailable" else "completed")
                 put("results", extracted.size)
+                put("uniqueResults", uniqueCount)
+                put("duplicateResults", duplicateCount)
                 if (recencyDays != null && WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition)?.supportsRecency == false) {
                     put("unsupportedFilters", JsonArray(listOf(JsonPrimitive("recencyDays"))))
                 }
@@ -266,6 +307,21 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         put("status", "unavailable")
         put("notice", message)
     }
+
+    private fun resultSources(result: AgentToolResult): List<JsonObject> = extractSearchSources(
+        when (val content = result.content) {
+            is ToolResultContent.Json -> content.value
+            is ToolResultContent.Text -> parseSearchPayload(content.text)
+            is ToolResultContent.ResourceLinks -> JsonArray(
+                content.links.map {
+                    buildJsonObject {
+                        put("url", it.uri)
+                        put("title", it.name.orEmpty())
+                    }
+                }
+            )
+        }
+    )
 }
 
 internal fun canonicalSearchUrl(url: String): String = runCatching {
@@ -274,13 +330,16 @@ internal fun canonicalSearchUrl(url: String): String = runCatching {
         val name = it.substringBefore('=').lowercase()
         name.startsWith("utm_") || name in setOf("fbclid", "gclid")
     }?.sorted()?.joinToString("&")?.takeIf { it.isNotEmpty() }
-    URI(uri.scheme?.lowercase(), uri.userInfo, uri.host?.lowercase(), uri.port, uri.path.orEmpty().trimEnd('/'), query, null).toString()
+    val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
+    val port = uri.port.takeUnless { it == -1 || (it == 80 && scheme == "http") || (it == 443 && scheme == "https") }
+    "$scheme://${uri.host?.lowercase(java.util.Locale.ROOT)}${port?.let { ":$it" }.orEmpty()}${uri.rawPath.orEmpty().trimEnd('/')}" + query?.let { "?$it" }.orEmpty()
 }.getOrDefault(url)
 
 /** Compose only after child authorization/budget wrappers have been installed. */
 internal fun aggregateWebSearch(tools: List<ResolvedAgentTool>, parallel: Boolean = true, deduplicate: Boolean = true, afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null, canExecute: () -> Boolean = { true }, remainingBytes: () -> Int = { Int.MAX_VALUE }): List<ResolvedAgentTool> {
-    val engines = tools.filter { it.isWebSearchEngine() }
-    if (engines.isEmpty()) return tools
+    val available = aggregateAmazonTools(tools)
+    val engines = available.filter { it.isWebSearchEngine() }
+    if (engines.isEmpty()) return available
     val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines, parallel = parallel, deduplicate = deduplicate, afterSearch = afterSearch, canExecute = canExecute, remainingBytes = remainingBytes))
-    return tools.filterNot { it in engines } + ResolvedAgentTool(aggregate, null, "Multi-engine search", "web_search", "web_search")
+    return available.filterNot { it in engines } + ResolvedAgentTool(aggregate, null, "Multi-engine search", "web_search", "web_search")
 }

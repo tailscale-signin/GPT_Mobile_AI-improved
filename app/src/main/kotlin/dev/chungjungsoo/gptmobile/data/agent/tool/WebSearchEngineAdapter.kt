@@ -26,6 +26,23 @@ internal class WebSearchEngineAdapter private constructor(
     val supportsRecency = listOf("recencyDays", "startPublishedDate", "start_date", "tbs").any { it in properties } ||
         (brave && "freshness" in properties)
 
+    /** One extra page can fill duplicate slots; never invent unsupported pagination fields. */
+    fun nextPage(request: JsonObject, clock: Clock): JsonObject? {
+        val key = listOf("page", "start", "offset").firstOrNull {
+            (properties[it] as? JsonObject)?.acceptsType("integer") == true
+        } ?: return null
+        val count = (request["maxResults"] as? JsonPrimitive)?.intOrNull ?: 10
+        val value = when (key) {
+            "page" -> 2
+            "offset" -> if (brave) 1 else count
+            else -> count
+        }
+        val field = properties[key] as JsonObject
+        val maximum = (field["maximum"] as? JsonPrimitive)?.intOrNull ?: Int.MAX_VALUE
+        if (value > maximum) return null
+        return JsonObject(arguments(request, clock) + (key to JsonPrimitive(value)))
+    }
+
     fun arguments(request: JsonObject, clock: Clock): JsonObject {
         val query = (request.getValue("query") as JsonPrimitive).content.trim()
         fun domains(key: String) = (request[key] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content.trim() }

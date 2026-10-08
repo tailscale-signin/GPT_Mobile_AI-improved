@@ -184,6 +184,8 @@ object AmazonProducts {
                 put("title", title.take(300))
                 put("url", requireNotNull(productUrl(market, id)))
                 put("provider", provider)
+                text(item, "description", "product_description")?.let { put("description", it.take(4000)) }
+                ((item["features"] ?: item["feature_bullets"]) as? JsonArray)?.let { put("features", JsonArray(it.take(12))) }
                 put("retrievedAt", retrieved)
                 observed?.let { put("observedAt", it) }
                 imageUrl(text(item, "thumbnail", "image", "image_url"))?.let { put("imageUrl", it) }

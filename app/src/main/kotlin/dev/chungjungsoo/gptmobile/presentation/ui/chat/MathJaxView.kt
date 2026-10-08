@@ -141,14 +141,15 @@ window.MathJax = {
     }
   },
   svg: {
-    fontCache: 'none'
+    fontCache: 'none',
+    dynamicPrefix: 'file:///android_asset/mathjax/fonts/newcm/svg/dynamic'
   }
 };
 </script>
 <script defer src="tex-svg.js"></script>
 <script>
 window.renderMath = function(expression, displayMode, textColor, fontSizePx) {
-  if (!window.mathJaxReady || !window.MathJax || typeof MathJax.tex2svg !== 'function') {
+  if (!window.mathJaxReady || !window.MathJax || typeof MathJax.tex2svgPromise !== 'function') {
     return 'loading';
   }
 
@@ -158,14 +159,23 @@ window.renderMath = function(expression, displayMode, textColor, fontSizePx) {
   document.body.style.fontSize = fontSizePx + 'px';
   root.className = displayMode ? 'display' : 'inline';
 
-  try {
-    const node = MathJax.tex2svg(expression, { display: displayMode });
-    root.replaceChildren(node);
-  } catch (error) {
-    const fallback = document.createElement(displayMode ? 'pre' : 'span');
-    fallback.textContent = displayMode ? '\\[' + expression + '\\]' : '\\(' + expression + '\\)';
-    root.replaceChildren(fallback);
+  const key = JSON.stringify([expression, displayMode, textColor, fontSizePx]);
+  if (!window.mathRender || window.mathRender.key !== key) {
+    const request = {key: key, ready: false};
+    window.mathRender = request;
+    MathJax.tex2svgPromise(expression, { display: displayMode }).then((node) => {
+      if (window.mathRender !== request) return;
+      root.replaceChildren(node);
+      request.ready = true;
+    }).catch(() => {
+      if (window.mathRender !== request) return;
+      const fallback = document.createElement(displayMode ? 'pre' : 'span');
+      fallback.textContent = expression;
+      root.replaceChildren(fallback);
+      request.ready = true;
+    });
   }
+  if (!window.mathRender.ready) return 'loading';
 
   const measuredNode = root.firstElementChild || root;
   const rect = measuredNode.getBoundingClientRect();
@@ -184,6 +194,7 @@ window.applyCachedMath = function(html, displayMode, textColor, fontSizePx) {
   document.body.style.color = textColor;
   document.body.style.fontSize = fontSizePx + 'px';
   root.className = displayMode ? 'display' : 'inline';
+  window.mathRender = null;
   root.innerHTML = html;
   return true;
 };
@@ -389,6 +400,7 @@ private class MathJaxWebView(context: Context, private val onRendererGone: () ->
     ) {
         if (disposed) return
         this.onMeasured = onMeasured
+        if (request == pendingRequest) return
         if (request == renderedRequest && pendingRequest == null) {
             return
         }
@@ -433,7 +445,7 @@ private class MathJaxWebView(context: Context, private val onRendererGone: () ->
         }
 
         evaluateJavascript(buildRenderScript(request)) { rawResult ->
-            if (disposed) return@evaluateJavascript
+            if (disposed || pendingRequest != request) return@evaluateJavascript
             if (rawResult == "\"loading\"") {
                 scheduleRenderRetry()
                 return@evaluateJavascript
@@ -478,6 +490,7 @@ private class MathJaxWebView(context: Context, private val onRendererGone: () ->
             """
             (function() {
               const root = document.getElementById('root');
+              window.mathRender = null;
               if (root) {
                 root.replaceChildren();
               }

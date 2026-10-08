@@ -28,6 +28,60 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MultiEngineSearchToolTest {
+    @Test fun `all enabled engines start together and crawler receives unique pages`() = runBlocking {
+        val started = java.util.concurrent.atomic.AtomicInteger()
+        val allStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var crawled = 0
+        val engines = (1..5).map { index ->
+            engine("parallel-$index") { id, _ ->
+                if (started.incrementAndGet() == 5) allStarted.complete(Unit)
+                withTimeout(1_000) { allStarted.await() }
+                AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(listOf(buildJsonObject { put("url", "https://example.org/shared") }, buildJsonObject { put("url", "https://example.org/unique-$index") }))) }), false)
+            }
+        }
+        val result = MultiEngineSearchTool(engines, afterSearch = { _, pages ->
+            assertEquals(6, pages.size)
+            crawled++
+            buildJsonObject { put("status", "completed") }
+        }).execute("all", buildJsonObject { put("query", "test") })
+        assertFalse(result.isError)
+        assertEquals(5, started.get())
+        assertEquals(1, crawled)
+    }
+
+    @Test fun `duplicate result slots are filled from a supported second page`() = runBlocking {
+        val first = engine("first") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Title: A\nURL: https://example.org/a\nDescription: A"), false) }
+        val next = engine(
+            "next",
+            extraProperties = buildJsonObject {
+                put(
+                    "page",
+                    buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                        put("maximum", 2)
+                    }
+                )
+            }
+        ) { id, args ->
+            AgentToolResult(id, ToolResultContent.Text("Title: Next\nURL: https://example.org/${if (args["page"] == JsonPrimitive(2)) "b" else "a"}\nDescription: Result"), false)
+        }
+        val result = MultiEngineSearchTool(listOf(first, next)).execute(
+            "refill",
+            buildJsonObject {
+                put("query", "test")
+                put("maxResults", 1)
+            }
+        )
+        assertEquals(2, ((result.content as ToolResultContent.Json).value.jsonObject["results"] as JsonArray).size)
+    }
+
+    @Test fun `URL identity preserves distinct query pages and encoded paths`() {
+        assertEquals(canonicalSearchUrl("https://example.org:443/a?b=2&utm_source=test&a=1#section"), canonicalSearchUrl("https://example.org/a?a=1&b=2"))
+        assertFalse(canonicalSearchUrl("https://example.org/a?page=1") == canonicalSearchUrl("https://example.org/a?page=2"))
+        assertFalse(canonicalSearchUrl("https://example.org/a%2Fb") == canonicalSearchUrl("https://example.org/a/b"))
+    }
+
     @Test
     fun `built-in provider provenance survives aggregation and duplicate URLs`() = runBlocking {
         fun provider(name: String, connection: String) = engine(connection) { id, _ ->

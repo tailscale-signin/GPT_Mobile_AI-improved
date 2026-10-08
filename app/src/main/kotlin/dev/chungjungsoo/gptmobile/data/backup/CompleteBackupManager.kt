@@ -292,6 +292,7 @@ class CompleteBackupManager @Inject constructor(
         ensureIdle(restoring = true)
 
         val archive = File(work, "archive.zip")
+        var convertedLegacy = false
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
             input.mark(64)
             val header = ByteArray(9)
@@ -299,14 +300,17 @@ class CompleteBackupManager @Inject constructor(
             input.reset()
 
             if (headerBytes >= 9 && header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
-                val result = when (header[8].toInt()) {
-                    1 -> legacy.restoreConfiguration(uri, legacyPassword?.takeIf(String::isNotEmpty))
-                    2 -> legacy.restoreDatabase(uri, legacyPassword?.takeIf(String::isNotEmpty))
-                    4 -> legacy.importFavorites(uri, legacyPassword?.takeIf(String::isNotEmpty))
-                    else -> error("Unsupported legacy backup type.")
+                val migratedFile = File(work, "legacy-current.sqlite")
+                database.withTransaction { CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, migratedFile) }
+                val migrated = openSnapshot(migratedFile)
+                val metadata = try {
+                    LegacyBackupConverter.convert(input, header[8].toInt(), legacyPassword?.takeIf(String::isNotEmpty), migrated, preferences.read(), preferences.readShared(), readSecrets(CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS))))
+                } finally {
+                    migrated.close()
                 }
-                settings.invalidatePlatformCache()
-                return@operation result.copy(message = "Legacy backup: ${result.message}")
+                CompleteBackupArchive.write(archive, metadata.copy(files = mapOf("database.sqlite" to migratedFile.length())), mapOf("database.sqlite" to migratedFile))
+                convertedLegacy = true
+                return@use
             }
 
             val isLegacyComplete = headerBytes >= 8 &&
@@ -467,7 +471,7 @@ class CompleteBackupManager @Inject constructor(
 
         BackupRestoreResult(
             true,
-            "Restored: " + effective.sections
+            (if (convertedLegacy) "Legacy backup converted to the current format. " else "") + "Restored: " + effective.sections
                 .sortedBy { it.ordinal }
                 .joinToString { section -> section.displayName() } + "."
         )
@@ -691,6 +695,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.TOOLS,
         CompleteBackupSection.LOCAL_MODELS,
         CompleteBackupSection.AGENT_HISTORY,
+        CompleteBackupSection.STATISTICS,
         CompleteBackupSection.AMAZON_DATA -> true
 
         CompleteBackupSection.CREDENTIALS,
@@ -743,6 +748,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.LOCAL_MODELS -> "local models"
         CompleteBackupSection.ATTACHMENTS -> "attachments"
         CompleteBackupSection.AGENT_HISTORY -> "agent history"
+        CompleteBackupSection.STATISTICS -> "debug statistics"
         CompleteBackupSection.AMAZON_DATA -> "Amazon observations & manual watches"
     }
 

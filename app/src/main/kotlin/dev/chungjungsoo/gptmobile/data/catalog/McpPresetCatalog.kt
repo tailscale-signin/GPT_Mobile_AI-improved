@@ -54,7 +54,7 @@ data class McpPreset(
     val pricing: McpPricingType = McpPricingType.FREE,
     val requiredFields: List<String> = emptyList(),
     val toolCapabilities: List<String> = emptyList(),
-    val websiteUrl: String = "",
+    val websiteUrl: String = "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
     val isPreinstalled: Boolean = false,
     val verifiedRemote: Boolean = false,
     val setupInstructions: String = "",
@@ -64,6 +64,18 @@ data class McpPreset(
     /** General web search tools folded into the profile's shared web_search when enabled. */
     val webSearchToolNames: List<String> = emptyList()
 ) {
+    /** Imported older presets can lack links; never expose credential-bearing endpoint queries. */
+    val websiteLink: String
+        get() {
+            val declared = runCatching { URI(websiteUrl.trim()) }.getOrNull()
+            if (declared?.scheme == "https" && !declared.host.isNullOrBlank() && declared.rawUserInfo == null) return declared.toString()
+            val endpoint = runCatching { URI(commandOrUrl.trim()) }.getOrNull()
+            if (endpoint?.scheme == "https" && !endpoint.host.isNullOrBlank()) {
+                return URI("https", null, endpoint.host, endpoint.port, "/", null, null).toString()
+            }
+            return "https://github.com/tailscale-signin/GPT_Mobile_AI-improved"
+        }
+
     fun hasRequiredEndpointParameters(endpoint: String): Boolean {
         val parameter = requiredEndpointQueryParameter ?: return true
         return runCatching {

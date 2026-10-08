@@ -109,11 +109,12 @@ internal fun AssistantChronologicalContent(
                         if (expanded && showReasoning && !parsed.thinking.isNullOrBlank()) {
                             Text(parsed.thinking.orEmpty(), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }
-                        if (parsed.response.isNotBlank()) {
+                        val response = remember(parsed.response) { answerWithoutSourceLists(parsed.response) }
+                        if (response.isNotBlank()) {
                             if (isError) {
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
-                                ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }

@@ -603,7 +603,7 @@ private fun MarketplacePackageCard(
                         TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
                     }
                     preset.integratedTool != null -> Button(onClick = onAddClick) { Text("Configure") }
-                    !isInstalled -> Button(onClick = onAddClick) { Text(if (preset.documentationOnly) "View guide" else "Set up") }
+                    !isInstalled && !preset.documentationOnly -> Button(onClick = onAddClick) { Text("Set up") }
                 }
                 enabled?.let { value ->
                     Button(onClick = { onEnabledChange(!value) }, enabled = !removing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
@@ -612,6 +612,22 @@ private fun MarketplacePackageCard(
                 TextButton(onClick = { expanded = !expanded }) {
                     Text(if (expanded) "Less" else "Details")
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (preset.websiteLink.isNotBlank()) {
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteLink))) }
+                    }) {
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (preset.isPreinstalled) "Project website" else "Provider website")
+                    }
+                }
+                if (download != null) {
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubMarketplaceCatalog.SOURCE_DIRECTORY))) }
+                    }) { Text("GitHub source") }
                 }
             }
             if (nativeSettings != null && (needsSetup || expanded)) nativeSettings()
@@ -626,22 +642,6 @@ private fun MarketplacePackageCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (preset.websiteUrl.isNotBlank()) {
-                        TextButton(onClick = {
-                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
-                        }) {
-                            Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Provider docs")
-                        }
-                    }
-                    if (download != null) {
-                        TextButton(onClick = {
-                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubMarketplaceCatalog.SOURCE_DIRECTORY))) }
-                        }) { Text("GitHub source") }
-                    }
                 }
             }
         }

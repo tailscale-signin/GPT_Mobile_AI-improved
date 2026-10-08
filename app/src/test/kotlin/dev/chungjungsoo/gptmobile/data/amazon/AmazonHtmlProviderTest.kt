@@ -58,7 +58,9 @@ class AmazonHtmlProviderTest {
             }
         ).use { client ->
             val result = AmazonHtmlProvider(client, budget, clock).search(request, context)
-            assertEquals(2, result.products.size)
+            assertEquals(1, result.products.size)
+            assertTrue(result.products.all { AmazonProducts.hasPrice(it.toJson()) })
+            assertFalse(result.products.any { it.asin == "B000000002" })
             assertEquals(clock.instant(), result.products.first().acquiredAt)
         }
         assertEquals(1, calls)

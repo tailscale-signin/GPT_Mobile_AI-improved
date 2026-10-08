@@ -46,7 +46,7 @@ internal object LegacyBackupConverter {
         suspend fun replaceConversations(rooms: List<ChatRoomV2>, messages: List<dev.chungjungsoo.gptmobile.data.database.entity.MessageV2>, models: List<dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2>) {
             require(rooms.all { it.id > 0 } && messages.all { it.id > 0 }) { "Legacy backup has invalid record IDs." }
             snapshot.chatRoomDao().getChatRooms().takeIf { it.isNotEmpty() }?.let { snapshot.chatRoomDao().deleteChatRooms(*it.toTypedArray()) }
-            rooms.forEach { snapshot.chatRoomDao().addChatRoom(it.copy(draftAttachments = emptyList())) }
+            rooms.forEach { snapshot.chatRoomDao().addChatRoom(it.copy(draftAttachments = "[]")) }
             if (messages.isNotEmpty()) snapshot.messageDao().addMessages(*messages.map { it.copy(attachments = emptyList(), currentRunId = null, revisions = it.revisions.map { revision -> revision.copy(runId = null) }) }.toTypedArray())
             if (models.isNotEmpty()) snapshot.chatPlatformModelDao().upsertAll(*models.toTypedArray())
             sections += CompleteBackupSection.CONVERSATIONS

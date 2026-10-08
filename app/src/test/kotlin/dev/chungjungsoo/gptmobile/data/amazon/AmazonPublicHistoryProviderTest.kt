@@ -15,6 +15,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonPublicHistoryProviderTest {
+    @Test fun emptyHistoryBannerWithSuccessfulHttpStatusStillFallsBack() = runBlocking {
+        val banner = png.copyOf().apply { java.nio.ByteBuffer.wrap(this, 16, 8).putInt(500).putInt(200) }
+        client(
+            MockEngine { request ->
+                respond(if (request.url.host == "graph.keepa.com") banner else png, HttpStatusCode.OK, headersOf("Content-Type", "image/png"))
+            }
+        ).use { http ->
+            assertEquals("camelcamelcamel", AmazonPublicHistoryProvider(http).fetch("amazon.com", "B000000001") { true }.provider)
+        }
+    }
     private val png = Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
     private fun client(engine: MockEngine) = HttpClient(engine) {
         followRedirects = false

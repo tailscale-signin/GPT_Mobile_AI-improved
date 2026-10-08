@@ -100,7 +100,7 @@ class AmazonPublicHistoryProvider internal constructor(private val client: HttpC
                             if (output.size() + count > MAX_BYTES) return@execute null
                             output.write(buffer, 0, count)
                         }
-                        output.toByteArray().takeIf(::validPng)
+                        output.toByteArray().takeIf { validPng(it) && (candidate.provider != "Keepa" || !noHistoryBanner(it)) }
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -121,6 +121,14 @@ class AmazonPublicHistoryProvider internal constructor(private val client: HttpC
 
     companion object {
         private const val MAX_BYTES = 1_048_576
+
+        // Keepa returns this fixed-size empty-history banner with HTTP 200,
+        // rather than the requested 900x320 chart. Continue to the other provider.
+        internal fun noHistoryBanner(bytes: ByteArray): Boolean {
+            if (bytes.size < 24) return false
+            val size = java.nio.ByteBuffer.wrap(bytes, 16, 8)
+            return size.int == 500 && size.int == 200
+        }
         internal fun validPng(bytes: ByteArray): Boolean {
             if (bytes.size < 24 || !bytes.take(8).toByteArray().contentEquals(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10))) return false
             if (!bytes.copyOfRange(12, 16).contentEquals("IHDR".toByteArray())) return false

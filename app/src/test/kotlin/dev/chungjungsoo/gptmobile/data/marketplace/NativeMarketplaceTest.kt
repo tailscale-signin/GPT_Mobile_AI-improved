@@ -241,7 +241,7 @@ class NativeMarketplaceTest {
     }
 
     @Test fun everyNativeAdapterHasSchemaRequestAndCorrectAuth() {
-        val entries = GitHubMarketplaceCatalog.packages.filter { it.runtime == MarketplaceRuntime.NATIVE }
+        val entries = (GitHubMarketplaceCatalog.packages + GitHubMarketplaceCatalog.legacyPackages).filter { it.runtime == MarketplaceRuntime.NATIVE }
         assertEquals(NativeMarketplaceCatalog.operations.keys, entries.map { it.provider }.toSet())
         entries.forEach { entry ->
             NativeMarketplaceCatalog.operations.getValue(entry.provider).forEach { (operation, fields) ->

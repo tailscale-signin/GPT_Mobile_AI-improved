@@ -24,7 +24,7 @@ object ToolServiceCatalog {
         ToolServiceDefinition(ToolPluginId.READ_FILES, "Files", "Read files shared with the app.", "folder"),
         ToolServiceDefinition(ToolPluginId.READ_URL, "Web Pages", "Read web pages using the app's built-in plugin.", "web", true),
         ToolServiceDefinition(ToolPluginId.GITHUB, "GitHub", "Repository tools and workspace access in one service.", "github", true),
-        ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Search Amazon products, prices and ratings. Requires a SerpApi key.", "amazon", true),
+        ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Product search, deals and price tracking. Connect a search key or an Amazon MCP server.", "amazon", true),
         ToolServiceDefinition(ToolPluginId.WEB_SEARCH, "Web Search", "Search the web with the app's built-in engines.", "search", true),
         ToolServiceDefinition(ToolPluginId.DEVICE_LOCATION, "Device Location", "Share the phone's location when you allow it.", "location")
     )
@@ -65,6 +65,7 @@ object ToolServiceCatalog {
         val host = runCatching { URI(connection.endpointUrl.orEmpty()).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
         if (host == "api.githubcopilot.com") return "github"
         val names = "${connection.name} ${connection.alias}".lowercase(Locale.ROOT)
+        if (names.contains("jannafta") || names.contains("jan nafta")) return "amazon"
         val providers = listOf("github", "amazon", "openstreetmap", "brave", "exa", "firecrawl", "perplexity", "google", "slack", "linear", "sentry", "atlassian", "cloudflare", "stripe", "supabase", "tavily", "context7", "deepwiki", "huggingface", "notion", "mem0", "supermemory", "tomtom", "foursquare", "ticketmaster", "geoapify", "yelp", "mapbox", "airtable", "asana", "vercel", "netlify", "neon", "prisma", "semgrep", "jina", "todoist", "microsoft", "excalidraw", "agentset", "dbhub", "chat2db")
         if (listOf("openstreetmap", "nominatim", "overpass").any { Regex("\\b$it\\b").containsMatchIn(names) || host.contains(it) }) return "openstreetmap"
         return providers.firstOrNull { provider ->

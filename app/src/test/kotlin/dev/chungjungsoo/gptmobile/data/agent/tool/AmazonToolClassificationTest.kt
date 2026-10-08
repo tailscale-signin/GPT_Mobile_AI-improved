@@ -7,7 +7,7 @@ import org.junit.Test
 class AmazonToolClassificationTest {
     @Test
     fun `retail requests and ASIN lookups use shopping tools`() {
-        for (task in listOf("Find headphones on Amazon.ca under $100", "Compare Amazon product prices", "Search amazon.co.uk for a desk", "Get details for B000000001")) {
+        for (task in listOf("Find headphones on Amazon.ca under $100", "Compare Amazon product prices", "Search amazon.co.uk for a desk", "Get details for B000000001", "Show my Amazon watchlist", "Track this Amazon item", "Read Amazon price history")) {
             assertTrue(task, isAmazonShoppingTask(task))
         }
     }

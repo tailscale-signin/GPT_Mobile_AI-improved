@@ -50,8 +50,6 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -78,7 +76,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -136,6 +133,28 @@ fun ToolConnectionsScreen(
     val installations by marketplaceViewModel.installations.collectAsStateWithLifecycle()
     val marketplaceState by marketplaceViewModel.uiState.collectAsStateWithLifecycle()
     var pluginSettings by remember { mutableStateOf<IntegratedPluginUi?>(null) }
+    var amazonMcpSetup by remember { mutableStateOf(false) }
+    if (amazonMcpSetup) {
+        dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpPresetConfigureDialog(
+            preset = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog.findById("jannafta-amazon")),
+            onDismissRequest = { amazonMcpSetup = false },
+            onConfirm = { name, alias, endpoint, auth, credential, cleartext ->
+                viewModel.saveConnection(
+                    existing = null,
+                    provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
+                    name = name,
+                    alias = alias,
+                    endpointUrl = endpoint,
+                    authType = auth,
+                    credential = credential,
+                    oauthClientId = "",
+                    allowCleartext = cleartext,
+                    clearCredential = false,
+                    onSuccess = { amazonMcpSetup = false }
+                )
+            }
+        )
+    }
     var delegationSettingsOpen by remember { mutableStateOf(false) }
     var pairingLink by remember { mutableStateOf<String?>(null) }
     val pairingContext = LocalContext.current
@@ -298,6 +317,12 @@ fun ToolConnectionsScreen(
                             }
                             if (service.id == ToolPluginId.AMAZON_SEARCH && service.connections.isEmpty()) {
                                 TextButton(onClick = onAddConnectionClick) { Text("Connect Amazon Search · SerpApi") }
+                            }
+                            if (service.id == ToolPluginId.AMAZON_SEARCH) {
+                                OutlinedButton(onClick = { amazonMcpSetup = true }) {
+                                    Icon(Icons.Rounded.Hub, null, Modifier.size(18.dp))
+                                    Text("Connect Jan Nafta MCP", Modifier.padding(start = 8.dp))
+                                }
                             }
                         }
                         service.packages.forEach { entry ->
@@ -529,55 +554,13 @@ private fun CollapsibleToolConnectionCard(
 }
 
 @Composable
-private fun IntegratedToolsCard() {
-    val tools = listOf(
-        "Date & time",
-        "Calculator",
-        "Read files",
-        "Read URL",
-        "GitHub",
-        "Device location"
-    )
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            tools.chunked(2).forEach { pair ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    pair.forEach { name ->
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            Row(
-                                Modifier.padding(9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(7.dp)
-                            ) {
-                                Box(
-                                    Modifier.size(8.dp).background(Color(0xFF2E7D32), CircleShape)
-                                )
-                                Text(name, style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                    }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ConnectionHealthLine(health: ToolConnectionHealth?) {
     val status = health?.status
     val dotColor = when (status) {
-        ToolConnectionHealthStatus.ONLINE -> Color(0xFF2E7D32)
-        ToolConnectionHealthStatus.LIMITED -> Color(0xFFF9A825)
-        ToolConnectionHealthStatus.OFFLINE -> Color(0xFFC62828)
-        ToolConnectionHealthStatus.CHECKING -> Color(0xFF1976D2)
+        ToolConnectionHealthStatus.ONLINE -> MaterialTheme.colorScheme.primary
+        ToolConnectionHealthStatus.LIMITED -> MaterialTheme.colorScheme.secondary
+        ToolConnectionHealthStatus.OFFLINE -> MaterialTheme.colorScheme.error
+        ToolConnectionHealthStatus.CHECKING -> MaterialTheme.colorScheme.tertiary
         null -> MaterialTheme.colorScheme.outline
     }
     val label = when (status) {

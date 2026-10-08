@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -73,7 +74,7 @@ internal data class ToolServiceItem(
     val hasMcp get() = connections.any { it.type == ToolConnectionType.MCP }
 
     fun requiredFields(installations: Map<String, NativePluginInstallation>): List<String> = buildList {
-        if (id == ToolPluginId.AMAZON_SEARCH && connections.none { it.type == ToolConnectionType.AMAZON_SERPAPI || it.type == ToolConnectionType.MCP }) add("SerpApi API key required")
+        if (id == ToolPluginId.AMAZON_SEARCH && connections.none { it.type == ToolConnectionType.AMAZON_SERPAPI || it.type == ToolConnectionType.MCP }) add("Connect SerpApi with an API key or a remote Amazon MCP provider")
         packages.forEach { entry ->
             val installation = installations[entry.id]
             if (entry.provider == "openstreetmap") {
@@ -153,7 +154,7 @@ internal fun ToolkitControls(
             modifier = Modifier.fillMaxWidth()
         )
         if (showFilters) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ToolkitFilter.entries.forEach { option ->
                     FilterChip(selected = option == filter, onClick = { onFilterChange(option) }, label = { Text(option.label) })
                 }

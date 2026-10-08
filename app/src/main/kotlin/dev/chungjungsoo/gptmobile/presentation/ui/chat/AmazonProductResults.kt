@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -26,9 +24,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -66,7 +66,7 @@ internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifie
     if (products.isEmpty()) return
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Rounded.Storefront, null, tint = MaterialTheme.colorScheme.primary)
+            Icon(painterResource(R.drawable.mcp_brand_amazon), null, tint = MaterialTheme.colorScheme.primary)
             Text("Amazon products", style = MaterialTheme.typography.titleSmall)
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -82,7 +82,9 @@ private fun AmazonProductCard(product: JsonObject) {
     var openFailed by remember(product) { mutableStateOf(false) }
     val domain = AmazonProducts.text(product, "marketplace").orEmpty()
     val id = AmazonProducts.text(product, "asin").orEmpty()
-    val url = AmazonProducts.productUrl(domain, id) ?: return
+    val canonical = AmazonProducts.productUrl(domain, id) ?: return
+    val affiliate = AmazonProducts.text(product, "affiliateUrl")?.let { AmazonProducts.affiliateUrl(it, domain, id) }
+    val url = affiliate ?: canonical
     val timestamp = AmazonProducts.text(product, "observedAt", "retrievedAt")?.let { raw ->
         runCatching { DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault()).format(Instant.parse(raw)) }.getOrNull()
     }
@@ -107,6 +109,7 @@ private fun AmazonProductCard(product: JsonObject) {
             }
             if ((product["prime"] as? JsonPrimitive)?.booleanOrNull == true) Text("Prime", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
             timestamp?.let { Text("${if ("observedAt" in product) "Observed" else "Retrieved"} $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (affiliate != null) Text("Affiliate link · supports the server's configured Associate", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(modifier = Modifier.fillMaxWidth(), onClick = {
                 openFailed = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isFailure
             }) { Text("Open on Amazon") }

@@ -100,6 +100,21 @@ typealias McpServerPreset = McpPreset
 object McpPresetCatalog {
     val presets = LocalMcpPresets.presets + listOf(
         McpPreset(
+            id = "jannafta-amazon",
+            name = "Amazon Search · Jan Nafta MCP",
+            description = "Product search, details, deals, price history, marketplace comparisons and price watches through your own Amazon MCP host.",
+            category = McpCategory.SEARCH,
+            commandOrUrl = "",
+            alias = "amazon_jannafta",
+            iconName = "amazon",
+            author = "Jan Nafta · community",
+            suggestedAuthType = "BEARER",
+            requiredFields = listOf("Bridge bearer token", "Your remote Streamable HTTP endpoint"),
+            toolCapabilities = listOf("Product search and details", "Price history and deals", "Compare marketplaces", "Create, list and remove price watches", "Optional affiliate links"),
+            websiteUrl = "https://github.com/JanNafta/amazon-mcp",
+            setupInstructions = "Run JanNafta/amazon-mcp on your computer or server with the HTTP bridge in mcp/amazon. Enter its reachable /mcp URL and bridge bearer token. No SerpApi key is required. Enable Amazon Search globally, then choose these tools for each AI profile. History and watches are stored on your host and checked on demand; they do not create background alerts. Affiliate tags are optional host settings."
+        ),
+        McpPreset(
             id = "serpapi-amazon",
             name = "Amazon Search · SerpApi MCP",
             description = "Amazon marketplace product search and ASIN details through SerpApi's hosted MCP server.",

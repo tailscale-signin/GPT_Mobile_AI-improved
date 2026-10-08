@@ -176,7 +176,7 @@ class ToolConnectionsViewModel @Inject constructor(
                 settingRepository.updateFeatureSettings(latest.withFeature(AppFeature.REMOTE_MCP, enabled))
                 _uiState.update { it.copy(remoteMcpEnabled = enabled) }
                 if (enabled) {
-                    probeConnections(force = true)
+                    probeConnections()
                 } else {
                     _uiState.update { it.copy(connectionHealth = emptyMap()) }
                 }

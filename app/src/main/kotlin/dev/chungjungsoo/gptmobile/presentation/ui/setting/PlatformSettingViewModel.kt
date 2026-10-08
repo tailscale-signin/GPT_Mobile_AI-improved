@@ -117,7 +117,7 @@ class PlatformSettingViewModel @Inject constructor(
                     }
                 }
                 val searchConnections = _toolBindingState.value.connections.filter {
-                    it.type in WEB_SEARCH_TYPES && dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(it).id == serviceId
+                    it.type in WEB_SEARCH_TYPES && (dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(it).id == serviceId || dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(it.connectionUid) == serviceId)
                 }
                 if (enabled && searchConnections.isNotEmpty()) {
                     val selected = _toolBindingState.value.selectedSearchConnectionUids + searchConnections.map { it.connectionUid }

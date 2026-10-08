@@ -160,7 +160,7 @@ object GitHubMarketplaceCatalog {
         companion(
             "tomtom",
             "TomTom Places",
-            "Search places through the REST API using a private MCP companion.",
+            "Search places through the REST API using the in-app plugin.",
             listOf("places: first ten search matches"),
             "https://docs.tomtom.com/search-api/documentation/search-service/fuzzy-search",
             "TOMTOM_API_KEY",
@@ -228,7 +228,7 @@ object GitHubMarketplaceCatalog {
             McpPreset(
                 id = "optional-mapbox", name = "Mapbox Geospatial MCP", description = "Download a setup package for Mapbox's hosted geospatial tools.",
                 category = McpCategory.SEARCH, commandOrUrl = "https://mcp.mapbox.com/mcp", alias = "places_mapbox",
-                author = "Mapbox · GPT Mobile setup", iconName = "location", suggestedAuthType = "OAUTH",
+                author = "Mapbox · GPT Mobile setup", iconName = "mapbox", suggestedAuthType = "OAUTH",
                 pricing = McpPricingType.FREE_WITH_SIGNUP, websiteUrl = "https://github.com/mapbox/mcp-server",
                 requiredFields = listOf("Mapbox account and supported OAuth registration"),
                 toolCapabilities = listOf("Discover available geospatial tools after sign-in"),

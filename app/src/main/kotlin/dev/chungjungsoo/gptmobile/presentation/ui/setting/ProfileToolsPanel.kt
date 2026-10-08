@@ -61,6 +61,7 @@ internal fun ProfileToolsPanel(
         return when {
             service.id == ToolPluginId.DEVICE_LOCATION -> allowed && bindings.deviceLocationEnabled
             !service.hasPlugin && service.hasMcp -> allowed && bindings.selectedMcpTools.any { selected -> service.connections.any { it.connectionUid == selected.connectionUid } }
+            !service.integrated && service.packages.isEmpty() && service.connections.any { it.isWebSearch } -> allowed && service.connections.any { it.connectionUid in bindings.selectedSearchConnectionUids }
             else -> allowed
         }
     }
@@ -126,7 +127,13 @@ internal fun ProfileToolsPanel(
                         dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).forEach { definition ->
                             val operation = definition.name.substringAfterLast("__")
                             val toolId = ToolPluginId.nativeOperation(entry.id, operation)
-                            ProfileToolSwitch(operation.replace('_', ' '), entry.preset.name, features.isToolPluginSelected(platform.uid, toolId), toolsAllowed && active) {
+                            val operationAllowed = operation !in installations[entry.id]?.disabledOperations.orEmpty()
+                            ProfileToolSwitch(
+                                operation.replace('_', ' '),
+                                if (operationAllowed) entry.preset.name else "${entry.preset.name} · Disabled in Plugins & Tools",
+                                features.isToolPluginSelected(platform.uid, toolId),
+                                toolsAllowed && active && selected(service) && operationAllowed && features.isToolPluginEnabled(entry.id) && (localAllowed || onlineAllowed)
+                            ) {
                                 onServiceChange(toolId, it, emptySet())
                             }
                         }
@@ -135,8 +142,18 @@ internal fun ProfileToolsPanel(
                         ProfileToolSwitch(
                             connection.name,
                             if (connection.type == ToolConnectionType.MCP) "Remote MCP · ${connection.alias}" else "In-app provider · ${connection.alias}",
-                            features.isToolPluginSelected(platform.uid, ToolPluginId.connection(connection.connectionUid)),
-                            toolsAllowed && active && features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid))
+                            features.isToolPluginSelected(platform.uid, ToolPluginId.connection(connection.connectionUid)) &&
+                                when {
+                                    connection.isWebSearch -> connection.connectionUid in bindings.selectedSearchConnectionUids
+                                    connection.type == ToolConnectionType.MCP -> bindings.selectedMcpTools.any { it.connectionUid == connection.connectionUid }
+                                    else -> true
+                                },
+                            toolsAllowed &&
+                                active &&
+                                selected(service) &&
+                                (localAllowed || onlineAllowed) &&
+                                features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid)) &&
+                                (connection.type != ToolConnectionType.MCP || features.remoteMcpConnections)
                         ) {
                             onServiceChange(ToolPluginId.connection(connection.connectionUid), it, setOf(connection.connectionUid).takeIf { connection.type == ToolConnectionType.MCP }.orEmpty())
                         }

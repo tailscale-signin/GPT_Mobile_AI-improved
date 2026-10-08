@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
@@ -740,6 +741,47 @@ class AgentToolResolverTest {
     }
 
     @Test
+    fun `Jan Nafta tools require Amazon activation and independent profile consent`() = runBlocking {
+        val toolNames = listOf("search_products", "get_product", "get_price_history", "get_deals", "get_buy_link", "compare_marketplaces", "add_price_watch", "list_price_watches", "remove_price_watch")
+        val toolsResponse = "{\"tools\":[${toolNames.joinToString(",") { "{\"name\":\"$it\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}" }}]}"
+        McpClientManagerTest.McpFixtureServer(toolsResponse = toolsResponse).use { server ->
+            val dao = ResolverFakeToolConnectionDao()
+            val settings = ResolverFakeSettingRepository()
+            val connection = connection("amazon", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true)
+                .copy(name = "Amazon Search · Jan Nafta MCP", alias = "amazon_jannafta")
+            toolNames.forEach { name ->
+                dao.bind(connection, binding("one", "amazon", name))
+                dao.bind(connection, binding("two", "amazon", name))
+            }
+            val resolver = resolver(dao = dao, settings = settings)
+            assertFalse(resolver.resolve("one").any { it.connectionUid == "amazon" })
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, true)
+            assertFalse(resolver.resolve("one").any { it.connectionUid == "amazon" })
+            assertTrue(server.methods.isEmpty())
+
+            settings.features = settings.features.withProfileToolPluginEnabled("one", ToolPluginId.AMAZON_SEARCH, true)
+            val available = resolver.resolve("one").filter { it.connectionUid == "amazon" }
+            assertEquals(toolNames.toSet(), available.map { it.realToolName }.toSet())
+            assertTrue(available.all { it.tool.definition.description.contains(AmazonJanNaftaTool.MARKER) })
+            assertFalse(resolver.resolve("two").any { it.connectionUid == "amazon" })
+            val held = available.single { it.realToolName == "list_price_watches" }.tool
+
+            settings.features = settings.features.withProfileToolPluginEnabled("one", ToolPluginId.AMAZON_SEARCH, false)
+                .withProfileToolPluginEnabled("two", ToolPluginId.AMAZON_SEARCH, true)
+                .copy(pluginExecution = mapOf(ToolPluginId.AMAZON_SEARCH to PluginExecutionSettings(maxOutputCharacters = 1000)))
+            assertTrue(held.execute("profile-disabled", buildJsonObject { put("text", "watches") }).isError)
+            val other = resolver.resolve("two").single { it.realToolName == "list_price_watches" }.tool
+            assertEquals("watches", (other.execute("other-profile", buildJsonObject { put("text", "watches") }).content as ToolResultContent.Text).text)
+            val limited = (other.execute("bounded-history", buildJsonObject { put("text", "w".repeat(1500)) }).content as ToolResultContent.Text).text
+            assertTrue(limited.startsWith("w".repeat(1000)))
+            assertTrue(limited.length < 1500 && limited.contains("Output limited by this plugin's settings"))
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, false)
+            assertTrue(other.execute("globally-disabled", buildJsonObject { put("text", "watches") }).isError)
+            assertFalse(resolver.resolve("two").any { it.connectionUid == "amazon" })
+        }
+    }
+
+    @Test
     fun `profile disables built in and bundled native tools independently`() = runBlocking {
         val registry = mockk<NativeMarketplaceRegistry>()
         val client = mockk<NativeMarketplaceClient>()
@@ -785,6 +827,29 @@ class AgentToolResolverTest {
             settings.features = settings.features.withToolPluginEnabled("service:brave", false)
             assertFalse(resolver.resolve("two").any { it.connectionUid == "mcp-1" })
             assertTrue(other.tool.execute("global-off", buildJsonObject { put("text", "hello") }).isError)
+        }
+    }
+
+    @Test
+    fun `provider switches remain independent from similarly named built in plugins`() = runBlocking {
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+            .withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
+            .withToolPluginEnabled(ToolPluginId.READ_URL, false)
+        val settings = ResolverFakeSettingRepository(features = features)
+        val dao = ResolverFakeToolConnectionDao()
+        dao.bind(connection("search", ToolConnectionType.EXA), binding("profile", "search", "web_search"))
+        val resolver = resolver(dao = dao, settings = settings)
+        assertTrue(resolver.resolve("profile").any { it.connectionUid == "search" })
+        settings.features = features.withProfileToolPluginEnabled("profile", "service:exa", false)
+        assertFalse(resolver.resolve("profile").any { it.connectionUid == "search" })
+
+        McpClientManagerTest.McpFixtureServer(toolsResponse = """{"tools":[{"name":"read_url","description":"Read on the server","inputSchema":{"type":"object","properties":{}}}]}""").use { server ->
+            dao.bind(connection("reader", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true), binding("profile", "reader", "read_url"))
+            val tools = resolver.resolve("profile")
+            assertFalse(tools.any { it.modelToolName == "read_url" })
+            assertTrue(tools.any { it.modelToolName == "mcp__reader__read_url" })
+            settings.features = settings.features.withProfileToolPluginEnabled("profile", ToolPluginId.connection("reader"), false)
+            assertFalse(resolver.resolve("profile").any { it.connectionUid == "reader" })
         }
     }
 

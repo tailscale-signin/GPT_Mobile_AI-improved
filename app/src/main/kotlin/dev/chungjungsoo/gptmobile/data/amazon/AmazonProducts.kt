@@ -47,6 +47,21 @@ object AmazonProducts {
         asin(id)?.let { "https://www.$market/dp/$it" }
     }
 
+    /** Keep explicit host-configured affiliate tags on the matching product page only. */
+    fun affiliateUrl(value: String, domain: String, id: String): String? = runCatching {
+        val uri = URI(value)
+        val canonical = productUrl(domain, id) ?: return null
+        if (marketplaceFromUrl(value) != marketplace(domain) || !uri.path.trimEnd('/').equals("/dp/${asin(id)}", true) || uri.fragment != null) return null
+        val query = uri.rawQuery.orEmpty().split('&').map { part ->
+            val pair = part.split('=', limit = 2)
+            java.net.URLDecoder.decode(pair.first(), "UTF-8") to java.net.URLDecoder.decode(pair.getOrElse(1) { "" }, "UTF-8")
+        }
+        if (query.any { it.first !in setOf("tag", "linkCode") } || query.count { it.first == "tag" } != 1 || query.count { it.first == "linkCode" } > 1) return null
+        val tag = query.single { it.first == "tag" }.second
+        if (!Regex("[A-Za-z0-9_-]{1,64}").matches(tag) || query.any { it.first == "linkCode" && it.second != "ll1" }) return null
+        "$canonical?tag=$tag&linkCode=ll1"
+    }.getOrNull()
+
     fun imageUrl(value: String?): String? = value?.takeIf { link ->
         runCatching {
             val uri = URI(link)

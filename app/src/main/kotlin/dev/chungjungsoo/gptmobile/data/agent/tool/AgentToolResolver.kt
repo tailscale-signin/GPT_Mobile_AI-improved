@@ -330,7 +330,7 @@ class AgentToolResolver @Inject constructor(
                 }
                 val fallback = when {
                     resolved.isWebSearchEngine() -> ToolPluginId.WEB_SEARCH
-                    resolved.realToolName in setOf(AmazonSearchTool.SEARCH, AmazonSearchTool.GET_PRODUCTS) -> ToolPluginId.AMAZON_SEARCH
+                    resolved.isAmazonProductTool() -> ToolPluginId.AMAZON_SEARCH
                     resolved.realToolName == "github" -> ToolPluginId.GITHUB
                     else -> id
                 }
@@ -349,13 +349,14 @@ class AgentToolResolver @Inject constructor(
             return false
         }
         if (connection != null && !settings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(connection).id)) return false
+        if (connection?.type == ToolConnectionType.MCP) return true
         return when (connection?.type) {
             ToolConnectionType.AMAZON_SERPAPI -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
             ToolConnectionType.GITHUB -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)
             ToolConnectionType.FIRECRAWL,
             ToolConnectionType.PERPLEXITY,
             ToolConnectionType.EXA,
-            ToolConnectionType.BRAVE -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)
+            ToolConnectionType.BRAVE -> true
             else -> when (binding.binding.toolName) {
                 BuiltInAgentTool.CURRENT_DATE -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CURRENT_DATE)
                 BuiltInAgentTool.CALCULATE_EXPRESSION -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CALCULATOR)
@@ -499,6 +500,7 @@ class AgentToolResolver @Inject constructor(
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = discoverMcpTools(connection)
+        val janNafta = AmazonJanNaftaTool.recognizes(connection, remoteTools.map { it.name }.toSet())
         return remoteTools
             .filter { it.name in selectedNames }
             .map { remoteTool ->
@@ -521,7 +523,11 @@ class AgentToolResolver @Inject constructor(
                     clientManager = mcpClientManager
                 )
                 ResolvedAgentTool(
-                    tool = AmazonMcpResultTool.wrap(tool, connection.endpointUrl.orEmpty(), remoteTool.name, features.pluginExecution[ToolPluginId.connection(connection.connectionUid)] ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings()),
+                    tool = if (janNafta) {
+                        AmazonJanNaftaTool(tool, remoteTool.name, features.pluginExecution[ToolPluginId.connection(connection.connectionUid)] ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings())
+                    } else {
+                        AmazonMcpResultTool.wrap(tool, connection.endpointUrl.orEmpty(), remoteTool.name, features.pluginExecution[ToolPluginId.connection(connection.connectionUid)] ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings())
+                    },
                     connectionUid = connection.connectionUid,
                     connectionName = connection.name,
                     realToolName = remoteTool.name,

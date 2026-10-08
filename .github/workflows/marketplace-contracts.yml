@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/marketplace-contracts.yml'
       - 'mcp/marketplace/**'
+      - 'mcp/amazon/**'
       - 'scripts/tests/test_marketplace_companion.py'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
@@ -31,6 +32,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mcp/amazon/package-lock.json
+
+      - name: Test Amazon HTTP and stdio bridge contracts
+        working-directory: mcp/amazon
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
 
       - name: Test companion transport and package integrity
         run: |

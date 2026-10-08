@@ -27,6 +27,7 @@ data class PluginExecutionSettings(
         searchResults = searchResults.coerceIn(1, 10),
         decimalPlaces = decimalPlaces.coerceIn(0, 15),
         githubCacheSeconds = githubCacheSeconds.coerceIn(0, 120),
-        amazonDailyRequests = amazonDailyRequests.coerceIn(1, 100)
+        amazonDailyRequests = amazonDailyRequests.coerceIn(1, 100),
+        amazonMarketplace = dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts.marketplace(amazonMarketplace) ?: "amazon.ca"
     )
 }

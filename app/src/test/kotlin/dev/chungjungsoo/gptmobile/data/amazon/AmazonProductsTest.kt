@@ -14,6 +14,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonProductsTest {
+    @Test fun providerImageObjectsAndArraysKeepOnlyApprovedCdnImages() {
+        val images = Json.parseToJsonElement("""{"asin":"B000000001","title":"Headphones","images":[{"link":"https://evil.example/image.jpg"},{"link":"https://m.media-amazon.com/images/I/photo.jpg"}]}""")
+        assertEquals("https://m.media-amazon.com/images/I/photo.jpg", AmazonProducts.text(AmazonProducts.normalize(images, "amazon.ca", "SerpApi").single(), "imageUrl"))
+    }
+
+    @Test fun explicitForeignMarketIsRejectedEvenWhenProviderOmitsTheProductUrl() {
+        val foreign = Json.parseToJsonElement("""{"asin":"B000000001","title":"Headphones","marketplace":"amazon.com","price":"USD 50"}""")
+        assertTrue(AmazonProducts.normalize(foreign, "amazon.ca", "SerpApi").isEmpty())
+    }
+
     @Test
     fun detailsAddProductInformationWithoutReplacingTheSelectedOffer() {
         val listing = Json.parseToJsonElement("""{"asin":"B000000001","marketplace":"amazon.ca","title":"Headphones","price":"CAD 50","currency":"CAD","seller":"Selected seller","variant":"Blue","affiliateUrl":"https://www.amazon.ca/dp/B000000001?tag=store-20"}""") as kotlinx.serialization.json.JsonObject

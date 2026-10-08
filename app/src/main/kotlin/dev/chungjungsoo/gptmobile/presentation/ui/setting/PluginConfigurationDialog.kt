@@ -61,6 +61,7 @@ internal fun PluginConfigurationDialog(
                     SettingsPanel("Amazon products") {
                         Column {
                             TextButton(onClick = { marketplaceMenu = true }) { Text("Marketplace · ${config.amazonMarketplace}") }
+                            Text("Only this marketplace is used, including when an AI requests another country.", style = MaterialTheme.typography.bodySmall)
                             DropdownMenu(expanded = marketplaceMenu, onDismissRequest = { marketplaceMenu = false }) {
                                 val markets = if (nativeAmazon) dev.chungjungsoo.gptmobile.data.amazon.AmazonFreeMarket.entries.associate { it.domain to it.label } else AmazonProducts.marketplaces
                                 markets.forEach { (domain, country) ->

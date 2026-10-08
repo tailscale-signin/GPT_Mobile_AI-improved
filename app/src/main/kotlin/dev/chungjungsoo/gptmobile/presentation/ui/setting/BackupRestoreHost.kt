@@ -106,18 +106,19 @@ fun BackupRestoreHost(settingViewModel: SettingViewModelV2, onRestored: () -> Un
             },
             onRecentRestore = settingViewModel::restoreRecentBackup,
             onSectionChange = settingViewModel::updateBackupSection,
+            onGroupChange = settingViewModel::updateBackupGroup,
             onPasswordProtectionChange = settingViewModel::updateBackupPasswordProtection,
             onPasswordChange = settingViewModel::updateBackupPassword
         )
     }
 
-    if (backupUi.restoreUri != null) {
+    if (backupUi.restoreUri != null && !backupUi.isWorking) {
         AlertDialog(
             title = { Text(stringResource(R.string.complete_restore_title)) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(stringResource(R.string.complete_restore_confirmation))
-                    BackupSelectionContent(backupUi, settingViewModel::updateBackupSection)
+                    BackupSelectionContent(backupUi, onGroupChange = settingViewModel::updateBackupGroup, onSectionChange = settingViewModel::updateBackupSection)
                     if (backupUi.requiresRecoveryKey) {
                         Text("Select the separate recovery key saved with this backup. No password is required.")
                         Button(onClick = {

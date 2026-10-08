@@ -93,33 +93,27 @@ internal fun ChatResponseSources(answer: String, events: List<ToolEvent>, conten
     }
 }
 
-/** Small visible circles retain full 48dp touch targets and show only this response's provenance. */
+/** Compact transparent provenance action beside the response's other actions. */
 @Composable
 internal fun ChatSourcePicker(sources: ChatSources, contentIdentity: Any, modifier: Modifier = Modifier) {
     if (sources.isEmpty) return
     var origin by remember(contentIdentity) { mutableStateOf<Offset?>(null) }
+    var center by remember { mutableStateOf(Offset.Zero) }
     val label = pluralStringResource(R.plurals.chat_source_count, sources.sources.size, sources.sources.size)
     Row(
-        modifier = modifier.fillMaxWidth().testTag("response-sources"),
+        modifier = modifier
+            .testTag("response-sources")
+            .onGloballyPositioned { center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
+            .height(48.dp)
+            .widthIn(min = 48.dp)
+            .clickable(role = Role.Button) { origin = center }
+            .padding(horizontal = 6.dp)
+            .semantics { contentDescription = label },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        var center by remember { mutableStateOf(Offset.Zero) }
-        Surface(
-            modifier = Modifier
-                .onGloballyPositioned { center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
-                .size(52.dp)
-                .clickable(role = Role.Button) { origin = center }
-                .semantics { contentDescription = label },
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Icon(Icons.Rounded.Public, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                Text(sources.sources.size.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            }
-        }
+        Text(sources.sources.size.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Icon(Icons.Rounded.Public, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
     }
     origin?.let { anchor -> SourceListDialog(sources, anchor) { origin = null } }
 }

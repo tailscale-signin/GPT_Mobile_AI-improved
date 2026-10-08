@@ -1096,6 +1096,7 @@ private fun ChatMessagePair(
                     timeline = assistantTimeline,
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
+                    conversationId = selectedAssistantMessage?.chatId,
                     generationTiming = responseGenerationTiming(
                         agentRun,
                         if (isCombinedConversation) combinedProfiles.mapNotNull { it.message?.effectiveRunId()?.let(agentRunsById::get) } else emptyList()

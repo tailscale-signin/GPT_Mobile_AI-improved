@@ -13,7 +13,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -48,7 +47,7 @@ class CompleteBackupDialogTest {
                 )
             }
         }
-        compose.onNodeWithText("Agent & tool history").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Settings & tools").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -103,7 +102,7 @@ class CompleteBackupDialogTest {
 
     @Test
     @Config(qualifiers = "w640dp-h320dp-land")
-    fun landscapeBusyStateDisablesBackupRestoreAndContents() {
+    fun landscapeRestoreHidesActionButtonsWhileWorking() {
         compose.setContent {
             MaterialTheme {
                 CompleteBackupDialog(
@@ -115,7 +114,7 @@ class CompleteBackupDialogTest {
                 )
             }
         }
-        compose.onNodeWithTag("backup_all").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
-        compose.onNodeWithTag("restore_all").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithTag("backup_all").assertDoesNotExist()
+        compose.onNodeWithTag("restore_all").assertDoesNotExist()
     }
 }

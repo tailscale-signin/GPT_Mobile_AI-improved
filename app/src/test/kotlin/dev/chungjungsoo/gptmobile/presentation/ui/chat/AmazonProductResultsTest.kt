@@ -25,10 +25,18 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonProductResultsTest {
+    @Test fun restoredUnpricedProductsCannotBecomeBubbles() {
+        for (price in listOf("Price unavailable", "", "Unavailable (2 offers)")) {
+            assertTrue(amazonProductResults(listOf(event(1, "Blue", price))).isEmpty())
+            assertTrue(collectChatSources("", listOf(event(1, "Blue", price))).sources.isEmpty())
+        }
+    }
+
     @Test
     fun `product searches and detail lookups also populate the source picker`() {
         for (name in listOf("amazon_search", "amazon_get_products")) {
@@ -89,7 +97,7 @@ class AmazonProductResultsTest {
         val card = amazonProductResults(listOf(saved)).single()
         assertEquals("$49.99", amazonProductPrice(card))
         assertEquals("false", AmazonProducts.text(card, "priceFilterVerified"))
-        assertTrue(amazonResultNotice(listOf(saved)).orEmpty().contains("unverified"))
+        assertNull(amazonResultNotice(listOf(saved)))
         assertEquals("https://www.amazon.ca/dp/B000000001", collectChatSources("", listOf(saved)).sources.single().url)
     }
 
@@ -111,6 +119,10 @@ class AmazonProductResultsTest {
             put("currency", "CAD")
         }
         assertEquals("49.99 CAD", amazonProductPrice(product))
+        for (label in listOf("Price unavailable", "Unavailable (2 offers)", "N/A")) {
+            val conflicting = JsonObject(product + ("price" to kotlinx.serialization.json.JsonPrimitive(label)))
+            assertEquals("49.99 CAD", amazonProductPrice(conflicting))
+        }
         assertEquals("Price unavailable", amazonProductPrice(JsonObject(emptyMap())))
     }
 

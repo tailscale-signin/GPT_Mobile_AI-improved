@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.amazon
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +18,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Star
@@ -34,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -43,9 +49,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,18 +72,34 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
 @Composable
-fun AmazonProductDetailDialog(product: JsonObject, owner: String?, onDismiss: () -> Unit) {
-    val domain = AmazonProducts.text(product, "marketplace").orEmpty()
-    val asin = AmazonProducts.text(product, "asin").orEmpty()
-    val model: AmazonProductDetailViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-product-$owner-$domain-$asin")
+fun AmazonProductDetailDialog(
+    products: List<JsonObject>,
+    selectedIndex: Int,
+    owner: String?,
+    conversationId: Int?,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val product = products.getOrNull(selectedIndex) ?: return
+    val model: AmazonProductDetailViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-product-gallery-$owner-$conversationId")
     val state by model.state.collectAsStateWithLifecycle()
-    LaunchedEffect(product, owner) { model.open(owner, product) }
+    LaunchedEffect(product, owner, conversationId) { model.open(owner, product, conversationId) }
     DisposableEffect(model) { onDispose { model.close() } }
-    AmazonProductDetailContent(product, state, onDismiss)
+    val displayedState = state.takeIf {
+        listOf("marketplace", "asin", "variant", "seller", "condition").all { field -> AmazonProducts.text(it.product, field) == AmazonProducts.text(product, field) }
+    } ?: AmazonProductDetailState(product, loading = true, historyLoading = true, imageLoading = true)
+    AmazonProductDetailContent(product, displayedState, selectedIndex, products.size, onSelect, onDismiss)
 }
 
 @Composable
-internal fun AmazonProductDetailContent(product: JsonObject, state: AmazonProductDetailState, onDismiss: () -> Unit) {
+internal fun AmazonProductDetailContent(
+    product: JsonObject,
+    state: AmazonProductDetailState,
+    selectedIndex: Int = 0,
+    productCount: Int = 1,
+    onSelect: (Int) -> Unit = {},
+    onDismiss: () -> Unit
+) {
     val displayed = state.product.takeUnless { it.isEmpty() } ?: product
     val domain = AmazonProducts.text(displayed, "marketplace").orEmpty()
     val asin = AmazonProducts.text(displayed, "asin").orEmpty()
@@ -81,7 +107,12 @@ internal fun AmazonProductDetailContent(product: JsonObject, state: AmazonProduc
     val uri = LocalUriHandler.current
     var openFailed by remember(domain, asin) { mutableStateOf(false) }
     val photo by amazonBitmap(state.image, 1024)
-    val graph by amazonBitmap(state.publicHistory?.png, 1000)
+    val scheme = MaterialTheme.colorScheme
+    val palette = remember(scheme) { AmazonGraphPalette(scheme.surfaceContainerHigh.toArgb(), scheme.onSurface.toArgb(), scheme.primary.toArgb(), scheme.secondary.toArgb(), scheme.tertiary.toArgb(), scheme.error.toArgb()) }
+    val graph by amazonBitmap(state.publicHistory?.png, 1000, palette)
+    val listState = rememberLazyListState()
+    LaunchedEffect(selectedIndex) { listState.scrollToItem(0) }
+    val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
     val description = remember(displayed) { amazonProductDescription(displayed) }
     val highlights = remember(displayed) { amazonProductHighlights(displayed) }
     val facts = remember(displayed) { amazonProductFacts(displayed) }
@@ -91,7 +122,24 @@ internal fun AmazonProductDetailContent(product: JsonObject, state: AmazonProduc
 
     FadingDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = dialogHeight),
+            modifier = Modifier.testTag("amazon-product-gallery").padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = dialogHeight)
+                .pointerInput(selectedIndex, productCount, swipeThreshold) {
+                    if (productCount > 1) {
+                        var distance = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { distance = 0f },
+                            onDragCancel = { distance = 0f },
+                            onDragEnd = {
+                                val next = amazonProductSwipeTarget(selectedIndex, productCount, distance, swipeThreshold)
+                                if (next != selectedIndex) onSelect(next)
+                            },
+                            onHorizontalDrag = { change, amount ->
+                                change.consume()
+                                distance += amount
+                            }
+                        )
+                    }
+                },
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
@@ -101,9 +149,17 @@ internal fun AmazonProductDetailContent(product: JsonObject, state: AmazonProduc
                     Text("Product details", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                     IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close product details") }
                 }
+                if (productCount > 1) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        IconButton(onClick = { onSelect(selectedIndex - 1) }, enabled = selectedIndex > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Previous Amazon product") }
+                        Text("${selectedIndex + 1} / $productCount", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        IconButton(onClick = { onSelect(selectedIndex + 1) }, enabled = selectedIndex < productCount - 1) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Next Amazon product") }
+                    }
+                }
                 if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 LazyColumn(
                     Modifier.weight(1f, fill = false).fillMaxWidth(),
+                    state = listState,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
@@ -137,7 +193,6 @@ internal fun AmazonProductDetailContent(product: JsonObject, state: AmazonProduc
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if ((displayed["prime"] as? JsonPrimitive)?.booleanOrNull == true) ProductBadge("Prime")
                                 if ((displayed["sponsored"] as? JsonPrimitive)?.booleanOrNull == true) ProductBadge("Sponsored")
-                                if ((displayed["priceFilterVerified"] as? JsonPrimitive)?.booleanOrNull == false) ProductBadge("Price unconfirmed")
                             }
                         }
                     }
@@ -219,19 +274,27 @@ private fun ProductBadge(label: String) {
 }
 
 @Composable
-private fun amazonBitmap(bytes: ByteArray?, maxDimension: Int) = produceState(AmazonBitmapState(loading = bytes != null), bytes, maxDimension) {
-    value = AmazonBitmapState(loading = bytes != null)
-    val bitmap = bytes?.let {
-        withContext(Dispatchers.Default) {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(it, 0, it.size, bounds)
-            if (bounds.outWidth !in 1..16_384 || bounds.outHeight !in 1..16_384) return@withContext null
-            var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxDimension) sample *= 2
-            BitmapFactory.decodeByteArray(it, 0, it.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+private fun amazonBitmap(bytes: ByteArray?, maxDimension: Int, palette: AmazonGraphPalette? = null) = key(bytes, maxDimension, palette) {
+    produceState(AmazonBitmapState(loading = bytes != null), bytes, maxDimension, palette) {
+        val bitmap = bytes?.let {
+            withContext(Dispatchers.Default) {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(it, 0, it.size, bounds)
+                if (bounds.outWidth !in 1..16_384 || bounds.outHeight !in 1..16_384) return@withContext null
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxDimension) sample *= 2
+                val decoded = BitmapFactory.decodeByteArray(it, 0, it.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return@withContext null
+                if (palette == null) return@withContext decoded.asImageBitmap()
+                val pixels = IntArray(decoded.width * decoded.height)
+                decoded.getPixels(pixels, 0, decoded.width, 0, 0, decoded.width, decoded.height)
+                for (index in pixels.indices) pixels[index] = palette.color(pixels[index])
+                val themed = Bitmap.createBitmap(pixels, decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
+                decoded.recycle()
+                themed.asImageBitmap()
+            }
         }
+        value = AmazonBitmapState(image = bitmap)
     }
-    value = AmazonBitmapState(image = bitmap)
 }
 
 private data class AmazonBitmapState(val image: ImageBitmap? = null, val loading: Boolean = false)

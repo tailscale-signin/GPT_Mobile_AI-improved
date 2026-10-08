@@ -35,6 +35,10 @@ class AmazonProductImageProvider internal constructor(private val client: HttpCl
     private val requests = Semaphore(2)
     private val cache = linkedMapOf<String, Pair<Long, ByteArray>>()
 
+    suspend fun evict(urls: Collection<String>) {
+        mutex.withLock { urls.forEach(cache::remove) }
+    }
+
     suspend fun fetch(rawUrl: String, allowed: suspend () -> Boolean): ByteArray? {
         val url = AmazonProducts.imageUrl(rawUrl) ?: return null
         check(allowed()) { "Amazon image permission is disabled." }
@@ -51,6 +55,7 @@ class AmazonProductImageProvider internal constructor(private val client: HttpCl
             check(allowed()) { "Amazon image permission was revoked." }
             if (image != null) {
                 mutex.withLock {
+                    check(allowed()) { "Amazon image permission was revoked." }
                     cache[url] = clock.millis() to image
                     while (cache.size > 16 || cache.values.sumOf { it.second.size } > 12 * 1_048_576) cache.remove(cache.keys.first())
                 }

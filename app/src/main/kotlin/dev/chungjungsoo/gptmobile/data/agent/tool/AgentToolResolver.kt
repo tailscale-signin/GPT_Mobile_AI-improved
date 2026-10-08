@@ -191,7 +191,7 @@ class AgentToolResolver @Inject constructor(
 
         if (!disableRemote) {
             if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
-                resolved += resolveAmazonFree(profileUid, userMessage?.chatId)
+                resolved += resolveAmazonFree(profileUid, userMessage?.chatId, (featureSettings.pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized().amazonMarketplace)
             }
             if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
                 val nativeInstallations = try {
@@ -438,7 +438,7 @@ class AgentToolResolver @Inject constructor(
         else -> null
     }
 
-    private fun resolveAmazonFree(profileUid: String, chatId: Int?): List<ResolvedAgentTool> {
+    private fun resolveAmazonFree(profileUid: String, chatId: Int?, marketplace: String): List<ResolvedAgentTool> {
         val provider = requireNotNull(amazonFreeProvider)
         val permissions = combine(settingRepository.observeFeatureSettings(), settingRepository.observePlatformV2ByUid(profileUid)) { features, profile ->
             profile?.enabled == true &&
@@ -459,6 +459,7 @@ class AgentToolResolver @Inject constructor(
                         settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
                 },
                 permissionChanges = permissions,
+                configuredMarketplace = marketplace,
                 onFetched = if (amazonHistory != null && chatId != null) {
                     { requestId, market, fetched ->
                         amazonHistory.record(profileUid, requestId, fetched, {

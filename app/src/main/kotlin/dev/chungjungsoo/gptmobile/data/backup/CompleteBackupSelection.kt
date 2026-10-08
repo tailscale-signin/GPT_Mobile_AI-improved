@@ -17,6 +17,25 @@ enum class CompleteBackupSection {
     AMAZON_DATA
 }
 
+/** Presentation groups retain the original archive sections and saved partial selections. */
+enum class CompleteBackupGroup(val title: String, val description: String, val sections: Set<CompleteBackupSection>) {
+    AI_PLATFORMS(
+        "AI platforms",
+        "Profiles, credentials, APIs and local models.",
+        setOf(CompleteBackupSection.PLATFORMS, CompleteBackupSection.CREDENTIALS, CompleteBackupSection.LOCAL_MODELS)
+    ),
+    CONVERSATIONS(
+        "Conversations",
+        "Chats, favorites, memory, attachments, tool history, statistics and Amazon data.",
+        setOf(CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.MEMORY, CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.STATISTICS, CompleteBackupSection.AMAZON_DATA)
+    ),
+    SETTINGS_AND_TOOLS(
+        "Settings & tools",
+        "Themes, preferences, plugins and MCP connections.",
+        setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.TOOLS)
+    )
+}
+
 @Serializable
 data class CompleteBackupSelection(
     val sections: Set<CompleteBackupSection> = DEFAULT_SECTIONS
@@ -53,6 +72,12 @@ data class CompleteBackupSelection(
                 }
         }
         return copy(sections = updated).normalized()
+    }
+
+    fun toggled(group: CompleteBackupGroup, enabled: Boolean): CompleteBackupSelection = if (enabled) {
+        copy(sections = sections + group.sections).normalized()
+    } else {
+        group.sections.fold(this) { selection, section -> selection.toggled(section, false) }
     }
 
     companion object {

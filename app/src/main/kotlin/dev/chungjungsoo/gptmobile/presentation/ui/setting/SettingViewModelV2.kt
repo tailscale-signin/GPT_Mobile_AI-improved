@@ -354,6 +354,14 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    fun updateBackupGroup(group: dev.chungjungsoo.gptmobile.data.backup.CompleteBackupGroup?, enabled: Boolean) {
+        if (_backupUi.value.isBusy || _backupUi.value.isWorking) return
+        val next = group?.let { _backupUi.value.selection.toggled(it, enabled) }
+            ?: if (enabled) CompleteBackupSelection.ALL else CompleteBackupSelection(emptySet())
+        completeBackupManager.saveSelection(next)
+        _backupUi.update { it.copy(selection = next, message = null, isError = false) }
+    }
+
     fun selectAllBackupSections() {
         if (!_backupUi.value.isWorking) {
             completeBackupManager.saveSelection(CompleteBackupSelection.ALL)

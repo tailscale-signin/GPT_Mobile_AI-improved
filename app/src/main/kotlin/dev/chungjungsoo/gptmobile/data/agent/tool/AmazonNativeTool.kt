@@ -36,14 +36,15 @@ class AmazonNativeTool(
     private val settings: suspend () -> PluginExecutionSettings,
     private val isAllowed: suspend () -> Boolean,
     private val permissionChanges: Flow<Boolean>? = null,
-    private val onFetched: (suspend (String, AmazonFreeMarket, AmazonFetchResult) -> Unit)? = null
+    private val onFetched: (suspend (String, AmazonFreeMarket, AmazonFetchResult) -> Unit)? = null,
+    configuredMarketplace: String? = null
 ) : AgentTool {
     override val definition = AgentToolDefinition(
         name = if (productDetails) GET_PRODUCTS else SEARCH,
         description = if (productDetails) {
-            "Read Amazon Canada/US product details for 1–5 ASINs using public pages. Free native preview; no API key. Missing price or offer identity is unknown. Local observations may be saved outside temporary chats. Incomplete offer context cannot trigger an alert."
+            "Read Amazon Canada, US, UK or France product details for 1–5 ASINs using public pages. Uses the marketplace selected in plugin settings; tool arguments cannot change it. No API key. Missing price or offer identity is unknown. Local observations may be saved outside temporary chats. Incomplete offer context cannot trigger an alert."
         } else {
-            "Search Amazon Canada/US products using one public results page. Free native preview; no API key. Sort and price filters apply only to this page. Prices need a confirmed currency; unknown prices cannot pass numeric filters. Amazon may block public pages."
+            "Search Amazon Canada, US, UK or France products using one public results page. Uses the marketplace selected in plugin settings; tool arguments cannot change it. No API key. Sort and price filters apply only to this page. Prices need a confirmed currency; unknown prices cannot pass numeric filters. Amazon may block public pages."
         },
         inputSchema = buildJsonObject {
             put("type", "object")
@@ -55,7 +56,7 @@ class AmazonNativeTool(
                         "marketplace",
                         buildJsonObject {
                             put("type", "string")
-                            put("enum", JsonArray(AmazonFreeMarket.entries.map { JsonPrimitive(it.domain) }))
+                            put("enum", JsonArray((configuredMarketplace?.let { listOf(it) } ?: AmazonFreeMarket.entries.map { it.domain }).map(::JsonPrimitive)))
                         }
                     )
                     if (productDetails) {
@@ -125,7 +126,8 @@ class AmazonNativeTool(
             val default = AmazonFreeMarket.fromDomain(config.amazonMarketplace) ?: AmazonFreeMarket.CANADA
             val suppliedMarket = string(arguments, "marketplace")
             if ("marketplace" in arguments && suppliedMarket == null) invalid()
-            market = suppliedMarket?.let { AmazonFreeMarket.fromDomain(it) ?: throw AmazonReadException(AmazonReadError.UNSUPPORTED_MARKETPLACE, "The native preview supports amazon.ca and amazon.com only.") } ?: default
+            if (suppliedMarket != null && AmazonFreeMarket.fromDomain(suppliedMarket) == null) throw AmazonReadException(AmazonReadError.UNSUPPORTED_MARKETPLACE, "Choose Amazon Canada, US, UK or France in plugin settings.")
+            market = default
             val properties = definition.inputSchema["properties"] as JsonObject
             if (arguments.keys.any { it !in properties }) invalid()
             val request = if (productDetails) null else searchRequest(arguments, market, config)
@@ -145,7 +147,11 @@ class AmazonNativeTool(
             val context = AmazonReadContext(config.timeoutSeconds, config.amazonDailyRequests, isAllowed)
             val result = supervisorScope {
                 val operation = async {
-                    val fetched = if (productDetails) provider.products(AmazonProductRequest(asins, market), context) else provider.search(requireNotNull(request), context)
+                    val raw = if (productDetails) provider.products(AmazonProductRequest(asins, market), context) else provider.search(requireNotNull(request), context)
+                    val fetched = raw.copy(
+                        products = raw.products.filter { it.marketplace == market && (productDetails || AmazonProducts.hasPrice(it.toJson())) },
+                        unverifiedProducts = raw.unverifiedProducts.filter { it.marketplace == market && (productDetails || AmazonProducts.hasPrice(it.toJson())) }
+                    )
                     if (!isAllowed()) throw PermissionRevoked()
                     try {
                         onFetched?.invoke(requestId, market, fetched)

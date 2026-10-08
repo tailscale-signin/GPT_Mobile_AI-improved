@@ -23,6 +23,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupGroup
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
@@ -58,7 +61,8 @@ fun CompleteBackupDialog(
     onPasswordProtectionChange: (Boolean) -> Unit = {},
     onPasswordChange: (String) -> Unit = {},
     onDismiss: () -> Unit,
-    restoreOnly: Boolean = false
+    restoreOnly: Boolean = false,
+    onGroupChange: ((CompleteBackupGroup?, Boolean) -> Unit)? = null
 ) {
     var pendingAction by rememberSaveable { mutableStateOf<BackupAction?>(null) }
 
@@ -90,7 +94,7 @@ fun CompleteBackupDialog(
                     )
                 }
                 if (restoreOnly) Text("Choose your backup to restore your conversations, profiles and settings.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (state.recentBackups.isNotEmpty()) {
+                if (!state.isBusy && state.recentBackups.isNotEmpty()) {
                     Surface(
                         shape = MaterialTheme.shapes.large,
                         color = MaterialTheme.colorScheme.surfaceContainerLow
@@ -127,28 +131,30 @@ fun CompleteBackupDialog(
                     }
                 }
 
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.surfaceContainerLow
-                ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (!restoreOnly) {
-                            Button(
-                                onClick = { pendingAction = BackupAction.BACKUP },
-                                enabled = state.canBackup,
-                                modifier = Modifier.fillMaxWidth().testTag("backup_all")
-                            ) {
-                                Icon(Icons.Rounded.Backup, null)
-                                Text("Backup", Modifier.padding(start = 8.dp))
+                if (!state.isBusy && !state.isWorking) {
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (!restoreOnly) {
+                                Button(
+                                    onClick = { pendingAction = BackupAction.BACKUP },
+                                    enabled = state.canBackup,
+                                    modifier = Modifier.fillMaxWidth().testTag("backup_all")
+                                ) {
+                                    Icon(Icons.Rounded.Backup, null)
+                                    Text("Backup", Modifier.padding(start = 8.dp))
+                                }
                             }
-                        }
-                        OutlinedButton(
-                            onClick = onRestore,
-                            enabled = !state.isBusy,
-                            modifier = Modifier.fillMaxWidth().testTag("restore_all")
-                        ) {
-                            Icon(Icons.Rounded.Restore, null)
-                            Text("Restore", Modifier.padding(start = 8.dp))
+                            OutlinedButton(
+                                onClick = onRestore,
+                                enabled = !state.isBusy,
+                                modifier = Modifier.fillMaxWidth().testTag("restore_all")
+                            ) {
+                                Icon(Icons.Rounded.Restore, null)
+                                Text("Restore", Modifier.padding(start = 8.dp))
+                            }
                         }
                     }
                 }
@@ -202,6 +208,7 @@ fun CompleteBackupDialog(
             action = action,
             state = state,
             onSectionChange = onSectionChange,
+            onGroupChange = onGroupChange,
             onCancel = { pendingAction = null },
             onContinue = {
                 pendingAction = null
@@ -216,6 +223,7 @@ private fun BackupSelectionDialog(
     action: BackupAction,
     state: SettingViewModelV2.BackupUiState,
     onSectionChange: (CompleteBackupSection, Boolean) -> Unit,
+    onGroupChange: ((CompleteBackupGroup?, Boolean) -> Unit)?,
     onCancel: () -> Unit,
     onContinue: () -> Unit
 ) {
@@ -231,7 +239,7 @@ private fun BackupSelectionDialog(
         title = { Text(if (action == BackupAction.BACKUP) "Backup contents" else "Restore contents") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                BackupSelectionContent(state, onSectionChange)
+                BackupSelectionContent(state, onGroupChange, onSectionChange)
             }
         },
         confirmButton = {
@@ -244,60 +252,47 @@ private fun BackupSelectionDialog(
 }
 
 @Composable
-private fun BackupOptionRow(
-    state: SettingViewModelV2.BackupUiState,
-    section: CompleteBackupSection,
-    title: String,
-    subtitle: String,
-    onSectionChange: (CompleteBackupSection, Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = section in state.selection.sections,
-            enabled = !state.isBusy,
-            onCheckedChange = { onSectionChange(section, it) }
-        )
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
 internal fun BackupSelectionContent(
     state: SettingViewModelV2.BackupUiState,
+    onGroupChange: ((CompleteBackupGroup?, Boolean) -> Unit)? = null,
     onSectionChange: (CompleteBackupSection, Boolean) -> Unit
 ) {
-    val allSelected = state.selection.sections.containsAll(CompleteBackupSection.entries)
-    Column(
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
+    fun change(group: CompleteBackupGroup?, checked: Boolean) {
+        if (onGroupChange != null) {
+            onGroupChange(group, checked)
+        } else {
+            (group?.sections ?: CompleteBackupSection.entries.toSet()).forEach { onSectionChange(it, checked) }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
-                checked = allSelected,
-                onCheckedChange = { checked ->
-                    CompleteBackupSection.entries.forEach { onSectionChange(it, checked) }
-                }
+                checked = state.selection.sections.containsAll(CompleteBackupSection.entries),
+                enabled = !state.isBusy,
+                onCheckedChange = { change(null, it) }
             )
             Text("Select all", fontWeight = FontWeight.SemiBold)
         }
-        BackupOptionRow(state, CompleteBackupSection.SETTINGS, "Settings, themes & preferences", "Includes appearance and custom theme configuration.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.CONVERSATIONS, "Conversations & favorites", "Messages, titles, drafts and chat choices.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.PLATFORMS, "AI platforms & profiles", "Remote, local and free model profiles.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.TOOLS, "Tools & MCP connections", "Bindings, providers and tool configuration.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.CREDENTIALS, "Credentials & APIs", "Provider secrets, Brave Search and Hugging Face access token.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.MEMORY, "Memory", "Local memory vault and memory metadata.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.LOCAL_MODELS, "Local models", "Installed model records and model files.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.ATTACHMENTS, "Attachments", "Files and images attached to conversations.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.AGENT_HISTORY, "Agent & tool history", "Agent runs, tool events and diagnostics history.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.STATISTICS, "Debug statistics", "All token, model, profile, tool and performance statistics, with the conversation and profile records they depend on.", onSectionChange)
-        BackupOptionRow(state, CompleteBackupSection.AMAZON_DATA, "Amazon product data", "Saved observations and legacy targets. Request usage and cooldowns stay on this device.", onSectionChange)
+        CompleteBackupGroup.entries.forEach { group ->
+            val selected = group.sections.count { it in state.selection.sections }
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                TriStateCheckbox(
+                    state = when (selected) {
+                        0 -> ToggleableState.Off
+                        group.sections.size -> ToggleableState.On
+                        else -> ToggleableState.Indeterminate
+                    },
+                    enabled = !state.isBusy,
+                    onClick = { change(group, selected != group.sections.size) }
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(group.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(group.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
         Text(
-            "These choices are saved and reused the next time you open Backup & Restore.",
+            "Choices are saved. A dash preserves a partial selection from an earlier backup. Statistics include the profile records they reference.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp)

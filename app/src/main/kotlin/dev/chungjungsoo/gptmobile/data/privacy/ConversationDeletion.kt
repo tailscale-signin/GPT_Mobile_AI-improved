@@ -15,7 +15,7 @@ import kotlinx.serialization.json.Json
 
 /** Deletes dependent records before their run IDs disappear; only removes unreferenced app-owned files. */
 @Singleton
-class ConversationDeletion @Inject constructor(private val database: ChatDatabaseV2, @ApplicationContext private val context: Context, private val vault: dev.chungjungsoo.gptmobile.data.security.SecretVault? = null, private val semantic: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory? = null, private val facts: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null) {
+class ConversationDeletion @Inject constructor(private val database: ChatDatabaseV2, @ApplicationContext private val context: Context, private val vault: dev.chungjungsoo.gptmobile.data.security.SecretVault? = null, private val semantic: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory? = null, private val facts: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null, private val amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache? = null) {
     suspend fun delete(rooms: List<ChatRoomV2>) = withContext(Dispatchers.IO) {
         val files = mutableSetOf<String>()
         rooms.filter { it.isTemporary }.forEach { facts?.forgetChat(it.id, preventFutureCapture = true) }
@@ -38,6 +38,7 @@ class ConversationDeletion @Inject constructor(private val database: ChatDatabas
                 database.chatRoomDao().deleteChatRooms(current)
             }
         }
+        rooms.forEach { amazonMedia?.clearConversation(it.id) }
         val references = vault?.references().orEmpty()
         rooms.forEach { room -> references.filter { it.startsWith("workspace-memory-${room.id}-") }.forEach { vault?.delete(it) } }
         val db = database.openHelper.readableDatabase

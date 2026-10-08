@@ -35,7 +35,7 @@ class AmazonSearchTool(
             "Retrieve Amazon product facts for 1–5 ASINs in one marketplace. Each ASIN costs one provider request. " +
                 "Returns prices, availability, ratings and canonical product links when provided. Prices may change at checkout."
         } else {
-            "Search Amazon retail products in a specific marketplace (default ${settings.amazonMarketplace}). " +
+            "Search Amazon retail products only in the configured marketplace ${settings.amazonMarketplace}. Tool arguments cannot change it. " +
                 "Returns structured ASINs, prices, ratings, variants, availability and product links. " +
                 "Price filters apply to the retrieved page only. Missing prices are unknown; do not invent them."
         },
@@ -48,7 +48,7 @@ class AmazonSearchTool(
                         "marketplace",
                         buildJsonObject {
                             put("type", "string")
-                            put("enum", JsonArray(AmazonProducts.marketplaces.keys.map(::JsonPrimitive)))
+                            put("enum", JsonArray(listOf(JsonPrimitive(settings.amazonMarketplace))))
                         }
                     )
                     put(
@@ -128,9 +128,10 @@ class AmazonSearchTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val allowed = if (productDetails) setOf("asins", "marketplace", "fresh") else setOf("query", "marketplace", "fresh", "page", "sort", "maxResults", "minPrice", "maxPrice")
         if (arguments.keys.any { it !in allowed }) return error(callId, "Unsupported Amazon search argument.")
-        val domain = AmazonProducts.marketplace(string(arguments, "marketplace") ?: settings.amazonMarketplace)
+        val domain = AmazonProducts.marketplace(settings.amazonMarketplace)
             ?: return error(callId, "Choose a supported Amazon marketplace.")
         if ("marketplace" in arguments && string(arguments, "marketplace") == null) return error(callId, "Marketplace must be a string.")
+        if ("marketplace" in arguments && string(arguments, "marketplace")?.let(AmazonProducts::marketplace) == null) return error(callId, "Choose a supported Amazon marketplace.")
         val fresh = (arguments["fresh"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
         if ("fresh" in arguments && fresh == null) return error(callId, "Fresh must be a boolean.")
         val params = linkedMapOf("engine" to if (productDetails) "amazon_product" else "amazon", "amazon_domain" to domain)
@@ -190,6 +191,7 @@ class AmazonSearchTool(
             }
             if (failures.isNotEmpty() && products.isEmpty()) return error(callId, failures.first())
             val filtered = products.filter { item ->
+                if (!productDetails && !AmazonProducts.hasPrice(item)) return@filter false
                 if (minimum == null && maximum == null) {
                     true
                 } else {

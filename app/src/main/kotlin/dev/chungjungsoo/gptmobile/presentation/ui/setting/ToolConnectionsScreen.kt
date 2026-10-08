@@ -325,7 +325,7 @@ fun ToolConnectionsScreen(
                                 }
                             }
                             if (service.id == ToolPluginId.AMAZON_FREE) {
-                                Text("No API key required · Canada/US preview. Tap a product for details and automatically loaded price history. Amazon may block public pages.", style = MaterialTheme.typography.bodySmall)
+                                Text("No API key required · Canada, US, UK and France. Tap a product for details and automatically loaded price history. Amazon may block public pages.", style = MaterialTheme.typography.bodySmall)
                                 OutlinedButton(
                                     onClick = viewModel::testAmazonFreeSearch,
                                     enabled = features.isToolPluginEnabled(ToolPluginId.AMAZON_FREE) && uiState.connectionHealth[ToolPluginId.AMAZON_FREE]?.status != ToolConnectionHealthStatus.CHECKING
@@ -450,7 +450,7 @@ private val INTEGRATED_PLUGINS = listOf(
     IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Rounded.Language),
     IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Rounded.Code),
     IntegratedPluginUi(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Finds Amazon products with prices, ratings and product links. Add a SerpApi API key in Tool Connections.", Icons.Rounded.Storefront),
-    IntegratedPluginUi(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Read public Amazon Canada/US pages. No API key required. Preview access varies.", Icons.Rounded.Storefront),
+    IntegratedPluginUi(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Read public Amazon Canada, US, UK and France pages. No API key required. Preview access varies.", Icons.Rounded.Storefront),
     IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Rounded.Search),
     IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Rounded.LocationOn)
 )

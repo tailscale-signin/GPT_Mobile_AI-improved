@@ -48,14 +48,14 @@ class AmazonProductImageProviderTest {
             Triple(HttpStatusCode.OK, "text/html", "<html>Challenge</html>".toByteArray()),
             Triple(HttpStatusCode.OK, "image/png", "invalid image".toByteArray())
         ).forEach { (status, type, bytes) ->
-            client(MockEngine { respond(bytes, status, headersOf("Content-Type", type, "Location", "https://example.com/redirect")) }).use { http ->
+            client(MockEngine { respond(bytes, status, headersOf("Content-Type" to listOf(type), "Location" to listOf("https://example.com/redirect"))) }).use { http ->
                 assertNull(AmazonProductImageProvider(http).fetch(url) { true })
             }
         }
     }
 
     @Test fun declaredAndStreamedOversizeImagesAreOmitted() = runBlocking {
-        client(MockEngine { respond(png, HttpStatusCode.OK, headersOf("Content-Type", "image/png", "Content-Length", "4000000")) }).use { http ->
+        client(MockEngine { respond(png, HttpStatusCode.OK, headersOf("Content-Type" to listOf("image/png"), "Content-Length" to listOf("4000000"))) }).use { http ->
             assertNull(AmazonProductImageProvider(http).fetch(url) { true })
         }
         client(MockEngine { respond(png.copyOf(3 * 1_048_576 + 1), HttpStatusCode.OK, headersOf("Content-Type", "image/png")) }).use { http ->

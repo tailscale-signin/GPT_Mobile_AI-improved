@@ -9,12 +9,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +24,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -33,7 +33,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Cable
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.Code
@@ -57,8 +56,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -71,15 +70,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -88,7 +86,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -109,7 +106,6 @@ import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
-import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
@@ -134,7 +130,11 @@ fun ToolConnectionsScreen(
             FactVaultScreen(hiltViewModel(), onBack = { memorySettingsOpen = false })
         }
     }
-    var remoteMcpTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var toolkitFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitFilter.ALL) }
+    var toolkitSort by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitSort.NAME) }
+    val marketplaceViewModel: dev.chungjungsoo.gptmobile.presentation.ui.mcp.MarketplaceViewModel = hiltViewModel()
+    val installations by marketplaceViewModel.installations.collectAsStateWithLifecycle()
+    val marketplaceState by marketplaceViewModel.uiState.collectAsStateWithLifecycle()
     var pluginSettings by remember { mutableStateOf<IntegratedPluginUi?>(null) }
     var delegationSettingsOpen by remember { mutableStateOf(false) }
     var pairingLink by remember { mutableStateOf<String?>(null) }
@@ -205,179 +205,136 @@ fun ToolConnectionsScreen(
         }
     }
 
+    val services = toolServiceItems(uiState.connections, installations)
+    fun serviceEnabled(service: ToolServiceItem): Boolean = features.isToolPluginEnabled(service.id) &&
+        (service.integrated || service.packages.any { installations[it.id]?.enabled == true } || service.connections.any { features.isToolPluginEnabled(ToolPluginId.connection(it.connectionUid)) })
+    fun connectionReady(connection: ToolConnection): Boolean = !connection.endpointUrl.isNullOrBlank() &&
+        (connection.authType == ToolConnectionAuthType.NONE || connection.secretRef != null)
+    fun startOAuth(connection: ToolConnection) {
+        val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
+        if (needsPermission &&
+            Build.VERSION.SDK_INT >= 37 &&
+            ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingOAuthConnection = connection
+            localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
+        } else {
+            viewModel.startOAuth(connection.connectionUid)
+        }
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
             ToolConnectionsTopBar(
                 scrollBehavior = scrollBehavior,
-                onNavigationClick = onNavigationClick,
+                onAddClick = onAddConnectionClick,
                 onMarketplaceClick = onMarketplaceClick,
-                onAddClick = onAddConnectionClick
+                onNavigationClick = onNavigationClick
             )
         }
     ) { innerPadding ->
         Column(
-            Modifier
-                .padding(innerPadding)
-                .verticalScroll(scrollState)
+            Modifier.padding(innerPadding).verticalScroll(scrollState).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = if (remoteMcpTab) 1 else 0) {
-                androidx.compose.material3.Tab(
-                    selected = !remoteMcpTab,
-                    onClick = { remoteMcpTab = false },
-                    text = { Text("Plugins") }
-                )
-                androidx.compose.material3.Tab(
-                    selected = remoteMcpTab,
-                    onClick = { remoteMcpTab = true },
-                    text = { Text("Remote MCP") }
-                )
+            SettingsHero("YOUR SERVICES", "Plugins & Tools", "One service. All its tools. Choose what each AI can use.")
+            ToolkitControls(search, { search = it }, toolkitFilter, { toolkitFilter = it }, toolkitSort, { toolkitSort = it })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onMarketplaceClick, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Rounded.Storefront, null, Modifier.size(18.dp))
+                    Text("Marketplace", Modifier.padding(start = 6.dp))
+                }
+                OutlinedButton(onClick = onAddConnectionClick, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                    Text("Connect", Modifier.padding(start = 6.dp))
+                }
             }
-
-            SettingsHero(if (remoteMcpTab) "Connected Services" else "Your Toolkit", if (remoteMcpTab) "Remote MCP" else "Plugins", "${uiState.connections.size} connections · ${INTEGRATED_PLUGINS.size} built-in plugins", Modifier.padding(16.dp))
-            OutlinedTextField(search, { search = it }, label = { Text(if (remoteMcpTab) "Find a connection" else "Find a plugin") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-            val matchingConnections = uiState.connections.filter { search.isBlank() || "$it".contains(search, true) }
-            val nativeConnections = matchingConnections.filter { it.type != ToolConnectionType.MCP }
-            val mcpConnections = matchingConnections.filter { it.type == ToolConnectionType.MCP }
-            val hasMcpConnection = uiState.connections.any { it.type == ToolConnectionType.MCP }
-
-            if (!remoteMcpTab) {
-                dev.chungjungsoo.gptmobile.presentation.ui.mcp.InstalledNativePluginsPanel(search)
-                Text(
-                    text = "Integrated Plugins",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Built-In Tools", style = MaterialTheme.typography.labelSmall)
-                    SettingsHelpIcon("Built-in plugins are available immediately. Disable a plugin to remove its tools from model sessions.")
-                }
-                INTEGRATED_PLUGINS.filter { search.isBlank() || "${it.name} ${it.description}".contains(search, true) }.forEach { plugin ->
-                    val enabled = uiState.pluginStates[plugin.id] ?: true
-                    IntegratedPluginCard(
-                        plugin = plugin,
-                        enabled = enabled,
-                        onEnabledChange = { viewModel.setPluginEnabled(plugin.id, it) },
-                        onSettings = {
-                            when (plugin.id) {
-                                ToolPluginId.MODEL_DELEGATION -> delegationSettingsOpen = true
-                                ToolPluginId.LOCAL_MEMORY -> memorySettingsOpen = true
-                                else -> pluginSettings = plugin
-                            }
+            Text("Plugins run in this app. MCP tools run on a connected remote server. Profile switches are available in AI → Profile → Tools.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (toolkitFilter != ToolkitFilter.PLUGINS) {
+                Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Remote MCP", style = MaterialTheme.typography.titleSmall)
+                            Text("Allow connected server tools", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    )
-                }
-
-                if (nativeConnections.isNotEmpty()) {
-                    Text(
-                        text = "Configured Plugins",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                    )
-                    nativeConnections.forEach { connection ->
-                        val pluginId = ToolPluginId.connection(connection.connectionUid)
-                        CollapsibleToolConnectionCard(
-                            connection = connection,
-                            onEditClick = { onEditConnectionClick(connection.connectionUid) },
-                            onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Rounded.Tune) },
-                            onPermissionsClick = { permissionsConnection = connection },
-                            onBrowseClick = { browsingConnection = connection },
-                            showBrowseAction = connection.type != ToolConnectionType.GITHUB ||
-                                ((uiState.pluginStates[ToolPluginId.GITHUB] ?: true) && (uiState.pluginStates[pluginId] ?: true)),
-                            onOAuthClick = {
-                                val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
-                                if (needsPermission &&
-                                    Build.VERSION.SDK_INT >= 37 &&
-                                    ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    pendingOAuthConnection = connection
-                                    localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
-                                } else {
-                                    viewModel.startOAuth(connection.connectionUid)
-                                }
-                            },
-                            onDeleteClick = { deletingConnection = connection },
-                            health = uiState.connectionHealth[connection.connectionUid],
-                            onRefreshHealth = { if (connection.type == ToolConnectionType.AMAZON_SERPAPI) viewModel.testAmazonConnection(connection) },
-                            enabled = uiState.pluginStates[pluginId] ?: true,
-                            onEnabledChange = { viewModel.setPluginEnabled(pluginId, it) }
-                        )
+                        Switch(checked = features.remoteMcpConnections, onCheckedChange = viewModel::setRemoteMcpEnabled)
                     }
                 }
-            } else {
-                RemoteMcpMasterCard(
-                    enabled = uiState.remoteMcpEnabled,
-                    onEnabledChange = viewModel::setRemoteMcpEnabled
-                )
-
-                if (!hasMcpConnection) {
-                    ListItem(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        headlineContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Browse MCP Marketplace", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                SettingsHelpIcon("Discover remote MCP servers and connect their advertised tools.")
+                TextButton(onClick = { pairingLink = "" }) { Text(stringResource(R.string.pair_server_title)) }
+            }
+            val visible = sortedToolServices(services, search, toolkitFilter, toolkitSort, ::serviceEnabled) { it.requiredFields(installations).isNotEmpty() }
+            if (visible.isEmpty()) Text("No services match your selection.", style = MaterialTheme.typography.bodyMedium)
+            visible.forEach { service ->
+                key(service.id) {
+                    val required = service.requiredFields(installations)
+                    val ready = (service.integrated && service.id != ToolPluginId.AMAZON_SEARCH) ||
+                        service.connections.any(::connectionReady) ||
+                        service.packages.any { installations[it.id]?.ready(it) == true }
+                    ToolServiceCard(
+                        service,
+                        checked = serviceEnabled(service),
+                        onCheckedChange = { enabled ->
+                            viewModel.setPluginsEnabled(setOf(service.id) + service.connections.map { ToolPluginId.connection(it.connectionUid) }, enabled)
+                            service.packages.forEach { entry ->
+                                if (!enabled || installations[entry.id]?.ready(entry) == true) marketplaceViewModel.setEnabled(entry, enabled)
                             }
                         },
-                        leadingContent = {
-                            Icon(
-                                imageVector = Icons.Rounded.Storefront,
-                                contentDescription = "MCP Marketplace",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        trailingContent = {
-                            TextButton(onClick = onMarketplaceClick) { Text("Explore") }
+                        status = listOfNotNull("In-app plugin".takeIf { service.hasPlugin }, "Remote MCP".takeIf { service.hasMcp }).joinToString(" · "),
+                        required = required,
+                        toggleEnabled = ready || serviceEnabled(service)
+                    ) {
+                        if (service.integrated) {
+                            val plugin = INTEGRATED_PLUGINS.first { it.id == service.id }
+                            OutlinedButton(onClick = {
+                                when (service.id) {
+                                    ToolPluginId.MODEL_DELEGATION -> delegationSettingsOpen = true
+                                    ToolPluginId.LOCAL_MEMORY -> memorySettingsOpen = true
+                                    else -> pluginSettings = plugin
+                                }
+                            }) {
+                                Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp))
+                                Text("Configure", Modifier.padding(start = 8.dp))
+                            }
+                            if (service.id == ToolPluginId.AMAZON_SEARCH && service.connections.isEmpty()) {
+                                TextButton(onClick = onAddConnectionClick) { Text("Connect Amazon Search · SerpApi") }
+                            }
                         }
-                    )
-                }
-                TextButton(onClick = { pairingLink = "" }) {
-                    Text(stringResource(R.string.pair_server_title))
-                }
-
-                if (mcpConnections.isEmpty()) {
-                    Text(
-                        text = "No remote MCP servers are connected.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
-                    )
-                }
-                mcpConnections.forEach { connection ->
-                    CollapsibleToolConnectionCard(
-                        connection = connection,
-                        onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Rounded.Tune) },
-                        onEditClick = { onEditConnectionClick(connection.connectionUid) },
-                        onPermissionsClick = { permissionsConnection = connection },
-                        onBrowseClick = { browsingConnection = connection },
-                        onOAuthClick = {
-                            val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
-                            if (needsPermission &&
-                                Build.VERSION.SDK_INT >= 37 &&
-                                ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
-                            ) {
-                                pendingOAuthConnection = connection
-                                localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
-                            } else {
-                                viewModel.startOAuth(connection.connectionUid)
+                        service.packages.forEach { entry ->
+                            installations[entry.id]?.let { installation ->
+                                dev.chungjungsoo.gptmobile.presentation.ui.mcp.NativePluginSettings(entry, installation, marketplaceViewModel, busy = entry.id in marketplaceState.removingIds)
+                                TextButton(onClick = { marketplaceViewModel.requestUninstall(entry) }) { Text("Uninstall", color = MaterialTheme.colorScheme.error) }
                             }
-                        },
-                        onDeleteClick = { deletingConnection = connection },
-                        health = uiState.connectionHealth[connection.connectionUid],
-                        onRefreshHealth = { viewModel.probeConnections(listOf(connection), force = true) }
-                    )
+                        }
+                        service.connections.forEach { connection ->
+                            CollapsibleToolConnectionCard(
+                                connection = connection,
+                                onEditClick = { onEditConnectionClick(connection.connectionUid) },
+                                onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Rounded.Tune) },
+                                onPermissionsClick = { permissionsConnection = connection },
+                                onBrowseClick = { browsingConnection = connection },
+                                onOAuthClick = { startOAuth(connection) },
+                                onDeleteClick = { deletingConnection = connection },
+                                health = uiState.connectionHealth[connection.connectionUid],
+                                onRefreshHealth = {
+                                    if (connection.type == ToolConnectionType.AMAZON_SERPAPI) {
+                                        viewModel.testAmazonConnection(connection)
+                                    } else {
+                                        viewModel.probeConnections(listOf(connection), force = true)
+                                    }
+                                },
+                                enabled = features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid)),
+                                onEnabledChange = { viewModel.setPluginEnabled(ToolPluginId.connection(connection.connectionUid), it) }
+                            )
+                        }
+                    }
                 }
             }
+            marketplaceState.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            Spacer(Modifier.height(24.dp))
         }
     }
+    dev.chungjungsoo.gptmobile.presentation.ui.mcp.NativePluginUninstallDialog(marketplaceViewModel)
 
     if (delegationSettingsOpen) {
         LocalToolConfigurationDialog(
@@ -465,107 +422,6 @@ private val INTEGRATED_PLUGINS = listOf(
 )
 
 @Composable
-private fun IntegratedPluginCard(
-    plugin: IntegratedPluginUi,
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit,
-    onSettings: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                IntegratedPluginIcon(plugin)
-                Row(
-                    Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    SettingsHelpIcon(plugin.description)
-                }
-                Switch(checked = enabled, onCheckedChange = onEnabledChange)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onSettings) { Text("Settings") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun IntegratedPluginIcon(plugin: IntegratedPluginUi) {
-    val colors = MaterialTheme.colorScheme
-    val gradient = when (plugin.id) {
-        ToolPluginId.MODEL_DELEGATION -> listOf(colors.primaryContainer, colors.tertiaryContainer)
-        ToolPluginId.LOCAL_MEMORY -> listOf(colors.secondaryContainer, colors.primaryContainer)
-        ToolPluginId.GITHUB -> listOf(colors.surfaceVariant, colors.primaryContainer)
-        ToolPluginId.WEB_SEARCH -> listOf(colors.tertiaryContainer, colors.secondaryContainer)
-        ToolPluginId.DEVICE_LOCATION -> listOf(colors.primaryContainer, colors.secondaryContainer)
-        else -> listOf(colors.surfaceContainerHighest, colors.primaryContainer)
-    }
-    Box(
-        modifier = Modifier
-            .size(54.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Brush.linearGradient(gradient)),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            shape = RoundedCornerShape(13.dp),
-            color = colors.surface.copy(alpha = 0.72f),
-            contentColor = colors.primary,
-            tonalElevation = 4.dp
-        ) {
-            Icon(
-                plugin.icon,
-                contentDescription = null,
-                modifier = Modifier.padding(9.dp).size(25.dp)
-            )
-        }
-        Surface(
-            shape = CircleShape,
-            color = colors.primary,
-            contentColor = colors.onPrimary,
-            shadowElevation = 3.dp,
-            modifier = Modifier.align(Alignment.BottomEnd).size(18.dp)
-        ) {
-            Icon(
-                Icons.Rounded.AutoAwesome,
-                contentDescription = null,
-                modifier = Modifier.padding(4.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun RemoteMcpMasterCard(
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Remote MCP Servers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                SettingsHelpIcon("Allow profiles to discover and call tools hosted by configured MCP servers.")
-            }
-            Switch(checked = enabled, onCheckedChange = onEnabledChange)
-        }
-    }
-}
-
-@Composable
 private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
     val icon = when (type) {
         ToolConnectionType.MCP -> Icons.Rounded.Hub
@@ -582,15 +438,25 @@ private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = providerLabel(type),
-            modifier = Modifier.padding(6.dp).size(20.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
+        if (type == ToolConnectionType.AMAZON_SERPAPI) {
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.mcp_brand_amazon),
+                contentDescription = "Amazon Search",
+                modifier = Modifier.padding(6.dp).size(20.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = providerLabel(type),
+                modifier = Modifier.padding(6.dp).size(20.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CollapsibleToolConnectionCard(
     connection: ToolConnection,
@@ -607,162 +473,54 @@ private fun CollapsibleToolConnectionCard(
     onEnabledChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val arrowRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        label = "toolConnectionArrow"
-    )
-
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable(connection.connectionUid) { mutableStateOf(false) }
+    val missingCredential = connection.authType != ToolConnectionAuthType.NONE && connection.secretRef == null
+    val missingEndpoint = connection.endpointUrl.isNullOrBlank()
     val credentialStatus = when {
-        connection.authType == ToolConnectionAuthType.NONE -> stringResource(R.string.public_access)
-        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef == null -> stringResource(R.string.oauth_not_connected)
-        connection.authType == ToolConnectionAuthType.OAUTH -> stringResource(R.string.oauth_connected)
-        connection.secretRef == null -> stringResource(R.string.credential_not_set)
-        else -> stringResource(R.string.credential_set)
+        connection.authType == ToolConnectionAuthType.NONE -> "No API key required"
+        missingCredential && connection.authType == ToolConnectionAuthType.OAUTH -> "Sign in required"
+        missingCredential -> "API key required"
+        else -> "Credentials saved"
     }
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clickable { expanded = !expanded },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ToolProviderIcon(type = connection.type)
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = connection.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        overflow = TextOverflow.Ellipsis,
-                        maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${providerLabel(connection.type)} • ${connection.alias}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (connection.type == ToolConnectionType.MCP || (connection.type == ToolConnectionType.AMAZON_SERPAPI && health != null)) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        ConnectionHealthLine(health)
-                    }
+    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).clickable { expanded = !expanded }) {
+                    Text(connection.name, style = MaterialTheme.typography.titleSmall)
+                    Text(if (connection.type == ToolConnectionType.MCP) "Remote MCP · ${connection.alias}" else "In-app provider · ${connection.alias}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-
-                enabled?.let { isEnabled ->
-                    Switch(
-                        checked = isEnabled,
-                        onCheckedChange = onEnabledChange
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                enabled?.let { Switch(checked = it, onCheckedChange = onEnabledChange, enabled = it || (!missingCredential && !missingEndpoint)) }
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Rounded.KeyboardArrowDown, if (expanded) "Collapse connection" else "Expand connection", Modifier.rotate(if (expanded) 180f else 0f))
                 }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = when {
-                        connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.surfaceContainerHighest
-                        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.primaryContainer
-                        connection.secretRef != null -> MaterialTheme.colorScheme.secondaryContainer
-                        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
-                    }
-                ) {
-                    Text(
-                        text = credentialStatus,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
-                            connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.onPrimaryContainer
-                            connection.secretRef != null -> MaterialTheme.colorScheme.onSecondaryContainer
-                            else -> MaterialTheme.colorScheme.onErrorContainer
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Icon(
-                    imageVector = Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    modifier = Modifier.rotate(arrowRotation)
-                )
             }
-
-            AnimatedVisibility(visible = expanded) {
-                Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    if (connection.type == ToolConnectionType.MCP && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Resources And Prompts") }
-                    TextButton(onClick = onRuntimeSettings) { Text("Execution Settings") }
-                    if (connection.type == ToolConnectionType.GITHUB && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Open GitHub Workspace") }
-                    if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB, ToolConnectionType.AMAZON_SERPAPI)) TextButton(onClick = onPermissionsClick) { Text(stringResource(R.string.tool_policy)) }
-                    if (connection.type == ToolConnectionType.AMAZON_SERPAPI) {
-                        Text(health?.message ?: "Test sends a sample search to SerpApi and uses one provider request.", style = MaterialTheme.typography.bodySmall)
-                        TextButton(enabled = health?.status != ToolConnectionHealthStatus.CHECKING, onClick = onRefreshHealth) { Text("Test Amazon Search · 1 request") }
+            Text(if (missingEndpoint) "Endpoint required · $credentialStatus" else credentialStatus, color = if (missingCredential || missingEndpoint) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            if (connection.type == ToolConnectionType.MCP || health != null) ConnectionHealthLine(health)
+            AnimatedVisibility(expanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onEditClick) {
+                            Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp))
+                            Text("Setup", Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton(onClick = onRuntimeSettings) {
+                            Icon(Icons.Rounded.Tune, null, Modifier.size(16.dp))
+                            Text("Execution", Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton(onClick = onPermissionsClick) { Text("Permissions") }
+                        if (connection.type == ToolConnectionType.MCP && showBrowseAction) OutlinedButton(onClick = onBrowseClick) { Text("Resources & prompts") }
+                        if (connection.type == ToolConnectionType.GITHUB && showBrowseAction) OutlinedButton(onClick = onBrowseClick) { Text("Workspace") }
+                        if (connection.authType == ToolConnectionAuthType.OAUTH) OutlinedButton(onClick = onOAuthClick) { Text(if (missingCredential) "Sign in" else "Reconnect") }
                     }
-                    connection.endpointUrl?.let { url ->
-                        if (url.isNotBlank()) {
-                            Text(
-                                text = "Endpoint: $url",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
+                    connection.endpointUrl?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (connection.type == ToolConnectionType.MCP || connection.type == ToolConnectionType.AMAZON_SERPAPI) {
+                        TextButton(onClick = onRefreshHealth, enabled = health?.status != ToolConnectionHealthStatus.CHECKING && !missingCredential && !missingEndpoint) {
+                            Text(if (connection.type == ToolConnectionType.AMAZON_SERPAPI) "Test Amazon Search · 1 request" else "Check connection")
                         }
                     }
-
-                    Text(
-                        text = "Authentication: ${connection.authType}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (connection.type == ToolConnectionType.MCP) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = health?.message ?: "Health has not been checked yet.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (connection.type == ToolConnectionType.MCP) {
-                            TextButton(onClick = onRefreshHealth) {
-                                Text("Test")
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                        if (connection.type == ToolConnectionType.MCP && connection.authType == ToolConnectionAuthType.OAUTH) {
-                            TextButton(onClick = onOAuthClick) {
-                                Text(stringResource(if (connection.secretRef == null) R.string.connect else R.string.reconnect))
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                        IconButton(onClick = onEditClick) {
-                            Icon(imageVector = Icons.Rounded.Edit, contentDescription = "Edit Connection")
-                        }
-                        IconButton(onClick = onDeleteClick) {
-                            Icon(
-                                imageVector = Icons.Rounded.Delete,
-                                contentDescription = "Delete Connection",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
+                    TextButton(onClick = onDeleteClick) {
+                        Icon(Icons.Rounded.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        Text("Remove connection", Modifier.padding(start = 6.dp), color = MaterialTheme.colorScheme.error)
                     }
                 }
             }

@@ -33,10 +33,13 @@ data class NativePluginInstallation(
     val dailyLimit: Int = 50,
     val usageDay: String = "",
     val usageCount: Int = 0,
-    val nextRequestAt: Long = 0
+    val nextRequestAt: Long = 0,
+    val endpoints: Map<String, String> = emptyMap(),
+    val disabledOperations: Set<String> = emptySet()
 ) {
     fun ready(entry: GitHubMarketplacePackage) =
-        (!NativeMarketplaceCatalog.requiresKey(entry) || credentialRef != null) &&
+        (entry.provider != "openstreetmap" || endpoints.filterKeys { it !in disabledOperations }.values.any(NativeMarketplaceCatalog::validEndpoint)) &&
+            (!NativeMarketplaceCatalog.requiresKey(entry) || credentialRef != null) &&
             (!NativeMarketplaceCatalog.requiresEndpoint(entry) || NativeMarketplaceCatalog.validEndpoint(endpoint))
 }
 
@@ -82,8 +85,10 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         }
     }
 
-    suspend fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean = false, endpoints: Map<String, String> = emptyMap(), disabledOperations: Set<String> = emptySet()) = withContext(Dispatchers.IO) {
         requireKnown(entry)
+        require(entry.provider != "openstreetmap" || (endpoints.keys.all { it in setOf("geocode", "restrooms") } && endpoints.values.any(NativeMarketplaceCatalog::validEndpoint))) { "Configure at least one OpenStreetMap capability." }
+        require(endpoints.values.all { it.isBlank() || NativeMarketplaceCatalog.validEndpoint(it) }) { "Enter valid managed/self-hosted HTTPS endpoints." }
         require(!NativeMarketplaceCatalog.requiresEndpoint(entry) || NativeMarketplaceCatalog.validEndpoint(endpoint)) { "Enter a managed/self-hosted HTTPS endpoint." }
         require(key.isBlank() || NativeMarketplaceCatalog.requiresKey(entry)) { "This provider does not use an API key." }
         require(key.isBlank() || NativeMarketplaceCatalog.validKey(key.trim())) { "Enter a valid API key." }
@@ -104,7 +109,9 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
                 endpoint = if (NativeMarketplaceCatalog.requiresEndpoint(entry)) endpoint.trim() else "",
                 credentialRef = ref,
                 maxResults = maxResults.coerceIn(1, 10),
-                dailyLimit = dailyLimit.coerceIn(1, 1000)
+                dailyLimit = dailyLimit.coerceIn(1, 1000),
+                endpoints = if (entry.provider == "openstreetmap") endpoints.mapValues { it.value.trim() }.filterValues { it.isNotEmpty() } else emptyMap(),
+                disabledOperations = if (entry.provider == "openstreetmap") disabledOperations.intersect(setOf("geocode", "restrooms")) else emptySet()
             )
             try {
                 writeLocked(_state.value + (entry.id to updated.copy(enabled = current.enabled && updated.ready(entry))))
@@ -181,11 +188,43 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         } catch (_: FileNotFoundException) {
             emptyMap()
         }
-        _state.value = records.filterKeys { GitHubMarketplaceCatalog.find(it)?.let(NativeMarketplaceCatalog::supports) == true }.mapValues { (_, record) ->
+        val bundled = bundleLegacyOpenStreetMap(records)
+        _state.value = bundled.filterKeys { GitHubMarketplaceCatalog.find(it)?.let(NativeMarketplaceCatalog::supports) == true }.mapValues { (_, record) ->
             val safeRef = record.credentialRef?.takeIf { it.matches(Regex("marketplace_[a-f0-9-]{36}")) }
             record.copy(credentialRef = safeRef, enabled = record.enabled && safeRef == record.credentialRef, maxResults = record.maxResults.coerceIn(1, 10), dailyLimit = record.dailyLimit.coerceIn(1, 1000))
         }
+        if (bundled != records) writeLocked(_state.value)
         loaded = true
+    }
+
+    internal fun bundleLegacyOpenStreetMap(records: Map<String, NativePluginInstallation>): Map<String, NativePluginInstallation> {
+        val geocode = records["optional-nominatim"]
+        val restrooms = records["optional-overpass"]
+        if (geocode == null && restrooms == null) return records
+        val existing = records["optional-openstreetmap"]
+        val capabilities = buildMap {
+            geocode?.endpoint?.takeIf(NativeMarketplaceCatalog::validEndpoint)?.let { put("geocode", it) }
+            restrooms?.endpoint?.takeIf(NativeMarketplaceCatalog::validEndpoint)?.let { put("restrooms", it) }
+            putAll(existing?.endpoints.orEmpty())
+        }
+        val source = existing ?: geocode ?: requireNotNull(restrooms)
+        val previous = listOfNotNull(geocode, restrooms)
+        val usageDay = existing?.usageDay ?: previous.maxOf { it.usageDay }
+        val bundle = source.copy(
+            endpoint = "",
+            endpoints = capabilities,
+            disabledOperations = existing?.disabledOperations ?: buildSet {
+                if (geocode?.enabled != true) add("geocode")
+                if (restrooms?.enabled != true) add("restrooms")
+            },
+            enabled = existing?.enabled ?: (geocode?.enabled == true || restrooms?.enabled == true),
+            maxResults = existing?.maxResults ?: previous.minOf { it.maxResults },
+            dailyLimit = existing?.dailyLimit ?: previous.minOf { it.dailyLimit },
+            usageDay = usageDay,
+            usageCount = existing?.usageCount ?: previous.filter { it.usageDay == usageDay }.sumOf { it.usageCount },
+            nextRequestAt = listOfNotNull(existing, geocode, restrooms).maxOf { it.nextRequestAt }
+        )
+        return records - "optional-nominatim" - "optional-overpass" + ("optional-openstreetmap" to bundle)
     }
 
     private fun writeLocked(records: Map<String, NativePluginInstallation>) {

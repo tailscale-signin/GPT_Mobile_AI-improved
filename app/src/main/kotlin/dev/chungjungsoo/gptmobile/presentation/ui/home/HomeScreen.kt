@@ -1686,10 +1686,12 @@ fun NewChatButton(expanded: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         expanded = expanded,
         icon = {
-            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.ChatBubbleOutline, stringResource(R.string.new_chat), modifier = Modifier.size(28.dp))
-                Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp).padding(bottom = 2.dp))
-            }
+            Icon(
+                ImageVector.vectorResource(R.drawable.ic_new_chat),
+                contentDescription = stringResource(R.string.new_chat),
+                modifier = Modifier.size(28.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         },
         shape = RoundedCornerShape(24.dp),
         containerColor = MaterialTheme.colorScheme.primaryContainer,

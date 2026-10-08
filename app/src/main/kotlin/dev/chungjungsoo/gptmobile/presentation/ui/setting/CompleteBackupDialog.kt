@@ -57,7 +57,8 @@ fun CompleteBackupDialog(
     onSectionChange: (CompleteBackupSection, Boolean) -> Unit = { _, _ -> },
     onPasswordProtectionChange: (Boolean) -> Unit = {},
     onPasswordChange: (String) -> Unit = {},
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    restoreOnly: Boolean = false
 ) {
     var pendingAction by rememberSaveable { mutableStateOf<BackupAction?>(null) }
 
@@ -70,23 +71,25 @@ fun CompleteBackupDialog(
                 Modifier.verticalScroll(rememberScrollState()).padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                Text(if (restoreOnly) "Restore" else stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
+                if (!restoreOnly) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            if (state.passwordProtectionEnabled) "Your password is saved securely in the app and included inside the encrypted backup. Use it to restore after reinstall or on another device." else "Encryption is off. The backup includes readable app data and your saved password. Enable encryption to protect it.",
+                            modifier = Modifier.padding(start = 10.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Text(
-                        if (state.passwordProtectionEnabled) "Your password is saved securely in the app and included inside the encrypted backup. Use it to restore after reinstall or on another device." else "Encryption is off. The backup includes readable app data and your saved password. Enable encryption to protect it.",
-                        modifier = Modifier.padding(start = 10.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        backupStatus.lastBackupEpochMs?.let {
+                            stringResource(R.string.complete_backup_last, DateFormat.getDateTimeInstance().format(Date(it)))
+                        } ?: stringResource(R.string.complete_backup_none),
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Text(
-                    backupStatus.lastBackupEpochMs?.let {
-                        stringResource(R.string.complete_backup_last, DateFormat.getDateTimeInstance().format(Date(it)))
-                    } ?: stringResource(R.string.complete_backup_none),
-                    style = MaterialTheme.typography.bodySmall
-                )
-
+                if (restoreOnly) Text("Choose your backup to restore your conversations, profiles and settings.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (state.recentBackups.isNotEmpty()) {
                     Surface(
                         shape = MaterialTheme.shapes.large,
@@ -129,13 +132,15 @@ fun CompleteBackupDialog(
                     color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = { pendingAction = BackupAction.BACKUP },
-                            enabled = state.canBackup,
-                            modifier = Modifier.fillMaxWidth().testTag("backup_all")
-                        ) {
-                            Icon(Icons.Rounded.Backup, null)
-                            Text("Backup", Modifier.padding(start = 8.dp))
+                        if (!restoreOnly) {
+                            Button(
+                                onClick = { pendingAction = BackupAction.BACKUP },
+                                enabled = state.canBackup,
+                                modifier = Modifier.fillMaxWidth().testTag("backup_all")
+                            ) {
+                                Icon(Icons.Rounded.Backup, null)
+                                Text("Backup", Modifier.padding(start = 8.dp))
+                            }
                         }
                         OutlinedButton(
                             onClick = onRestore,
@@ -148,28 +153,30 @@ fun CompleteBackupDialog(
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Encrypt backup", Modifier.weight(1f).padding(start = 10.dp))
-                    Switch(
-                        checked = state.passwordProtectionEnabled,
-                        onCheckedChange = onPasswordProtectionChange,
-                        enabled = !state.isBusy,
-                        modifier = Modifier.testTag("backup_encrypt")
-                    )
-                }
-                if (state.passwordProtectionEnabled) {
-                    OutlinedTextField(
-                        value = state.backupPassword,
-                        onValueChange = onPasswordChange,
-                        label = { Text("Password") },
-                        supportingText = { Text("Saved automatically. Use at least 8 characters.") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        singleLine = true,
-                        enabled = !state.isBusy,
-                        modifier = Modifier.fillMaxWidth().testTag("backup_password")
-                    )
+                if (!restoreOnly) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                        Text("Encrypt backup", Modifier.weight(1f).padding(start = 10.dp))
+                        Switch(
+                            checked = state.passwordProtectionEnabled,
+                            onCheckedChange = onPasswordProtectionChange,
+                            enabled = !state.isBusy,
+                            modifier = Modifier.testTag("backup_encrypt")
+                        )
+                    }
+                    if (state.passwordProtectionEnabled) {
+                        OutlinedTextField(
+                            value = state.backupPassword,
+                            onValueChange = onPasswordChange,
+                            label = { Text("Password") },
+                            supportingText = { Text("Saved automatically. Use at least 8 characters.") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true,
+                            enabled = !state.isBusy,
+                            modifier = Modifier.fillMaxWidth().testTag("backup_password")
+                        )
+                    }
                 }
 
                 if (state.isWorking) {

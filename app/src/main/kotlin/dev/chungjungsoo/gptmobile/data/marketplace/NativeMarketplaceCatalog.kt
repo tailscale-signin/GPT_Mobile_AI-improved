@@ -15,6 +15,7 @@ object NativeMarketplaceCatalog {
     val operations = linkedMapOf(
         "refuge" to mapOf("restrooms" to listOf("latitude", "longitude")),
         "toronto" to mapOf("datasets" to listOf("query"), "records" to listOf("resource_id")),
+        "openstreetmap" to mapOf("geocode" to listOf("query"), "restrooms" to listOf("latitude", "longitude")),
         "nominatim" to mapOf("geocode" to listOf("query")),
         "overpass" to mapOf("restrooms" to listOf("latitude", "longitude")),
         "ticketmaster" to mapOf("events" to listOf("query", "location")),

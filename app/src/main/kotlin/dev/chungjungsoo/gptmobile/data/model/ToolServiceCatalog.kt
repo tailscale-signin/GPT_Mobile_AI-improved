@@ -1,0 +1,108 @@
+package dev.chungjungsoo.gptmobile.data.model
+
+import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplacePackage
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import java.net.URI
+import java.util.Locale
+
+data class ToolServiceDefinition(
+    val id: String,
+    val name: String,
+    val description: String,
+    val iconName: String,
+    val usesNetwork: Boolean = false
+)
+
+/** Shared identities for the service list, profile controls and runtime tool filtering. */
+object ToolServiceCatalog {
+    val integrated = listOf(
+        ToolServiceDefinition(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Let a configured helper research and process information.", "delegation"),
+        ToolServiceDefinition(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recall and capture private memory on your device.", "memory"),
+        ToolServiceDefinition(ToolPluginId.CURRENT_DATE, "Date & Time", "Current date and time, calculated on your device.", "schedule"),
+        ToolServiceDefinition(ToolPluginId.CALCULATOR, "Calculator", "Evaluate arithmetic expressions on your device.", "calculator"),
+        ToolServiceDefinition(ToolPluginId.READ_FILES, "Files", "Read files shared with the app.", "folder"),
+        ToolServiceDefinition(ToolPluginId.READ_URL, "Web Pages", "Read web pages using the app's built-in plugin.", "web", true),
+        ToolServiceDefinition(ToolPluginId.GITHUB, "GitHub", "Repository tools and workspace access in one service.", "github", true),
+        ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Search Amazon products, prices and ratings. Requires a SerpApi key.", "amazon", true),
+        ToolServiceDefinition(ToolPluginId.WEB_SEARCH, "Web Search", "Search the web with the app's built-in engines.", "search", true),
+        ToolServiceDefinition(ToolPluginId.DEVICE_LOCATION, "Device Location", "Share the phone's location when you allow it.", "location")
+    )
+
+    fun forPackage(entry: GitHubMarketplacePackage): ToolServiceDefinition {
+        val provider = when (entry.provider) {
+            "nominatim", "overpass", "openstreetmap" -> "openstreetmap"
+            "google-places", "google-grounding" -> "google"
+            "foursquare-open" -> "foursquare"
+            "toronto-library", "toronto-osm-pack" -> "toronto"
+            else -> entry.provider
+        }
+        return ToolServiceDefinition("service:$provider", providerName(provider, entry.preset.name), entry.preset.description, provider, true)
+    }
+
+    fun forConnection(connection: ToolConnection): ToolServiceDefinition {
+        val provider = when (connection.type) {
+            ToolConnectionType.GITHUB -> "github"
+            ToolConnectionType.AMAZON_SERPAPI -> "amazon"
+            ToolConnectionType.BRAVE -> "brave"
+            ToolConnectionType.EXA -> "exa"
+            ToolConnectionType.FIRECRAWL -> "firecrawl"
+            ToolConnectionType.PERPLEXITY -> "perplexity"
+            else -> remoteProvider(connection)
+        }
+        if (provider == "github") return integrated.first { it.id == ToolPluginId.GITHUB }
+        if (provider == "amazon") return integrated.first { it.id == ToolPluginId.AMAZON_SEARCH }
+        return ToolServiceDefinition(
+            id = provider?.let { "service:$it" } ?: ToolPluginId.connection(connection.connectionUid),
+            name = provider?.let { providerName(it, connection.name) } ?: connection.name,
+            description = if (connection.type == ToolConnectionType.MCP) "Tools run on your connected MCP server." else "A plugin running in the app, with provider access.",
+            iconName = provider ?: "mcp",
+            usesNetwork = true
+        )
+    }
+
+    private fun remoteProvider(connection: ToolConnection): String? {
+        val host = runCatching { URI(connection.endpointUrl.orEmpty()).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
+        if (host == "api.githubcopilot.com") return "github"
+        val names = "${connection.name} ${connection.alias}".lowercase(Locale.ROOT)
+        val providers = listOf("github", "amazon", "openstreetmap", "brave", "exa", "firecrawl", "perplexity", "google", "slack", "linear", "sentry", "atlassian", "cloudflare", "stripe", "supabase", "tavily", "context7", "deepwiki", "huggingface", "notion", "mem0", "supermemory", "tomtom", "foursquare", "ticketmaster", "geoapify", "yelp", "mapbox", "airtable", "asana", "vercel", "netlify", "neon", "prisma", "semgrep", "jina", "todoist", "microsoft", "excalidraw", "agentset", "dbhub", "chat2db")
+        if (listOf("openstreetmap", "nominatim", "overpass").any { Regex("\\b$it\\b").containsMatchIn(names) || host.contains(it) }) return "openstreetmap"
+        return providers.firstOrNull { provider ->
+            host == "$provider.com" ||
+                host.endsWith(".$provider.com") ||
+                host == "$provider.ai" ||
+                host.endsWith(".$provider.ai") ||
+                host.split('.').dropLast(1).lastOrNull() == provider ||
+                Regex("\\b$provider\\b").containsMatchIn(names)
+        }
+    }
+
+    private fun providerName(provider: String, fallback: String): String = when (provider) {
+        "openstreetmap" -> "OpenStreetMap"
+        "google" -> "Google"
+        "toronto" -> "Toronto Open Data"
+        "foursquare" -> "Foursquare"
+        "github" -> "GitHub"
+        "amazon" -> "Amazon Search"
+        "refuge" -> "REFUGE Restrooms"
+        "openrouteservice" -> "OpenRouteService"
+        "arcgis" -> "ArcGIS"
+        "brave" -> "Brave Search"
+        "firecrawl" -> "Firecrawl"
+        "perplexity" -> "Perplexity"
+        "exa" -> "Exa"
+        "mapbox" -> "Mapbox"
+        "tomtom" -> "TomTom"
+        "geoapify" -> "Geoapify"
+        "eventbrite" -> "Eventbrite"
+        "ticketmaster" -> "Ticketmaster"
+        "huggingface" -> "Hugging Face"
+        "context7" -> "Context7"
+        "deepwiki" -> "DeepWiki"
+        "mem0" -> "Mem0"
+        "jina" -> "Jina AI"
+        "dbhub" -> "DBHub"
+        "chat2db" -> "Chat2DB"
+        else -> fallback.substringBefore(" · ").substringBefore(" MCP")
+    }
+}

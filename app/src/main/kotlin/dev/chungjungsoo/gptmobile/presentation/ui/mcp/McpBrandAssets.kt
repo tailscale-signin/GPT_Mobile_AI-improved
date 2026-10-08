@@ -7,6 +7,17 @@ import dev.chungjungsoo.gptmobile.R
 object McpBrandAssets {
     @DrawableRes
     fun drawableFor(iconName: String): Int? = when (iconName) {
+        "yelp" -> R.drawable.mcp_brand_yelp
+        "foursquare" -> R.drawable.mcp_brand_foursquare
+        "eventbrite" -> R.drawable.mcp_brand_eventbrite
+        "mapbox" -> R.drawable.mcp_brand_mapbox
+        "arcgis" -> R.drawable.mcp_brand_arcgis
+        "ticketmaster" -> R.drawable.mcp_brand_ticketmaster
+        "google-places" -> R.drawable.chat_source_google
+        "google" -> R.drawable.chat_source_google
+        "perplexity" -> R.drawable.chat_source_perplexity
+        "amazon" -> R.drawable.mcp_brand_amazon
+        "openstreetmap" -> R.drawable.mcp_brand_openstreetmap
         "linear" -> R.drawable.mcp_brand_linear
         "sentry" -> R.drawable.mcp_brand_sentry
         "vercel" -> R.drawable.mcp_brand_vercel

@@ -42,10 +42,7 @@ import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.rounded.AllInbox
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Numbers
 import androidx.compose.material.icons.rounded.Speed
@@ -140,17 +137,20 @@ fun PlatformSettingScreen(
     val openRouterCreditsState by settingViewModel.openRouterCreditsState.collectAsStateWithLifecycle()
     val ollamaServerState by settingViewModel.ollamaServerState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var pendingServiceEnable by remember { mutableStateOf<Pair<String, Set<String>>?>(null) }
     var openMcpToolsAfterPermission by remember { mutableStateOf(false) }
     var showBatchUrlDialog by remember { mutableStateOf(false) }
     val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted && openMcpToolsAfterPermission) {
-            settingViewModel.openMcpToolsDialog()
+        if (granted) {
+            pendingServiceEnable?.let { (id, connections) -> settingViewModel.setProfileServiceEnabled(id, true, connections) }
+            if (openMcpToolsAfterPermission) onNavigateToMcpTools()
         } else if (!granted) {
             Toast.makeText(context, R.string.local_network_permission_required, Toast.LENGTH_SHORT).show()
         }
         openMcpToolsAfterPermission = false
+        pendingServiceEnable = null
     }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -160,6 +160,7 @@ fun PlatformSettingScreen(
             result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
             settingViewModel.toggleDeviceLocation(true)
+            settingViewModel.setProfileServiceEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEVICE_LOCATION, true)
         } else {
             Toast.makeText(context, "Location permission is required for the device location tool.", Toast.LENGTH_LONG).show()
         }
@@ -201,7 +202,7 @@ fun PlatformSettingScreen(
                 val isFreePlatform = platformData.compatibleType == ClientType.FREE
                 val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.supportsTools == true
                 val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
-                SettingsHero(platformData.compatibleType.name, platformData.name, platformData.model, Modifier.padding(16.dp))
+                ProfileIdentityCard(platformData)
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     SettingsTabs(listOf("Profile", "Tools", "Advanced"), profileTab) { profileTab = it }
                 }
@@ -625,112 +626,44 @@ fun PlatformSettingScreen(
                     if (supportsTools) PlatformMaxToolCallsSettingHost(settingViewModel)
                 }
                 if (profileTab == 1) {
-                    ProfileSectionTitle(title = stringResource(R.string.tools_section))
-
-                    // Global Master Tool Disablement
-                    PreferenceListSwitch(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.disable_all_tools),
-                        description = stringResource(R.string.disable_all_tools_description),
-                        icon = Icons.Rounded.Build,
-                        enabled = supportsTools && platformData.enabled,
-                        isChecked = platformData.disableAllTools,
-                        onCheckedChange = { settingViewModel.toggleDisableAllTools() }
-                    )
-
-                    // Granular Remote vs Local Tool Disablement
-                    PreferenceListSwitch(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.disable_remote_tools),
-                        description = stringResource(R.string.disable_remote_tools_description),
-                        icon = Icons.Rounded.Language,
-                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
-                        isChecked = platformData.disableRemoteTools,
-                        onCheckedChange = { settingViewModel.toggleDisableRemoteTools() }
-                    )
-
-                    PreferenceListSwitch(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.disable_local_tools),
-                        description = stringResource(R.string.disable_local_tools_description),
-                        icon = Icons.Rounded.Calculate,
-                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
-                        isChecked = platformData.disableLocalTools,
-                        onCheckedChange = { settingViewModel.toggleDisableLocalTools() }
-                    )
-
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.web_search),
-                        description = "Built-in search + ${toolBindingState.selectedSearchConnectionUids.size} connected engines",
-                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
-                        onItemClick = settingViewModel::openSearchBackendDialog,
-                        showTrailingIcon = true,
-                        showLeadingIcon = false
-                    )
-                    PreferenceListSwitch(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.tool_trace_tool),
-                        icon = ImageVector.vectorResource(id = R.drawable.ic_link),
-                        enabled = supportsTools && !platformData.disableAllTools && !platformData.disableRemoteTools,
-                        isChecked = toolBindingState.readUrlEnabled,
-                        onCheckedChange = settingViewModel::toggleReadUrl
-                    )
-                    PreferenceListSwitch(
-                        modifier = Modifier.height(72.dp),
-                        title = "Device location",
-                        description = "Allow this AI profile to request the phone's current GPS location when needed.",
-                        icon = Icons.Rounded.LocationOn,
-                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableLocalTools,
-                        isChecked = toolBindingState.deviceLocationEnabled,
-                        onCheckedChange = { enabled ->
+                    ProfileToolsPanel(
+                        viewModel = settingViewModel,
+                        platform = platformData,
+                        supportsTools = supportsTools,
+                        onLocationChange = { enabled ->
                             if (!enabled) {
                                 settingViewModel.toggleDeviceLocation(false)
+                                settingViewModel.setProfileServiceEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEVICE_LOCATION, false)
                             } else {
-                                val fineGranted = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.ACCESS_FINE_LOCATION
-                                ) == PackageManager.PERMISSION_GRANTED
-                                val coarseGranted = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.ACCESS_COARSE_LOCATION
-                                ) == PackageManager.PERMISSION_GRANTED
+                                val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
                                 if (fineGranted || coarseGranted) {
                                     settingViewModel.toggleDeviceLocation(true)
+                                    settingViewModel.setProfileServiceEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEVICE_LOCATION, true)
                                 } else {
-                                    locationPermissionLauncher.launch(
-                                        arrayOf(
-                                            Manifest.permission.ACCESS_FINE_LOCATION,
-                                            Manifest.permission.ACCESS_COARSE_LOCATION
-                                        )
-                                    )
+                                    locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                                 }
                             }
-                        }
-                    )
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.mcp_tools),
-                        description = "${toolBindingState.selectedMcpTools.size} assigned",
-                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
-                        onItemClick = {
-                            val needsPermission = toolBindingState.mcpConnections.any { connection ->
-                                connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
+                        },
+                        onServiceChange = { id, enabled, connectionUids ->
+                            val needsPermission = enabled && toolBindingState.mcpConnections.any { it.connectionUid in connectionUids && it.endpointUrl?.let(::requiresLocalNetworkAccess) == true }
+                            if (needsPermission && Build.VERSION.SDK_INT >= 37 && ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED) {
+                                pendingServiceEnable = id to connectionUids
+                                localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
+                            } else {
+                                settingViewModel.setProfileServiceEnabled(id, enabled, connectionUids)
                             }
-                            if (needsPermission &&
-                                Build.VERSION.SDK_INT >= 37 &&
-                                ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
-                            ) {
+                        },
+                        onMcpClick = {
+                            val needsPermission = toolBindingState.mcpConnections.any { connection -> connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true }
+                            if (needsPermission && Build.VERSION.SDK_INT >= 37 && ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED) {
                                 openMcpToolsAfterPermission = true
                                 localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                             } else {
                                 onNavigateToMcpTools()
                             }
-                        },
-                        showTrailingIcon = true,
-                        showLeadingIcon = false
+                        }
                     )
-
                     if (isFreePlatform) {
                         SettingItem(
                             title = "Reset MCP data-sharing permissions",

@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -56,12 +55,12 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
 fun StartScreen(onStartClick: () -> Unit, onRestored: () -> Unit = {}, viewModel: SettingViewModelV2 = hiltViewModel()) {
     var page by rememberSaveable { mutableIntStateOf(0) }
     var more by rememberSaveable { mutableStateOf(false) }
-    val titles = listOf("Your AI. Your way.", "Pick a place to start", "A conversation that keeps up", "Bring your world with you")
+    val titles = listOf("Your AI. Your way.", "Pick a place to start", "A conversation that keeps up", "Make it yours")
     val descriptions = listOf(
         "Ask, explore and create with the AI you choose. A few simple steps will get you ready.",
         "Start with one model. You can add more whenever you like.",
         "Write naturally. Add a follow-up while your AI works, or choose tools from the conversation controls.",
-        "Keep your conversations, connections and preferences together with Backup & Restore."
+        "Choose your theme, manage your memory and select tools for each AI profile in Settings."
     )
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -78,7 +77,7 @@ fun StartScreen(onStartClick: () -> Unit, onRestored: () -> Unit = {}, viewModel
                             when (step) {
                                 1 -> Icons.Rounded.SmartToy
                                 2 -> Icons.Rounded.ChatBubble
-                                else -> Icons.Rounded.Backup
+                                else -> Icons.Rounded.Tune
                             },
                             null,
                             modifier = Modifier.size(72.dp)
@@ -91,7 +90,7 @@ fun StartScreen(onStartClick: () -> Unit, onRestored: () -> Unit = {}, viewModel
                             TourTile(Icons.Rounded.ChatBubble, "New here?", "Start fresh with a guided AI setup.")
                             OutlinedButton(onClick = viewModel::openBackupRestoreDialog, modifier = Modifier.fillMaxWidth()) {
                                 Icon(Icons.Rounded.Restore, null, Modifier.padding(end = 8.dp))
-                                Text("I have a backup")
+                                Text("Restore")
                             }
                         }
                         1 -> {
@@ -123,11 +122,8 @@ fun StartScreen(onStartClick: () -> Unit, onRestored: () -> Unit = {}, viewModel
                             Text("Detailed controls are always available in Settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         3 -> {
-                            TourTile(Icons.Rounded.Backup, "Save your setup", "Create a backup from Settings whenever you need one.")
-                            Button(onClick = viewModel::openBackupRestoreDialog, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.Backup, null, Modifier.padding(end = 8.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                Text("Backup & Restore")
-                            }
+                            TourTile(Icons.Rounded.Tune, "Your style", "Choose a theme and personalize your AI profiles.")
+                            TourTile(Icons.Rounded.Memory, "Your choices", "Enable services and decide which tools each AI can use.")
                         }
                     }
                 }
@@ -164,7 +160,7 @@ fun StartScreen(onStartClick: () -> Unit, onRestored: () -> Unit = {}, viewModel
             Spacer(Modifier.height(12.dp))
         }
     }
-    BackupRestoreHost(viewModel, onRestored)
+    BackupRestoreHost(viewModel, onRestored, restoreOnly = true)
 }
 
 @Composable

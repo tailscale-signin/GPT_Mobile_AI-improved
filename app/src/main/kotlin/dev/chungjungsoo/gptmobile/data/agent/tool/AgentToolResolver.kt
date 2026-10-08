@@ -18,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
@@ -102,12 +103,14 @@ class AgentToolResolver @Inject constructor(
         val allowDeviceLocation =
             !disableLocal &&
                 featureSettings.deviceLocationTool &&
-                featureSettings.isToolPluginEnabled(ToolPluginId.DEVICE_LOCATION)
-        val connections = toolConnectionRepository.listConnections()
+                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.DEVICE_LOCATION)
+        val connections = toolConnectionRepository.listConnections().filter { connection ->
+            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(connection).id)
+        }
         val configuredNativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
         val nativeGitHubConnections = configuredNativeGitHubConnections.filter { connection ->
-            featureSettings.isToolPluginEnabled(ToolPluginId.GITHUB) &&
-                featureSettings.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid))
+            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
+                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))
         }
 
         // Baseline zero-config tools available out of the box to all models
@@ -126,7 +129,7 @@ class AgentToolResolver @Inject constructor(
         if (!disableLocal) {
             // Keep explicitly enabled delegation available in small on-device context windows.
             if (
-                featureSettings.isToolPluginEnabled(ToolPluginId.MODEL_DELEGATION) &&
+                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.MODEL_DELEGATION) &&
                 (chatToolConfig?.effectiveDelegation(featureSettings.delegationFor(profileUid)) ?: featureSettings.delegationFor(profileUid)).enabled &&
                 delegate != null &&
                 platform != null
@@ -143,7 +146,7 @@ class AgentToolResolver @Inject constructor(
                 resolved += tool.resolved(null, "Model delegation", tool.definition.name)
             }
             if (
-                featureSettings.isToolPluginEnabled(ToolPluginId.LOCAL_MEMORY) &&
+                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.LOCAL_MEMORY) &&
                 factVault != null &&
                 userMessage != null &&
                 platform != null
@@ -161,13 +164,13 @@ class AgentToolResolver @Inject constructor(
                     resolved += tool.resolved(null, "Memory", tool.definition.name)
                 }
             }
-            if (featureSettings.isToolPluginEnabled(ToolPluginId.CURRENT_DATE)) {
+            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CURRENT_DATE)) {
                 resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
             }
-            if (featureSettings.isToolPluginEnabled(ToolPluginId.CALCULATOR)) {
+            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CALCULATOR)) {
                 resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
             }
-            if (featureSettings.isToolPluginEnabled(ToolPluginId.READ_FILES)) {
+            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_FILES)) {
                 resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
             }
         }
@@ -183,8 +186,14 @@ class AgentToolResolver @Inject constructor(
                 }
                 nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
                     val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
-                    if (installation.ready(entry) && featureSettings.isToolPluginEnabled(id)) {
-                        dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).forEach { definition ->
+                    if (installation.ready(entry) &&
+                        featureSettings.isToolPluginEnabledForProfile(profileUid, id) &&
+                        featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forPackage(entry).id)
+                    ) {
+                        dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).filter { definition ->
+                            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.nativeOperation(id, definition.name.substringAfterLast("__"))) &&
+                                (entry.provider != "openstreetmap" || (definition.name.substringAfterLast("__") !in installation.disabledOperations && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.validEndpoint(installation.endpoints[definition.name.substringAfterLast("__")].orEmpty())))
+                        }.forEach { definition ->
                             resolved += ResolvedAgentTool(
                                 tool = NativeMarketplaceTool(entry, definition, nativeMarketplaceRegistry, nativeMarketplaceClient::fetch),
                                 connectionUid = id,
@@ -197,23 +206,23 @@ class AgentToolResolver @Inject constructor(
                     }
                 }
             }
-            if (featureSettings.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH)) {
-                connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabled(ToolPluginId.connection(it.connectionUid)) }
+            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)) {
+                connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(it.connectionUid)) }
                     .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
             }
-            if (featureSettings.isToolPluginEnabled(ToolPluginId.READ_URL)) {
+            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_URL)) {
                 resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
             }
             // Native GitHub is an integrated plugin. If an authenticated native
             // connection exists but is disabled, do not silently replace it with
             // anonymous GitHub access because that would bypass the plugin toggle.
-            if (featureSettings.isToolPluginEnabled(ToolPluginId.GITHUB)) {
+            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)) {
                 if (configuredNativeGitHubConnections.isEmpty()) {
                     resolved += GitHubTool(featureSettings = featureSettings).resolved(null, null, BuiltInAgentTool.GITHUB)
                 }
                 nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection) }
             }
-            if (featureSettings.isToolPluginEnabled(ToolPluginId.WEB_SEARCH)) {
+            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
                 resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
             }
         }
@@ -222,7 +231,7 @@ class AgentToolResolver @Inject constructor(
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
-            .filter { binding -> pluginEnabledForBinding(featureSettings, binding) }
+            .filter { binding -> pluginEnabledForBinding(featureSettings, profileUid, binding) }
             .distinctBy { if (it.binding.toolName == WEB_SEARCH_TOOL) "${it.binding.toolName}:${it.binding.connectionUid}" else it.binding.toolName }
             .forEach { binding ->
                 val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
@@ -241,7 +250,7 @@ class AgentToolResolver @Inject constructor(
         if (allowRemoteMcp) {
             val mcpGroups = bindings
                 .filter { it.connection?.type == ToolConnectionType.MCP }
-                .filter { pluginEnabledForBinding(featureSettings, it) }
+                .filter { pluginEnabledForBinding(featureSettings, profileUid, it) }
                 .filterNot { binding ->
                     // Prefer the native GitHub API surface when it is connected.
                     // Keeping GitHub Official MCP visible at the same time causes
@@ -257,7 +266,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(mcpBindings.first().connection)
                         try {
-                            resolveMcpTools(connection, mcpBindings, featureSettings) to null
+                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid) to null
                         } catch (error: CancellationException) {
                             throw error
                         } catch (_: Exception) {
@@ -273,6 +282,9 @@ class AgentToolResolver @Inject constructor(
         }
 
         return resolved.distinctBy { it.modelToolName }
+            .filter { tool ->
+                !tool.isAmazonProductTool() || featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
+            }
             .filter { tool ->
                 // Discovery stays visible, but runtime consent cannot be bypassed by
                 // Select all, imported chat options or a restored pending prompt.
@@ -293,7 +305,16 @@ class AgentToolResolver @Inject constructor(
                         tool.connectionUid,
                         "web_search".takeIf { tool.isWebSearchEngine() }
                     )
-                    chatToolConfig.isToolEnabled(candidateIds)
+                    val legacyIds = if (tool.connectionUid == "optional-openstreetmap") {
+                        when (tool.realToolName) {
+                            "geocode" -> listOf("optional-nominatim", "optional-nominatim:geocode", "places_nominatim__geocode")
+                            "restrooms" -> listOf("optional-overpass", "optional-overpass:restrooms", "places_overpass__restrooms")
+                            else -> emptyList()
+                        }
+                    } else {
+                        emptyList()
+                    }
+                    chatToolConfig.isToolEnabled(candidateIds + legacyIds)
                 }
             }
             .map { resolved ->
@@ -320,27 +341,29 @@ class AgentToolResolver @Inject constructor(
 
     private fun pluginEnabledForBinding(
         settings: AppFeatureSettings,
+        profileUid: String,
         binding: AgentToolBindingWithConnection
     ): Boolean {
         val connection = binding.connection
-        if (connection != null && !settings.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid))) {
+        if (connection != null && !settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))) {
             return false
         }
+        if (connection != null && !settings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(connection).id)) return false
         return when (connection?.type) {
-            ToolConnectionType.AMAZON_SERPAPI -> settings.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH)
-            ToolConnectionType.GITHUB -> settings.isToolPluginEnabled(ToolPluginId.GITHUB)
+            ToolConnectionType.AMAZON_SERPAPI -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
+            ToolConnectionType.GITHUB -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)
             ToolConnectionType.FIRECRAWL,
             ToolConnectionType.PERPLEXITY,
             ToolConnectionType.EXA,
-            ToolConnectionType.BRAVE -> settings.isToolPluginEnabled(ToolPluginId.WEB_SEARCH)
+            ToolConnectionType.BRAVE -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)
             else -> when (binding.binding.toolName) {
-                BuiltInAgentTool.CURRENT_DATE -> settings.isToolPluginEnabled(ToolPluginId.CURRENT_DATE)
-                BuiltInAgentTool.CALCULATE_EXPRESSION -> settings.isToolPluginEnabled(ToolPluginId.CALCULATOR)
-                BuiltInAgentTool.READ_FILE_SLICE -> settings.isToolPluginEnabled(ToolPluginId.READ_FILES)
-                BuiltInAgentTool.READ_URL -> settings.isToolPluginEnabled(ToolPluginId.READ_URL)
-                BuiltInAgentTool.DEVICE_LOCATION -> settings.isToolPluginEnabled(ToolPluginId.DEVICE_LOCATION)
-                BuiltInAgentTool.GITHUB -> settings.isToolPluginEnabled(ToolPluginId.GITHUB)
-                WEB_SEARCH_TOOL -> settings.isToolPluginEnabled(ToolPluginId.WEB_SEARCH)
+                BuiltInAgentTool.CURRENT_DATE -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CURRENT_DATE)
+                BuiltInAgentTool.CALCULATE_EXPRESSION -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CALCULATOR)
+                BuiltInAgentTool.READ_FILE_SLICE -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_FILES)
+                BuiltInAgentTool.READ_URL -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_URL)
+                BuiltInAgentTool.DEVICE_LOCATION -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.DEVICE_LOCATION)
+                BuiltInAgentTool.GITHUB -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)
+                WEB_SEARCH_TOOL -> settings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)
                 else -> true
             }
         }
@@ -471,7 +494,8 @@ class AgentToolResolver @Inject constructor(
     private suspend fun resolveMcpTools(
         connection: ToolConnection,
         bindings: List<AgentToolBindingWithConnection>,
-        features: AppFeatureSettings
+        features: AppFeatureSettings,
+        profileUid: String
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = discoverMcpTools(connection)
@@ -485,7 +509,11 @@ class AgentToolResolver @Inject constructor(
                         val current = toolConnectionRepository.getConnection(connection.connectionUid)
                             ?: error("MCP connection was uninstalled.")
                         val latest = settingRepository.getFeatureSettings()
-                        check(latest.remoteMcpConnections && latest.isToolPluginEnabled(ToolPluginId.connection(current.connectionUid))) { "MCP plugin is disabled." }
+                        check(
+                            latest.remoteMcpConnections &&
+                                latest.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(current.connectionUid)) &&
+                                latest.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(current).id)
+                        ) { "MCP plugin is disabled." }
                         mcpConfig(current, forceRefresh, rejectedHeader)
                     },
                     remoteToolName = remoteTool.name,

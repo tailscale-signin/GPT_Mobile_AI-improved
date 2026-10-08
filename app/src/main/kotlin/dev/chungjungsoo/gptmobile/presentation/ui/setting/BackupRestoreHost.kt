@@ -28,7 +28,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 
 /** Shared picker and restore workflow for Settings and the first-run tour. */
 @Composable
-fun BackupRestoreHost(settingViewModel: SettingViewModelV2, onRestored: () -> Unit = {}) {
+fun BackupRestoreHost(settingViewModel: SettingViewModelV2, onRestored: () -> Unit = {}, restoreOnly: Boolean = false) {
     val dialogState by settingViewModel.dialogState.collectAsState()
     val backupStatus by settingViewModel.backupStatus.collectAsState()
     val backupUi by settingViewModel.backupUi.collectAsState()
@@ -81,6 +81,7 @@ fun BackupRestoreHost(settingViewModel: SettingViewModelV2, onRestored: () -> Un
     if (dialogState.isBackupRestoreDialogOpen) {
         CompleteBackupDialog(
             state = backupUi,
+            restoreOnly = restoreOnly,
             backupStatus = backupStatus,
             onDismiss = settingViewModel::closeBackupRestoreDialog,
             onBackup = {

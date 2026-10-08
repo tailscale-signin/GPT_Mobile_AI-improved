@@ -43,7 +43,7 @@ data class AppFeatureSettings(
     val localSpeculativeDecoding: SpeculativeDecodingMode = SpeculativeDecodingMode.AUTO,
     val localNativeMetrics: Boolean = false,
     val localIdleMinutes: Int = 10,
-    /** Global enable state for integrated, in-app tool plugins. Missing entries default to enabled. */
+    /** Global service state. Amazon is opt-in; other built-in services preserve their defaults. */
     val pluginExecution: Map<String, PluginExecutionSettings> = emptyMap(),
     val toolPluginStates: Map<String, Boolean> = emptyMap(),
     val delegation: ModelDelegationSettings = ModelDelegationSettings(),
@@ -81,7 +81,19 @@ data class AppFeatureSettings(
         AppFeature.QNN_AUTO_FALLBACK -> copy(qnnAutomaticFallback = enabled)
     }
 
-    fun isToolPluginEnabled(pluginId: String): Boolean = toolPluginStates[pluginId] ?: true
+    fun isToolPluginEnabled(pluginId: String): Boolean = toolPluginStates[pluginId] ?: (pluginId != ToolPluginId.AMAZON_SEARCH)
+
+    fun isToolPluginSelected(profileUid: String, pluginId: String): Boolean =
+        profileBehavior[profileUid]?.toolPluginStates?.get(pluginId) ?: (pluginId != ToolPluginId.AMAZON_SEARCH)
+
+    /** A profile can restrict an active service, but cannot bypass a global disable. */
+    fun isToolPluginEnabledForProfile(profileUid: String, pluginId: String): Boolean =
+        isToolPluginEnabled(pluginId) && isToolPluginSelected(profileUid, pluginId)
+
+    fun withProfileToolPluginEnabled(profileUid: String, pluginId: String, enabled: Boolean): AppFeatureSettings {
+        val behavior = profileBehavior[profileUid] ?: ProfileBehaviorSettings()
+        return copy(profileBehavior = profileBehavior + (profileUid to behavior.copy(toolPluginStates = behavior.toolPluginStates + (pluginId to enabled))))
+    }
 
     fun withToolPluginEnabled(pluginId: String, enabled: Boolean): AppFeatureSettings =
         copy(toolPluginStates = toolPluginStates + (pluginId to enabled))
@@ -200,6 +212,8 @@ object ToolPluginId {
     const val AMAZON_SEARCH = "amazon_search"
     const val WEB_SEARCH = "web_search"
     const val DEVICE_LOCATION = "device_location"
+
+    fun nativeOperation(packageId: String, operation: String): String = "native:$packageId:$operation"
 
     fun connection(connectionUid: String): String = "connection:$connectionUid"
 }

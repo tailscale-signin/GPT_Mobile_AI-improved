@@ -8,7 +8,8 @@ data class ProfileBehaviorSettings(
     val delegationEnabled: Boolean = false,
     val crawlersEnabled: Boolean = false,
     val crawlerToolIds: Set<String> = emptySet(),
-    val maxCrawlPages: Int = 5
+    val maxCrawlPages: Int = 5,
+    val toolPluginStates: Map<String, Boolean> = emptyMap()
 ) {
     fun normalized() = copy(maxCrawlPages = maxCrawlPages.coerceIn(1, 20))
 }

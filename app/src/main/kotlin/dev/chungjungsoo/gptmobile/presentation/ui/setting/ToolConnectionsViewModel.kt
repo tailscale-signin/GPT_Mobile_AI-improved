@@ -152,30 +152,41 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun setPluginsEnabled(pluginIds: Set<String>, enabled: Boolean) {
         viewModelScope.launch {
-            runCatching {
+            pluginMutex.lock()
+            try {
                 val latest = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(pluginIds.fold(latest) { settings, id -> settings.withToolPluginEnabled(id, enabled) })
-            }.onSuccess {
-                _uiState.update { state ->
-                    state.copy(pluginStates = state.pluginStates + pluginIds.associateWith { enabled })
-                }
-            }.onFailure(::showError)
+                val updated = pluginIds.fold(latest) { settings, id -> settings.withToolPluginEnabled(id, enabled) }
+                settingRepository.updateFeatureSettings(updated)
+                _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showError(error)
+            } finally {
+                pluginMutex.unlock()
+            }
         }
     }
 
     fun setRemoteMcpEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching {
+            pluginMutex.lock()
+            try {
                 val latest = settingRepository.getFeatureSettings()
                 settingRepository.updateFeatureSettings(latest.withFeature(AppFeature.REMOTE_MCP, enabled))
-            }.onSuccess {
                 _uiState.update { it.copy(remoteMcpEnabled = enabled) }
                 if (enabled) {
                     probeConnections(force = true)
                 } else {
                     _uiState.update { it.copy(connectionHealth = emptyMap()) }
                 }
-            }.onFailure(::showError)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showError(error)
+            } finally {
+                pluginMutex.unlock()
+            }
         }
     }
 
@@ -302,6 +313,7 @@ class ToolConnectionsViewModel @Inject constructor(
         val resolver = agentToolResolver ?: return
         connections
             .filter { it.type == ToolConnectionType.MCP }
+            .filter { force || (features.value.remoteMcpConnections && features.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(it).id) && features.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(it.connectionUid))) }
             .forEach { connection ->
                 val previous = _uiState.value.connectionHealth[connection.connectionUid]
                 val recentlyChecked = previous?.checkedAt?.let { System.currentTimeMillis() - it < 30_000 } == true

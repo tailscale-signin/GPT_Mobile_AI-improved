@@ -48,31 +48,69 @@ internal fun amazonProductResults(events: List<ToolEvent>): List<JsonObject> = e
     .filter { it.status == ToolEventStatus.COMPLETED && !it.isError }
     .sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0 }.thenByDescending { it.sequence })
     .flatMap { event ->
-        val raw = event.recoveryResult()?.takeIf { it.length <= 1_500_000 } ?: return@flatMap emptyList()
-        val payload = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return@flatMap emptyList()
-        if (AmazonProducts.text(payload, "schema") != AmazonProducts.SCHEMA) return@flatMap emptyList()
-        (payload["products"] as? JsonArray).orEmpty().take(100).mapNotNull { it as? JsonObject }.filter { product ->
-            val domain = AmazonProducts.text(product, "marketplace") ?: return@filter false
-            val id = AmazonProducts.text(product, "asin") ?: return@filter false
-            AmazonProducts.productUrl(domain, id) == AmazonProducts.text(product, "url") && AmazonProducts.text(product, "title") != null
-        }
+        val payload = amazonResultPayload(event) ?: return@flatMap emptyList()
+        ((payload["products"] as? JsonArray).orEmpty() + (payload["unverifiedProducts"] as? JsonArray).orEmpty())
+            .take(100).mapNotNull { it as? JsonObject }.filter { product ->
+                val domain = AmazonProducts.text(product, "marketplace") ?: return@filter false
+                val id = AmazonProducts.text(product, "asin") ?: return@filter false
+                AmazonProducts.productUrl(domain, id) == AmazonProducts.text(product, "url") && AmazonProducts.text(product, "title") != null
+            }
     }
     .distinctBy { listOf(AmazonProducts.text(it, "marketplace"), AmazonProducts.text(it, "asin"), AmazonProducts.text(it, "seller"), AmazonProducts.text(it, "condition"), AmazonProducts.text(it, "variant")) }
     .take(30)
 
+private fun amazonResultPayload(event: ToolEvent): JsonObject? {
+    val raw = event.recoveryResult()?.takeIf { it.length <= 1_500_000 } ?: return null
+    val payload = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return null
+    return payload.takeIf { AmazonProducts.text(it, "schema") == AmazonProducts.SCHEMA }
+}
+
+internal fun amazonResultNotice(events: List<ToolEvent>): String? {
+    val payload = events.filter { it.status in setOf(ToolEventStatus.COMPLETED, ToolEventStatus.FAILED) }
+        .sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0 }.thenByDescending { it.sequence })
+        .firstNotNullOfOrNull(::amazonResultPayload) ?: return null
+    if ((payload["unverifiedProducts"] as? JsonArray)?.isNotEmpty() == true) {
+        return "Some listings have an unconfirmed price or currency. Their price filters are unverified."
+    }
+    if ((payload["products"] as? JsonArray)?.isNotEmpty() == true) return null
+    val code = (payload["errors"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().firstNotNullOfOrNull { AmazonProducts.text(it, "code") }
+    return when (code) {
+        "CHALLENGE_REQUIRED" -> "Amazon blocked this lookup. You can open Amazon directly or try again later."
+        "RATE_LIMITED", "COOLDOWN_ACTIVE" -> "Amazon temporarily limited searches. Try again after the cooldown."
+        "QUOTA_EXCEEDED" -> "The daily Amazon lookup allowance has been reached."
+        "PLUGIN_DISABLED" -> "Enable Amazon Research for this AI profile to search for products."
+        "PRICE_UNAVAILABLE" -> "Amazon did not supply a price in a confirmed currency. Try searching without price filters."
+        "PARSE_CHANGED" -> "Amazon returned an unsupported page layout. No product prices could be verified."
+        "TIMEOUT", "NETWORK_ERROR" -> "Amazon could not complete this lookup. Check your connection and try again later."
+        "OUTPUT_LIMITED" -> "Product results exceeded the output limit. Increase the Amazon plugin output limit."
+        else -> if (AmazonProducts.text(payload, "status") == "failure") "Amazon could not return product listings for this request." else "No products matched this Amazon search. Try a broader search."
+    }
+}
+
+internal fun amazonProductPrice(product: JsonObject): String {
+    val currency = AmazonProducts.text(product, "currency")
+    return AmazonProducts.text(product, "price", "priceAmount")?.let { price ->
+        if (currency != null && currency !in price) "$price $currency" else price
+    } ?: "Price unavailable"
+}
+
 @Composable
 internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier, ownerProfileUid: String? = null) {
     val products = remember(toolEvents) { amazonProductResults(toolEvents) }
-    if (products.isEmpty()) return
+    val notice = remember(toolEvents) { amazonResultNotice(toolEvents) }
+    if (products.isEmpty() && notice == null) return
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(painterResource(R.drawable.mcp_brand_amazon), null, tint = MaterialTheme.colorScheme.primary)
-            Text("Amazon products", style = MaterialTheme.typography.titleSmall)
+            Text(if (products.isEmpty()) "Amazon search" else "Amazon products · ${products.size}", style = MaterialTheme.typography.titleSmall)
         }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(products) { product -> AmazonProductCard(product, ownerProfileUid) }
+        notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (products.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(products) { product -> AmazonProductCard(product, ownerProfileUid) }
+            }
+            Text("Prices and availability may change at checkout.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text("Prices and availability may change at checkout.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -115,8 +153,10 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
             if ((product["sponsored"] as? JsonPrimitive)?.booleanOrNull == true) Text("Sponsored", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
             Text(AmazonProducts.text(product, "title").orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
             val currency = AmazonProducts.text(product, "currency")
-            val price = AmazonProducts.text(product, "price")?.let { if (currency != null && currency !in it) "$it $currency" else it } ?: "Price unavailable"
-            Text(price, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text(amazonProductPrice(product), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            if ((product["priceFilterVerified"] as? JsonPrimitive)?.booleanOrNull == false) {
+                Text("Price filter unverified", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+            }
             if (nativePreview && currency == null && AmazonProducts.text(product, "price") != null) {
                 Text("Currency unconfirmed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

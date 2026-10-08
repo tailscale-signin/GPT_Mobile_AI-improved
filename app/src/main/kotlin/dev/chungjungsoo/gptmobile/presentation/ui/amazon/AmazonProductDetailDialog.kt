@@ -36,6 +36,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.amazonProductPrice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -67,7 +68,7 @@ fun AmazonProductDetailDialog(product: JsonObject, owner: String?, onDismiss: ()
                     item {
                         Text(AmazonProducts.text(displayed, "title").orEmpty(), style = MaterialTheme.typography.titleMedium)
                         Text("$domain · $asin", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(listOfNotNull(AmazonProducts.text(displayed, "price"), AmazonProducts.text(displayed, "currency")).joinToString(" ").ifBlank { "Price unavailable" }, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(amazonProductPrice(displayed), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
                         listOf("rating", "reviewCount", "brand", "availability", "seller", "condition", "variant", "coupon").forEach { key ->
                             AmazonProducts.text(displayed, key)?.let { Text("${key.replace("reviewCount", "Reviews").replaceFirstChar { it.uppercase() }}: $it", style = MaterialTheme.typography.bodyMedium) }
                         }

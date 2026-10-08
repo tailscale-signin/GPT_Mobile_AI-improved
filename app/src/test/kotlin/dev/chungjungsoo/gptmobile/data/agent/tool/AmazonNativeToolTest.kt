@@ -140,6 +140,28 @@ class AmazonNativeToolTest {
         assertEquals(AmazonProducts.SCHEMA, AmazonProducts.text(data, "schema"))
         assertTrue(data.containsKey("coverage"))
         assertEquals("PRICE_UNAVAILABLE", code(result))
+        val retained = (result.retainedContent as ToolResultContent.Json).value as JsonObject
+        assertEquals(10, (retained["products"] as JsonArray).size)
+        assertFalse(result.isError)
+    }
+
+    @Test
+    fun filteredDiscoveryProductsArePartialFactsRatherThanAnEmptyFailure() = runBlocking {
+        val provider = FakeProvider(AmazonFetchResult(emptyList(), listOf(AmazonItemFailure(AmazonReadError.PRICE_UNAVAILABLE, "Currency unconfirmed", item.asin)), unverifiedProducts = listOf(item.copy(price = "$49.99"))))
+        val result = AmazonNativeTool(provider, false, { PluginExecutionSettings() }, { true }).execute("discovery", arguments("""{"query":"audio","maxPrice":"100"}"""))
+        assertFalse(result.isError)
+        assertEquals("partial", AmazonProducts.text(payload(result), "status"))
+        assertTrue((payload(result)["products"] as JsonArray).isEmpty())
+        val discovery = (payload(result)["unverifiedProducts"] as JsonArray).single() as JsonObject
+        assertEquals("false", AmazonProducts.text(discovery, "priceFilterVerified"))
+        assertEquals("$49.99", AmazonProducts.text(discovery, "price"))
+    }
+
+    @Test
+    fun emptySearchIsExplicitlyReportedAsNoResults() = runBlocking {
+        val result = AmazonNativeTool(FakeProvider(), false, { PluginExecutionSettings() }, { true }).execute("empty", arguments("""{"query":"audio"}"""))
+        assertFalse(result.isError)
+        assertEquals("no_results", AmazonProducts.text(payload(result), "status"))
     }
 
     @Test

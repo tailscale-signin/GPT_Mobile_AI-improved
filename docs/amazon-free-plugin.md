@@ -10,7 +10,9 @@ This is the second usable stage of the custom Amazon add-on: native search/detai
 | Details | `amazon_get_products__free_native`: 1–5 distinct ASINs; one page per ASIN, independent failures retained |
 | Markets | `amazon.ca` / CAD and `amazon.com` / USD; English HTML only |
 | Controls | Global and per-profile opt-in, off when no stored choice exists; live grant checks and cancellation when the global/profile grant or network permission is revoked |
-| Product cards | Existing `amazon_products_v1` rendering, canonical untagged Amazon link, actual retrieval timestamp, preview/currency/context labels |
+| Product cards | `amazon_products_v1` rendering, canonical untagged Amazon link, actual retrieval timestamp, preview/currency/context labels; full sanitized product facts are retained for cards when the model-facing output is shortened |
+| Search feedback | Chat shows distinct empty, blocked, rate-limited and failed lookup states; opt-in diagnostics include counts of listings, displayed prices and typed error codes |
+| Price-filter discovery | Confirmed matches remain in `products`; listings with an unconfirmed price/currency remain separately in `unverifiedProducts` and have a visible **Price filter unverified** label |
 | Bounds | 200-character query, exact marketplace/ASIN validation, 2 MiB decoded HTML, three redirects, 5–120 second operation timeout, bounded JSON output |
 | Request budget | Atomic Room installation ledger; the previous `noBackupFilesDir` ledger is imported once without changing its usage, pacing or cooldowns; 1–100 physical requests per UTC day, shared across profiles and marketplaces, including redirects and failed attempts; serialized requests at least five seconds apart |
 | Blocking | No automatic retry; 24-hour challenge cooldown; HTTP 429 honors a bounded Retry-After or uses six hours; cooldowns survive restart |
@@ -34,7 +36,7 @@ Search and detail tools use the existing canonical tool classifications so the c
 6. Open a native product card’s **History & manual watch** button, or Toolkit → Amazon Research Free → **History & manual watches**. Inspect the owning profile, ASIN and original currency. Reading this screen sends no lookup. Save a manual target explicitly, then choose Check now to spend the request allowance. A listing price below the target still remains **Awaiting matching price** while offer identity is unknown.
 7. Disable the profile or global grant during a request; it must cancel and withhold product facts. Re-enable and confirm no request was queued automatically.
 
-Bare `$` without confirmed currency remains display text, never a numeric amount. Missing/currently blocked prices preserve other verified product facts and include `PRICE_UNAVAILABLE`. Prime/sponsorship facts are included only when evidence is present. Shipping, tax, coupons, delivery region, seller, variant, and comparable offer identity are not inferred; the current price is a base item observation, not a checkout total or historical low.
+Bare `$` without confirmed currency remains display text, never a numeric amount. With price filters, those verified listing identities remain visible as discovery cards in `unverifiedProducts`; they are not budget matches. Confirmed out-of-budget listings are excluded. The parser recognizes both desktop and mobile core-price layouts, split whole/fraction prices and explicit currency metadata. Sponsored redirect targets must still match the selected marketplace and card ASIN. Missing/currently blocked prices preserve other verified product facts and include `PRICE_UNAVAILABLE`. Prime/sponsorship facts are included only when evidence is present. Shipping, tax, coupons, delivery region, seller, variant, and comparable offer identity are not inferred; the current price is a base item observation, not a checkout total or historical low.
 
 ## Source and dependency ledger
 
@@ -48,7 +50,7 @@ Other candidate repositories are not copied in this stage. Hosted providers' fre
 
 ## Verification and release gate
 
-The HTML test fixtures are small, synthetic examples with dummy ASINs and product facts. They are not scraped customer content and do not establish live Amazon reliability. Unit coverage targets parsing, currency and identity ambiguity, invalid model input, grant revocation, partial results, output bounds, redirects, decoded body size, quota/cooldown persistence, and resolver isolation.
+The HTML test fixtures are small, synthetic examples with dummy ASINs and product facts. They are not scraped customer content and do not establish live Amazon reliability. Unit coverage targets parsing, currency and identity ambiguity, invalid model input, grant revocation, partial results, output bounds, redirects, decoded body size, quota/cooldown persistence, and resolver isolation. Regressions also cover discovery-card rendering, native and configured plugin output limits, retained checkpoints, combined-provider results, and visible empty/blocked search feedback.
 
 Before describing a marketplace as supported, run the plan's live multi-device/search/detail reliability evaluation, including blocking and cancellation scenarios, on Android 12+. A debug build and mock transport tests do not satisfy that gate. No background scheduler is started by this stage.
 

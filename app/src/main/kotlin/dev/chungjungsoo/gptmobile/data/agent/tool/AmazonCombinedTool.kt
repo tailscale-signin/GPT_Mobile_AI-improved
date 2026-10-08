@@ -133,8 +133,9 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
             }.awaitAll()
         }
         val products = linkedMapOf<List<String?>, JsonObject>()
+        val unverified = linkedMapOf<List<String?>, JsonObject>()
         val statuses = results.map { (child, result) ->
-            val payload = when (val content = result.content) {
+            val payload = when (val content = result.retainedContent ?: result.content) {
                 is ToolResultContent.Json -> content.value as? JsonObject
                 is ToolResultContent.Text -> parseSearchPayload(content.text) as? JsonObject
                 else -> null
@@ -147,6 +148,10 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
                     // Preserve the earliest provider's observed price; fill only absent facts.
                     products[identity] = JsonObject(product + previous.orEmpty() + ("providers" to JsonArray(providers)))
                 }
+                (payload?.get("unverifiedProducts") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach { product ->
+                    val identity = listOf("marketplace", "asin", "seller", "condition", "variant").map { AmazonProducts.text(product, it) }
+                    unverified.putIfAbsent(identity, product)
+                }
             }
             buildJsonObject {
                 put("provider", child.connectionName ?: child.modelToolName)
@@ -154,6 +159,7 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
                 if (result.isError) put("notice", "This provider returned no verified products. Use the other provider's results or retry in a new response.")
             }
         }
+        unverified.keys.removeAll(products.keys)
         val allFailed = results.all { it.second.isError }
         val result = AgentToolResult(
             callId,
@@ -165,9 +171,9 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
                         "status",
                         if (allFailed) {
                             "failure"
-                        } else if (products.isEmpty()) {
+                        } else if (products.isEmpty() && unverified.isEmpty()) {
                             "no_results"
-                        } else if (results.any { it.second.isError }) {
+                        } else if (unverified.isNotEmpty() || results.any { it.second.isError }) {
                             "partial"
                         } else {
                             "success"
@@ -175,6 +181,10 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
                     )
                     put("providers", JsonArray(statuses))
                     put("products", JsonArray(products.values.take(if (details) 5 else 20)))
+                    if (unverified.isNotEmpty()) {
+                        put("unverifiedProducts", JsonArray(unverified.values.take(20)))
+                        put("filterNotice", "Unverified discovery listings do not have a confirmed price within the requested filters.")
+                    }
                 }
             ),
             allFailed,

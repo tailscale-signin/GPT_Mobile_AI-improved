@@ -2,13 +2,15 @@
 
 Amazon Search is an integrated retail plugin backed by **SerpApi**. It supplies product facts to AI models and displays themed product cards in chat. Amazon tools remain separate from general web-search aggregation so prices, ASINs and variants survive normalization.
 
+Amazon Search is **off by default**, globally and for every AI profile. Saving a connection does not activate it. The service uses the official Amazon logo shape tinted by the current app theme.
+
 ## Setup
 
-1. Open **Settings → Tool Connections → Add → Search, Shopping & GitHub APIs**.
+1. Open **Settings → Plugins & Tools → Connect → Search, Shopping & GitHub APIs**.
 2. Choose **Amazon Search · SerpApi**, give the connection a name and alias, and enter your own SerpApi API key. Keys use the existing encrypted secret vault.
-3. Open **Amazon Search → Settings** to choose a default marketplace (Canada initially), result limit, sponsored-product preference and freshness preference. Connection execution settings override plugin defaults.
+3. Expand **Amazon Search**, use **Configure** to choose a default marketplace (Canada initially), result limit, sponsored-product preference and freshness preference, then turn on the service. Connection execution settings override plugin defaults.
 4. Expand the saved connection and optionally select **Test Amazon Search · 1 request**. Testing submits a sample query and spends one provider search request; discovery never performs paid searches.
-5. Ask an enabled model to find Amazon products. The connection appears in conversation tool options. Existing remote-tool switches, approval policies, timeouts, shared read-only calls and output budgets apply.
+5. Open **AI → Profile → Tools** and turn on **Amazon Search** for each profile that should use it. Ask that model to find Amazon products. The connection appears in conversation tool options. Existing remote-tool switches, approval policies, timeouts, shared read-only calls and output budgets apply.
 
 There is no embedded provider key or Amazon account login. The first model invocation follows the existing tool approval flow unless the user already approved these tools. The plugin only searches and reads products; **Open on Amazon** launches a canonical marketplace product URL.
 
@@ -30,6 +32,8 @@ The native client accepts only the fixed HTTPS SerpApi endpoint, refuses redirec
 ## Optional MCP providers
 
 The MCP marketplace also includes:
+
+- **Amazon Search · Jan Nafta MCP**: connects [JanNafta/amazon-mcp](https://github.com/JanNafta/amazon-mcp) through the authenticated remote HTTP bridge in [mcp/amazon](../mcp/amazon/README.md). Its nine tools add product search, details, deals, price history, marketplace comparisons, buy links and host-stored price watches. Product cards preserve validated, disclosed affiliate tags when the host configures them. No SerpApi key is needed. Watches are checked on demand, and cached or missing prices retain the upstream's limitations. Use **Amazon Search → Connect Jan Nafta MCP** for direct setup.
 
 - **Amazon Search · SerpApi MCP**: `https://mcp.serpapi.com/mcp`, using the API key as a Bearer credential. Enable `search` for a model and pass `params.engine=amazon`, `params.k`, `params.amazon_domain`, and `mode=compact`. Product details use `params.engine=amazon_product` and `params.asin`.
 - **Amazon Search · Bright Data MCP**: `https://mcp.brightdata.com/mcp?groups=ecommerce&token=<your-token>`. Enable `web_data_amazon_product_search` or `web_data_amazon_product`. Search is first-page only. Account ecommerce access and charges apply. Endpoint tokens are stored by the existing endpoint-secret vault.

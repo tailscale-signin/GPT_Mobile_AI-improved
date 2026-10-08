@@ -32,6 +32,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 
 @Database(
     entities = [
+        dev.chungjungsoo.gptmobile.data.amazon.AmazonObservationEntity::class,
+        dev.chungjungsoo.gptmobile.data.amazon.AmazonWatchEntity::class,
+        dev.chungjungsoo.gptmobile.data.amazon.AmazonCheckEventEntity::class,
+        dev.chungjungsoo.gptmobile.data.amazon.AmazonBudgetEntity::class,
         ChatRoomV2::class,
         dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord::class,
         MessageV2::class,
@@ -56,7 +60,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 33,
+    version = 34,
     exportSchema = true
 )
 @TypeConverters(
@@ -67,6 +71,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
+    abstract fun amazonDao(): dev.chungjungsoo.gptmobile.data.amazon.AmazonDao
     abstract fun workspaceDao(): dev.chungjungsoo.gptmobile.data.workspace.WorkspaceDao
     abstract fun memoryGraphDao(): dev.chungjungsoo.gptmobile.data.memory.MemoryGraphDao
     abstract fun toolApprovalDao(): dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalDao

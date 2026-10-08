@@ -35,8 +35,63 @@ import org.robolectric.annotation.Config
 class NativeMarketplaceTest {
     @get:Rule val files = TemporaryFolder()
     private val vault = MemoryVault()
-    private fun entry(provider: String) = GitHubMarketplaceCatalog.packages.single { it.provider == provider }
+    private fun entry(provider: String) = (GitHubMarketplaceCatalog.packages + GitHubMarketplaceCatalog.legacyPackages).single { it.provider == provider }
     private fun registry(file: File = File(files.root, "plugins.json")) = NativeMarketplaceRegistry(file, vault)
+
+    @Test fun legacyOpenStreetMapInstallationsBecomeOneDurableServiceWithTheirChoicesPreserved() = runBlocking {
+        val file = File(files.root, "plugins.json")
+        file.writeText(
+            kotlinx.serialization.json.Json.encodeToString(
+                kotlinx.serialization.serializer<Map<String, NativePluginInstallation>>(),
+                mapOf(
+                    "optional-nominatim" to NativePluginInstallation(enabled = false, endpoint = "https://maps.example/search", maxResults = 5, dailyLimit = 25, usageDay = "2026-10-07", usageCount = 3),
+                    "optional-overpass" to NativePluginInstallation(enabled = true, endpoint = "https://maps.example/interpreter", usageDay = "2026-10-07", usageCount = 4, nextRequestAt = 1234)
+                )
+            )
+        )
+        val record = registry(file).load().getValue("optional-openstreetmap")
+        assertEquals(setOf("geocode", "restrooms"), record.endpoints.keys)
+        assertEquals(setOf("geocode"), record.disabledOperations)
+        assertTrue(record.enabled)
+        assertEquals(5, record.maxResults)
+        assertEquals(25, record.dailyLimit)
+        assertEquals(7, record.usageCount)
+        assertEquals(1234L, record.nextRequestAt)
+        val reloaded = registry(file).load()
+        assertEquals(setOf("optional-openstreetmap"), reloaded.keys)
+        assertEquals(record, reloaded.getValue("optional-openstreetmap"))
+        registry(file).uninstall(entry("openstreetmap"))
+        assertTrue(registry(file).load().isEmpty())
+    }
+
+    @Test fun openStreetMapBundleRoutesEachCapabilityToItsOwnEndpoint() = runBlocking {
+        val entry = entry("openstreetmap")
+        val registry = registry()
+        registry.install(entry)
+        assertTrue(runCatching { registry.setEnabled(entry, true) }.isFailure)
+        registry.configure(entry, "", "", 5, 25, endpoints = mapOf("geocode" to "https://maps.example/search", "restrooms" to "https://maps.example/interpreter"))
+        registry.setEnabled(entry, true)
+        val config = registry.configuration(entry)
+        val geocode = NativeMarketplaceRequests.build(entry, "geocode", buildJsonObject { put("query", "Toronto") }, config)
+        val restrooms = NativeMarketplaceRequests.build(
+            entry,
+            "restrooms",
+            buildJsonObject {
+                put("latitude", 43.65)
+                put("longitude", -79.38)
+            },
+            config
+        )
+        assertEquals("/search", geocode.url.encodedPath)
+        assertEquals("Toronto", geocode.url.queryParameter("q"))
+        assertEquals("/interpreter", restrooms.url.encodedPath)
+        assertEquals("POST", restrooms.method)
+        assertEquals(null, geocode.header("Authorization"))
+        assertEquals(null, restrooms.header("Authorization"))
+        assertEquals(2, NativeMarketplaceCatalog.definitions(entry).size)
+        val off = config.copy(installation = config.installation.copy(disabledOperations = setOf("geocode")))
+        assertTrue(runCatching { NativeMarketplaceRequests.build(entry, "geocode", buildJsonObject { put("query", "Toronto") }, off) }.isFailure)
+    }
 
     @Test fun noKeyInstallPersistsAndExistingToolStopsAfterDisableAndUninstall() = runBlocking {
         val entry = entry("refuge")
@@ -186,7 +241,7 @@ class NativeMarketplaceTest {
     }
 
     @Test fun everyNativeAdapterHasSchemaRequestAndCorrectAuth() {
-        val entries = GitHubMarketplaceCatalog.packages.filter { it.runtime == MarketplaceRuntime.NATIVE }
+        val entries = (GitHubMarketplaceCatalog.packages + GitHubMarketplaceCatalog.legacyPackages).filter { it.runtime == MarketplaceRuntime.NATIVE }
         assertEquals(NativeMarketplaceCatalog.operations.keys, entries.map { it.provider }.toSet())
         entries.forEach { entry ->
             NativeMarketplaceCatalog.operations.getValue(entry.provider).forEach { (operation, fields) ->
@@ -202,7 +257,7 @@ class NativeMarketplaceTest {
                     }
                 }
                 val key = if (NativeMarketplaceCatalog.requiresKey(entry)) "test-key" else ""
-                val config = NativeProviderConfiguration(NativePluginInstallation(endpoint = "https://managed.example/search"), key)
+                val config = NativeProviderConfiguration(NativePluginInstallation(endpoint = "https://managed.example/search", endpoints = mapOf("geocode" to "https://managed.example/search", "restrooms" to "https://managed.example/interpreter")), key)
                 val request = NativeMarketplaceRequests.build(entry, operation, args, config)
                 assertTrue(request.url.isHttps)
                 assertTrue(NativeMarketplaceCatalog.definitions(entry).any { it.name.endsWith("__$operation") })

@@ -134,9 +134,9 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
         "brave" -> R.drawable.ic_brave
         else -> null
     }
-    if (drawable != null) return ServiceBrand(iconResId = drawable, brandColor = Color.Unspecified, containerColor = Color.White)
+    if (drawable != null) return ServiceBrand(iconResId = drawable, brandColor = MaterialTheme.colorScheme.primary, containerColor = MaterialTheme.colorScheme.primaryContainer)
     val icon = when {
-        iconName == "location" -> Icons.Rounded.TravelExplore
+        iconName in setOf("location", "refuge", "toronto", "arcgis", "tomtom", "openrouteservice") -> Icons.Rounded.TravelExplore
         iconName == "folder" -> Icons.Rounded.Folder
         category == McpCategory.SEARCH -> Icons.Rounded.Search
         category == McpCategory.DEVELOPMENT -> Icons.Rounded.Code
@@ -519,7 +519,7 @@ fun PricingIcon(pricing: McpPricingType, modifier: Modifier = Modifier.size(16.d
 fun ServiceIcon(iconName: String, category: McpCategory, modifier: Modifier = Modifier) {
     val brand = getServiceBrand(iconName, category)
     Box(modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(brand.containerColor), contentAlignment = Alignment.Center) {
-        brand.iconResId?.let { Icon(painterResource(it), null, tint = Color.Unspecified, modifier = Modifier.size(28.dp)) }
+        brand.iconResId?.let { Icon(painterResource(it), null, tint = brand.brandColor, modifier = Modifier.size(28.dp)) }
             ?: Icon(brand.iconVector ?: Icons.Rounded.Extension, null, tint = brand.brandColor, modifier = Modifier.size(28.dp))
     }
 }
@@ -672,7 +672,7 @@ fun McpPresetConfigureDialog(
     val validEndpoint = ToolConnectionsViewModel.isValidMcpEndpoint(actualEndpoint, cleartext) && preset.hasRequiredEndpointParameters(actualEndpoint)
     val needsKey = auth == ToolConnectionAuthType.BEARER
     val validKey = !needsKey || NativeMarketplaceCatalog.validKey(credential.trim())
-    val requiredColors = OutlinedTextFieldDefaults.colors(errorBorderColor = Color(0xFFFF5252), errorLabelColor = Color(0xFFFF5252), errorSupportingTextColor = Color(0xFFFF5252), errorCursorColor = Color(0xFFFF5252))
+    val requiredColors = OutlinedTextFieldDefaults.colors(errorBorderColor = MaterialTheme.colorScheme.error, errorLabelColor = MaterialTheme.colorScheme.error, errorSupportingTextColor = MaterialTheme.colorScheme.error, errorCursorColor = MaterialTheme.colorScheme.error)
     val canSave = name.isNotBlank() && validAlias && validEndpoint && validKey
     Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth(.95f).padding(8.dp), shape = RoundedCornerShape(24.dp), tonalElevation = 6.dp) {

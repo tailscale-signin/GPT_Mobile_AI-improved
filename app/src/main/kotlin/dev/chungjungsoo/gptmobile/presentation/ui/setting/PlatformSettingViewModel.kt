@@ -69,13 +69,15 @@ class PlatformSettingViewModel @Inject constructor(
     private val openRouterCreditsRepository: OpenRouterCreditsRepository = OpenRouterCreditsRepository(),
     private val ollamaServerRepository: OllamaServerRepository = OllamaServerRepository(),
     savedStateHandle: SavedStateHandle,
-    private val freeToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
+    private val freeToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
+    private val nativeMarketplaceRegistry: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
 
     val platformUid: String = checkNotNull(savedStateHandle["platformUid"])
 
     val featureSettings = settingRepository.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
+    val pluginInstallations: StateFlow<Map<String, dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation>> = nativeMarketplaceRegistry?.state ?: MutableStateFlow(emptyMap())
     private val behaviorMutex = kotlinx.coroutines.sync.Mutex()
 
     fun updateProfileBehavior(value: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings) {
@@ -84,6 +86,51 @@ class PlatformSettingViewModel @Inject constructor(
             try {
                 val current = settingRepository.getFeatureSettings()
                 settingRepository.updateFeatureSettings(current.copy(profileBehavior = current.profileBehavior + (platformUid to value.normalized())))
+            } finally {
+                behaviorMutex.unlock()
+            }
+        }
+    }
+
+    fun setProfileServiceEnabled(serviceId: String, enabled: Boolean, mcpConnectionUids: Set<String> = emptySet()) {
+        viewModelScope.launch {
+            behaviorMutex.lock()
+            try {
+                val latest = settingRepository.getFeatureSettings()
+                if (enabled) check(latest.isToolPluginEnabled(serviceId)) { "Enable the service in Plugins & Tools first." }
+                if (enabled && mcpConnectionUids.isNotEmpty()) {
+                    val bindings = toolConnectionRepository.listBindingsByProfile(platformUid)
+                    val connections = toolConnectionRepository.listConnections()
+                    val selected = bindings.mapNotNull { binding ->
+                        binding.connectionUid?.takeIf { uid -> connections.any { it.connectionUid == uid && it.type == ToolConnectionType.MCP } }
+                            ?.let { ToolBindingSelection(it, binding.toolName) }
+                    }.toMutableSet()
+                    val freeProfile = platformState.value?.compatibleType == ClientType.FREE
+                    if (!freeProfile) {
+                        connections.filter { it.connectionUid in mcpConnectionUids && it.type == ToolConnectionType.MCP }.forEach { connection ->
+                            if (selected.none { it.connectionUid == connection.connectionUid } && latest.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(connection.connectionUid))) {
+                                agentToolResolver.discoverMcpTools(connection).forEach { selected += ToolBindingSelection(connection.connectionUid, it.name) }
+                            }
+                        }
+                        toolConnectionRepository.replaceMcpToolBindings(platformUid, selected.toList())
+                        _toolBindingState.update { it.copy(selectedMcpTools = selected) }
+                    }
+                }
+                val searchConnections = _toolBindingState.value.connections.filter {
+                    it.type in WEB_SEARCH_TYPES && (dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(it).id == serviceId || dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(it.connectionUid) == serviceId)
+                }
+                if (enabled && searchConnections.isNotEmpty()) {
+                    val selected = _toolBindingState.value.selectedSearchConnectionUids + searchConnections.map { it.connectionUid }
+                    toolConnectionRepository.replaceWebSearchBindings(platformUid, selected)
+                    _toolBindingState.update { it.copy(selectedSearchConnectionUids = selected) }
+                }
+                // Read fresh after discovery so asynchronous settings changes are retained.
+                val current = settingRepository.getFeatureSettings()
+                settingRepository.updateFeatureSettings(current.withProfileToolPluginEnabled(platformUid, serviceId, enabled))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showToolError(error)
             } finally {
                 behaviorMutex.unlock()
             }
@@ -254,6 +301,7 @@ class PlatformSettingViewModel @Inject constructor(
     fun loadToolBindings() {
         viewModelScope.launch {
             runCatching {
+                nativeMarketplaceRegistry?.load()
                 val connections = toolConnectionRepository.listConnections()
                 val bindings = toolConnectionRepository.listBindingsByProfile(platformUid)
                 val mcpConnections = connections.filter { it.type == ToolConnectionType.MCP }
@@ -261,6 +309,7 @@ class PlatformSettingViewModel @Inject constructor(
                 val searchConnections = connections.filter { it.type in WEB_SEARCH_TYPES }
                 val searchConnectionUids = searchConnections.map { it.connectionUid }.toSet()
                 ToolBindingState(
+                    connections = connections,
                     searchConnections = searchConnections,
                     selectedSearchConnectionUids = bindings.filter {
                         it.toolName == WEB_SEARCH_TOOL && it.connectionUid in searchConnectionUids
@@ -858,15 +907,31 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
-    fun saveMcpTools() {
-        saveMcpToolSelections()
+    fun saveMcpTools() = saveMcpToolSelections()
+
+    fun saveMcpTools(onSaved: () -> Unit) {
+        saveMcpToolSelections(onSaved)
     }
 
-    fun saveMcpToolSelections() {
+    fun saveMcpToolSelections(onSaved: () -> Unit = {}) {
         val selections = _toolBindingState.value.pendingMcpTools
         viewModelScope.launch {
             runCatching {
                 toolConnectionRepository.replaceMcpToolBindings(platformUid, selections.toList())
+                behaviorMutex.lock()
+                try {
+                    val latest = settingRepository.getFeatureSettings()
+                    val connections = toolConnectionRepository.listConnections().associateBy { it.connectionUid }
+                    val identities = selections.flatMap { selection ->
+                        listOfNotNull(
+                            connections[selection.connectionUid]?.let { dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(it).id },
+                            dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(selection.connectionUid)
+                        )
+                    }.toSet()
+                    settingRepository.updateFeatureSettings(identities.fold(latest) { settings, id -> settings.withProfileToolPluginEnabled(platformUid, id, true) })
+                } finally {
+                    behaviorMutex.unlock()
+                }
             }
                 .onSuccess {
                     _toolBindingState.update {
@@ -877,6 +942,7 @@ class PlatformSettingViewModel @Inject constructor(
                             errorMessage = null
                         )
                     }
+                    onSaved()
                 }
                 .onFailure(::showToolError)
         }
@@ -907,6 +973,7 @@ class PlatformSettingViewModel @Inject constructor(
     )
 
     data class ToolBindingState(
+        val connections: List<ToolConnection> = emptyList(),
         val searchConnections: List<ToolConnection> = emptyList(),
         val selectedSearchConnectionUids: Set<String> = emptySet(),
         val readUrlEnabled: Boolean = false,

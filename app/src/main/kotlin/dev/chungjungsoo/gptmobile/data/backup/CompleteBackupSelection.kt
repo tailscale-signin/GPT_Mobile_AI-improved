@@ -12,7 +12,8 @@ enum class CompleteBackupSection {
     MEMORY,
     LOCAL_MODELS,
     ATTACHMENTS,
-    AGENT_HISTORY
+    AGENT_HISTORY,
+    AMAZON_DATA
 }
 
 @Serializable
@@ -51,7 +52,8 @@ data class CompleteBackupSelection(
             CompleteBackupSection.TOOLS,
             CompleteBackupSection.LOCAL_MODELS,
             CompleteBackupSection.ATTACHMENTS,
-            CompleteBackupSection.AGENT_HISTORY
+            CompleteBackupSection.AGENT_HISTORY,
+            CompleteBackupSection.AMAZON_DATA
         )
         val ALL = CompleteBackupSelection(CompleteBackupSection.entries.toSet())
     }

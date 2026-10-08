@@ -15,7 +15,7 @@ internal object CompleteBackupDatabase {
                 source.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search_%' AND name NOT LIKE 'knowledge_chunks_fts%' AND name NOT LIKE 'memory_graph_fts%'").use { cursor ->
                     while (cursor.moveToNext()) copy.execSQL(cursor.getString(0))
                 }
-                tables(source, includeMetadata = true).forEach { table ->
+                tables(source, includeMetadata = true).filterNot { it in AMAZON_OPERATIONAL }.forEach { table ->
                     source.query("SELECT * FROM ${quote(table)}").use { rows -> copyRows(table, rows) { sql, values -> copy.execSQL(sql, values) } }
                 }
                 source.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL").use { cursor ->
@@ -77,7 +77,7 @@ internal object CompleteBackupDatabase {
 
     fun restore(source: SupportSQLiteDatabase, destination: SupportSQLiteDatabase) {
         validate(source, destination)
-        val order = dependencyOrder(destination)
+        val order = dependencyOrder(destination).filterNot { it in AMAZON_OPERATIONAL }
         order.asReversed().forEach { destination.execSQL("DELETE FROM ${quote(it)}") }
         order.forEach { table ->
             copyCompatibleRows(source, destination, table)
@@ -86,6 +86,8 @@ internal object CompleteBackupDatabase {
         source.query("SELECT name, seq FROM sqlite_sequence").use { rows ->
             copyRows("sqlite_sequence", rows) { sql, values -> destination.execSQL(sql, values) }
         }
+        if ("amazon_check_events" in tables(destination)) destination.execSQL("DELETE FROM amazon_check_events")
+        pauseRestoredAmazon(destination)
         // History is portable; active jobs must never be replayed by service recovery.
         if ("agent_runs" in tables(destination)) destination.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING')")
         if ("tool_events" in tables(destination)) destination.execSQL("UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' WHERE status IN ('PENDING', 'RUNNING')")
@@ -155,7 +157,19 @@ internal object CompleteBackupDatabase {
                     "WHERE status IN ('PENDING', 'RUNNING')"
             )
         }
+        if (CompleteBackupSection.AMAZON_DATA in selection.sections) {
+            destination.execSQL("DELETE FROM amazon_check_events")
+            pauseRestoredAmazon(destination)
+        }
         rebuildSearch(destination)
+    }
+
+    private val AMAZON_OPERATIONAL = setOf("amazon_request_budget", "amazon_check_events")
+
+    private fun pauseRestoredAmazon(database: SupportSQLiteDatabase) {
+        if ("amazon_watches" !in tables(database)) return
+        database.execSQL("UPDATE amazon_watches SET state = 'PAUSED', generation = generation + 1, lastAttemptAt = NULL, lastSuccessAt = NULL, lastOutcome = 'BACKUP_RESTORED'")
+        if ("platform_v2" in tables(database)) database.execSQL("UPDATE amazon_watches SET state = 'ORPHANED' WHERE ownerProfileUid NOT IN (SELECT uid FROM platform_v2)")
     }
 
     private fun rebuildSearch(database: SupportSQLiteDatabase) {
@@ -189,6 +203,10 @@ internal object CompleteBackupDatabase {
                 add("tool_events")
                 add("tool_approvals")
                 add("model_invocations")
+            }
+            if (CompleteBackupSection.AMAZON_DATA in sections) {
+                add("amazon_observations")
+                add("amazon_watches")
             }
             if (CompleteBackupSection.SETTINGS in sections) {
                 // The queue cache is optional operational state, but keeping it with app

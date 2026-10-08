@@ -55,9 +55,11 @@ object NativeMarketplaceRequests {
                 }
                 "https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/" + if (operation == "datasets") "package_search" else "datastore_search"
             }
-            "nominatim", "overpass" -> {
-                require(NativeMarketplaceCatalog.validEndpoint(config.installation.endpoint)) { "Managed/self-hosted HTTPS endpoint required." }
-                if (entry.provider == "nominatim") {
+            "openstreetmap", "nominatim", "overpass" -> {
+                check(operation !in config.installation.disabledOperations) { "This capability is disabled." }
+                val osmEndpoint = if (entry.provider == "openstreetmap") config.installation.endpoints[operation].orEmpty() else config.installation.endpoint
+                require(NativeMarketplaceCatalog.validEndpoint(osmEndpoint)) { "Managed/self-hosted HTTPS endpoint required." }
+                if (operation == "geocode") {
                     parameters.putAll(mapOf("q" to query, "format" to "jsonv2", "limit" to minOf(count.toInt(), 5).toString()))
                 } else {
                     val lat = text("latitude")
@@ -65,7 +67,7 @@ object NativeMarketplaceRequests {
                     val overpass = "[out:json][timeout:15];(nwr(around:1500,$lat,$lon)[amenity=toilets];nwr(around:1500,$lat,$lon)[toilets=yes];);out center tags 50;"
                     body = FormBody.Builder().add("data", overpass).build()
                 }
-                config.installation.endpoint
+                osmEndpoint
             }
             "ticketmaster" -> {
                 parameters.putAll(mapOf("apikey" to key, "keyword" to query, "city" to text("location"), "size" to count))

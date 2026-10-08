@@ -48,6 +48,7 @@ internal fun PluginConfigurationDialog(
     var config by remember(id) { mutableStateOf(features.pluginExecution[id] ?: (if (isAmazon) features.pluginExecution[ToolPluginId.AMAZON_SEARCH] else null) ?: PluginExecutionSettings()) }
     var options by remember(id) { mutableStateOf(features) }
     var marketplaceMenu by remember(id) { mutableStateOf(false) }
+    val nativeAmazon = id == ToolPluginId.AMAZON_FREE
     val validZone = config.timeZone.isBlank() || runCatching { java.time.ZoneId.of(config.timeZone) }.isSuccess
     AlertDialog(
         icon = { Icon(Icons.Rounded.Tune, null, tint = MaterialTheme.colorScheme.primary) },
@@ -56,12 +57,13 @@ internal fun PluginConfigurationDialog(
         text = {
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SettingsHero("Plugin controls", name, "")
-                if (isAmazon) {
+                if (isAmazon || nativeAmazon) {
                     SettingsPanel("Amazon products") {
                         Column {
                             TextButton(onClick = { marketplaceMenu = true }) { Text("Marketplace · ${config.amazonMarketplace}") }
                             DropdownMenu(expanded = marketplaceMenu, onDismissRequest = { marketplaceMenu = false }) {
-                                AmazonProducts.marketplaces.forEach { (domain, country) ->
+                                val markets = if (nativeAmazon) dev.chungjungsoo.gptmobile.data.amazon.AmazonFreeMarket.entries.associate { it.domain to it.label } else AmazonProducts.marketplaces
+                                markets.forEach { (domain, country) ->
                                     DropdownMenuItem(text = { Text("$country · $domain") }, onClick = {
                                         config = config.copy(amazonMarketplace = domain)
                                         marketplaceMenu = false
@@ -71,9 +73,14 @@ internal fun PluginConfigurationDialog(
                         }
                         PluginSlider("Products per search", config.searchResults, 1..10) { config = config.copy(searchResults = it) }
                         PluginSwitch("Include sponsored products", config.amazonIncludeSponsored) { config = config.copy(amazonIncludeSponsored = it) }
-                        PluginSwitch("Always request fresh prices", config.amazonFreshPrices) { config = config.copy(amazonFreshPrices = it) }
-                        Text("SerpApi searches use your provider allowance. Fresh requests bypass its cache. Prices and availability may change at checkout.", style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = onConnection) { Text("API key & connection test") }
+                        if (nativeAmazon) {
+                            PluginSlider("Daily requests", config.amazonDailyRequests, 1..100) { config = config.copy(amazonDailyRequests = it) }
+                            Text("No API key required. Every lookup reads a public page; failed attempts and redirects count toward your UTC daily allowance. Requests are spaced by at least five seconds. Blocked pages enter a cooldown. Prices and availability may change at checkout.", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            PluginSwitch("Always request fresh prices", config.amazonFreshPrices) { config = config.copy(amazonFreshPrices = it) }
+                            Text("SerpApi searches use your provider allowance. Fresh requests bypass its cache. Prices and availability may change at checkout.", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = onConnection) { Text("API key & connection test") }
+                        }
                     }
                 }
                 if (id == ToolPluginId.GITHUB) {

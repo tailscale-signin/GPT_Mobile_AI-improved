@@ -295,5 +295,61 @@
     "license": "Upstream project logo; see repository license. Trademarks remain with their owners.",
     "file": "app/src/main/res/drawable/mcp_brand_dbhub.xml",
     "sha256": "819bfe54baa980710d155456f3c548fa8d80d4ae6ede958554feb1b9712976eb"
+  },
+  "amazon": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/amazon.svg",
+    "brandSource": "https://www.amazon.com",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset is tinted with the selected app theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_amazon.xml",
+    "sha256": "ab55ba2e1946959a9a7a51e8746658774018e296800a3142091bab6f32d888c7"
+  },
+  "openstreetmap": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/openstreetmap.svg",
+    "brandSource": "https://wiki.openstreetmap.org/wiki/Logos",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset is tinted with the selected app theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_openstreetmap.xml",
+    "sha256": "4ad09934d8766a279d5438dac886ca29477ad13e3ba2f4441cf583327b3829f4"
+  },
+  "yelp": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/yelp.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset follows the selected theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_yelp.xml",
+    "sha256": "8d3b84501af453b137963f294dba0f6d262f9ac04e0cc9fb22c6020374ff27f4"
+  },
+  "foursquare": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/foursquare.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset follows the selected theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_foursquare.xml",
+    "sha256": "432f13f7b3e007fb0c8fbff445c145ffd5eef2816a9b70431fab644136c85fe3"
+  },
+  "eventbrite": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/eventbrite.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset follows the selected theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_eventbrite.xml",
+    "sha256": "c475c03effa12842834f5e0443ed6903218a215b7d4c3917f81ab83da93342c2"
+  },
+  "mapbox": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/mapbox.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset follows the selected theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_mapbox.xml",
+    "sha256": "b4be59436ac7cbecde07caea2a9ed6b1a59a6b2cbfcd5089a54b4456390184c6"
+  },
+  "arcgis": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/arcgis.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset follows the selected theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_arcgis.xml",
+    "sha256": "fb4a5d50c3bfcadcd3a6f182818ca891f9bbc4fe52d7c32ae0e43986fa959e49"
+  },
+  "ticketmaster": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.10.0/icons/ticketmaster.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners. Monochrome asset follows the selected theme.",
+    "file": "app/src/main/res/drawable/mcp_brand_ticketmaster.xml",
+    "sha256": "47d8dfb1b3fd2e2bac095794cc4462d158f91cea9891d7ce88cfbde4a99d4503"
   }
 }

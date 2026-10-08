@@ -13,6 +13,7 @@ datastore = "1.2.1"
 hilt = "2.60.1"
 ksp = "2.3.12"
 ktor = "3.6.0"
+jsoup = "1.23.2"
 material3 = "1.4.0"
 androidxHilt = "1.4.0"
 navigation = "2.10.2"
@@ -85,6 +86,8 @@ ktor-content-negotiation = { group = "io.ktor", name = "ktor-client-content-nego
 ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 ktor-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-encoding = { group = "io.ktor", name = "ktor-client-encoding", version.ref = "ktor" }
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 ktor-logging = { group = "io.ktor", name = "ktor-client-logging-jvm", version.ref = "ktor" }
 ktor-serialization = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }

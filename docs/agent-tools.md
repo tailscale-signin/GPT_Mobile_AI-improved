@@ -4,13 +4,15 @@ GPT Mobile upgrades each existing provider profile into an optional on-device ag
 
 ## Set up a profile
 
-1. Open **Settings → Tool connections**.
+1. Open **Settings → Plugins & Tools**. Services are grouped by provider; use search, filters, sorting and expandable cards to configure or disable them.
 2. Add a Firecrawl, Perplexity, or Exa search connection, or add an MCP server that uses Streamable HTTP.
 3. For MCP, choose public access, a bearer token, or OAuth. Cleartext HTTP can be approved for any MCP endpoint; it is unencrypted, so credentials and tool data could be intercepted.
-4. Open a provider profile and select **Tools**. Assign one search backend, built-in tools (`read_url`, `calculate_expression`), and any discovered MCP tools you want that profile to use.
+4. Open **AI → Profile → Tools**. Enable the services this profile should use, choose search providers, and select individual MCP tools. Each profile has independent service, connection and native capability switches. Global switches take precedence; Amazon requires explicit opt-in globally and for each profile.
 5. Start or continue a chat normally.
 
-Assigned tools execute without a confirmation prompt and remain visible in the chat timeline. Newly discovered MCP tools stay disabled until you assign them.
+Assigned tools follow the existing approval policies and remain visible in the chat timeline. Newly discovered MCP tools stay disabled until you assign them individually or enable their whole service for the profile.
+
+Plugins execute in the app (some call provider APIs). MCP tools execute on a connected remote server. Related tools appear under one service, including both OpenStreetMap geocoding and restroom search in one install.
 
 When several profiles are selected, GPT Mobile runs one independent agent for each profile. You can leave the chat while they run, follow progress from the foreground notification, or cancel all active profile runs. Cancellation keeps partial text and the tool trace. A process restart marks unfinished runs as interrupted and never replays their tools.
 
@@ -47,3 +49,7 @@ Models or endpoints that reject native tool definitions fall back once to chat-o
 ## Contributor guidelines
 
 See [GitHub MCP integration guidelines](./github-mcp-integration-guidelines.md) for the engineering practices required when adding or modifying MCP client code (tool discovery, credential handling, timeout/retry behavior, output limits) in this repo.
+
+See [Plugin services and remote MCP tools](plugin-services.md) for provider grouping,
+OpenStreetMap migration, setup and profile selection. Amazon's optional Jan Nafta
+provider has a separate [host setup guide](../mcp/amazon/README.md).

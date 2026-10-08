@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonFetchResult
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -20,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
@@ -46,11 +49,51 @@ import org.junit.Test
 
 class AgentToolResolverTest {
     @Test
+    fun localAmazonToolsRemainAvailableWithRemoteToolsDisabledAndRespectLocalDisable() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Research", disableRemoteTools = true)
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings().withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.AMAZON_FREE, true)
+        val history = mockk<dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository>()
+        val settings = ResolverFakeSettingRepository(listOf(profile), features)
+        val access = dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy(settings)
+        val local = resolver(settings = settings, history = history, access = access).resolve(profile.uid).filter { it.modelToolName in AmazonLocalTool.names }
+        assertEquals(AmazonLocalTool.names, local.map { it.modelToolName }.toSet())
+        assertTrue(local.all { !it.shareableReadOnly && it.connectionUid == null })
+        val blocked = resolver(settings = ResolverFakeSettingRepository(listOf(profile.copy(disableLocalTools = true)), features), history = history, access = access).resolve(profile.uid)
+        assertFalse(blocked.any { it.modelToolName in AmazonLocalTool.names })
+    }
+
+    @Test
+    fun nativeAmazonRequiresIndependentGlobalAndProfileGrantsAndHonorsRemoteDisable() = runBlocking {
+        val provider = mockk<AmazonHtmlProvider>()
+        val profile = PlatformV2(uid = "profile", name = "Research")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        assertFalse(resolver(settings = settings, amazonFree = provider).resolve(profile.uid).any { it.modelToolName in AmazonNativeTool.names })
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true)
+        assertFalse(resolver(settings = settings, amazonFree = provider).resolve(profile.uid).any { it.modelToolName in AmazonNativeTool.names })
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, ToolPluginId.AMAZON_FREE, true).copy(remoteMcpConnections = false)
+        val native = resolver(settings = settings, amazonFree = provider).resolve(profile.uid).filter { it.modelToolName in AmazonNativeTool.names }
+        assertEquals(AmazonNativeTool.names, native.map { it.modelToolName }.toSet())
+        assertEquals(setOf("amazon_search", "amazon_get_products"), native.map { it.realToolName }.toSet())
+        assertTrue(native.all { !it.shareableReadOnly && it.isAmazonProductTool() })
+        assertFalse(settings.features.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH))
+        coEvery { provider.search(any(), any()) } returns AmazonFetchResult(emptyList())
+        val search = native.single { it.modelToolName == AmazonNativeTool.SEARCH }.tool
+        assertFalse(search.execute("read", buildJsonObject { put("query", "audio") }).isError)
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_FREE, false)
+        assertTrue(search.execute("revoked", buildJsonObject { put("query", "audio") }).isError)
+        val granted = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true)
+        for (blocked in listOf(profile.copy(disableRemoteTools = true), profile.copy(disableAllTools = true), profile.copy(enabled = false))) {
+            val result = resolver(settings = ResolverFakeSettingRepository(listOf(blocked), granted), amazonFree = provider).resolve(profile.uid)
+            assertFalse(result.any { it.modelToolName in AmazonNativeTool.names })
+        }
+    }
+
+    @Test
     fun `installed enabled native adapters join conversation tools and respect disable switches`() = runBlocking {
         val registry = mockk<NativeMarketplaceRegistry>()
         val records = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages
             .filter { dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.supports(it) }
-            .associate { it.id to NativePluginInstallation(enabled = true, endpoint = "https://managed.example/search", credentialRef = "saved") }
+            .associate { it.id to NativePluginInstallation(enabled = true, endpoint = "https://managed.example/search", credentialRef = "saved", endpoints = mapOf("geocode" to "https://managed.example/search", "restrooms" to "https://managed.example/interpreter")) }
         coEvery { registry.load() } returns records
         val client = mockk<NativeMarketplaceClient>()
         val resolver = resolver(nativeRegistry = registry, nativeClient = client)
@@ -72,13 +115,13 @@ class AgentToolResolverTest {
     fun `Amazon tools are available without bindings and respect plugin and chat switches`() = runBlocking {
         val dao = ResolverFakeToolConnectionDao()
         dao.upsertConnection(connection("shopping", ToolConnectionType.AMAZON_SERPAPI))
-        val tools = resolver(dao = dao).resolve("profile").filter { it.connectionUid == "shopping" }
+        val tools = resolver(dao = dao, settings = ResolverFakeSettingRepository(features = amazonEnabled())).resolve("profile").filter { it.connectionUid == "shopping" }
         assertEquals(setOf("amazon_search__shopping", "amazon_get_products__shopping"), tools.map { it.modelToolName }.toSet())
         assertTrue(tools.all { it.shareableReadOnly && !it.isWebSearchEngine() })
-        assertFalse(resolver(dao = dao).resolve("profile", ChatMcpToolConfig(allowAllByDefault = true).withToolDisabled("shopping")).any { it.connectionUid == "shopping" })
+        assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(features = amazonEnabled())).resolve("profile", ChatMcpToolConfig(allowAllByDefault = true).withToolDisabled("shopping")).any { it.connectionUid == "shopping" })
         val disabled = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(toolPluginStates = mapOf(ToolPluginId.AMAZON_SEARCH to false))
         assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(features = disabled)).resolve("profile").any { it.connectionUid == "shopping" })
-        val disabledConnection = disabled.copy(toolPluginStates = mapOf(ToolPluginId.connection("shopping") to false))
+        val disabledConnection = amazonEnabled().withToolPluginEnabled(ToolPluginId.connection("shopping"), false)
         assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(features = disabledConnection)).resolve("profile").any { it.connectionUid == "shopping" })
     }
 
@@ -87,8 +130,8 @@ class AgentToolResolverTest {
         val dao = ResolverFakeToolConnectionDao()
         dao.upsertConnection(connection("shopping", ToolConnectionType.AMAZON_SERPAPI))
         val profile = PlatformV2(uid = "profile", name = "Local only", disableRemoteTools = true)
-        assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile))).resolve(profile.uid).any { it.connectionUid == "shopping" })
-        val tool = resolver(dao = dao).resolve("profile").single { it.realToolName == AmazonSearchTool.SEARCH }
+        assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile), amazonEnabled())).resolve(profile.uid).any { it.connectionUid == "shopping" })
+        val tool = resolver(dao = dao, settings = ResolverFakeSettingRepository(features = amazonEnabled())).resolve("profile").single { it.realToolName == AmazonSearchTool.SEARCH }
         val result = tool.tool.execute("missing-key", buildJsonObject { put("query", "headphones") })
         assertTrue(result.isError)
         assertTrue(result.content.toString().contains("SerpApi API key"))
@@ -723,6 +766,139 @@ class AgentToolResolverTest {
         }
     }
 
+    @Test
+    fun `Amazon remains absent until this profile explicitly opts in`() = runBlocking {
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("shopping", ToolConnectionType.AMAZON_SERPAPI))
+        val settings = ResolverFakeSettingRepository()
+        val resolver = resolver(dao = dao, settings = settings)
+        assertFalse(resolver.resolve("profile").any { it.connectionUid == "shopping" })
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, true)
+        assertFalse(resolver.resolve("profile").any { it.connectionUid == "shopping" })
+        settings.features = settings.features.withProfileToolPluginEnabled("profile", ToolPluginId.AMAZON_SEARCH, true)
+        assertEquals(2, resolver.resolve("profile").count { it.connectionUid == "shopping" })
+        assertFalse(resolver.resolve("other").any { it.connectionUid == "shopping" })
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, false)
+        assertFalse(resolver.resolve("profile").any { it.connectionUid == "shopping" })
+    }
+
+    @Test
+    fun `Jan Nafta tools require Amazon activation and independent profile consent`() = runBlocking {
+        val toolNames = listOf("search_products", "get_product", "get_price_history", "get_deals", "get_buy_link", "compare_marketplaces", "add_price_watch", "list_price_watches", "remove_price_watch")
+        val toolsResponse = "{\"tools\":[${toolNames.joinToString(",") { "{\"name\":\"$it\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}" }}]}"
+        McpClientManagerTest.McpFixtureServer(toolsResponse = toolsResponse).use { server ->
+            val dao = ResolverFakeToolConnectionDao()
+            val settings = ResolverFakeSettingRepository()
+            val connection = connection("amazon", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true)
+                .copy(name = "Amazon Search · Jan Nafta MCP", alias = "amazon_jannafta")
+            toolNames.forEach { name ->
+                dao.bind(connection, binding("one", "amazon", name))
+                dao.bind(connection, binding("two", "amazon", name))
+            }
+            val resolver = resolver(dao = dao, settings = settings)
+            assertFalse(resolver.resolve("one").any { it.connectionUid == "amazon" })
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, true)
+            assertFalse(resolver.resolve("one").any { it.connectionUid == "amazon" })
+            assertTrue(server.methods.isEmpty())
+
+            settings.features = settings.features.withProfileToolPluginEnabled("one", ToolPluginId.AMAZON_SEARCH, true)
+            val available = resolver.resolve("one").filter { it.connectionUid == "amazon" }
+            assertEquals(toolNames.toSet(), available.map { it.realToolName }.toSet())
+            assertTrue(available.all { it.tool.definition.description.contains(AmazonJanNaftaTool.MARKER) })
+            assertFalse(resolver.resolve("two").any { it.connectionUid == "amazon" })
+            val held = available.single { it.realToolName == "list_price_watches" }.tool
+
+            settings.features = settings.features.withProfileToolPluginEnabled("one", ToolPluginId.AMAZON_SEARCH, false)
+                .withProfileToolPluginEnabled("two", ToolPluginId.AMAZON_SEARCH, true)
+                .copy(pluginExecution = mapOf(ToolPluginId.AMAZON_SEARCH to PluginExecutionSettings(maxOutputCharacters = 1000)))
+            assertTrue(held.execute("profile-disabled", buildJsonObject { put("text", "watches") }).isError)
+            val other = resolver.resolve("two").single { it.realToolName == "list_price_watches" }.tool
+            assertEquals("watches", (other.execute("other-profile", buildJsonObject { put("text", "watches") }).content as ToolResultContent.Text).text)
+            val limited = (other.execute("bounded-history", buildJsonObject { put("text", "w".repeat(1500)) }).content as ToolResultContent.Text).text
+            assertTrue(limited.startsWith("w".repeat(1000)))
+            assertTrue(limited.length < 1500 && limited.contains("Output limited by this plugin's settings"))
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, false)
+            assertTrue(other.execute("globally-disabled", buildJsonObject { put("text", "watches") }).isError)
+            assertFalse(resolver.resolve("two").any { it.connectionUid == "amazon" })
+        }
+    }
+
+    @Test
+    fun `profile disables built in and bundled native tools independently`() = runBlocking {
+        val registry = mockk<NativeMarketplaceRegistry>()
+        val client = mockk<NativeMarketplaceClient>()
+        coEvery { registry.load() } returns mapOf(
+            "optional-openstreetmap" to NativePluginInstallation(
+                enabled = true,
+                endpoints = mapOf("geocode" to "https://maps.example/search", "restrooms" to "https://maps.example/interpreter")
+            )
+        )
+        val settings = ResolverFakeSettingRepository(
+            features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+                .withProfileToolPluginEnabled("one", ToolPluginId.CALCULATOR, false)
+                .withProfileToolPluginEnabled("one", ToolPluginId.nativeOperation("optional-openstreetmap", "geocode"), false)
+        )
+        val resolver = resolver(settings = settings, nativeRegistry = registry, nativeClient = client)
+        val first = resolver.resolve("one")
+        assertFalse(first.any { it.realToolName == "calculate_expression" || it.realToolName == "geocode" })
+        assertTrue(first.any { it.realToolName == "restrooms" })
+        val second = resolver.resolve("two")
+        assertTrue(second.any { it.realToolName == "calculate_expression" })
+        assertEquals(2, second.count { it.connectionUid == "optional-openstreetmap" })
+        assertFalse(resolver.resolve("two", ChatMcpToolConfig().withToolDisabled("optional-nominatim")).any { it.realToolName == "geocode" })
+        settings.features = settings.features.withProfileToolPluginEnabled("one", "service:openstreetmap", false)
+        assertFalse(resolver.resolve("one").any { it.connectionUid == "optional-openstreetmap" })
+        assertEquals(2, resolver.resolve("two").count { it.connectionUid == "optional-openstreetmap" })
+    }
+
+    @Test
+    fun `profile service switch blocks already resolved MCP calls and preserves another profile`() = runBlocking {
+        McpClientManagerTest.McpFixtureServer().use { server ->
+            val dao = ResolverFakeToolConnectionDao()
+            val settings = ResolverFakeSettingRepository()
+            val connection = connection("mcp-1", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true).copy(name = "Brave MCP")
+            dao.bind(connection, binding("one", "mcp-1", "echo"))
+            dao.bind(connection, binding("two", "mcp-1", "echo"))
+            val resolver = resolver(dao = dao, settings = settings)
+            val held = resolver.resolve("one").single { it.connectionUid == "mcp-1" }
+            settings.features = settings.features.withProfileToolPluginEnabled("one", "service:brave", false)
+            assertFalse(resolver.resolve("one").any { it.connectionUid == "mcp-1" })
+            assertTrue(held.tool.execute("disabled", buildJsonObject { put("text", "hello") }).isError)
+            val other = resolver.resolve("two").single { it.connectionUid == "mcp-1" }
+            assertFalse(other.tool.execute("allowed", buildJsonObject { put("text", "hello") }).isError)
+            settings.features = settings.features.withToolPluginEnabled("service:brave", false)
+            assertFalse(resolver.resolve("two").any { it.connectionUid == "mcp-1" })
+            assertTrue(other.tool.execute("global-off", buildJsonObject { put("text", "hello") }).isError)
+        }
+    }
+
+    @Test
+    fun `provider switches remain independent from similarly named built in plugins`() = runBlocking {
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+            .withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
+            .withToolPluginEnabled(ToolPluginId.READ_URL, false)
+        val settings = ResolverFakeSettingRepository(features = features)
+        val dao = ResolverFakeToolConnectionDao()
+        dao.bind(connection("search", ToolConnectionType.EXA), binding("profile", "search", "web_search"))
+        val resolver = resolver(dao = dao, settings = settings)
+        assertTrue(resolver.resolve("profile").any { it.connectionUid == "search" })
+        settings.features = features.withProfileToolPluginEnabled("profile", "service:exa", false)
+        assertFalse(resolver.resolve("profile").any { it.connectionUid == "search" })
+
+        McpClientManagerTest.McpFixtureServer(toolsResponse = """{"tools":[{"name":"read_url","description":"Read on the server","inputSchema":{"type":"object","properties":{}}}]}""").use { server ->
+            dao.bind(connection("reader", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true), binding("profile", "reader", "read_url"))
+            val tools = resolver.resolve("profile")
+            assertFalse(tools.any { it.modelToolName == "read_url" })
+            assertTrue(tools.any { it.modelToolName == "mcp__reader__read_url" })
+            settings.features = settings.features.withProfileToolPluginEnabled("profile", ToolPluginId.connection("reader"), false)
+            assertFalse(resolver.resolve("profile").any { it.connectionUid == "reader" })
+        }
+    }
+
+    private fun amazonEnabled() = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+        .withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, true)
+        .withProfileToolPluginEnabled("profile", ToolPluginId.AMAZON_SEARCH, true)
+
     private fun resolver(
         dao: ResolverFakeToolConnectionDao = ResolverFakeToolConnectionDao(),
         vault: ResolverFakeSecretVault = ResolverFakeSecretVault(),
@@ -730,7 +906,10 @@ class AgentToolResolverTest {
         facts: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
         consent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
         nativeRegistry: NativeMarketplaceRegistry? = null,
-        nativeClient: NativeMarketplaceClient? = null
+        nativeClient: NativeMarketplaceClient? = null,
+        amazonFree: AmazonHtmlProvider? = null,
+        history: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
+        access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -746,7 +925,10 @@ class AgentToolResolverTest {
             factVault = facts,
             freeModelToolConsentStore = consent,
             nativeMarketplaceRegistry = nativeRegistry,
-            nativeMarketplaceClient = nativeClient
+            nativeMarketplaceClient = nativeClient,
+            amazonFreeProvider = amazonFree,
+            amazonHistory = history,
+            amazonAccess = access
         )
     }
 
@@ -794,6 +976,7 @@ private class ResolverFakeSettingRepository(
     var features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
 ) : SettingRepository {
     override suspend fun getFeatureSettings() = features
+    override fun observeFeatureSettings(): Flow<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings> = flowOf(features)
 
     override suspend fun fetchProviderConnections(): List<ProviderConnection> = emptyList()
     override fun observeProviderConnections(): Flow<List<ProviderConnection>> = kotlinx.coroutines.flow.flowOf(emptyList())
@@ -805,7 +988,7 @@ private class ResolverFakeSettingRepository(
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
     override suspend fun fetchPlatformV2s(): List<PlatformV2> = profiles
     override fun observePlatformV2s(): Flow<List<PlatformV2>> = flowOf(emptyList())
-    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(null)
+    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(profiles.firstOrNull { it.uid == uid })
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
     override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) = Unit

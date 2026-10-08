@@ -334,6 +334,21 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_33_34 = object : Migration(33, 34) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `amazon_observations` (`id` TEXT NOT NULL, `ownerProfileUid` TEXT NOT NULL, `requestId` TEXT NOT NULL, `seriesKey` TEXT NOT NULL, `marketplace` TEXT NOT NULL, `asin` TEXT NOT NULL, `title` TEXT NOT NULL, `amount` TEXT NOT NULL, `currency` TEXT NOT NULL, `sourceType` TEXT NOT NULL, `observedAt` INTEGER NOT NULL, `priceBasis` TEXT NOT NULL, `contextQuality` TEXT NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_amazon_observations_ownerProfileUid_requestId_seriesKey` ON `amazon_observations` (`ownerProfileUid`, `requestId`, `seriesKey`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_amazon_observations_ownerProfileUid_marketplace_asin_observedAt` ON `amazon_observations` (`ownerProfileUid`, `marketplace`, `asin`, `observedAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_amazon_observations_seriesKey_observedAt` ON `amazon_observations` (`seriesKey`, `observedAt`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `amazon_watches` (`id` TEXT NOT NULL, `ownerProfileUid` TEXT NOT NULL, `marketplace` TEXT NOT NULL, `asin` TEXT NOT NULL, `targetAmount` TEXT NOT NULL, `currency` TEXT NOT NULL, `state` TEXT NOT NULL, `generation` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `lastAttemptAt` INTEGER, `lastSuccessAt` INTEGER, `lastOutcome` TEXT, `conditionPolicy` TEXT NOT NULL, `variantPolicy` TEXT NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_amazon_watches_ownerProfileUid_state` ON `amazon_watches` (`ownerProfileUid`, `state`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `amazon_check_events` (`id` TEXT NOT NULL, `ownerProfileUid` TEXT NOT NULL, `requestId` TEXT NOT NULL, `marketplace` TEXT NOT NULL, `asin` TEXT NOT NULL, `attemptedAt` INTEGER NOT NULL, `outcome` TEXT NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_amazon_check_events_ownerProfileUid_requestId_marketplace_asin` ON `amazon_check_events` (`ownerProfileUid`, `requestId`, `marketplace`, `asin`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_amazon_check_events_attemptedAt` ON `amazon_check_events` (`attemptedAt`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `amazon_request_budget` (`id` INTEGER NOT NULL, `stateJson` TEXT NOT NULL, PRIMARY KEY(`id`))")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -357,7 +372,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_29_30,
         MIGRATION_30_31,
         MIGRATION_31_32,
-        MIGRATION_32_33
+        MIGRATION_32_33,
+        MIGRATION_33_34
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

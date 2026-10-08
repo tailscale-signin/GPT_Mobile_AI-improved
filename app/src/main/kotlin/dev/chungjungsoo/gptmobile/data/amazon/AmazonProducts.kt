@@ -47,6 +47,21 @@ object AmazonProducts {
         asin(id)?.let { "https://www.$market/dp/$it" }
     }
 
+    /** Keep explicit host-configured affiliate tags on the matching product page only. */
+    fun affiliateUrl(value: String, domain: String, id: String): String? = runCatching {
+        val uri = URI(value)
+        val canonical = productUrl(domain, id) ?: return null
+        if (marketplaceFromUrl(value) != marketplace(domain) || !uri.path.trimEnd('/').equals("/dp/${asin(id)}", true) || uri.fragment != null) return null
+        val query = uri.rawQuery.orEmpty().split('&').map { part ->
+            val pair = part.split('=', limit = 2)
+            java.net.URLDecoder.decode(pair.first(), "UTF-8") to java.net.URLDecoder.decode(pair.getOrElse(1) { "" }, "UTF-8")
+        }
+        if (query.any { it.first !in setOf("tag", "linkCode") } || query.count { it.first == "tag" } != 1 || query.count { it.first == "linkCode" } > 1) return null
+        val tag = query.single { it.first == "tag" }.second
+        if (!Regex("[A-Za-z0-9_-]{1,64}").matches(tag) || query.any { it.first == "linkCode" && it.second != "ll1" }) return null
+        "$canonical?tag=$tag&linkCode=ll1"
+    }.getOrNull()
+
     fun imageUrl(value: String?): String? = value?.takeIf { link ->
         runCatching {
             val uri = URI(link)
@@ -98,14 +113,44 @@ object AmazonProducts {
     fun limitResult(payload: JsonObject, maxCharacters: Int): JsonObject {
         if (payload.toString().length <= maxCharacters) return payload
         val products = (payload["products"] as? JsonArray).orEmpty().toMutableList()
-        val base = payload.filterKeys { it in setOf("schema", "marketplace", "provider", "page") } + mapOf(
+        var base = payload.filterKeys { it in setOf("schema", "status", "requestId", "marketplace", "provider", "page", "coverage", "preview", "observedAt", "retrievedAt", "cached", "errors", "partialErrors") } + mapOf(
             "outputLimited" to JsonPrimitive(true),
-            "notice" to JsonPrimitive("Some products were omitted by the plugin output limit. Narrow the query or increase the limit. Prices may change at checkout.")
+            "notice" to JsonPrimitive("Output limited. Narrow the request or increase the limit. Prices may change at checkout.")
         )
         while (true) {
             val bounded = JsonObject(base + ("products" to JsonArray(products)))
-            if (bounded.toString().length <= maxCharacters || products.isEmpty()) return bounded
-            products.removeAt(products.lastIndex)
+            if (bounded.toString().length <= maxCharacters) return bounded
+            if (products.isNotEmpty()) {
+                products.removeAt(products.lastIndex)
+                continue
+            }
+            val errors = base["errors"] as? JsonArray
+            val partial = base["partialErrors"] as? JsonArray
+            if (errors != null && errors.size > 1) {
+                base = base + ("errors" to JsonArray(errors.take(1))) + ("omittedErrors" to JsonPrimitive(errors.size - 1))
+                continue
+            }
+            if (partial != null && partial.size > 1) {
+                base = base + ("partialErrors" to JsonArray(partial.take(1)))
+                continue
+            }
+            // Runtime plugin limits are at least 1,000 chars. Keep a typed explanation even for large upstream messages.
+            val firstError = errors?.firstOrNull() as? JsonObject
+            val compact = JsonObject(
+                base.filterKeys { it in setOf("schema", "status", "requestId", "marketplace", "provider", "page", "preview", "coverage") } + mapOf(
+                    "products" to JsonArray(emptyList()),
+                    "outputLimited" to JsonPrimitive(true),
+                    "errors" to JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("code", firstError?.let { text(it, "code") } ?: "OUTPUT_LIMITED")
+                                put("message", (firstError?.let { text(it, "message") } ?: "Product facts exceeded the output limit; narrow the request.").take(160))
+                            }
+                        )
+                    )
+                )
+            )
+            return compact
         }
     }
 

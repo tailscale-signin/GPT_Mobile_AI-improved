@@ -245,6 +245,6 @@ class MarketplacePackageStore @Inject constructor(@ApplicationContext context: C
 
     private companion object {
         // Serialize changes to the same package without blocking unrelated downloads or exports.
-        val locks = GitHubMarketplaceCatalog.packages.associate { it.id to Mutex() }
+        val locks = (GitHubMarketplaceCatalog.packages + GitHubMarketplaceCatalog.legacyPackages).associate { it.id to Mutex() }
     }
 }

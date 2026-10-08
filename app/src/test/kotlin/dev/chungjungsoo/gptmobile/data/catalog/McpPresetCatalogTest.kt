@@ -96,7 +96,7 @@ class McpPresetCatalogTest {
 
     @Test
     fun selfHostedPresetsNeverAdvertiseAnExampleEndpoint() {
-        listOf("pearls", "brave-search", "graphiti-memory").forEach { id ->
+        listOf("pearls", "brave-search", "graphiti-memory", "jannafta-amazon").forEach { id ->
             val preset = McpPresetCatalog.findById(id)!!
             assertTrue(preset.commandOrUrl.isBlank())
             assertFalse(preset.isDirectlyInstallable)
@@ -104,6 +104,18 @@ class McpPresetCatalogTest {
             assertTrue(preset.setupInstructions.isNotBlank())
         }
         assertTrue(McpPresetCatalog.presets.none { it.commandOrUrl.contains("example.com") })
+    }
+
+    @Test
+    fun janNaftaAmazonIsOneRemoteServiceWithRequiredHostAndBearerSetup() {
+        val preset = McpPresetCatalog.findById("jannafta-amazon")!!
+        assertEquals("amazon", preset.iconName)
+        assertEquals("BEARER", preset.suggestedAuthType)
+        assertEquals("amazon_jannafta", preset.alias)
+        assertEquals(McpTransportType.STREAMABLE_HTTP, preset.transportType)
+        assertEquals(2, preset.requiredFields.size)
+        assertTrue(preset.setupInstructions.contains("on demand"))
+        assertEquals("https://github.com/JanNafta/amazon-mcp", preset.websiteUrl)
     }
 
     @Test

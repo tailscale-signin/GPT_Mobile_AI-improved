@@ -101,7 +101,7 @@ object GitHubMarketplaceCatalog {
         provider,
         McpPreset(
             id = "optional-$provider", name = name, description = description, category = category,
-            commandOrUrl = "builtin://marketplace/$provider", alias = "places_${provider.replace('-', '_')}", iconName = "location",
+            commandOrUrl = "builtin://marketplace/$provider", alias = "places_${provider.replace('-', '_')}", iconName = provider,
             author = "GPT Mobile · Android adapter", suggestedAuthType = "NONE", pricing = pricing,
             requiredFields = if (provider in dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.keyedProviders) listOf(credential) else emptyList(), toolCapabilities = tools,
             websiteUrl = docs,
@@ -142,23 +142,15 @@ object GitHubMarketplaceCatalog {
             notice = "No offline pack or nearest-facility ranking yet. Preserve municipal attribution and source inspection dates."
         ),
         companion(
-            "nominatim",
-            "OpenStreetMap · Nominatim",
-            "Geocode place names through a managed or self-hosted service.",
-            listOf("geocode: up to five address candidates"),
-            "https://operations.osmfoundation.org/policies/nominatim/",
-            "NOMINATIM_ENDPOINT",
-            "Shared public Nominatim is not configured as an application backend. Hosting may cost money."
-        ),
-        companion(
-            "overpass",
-            "OpenStreetMap · Restroom Finder",
-            "Search standalone toilets and explicitly tagged venue toilets.",
-            listOf("restrooms: bounded 1.5 km Overpass query"),
-            "https://dev.overpass-api.de/overpass-doc/en/preface/commons.html",
-            "OVERPASS_ENDPOINT",
-            "Use your permitted managed/self-hosted endpoint. Results are partial; OSM attribution applies."
-        ),
+            "openstreetmap",
+            "OpenStreetMap",
+            "Geocoding and restroom discovery together in one in-app service.",
+            listOf("geocode: up to five address candidates", "restrooms: bounded 1.5 km Overpass query"),
+            "https://www.openstreetmap.org/copyright",
+            notice = "Configure a permitted managed/self-hosted endpoint for each capability. OSM attribution and provider limits apply."
+        ).let { entry ->
+            entry.copy(preset = entry.preset.copy(iconName = "openstreetmap", requiredFields = listOf("Nominatim geocoding endpoint", "Overpass restroom endpoint")))
+        },
         companion(
             "ticketmaster", "Ticketmaster Events", "Discover ticketed events by keyword and city.",
             listOf("events: first ten event matches"), "https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/",
@@ -168,7 +160,7 @@ object GitHubMarketplaceCatalog {
         companion(
             "tomtom",
             "TomTom Places",
-            "Search places through the REST API using a private MCP companion.",
+            "Search places through the REST API using the in-app plugin.",
             listOf("places: first ten search matches"),
             "https://docs.tomtom.com/search-api/documentation/search-service/fuzzy-search",
             "TOMTOM_API_KEY",
@@ -236,7 +228,7 @@ object GitHubMarketplaceCatalog {
             McpPreset(
                 id = "optional-mapbox", name = "Mapbox Geospatial MCP", description = "Download a setup package for Mapbox's hosted geospatial tools.",
                 category = McpCategory.SEARCH, commandOrUrl = "https://mcp.mapbox.com/mcp", alias = "places_mapbox",
-                author = "Mapbox · GPT Mobile setup", iconName = "location", suggestedAuthType = "OAUTH",
+                author = "Mapbox · GPT Mobile setup", iconName = "mapbox", suggestedAuthType = "OAUTH",
                 pricing = McpPricingType.FREE_WITH_SIGNUP, websiteUrl = "https://github.com/mapbox/mcp-server",
                 requiredFields = listOf("Mapbox account and supported OAuth registration"),
                 toolCapabilities = listOf("Discover available geospatial tools after sign-in"),
@@ -267,6 +259,11 @@ object GitHubMarketplaceCatalog {
         guide("toronto-library", "Toronto Library Events · Data Plan", "https://www.torontopubliclibrary.ca/opendata/", "Evaluate official branch and community-program feeds; adapter pending.")
     )
 
-    fun find(id: String): GitHubMarketplacePackage? = packages.firstOrNull { it.id == id }
+    val legacyPackages = listOf(
+        companion("nominatim", "OpenStreetMap · Nominatim", "Legacy geocoding registration.", listOf("geocode"), "https://operations.osmfoundation.org/policies/nominatim/"),
+        companion("overpass", "OpenStreetMap · Restroom Finder", "Legacy restroom registration.", listOf("restrooms"), "https://www.openstreetmap.org/copyright")
+    )
+
+    fun find(id: String): GitHubMarketplacePackage? = (packages + legacyPackages).firstOrNull { it.id == id }
     val allPresets: List<McpPreset> get() = (packages.map { it.preset } + McpPresetCatalog.presets).distinctBy { it.id }
 }

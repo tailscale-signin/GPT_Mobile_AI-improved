@@ -122,6 +122,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -134,6 +135,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
@@ -1686,10 +1688,12 @@ fun NewChatButton(expanded: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         expanded = expanded,
         icon = {
-            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.ChatBubbleOutline, stringResource(R.string.new_chat), modifier = Modifier.size(28.dp))
-                Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp).padding(bottom = 2.dp))
-            }
+            Icon(
+                ImageVector.vectorResource(R.drawable.ic_new_chat),
+                contentDescription = stringResource(R.string.new_chat),
+                modifier = Modifier.size(28.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         },
         shape = RoundedCornerShape(24.dp),
         containerColor = MaterialTheme.colorScheme.primaryContainer,

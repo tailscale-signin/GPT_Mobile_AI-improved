@@ -366,6 +366,7 @@ class CompleteBackupManager @Inject constructor(
         }
 
         val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
+        val restorePreferences = restoreSettings || CompleteBackupSection.AMAZON_DATA in effective.sections
         val restoreSecrets = effective.requiresEncryption
         val selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) }
         val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
@@ -425,8 +426,8 @@ class CompleteBackupManager @Inject constructor(
                 }
             }
 
-            val oldPreferences = if (restoreSettings) preferences.read() else emptyMap()
-            val oldShared = if (restoreSettings) preferences.readShared() else emptyMap()
+            val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
+            val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
             val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
             val oldProtection = savedProtection()
             val replacement = storage.replacement(staging, selectedPaths)
@@ -443,8 +444,8 @@ class CompleteBackupManager @Inject constructor(
                     }
                     if (selectedPaths.isNotEmpty()) replacement.apply()
                     if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
-                    if (restoreSettings) {
-                        preferences.replace(manifest.preferences, manifest.sharedPreferences)
+                    if (restorePreferences) {
+                        preferences.replace(AmazonRestorePolicy.disableGrants(if (restoreSettings) manifest.preferences else oldPreferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
                     }
                     manifest.protection?.let { saveProtection(it) }
                 }
@@ -452,7 +453,7 @@ class CompleteBackupManager @Inject constructor(
                 withContext(NonCancellable) {
                     if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
                     if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
-                    if (restoreSettings) runCatching { preferences.replace(oldPreferences, oldShared) }
+                    if (restorePreferences) runCatching { preferences.replace(oldPreferences, oldShared) }
                     if (manifest.protection != null) runCatching { saveProtection(oldProtection) }
                 }
                 throw error
@@ -689,7 +690,8 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.PLATFORMS,
         CompleteBackupSection.TOOLS,
         CompleteBackupSection.LOCAL_MODELS,
-        CompleteBackupSection.AGENT_HISTORY -> true
+        CompleteBackupSection.AGENT_HISTORY,
+        CompleteBackupSection.AMAZON_DATA -> true
 
         CompleteBackupSection.CREDENTIALS,
         CompleteBackupSection.ATTACHMENTS,
@@ -741,6 +743,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.LOCAL_MODELS -> "local models"
         CompleteBackupSection.ATTACHMENTS -> "attachments"
         CompleteBackupSection.AGENT_HISTORY -> "agent history"
+        CompleteBackupSection.AMAZON_DATA -> "Amazon observations & manual watches"
     }
 
     private fun ensureIdle(restoring: Boolean) {

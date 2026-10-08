@@ -35,6 +35,12 @@ class MarketplaceViewModel @Inject constructor(
     private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
     private val freeConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
 ) : ViewModel() {
+    private val _uninstallRequest = MutableStateFlow<GitHubMarketplacePackage?>(null)
+    val uninstallRequest = _uninstallRequest.asStateFlow()
+    fun requestUninstall(entry: GitHubMarketplacePackage?) {
+        _uninstallRequest.value = entry
+    }
+
     val installations = registry.state
     private val _uiState = MutableStateFlow(MarketplaceUiState())
     val uiState = _uiState.asStateFlow()
@@ -77,10 +83,10 @@ class MarketplaceViewModel @Inject constructor(
         }
     }
 
-    fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean, onSaved: () -> Unit) {
+    fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean, endpoints: Map<String, String> = emptyMap(), disabledOperations: Set<String> = emptySet(), onSaved: () -> Unit) {
         viewModelScope.launch {
             try {
-                registry.configure(entry, endpoint, key, maxResults, dailyLimit, clearKey)
+                registry.configure(entry, endpoint, key, maxResults, dailyLimit, clearKey, endpoints, disabledOperations)
                 onSaved()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -107,6 +113,13 @@ class MarketplaceViewModel @Inject constructor(
                         connections.deleteConnection(it.connectionUid)
                     }
                     store.remove(entry)
+                    if (entry.provider == "openstreetmap") {
+                        dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
+                            store.remove(legacy)
+                            toolTrust?.revoke(legacy.id)
+                            freeConsent?.revokeConnection(legacy.id)
+                        }
+                    }
                 } else {
                     store.download(entry)
                     if (NativeMarketplaceCatalog.supports(entry)) registry.install(entry)

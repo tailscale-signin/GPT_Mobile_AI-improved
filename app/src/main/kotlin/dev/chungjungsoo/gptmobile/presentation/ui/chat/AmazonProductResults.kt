@@ -88,18 +88,23 @@ private fun AmazonProductCard(product: JsonObject) {
     val timestamp = AmazonProducts.text(product, "observedAt", "retrievedAt")?.let { raw ->
         runCatching { DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault()).format(Instant.parse(raw)) }.getOrNull()
     }
+    val nativePreview = AmazonProducts.text(product, "provider") == "free_native"
     Card(
         modifier = Modifier.width(272.dp),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("$domain · via ${AmazonProducts.text(product, "provider").orEmpty()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (nativePreview) "$domain · Public-page preview" else "$domain · via ${AmazonProducts.text(product, "provider").orEmpty()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if ((product["sponsored"] as? JsonPrimitive)?.booleanOrNull == true) Text("Sponsored", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
             Text(AmazonProducts.text(product, "title").orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
             val currency = AmazonProducts.text(product, "currency")
             val price = AmazonProducts.text(product, "price")?.let { if (currency != null && currency !in it) "$it $currency" else it } ?: "Price unavailable"
             Text(price, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            if (nativePreview && currency == null && AmazonProducts.text(product, "price") != null) {
+                Text("Currency unconfirmed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (nativePreview) Text("Delivery, tax and coupons unconfirmed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             AmazonProducts.text(product, "rating")?.let { rating ->
                 val reviews = AmazonProducts.text(product, "reviewCount")?.let { " · $it reviews" }.orEmpty()
                 Text("★ $rating / 5$reviews", style = MaterialTheme.typography.bodySmall)

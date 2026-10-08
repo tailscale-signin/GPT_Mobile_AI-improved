@@ -81,10 +81,10 @@ data class AppFeatureSettings(
         AppFeature.QNN_AUTO_FALLBACK -> copy(qnnAutomaticFallback = enabled)
     }
 
-    fun isToolPluginEnabled(pluginId: String): Boolean = toolPluginStates[pluginId] ?: (pluginId != ToolPluginId.AMAZON_SEARCH)
+    fun isToolPluginEnabled(pluginId: String): Boolean = toolPluginStates[pluginId] ?: (pluginId !in ToolPluginId.optInServices)
 
     fun isToolPluginSelected(profileUid: String, pluginId: String): Boolean =
-        profileBehavior[profileUid]?.toolPluginStates?.get(pluginId) ?: (pluginId != ToolPluginId.AMAZON_SEARCH)
+        profileBehavior[profileUid]?.toolPluginStates?.get(pluginId) ?: (pluginId !in ToolPluginId.optInServices)
 
     /** A profile can restrict an active service, but cannot bypass a global disable. */
     fun isToolPluginEnabledForProfile(profileUid: String, pluginId: String): Boolean =
@@ -210,8 +210,11 @@ object ToolPluginId {
     const val READ_URL = "read_url"
     const val GITHUB = "github"
     const val AMAZON_SEARCH = "amazon_search"
+    const val AMAZON_FREE = "amazon_free"
     const val WEB_SEARCH = "web_search"
     const val DEVICE_LOCATION = "device_location"
+
+    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE)
 
     fun nativeOperation(packageId: String, operation: String): String = "native:$packageId:$operation"
 

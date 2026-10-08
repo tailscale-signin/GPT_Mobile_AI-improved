@@ -292,6 +292,27 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun clearError() = _uiState.update { it.copy(errorMessage = null) }
 
+    fun testAmazonFreeSearch() {
+        val id = dev.chungjungsoo.gptmobile.data.model.ToolPluginId.AMAZON_FREE
+        if (_uiState.value.connectionHealth[id]?.status == ToolConnectionHealthStatus.CHECKING) return
+        val resolver = agentToolResolver ?: return
+        _uiState.update { it.copy(connectionHealth = it.connectionHealth + (id to ToolConnectionHealth(ToolConnectionHealthStatus.CHECKING, message = "Testing the native Amazon preview…"))) }
+        viewModelScope.launch {
+            try {
+                val result = resolver.testAmazonFreeSearch()
+                val payload = (result.content as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json)?.value as? kotlinx.serialization.json.JsonObject
+                val error = (payload?.get("errors") as? kotlinx.serialization.json.JsonArray)?.firstOrNull() as? kotlinx.serialization.json.JsonObject
+                val count = (payload?.get("products") as? kotlinx.serialization.json.JsonArray)?.size ?: 0
+                val message = if (result.isError) error?.let { dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts.text(it, "message") } ?: "Native Amazon search could not complete." else "Native search returned $count product(s). Prices may be missing. This is a preview; one lookup does not establish reliability."
+                _uiState.update { it.copy(connectionHealth = it.connectionHealth + (id to ToolConnectionHealth(if (result.isError) ToolConnectionHealthStatus.OFFLINE else ToolConnectionHealthStatus.ONLINE, message = message))) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.update { it.copy(connectionHealth = it.connectionHealth + (id to ToolConnectionHealth(ToolConnectionHealthStatus.OFFLINE, message = "The native Amazon test could not complete."))) }
+            }
+        }
+    }
+
     fun testAmazonConnection(connection: ToolConnection) {
         val resolver = agentToolResolver ?: return
         if (_uiState.value.connectionHealth[connection.connectionUid]?.status == ToolConnectionHealthStatus.CHECKING) return

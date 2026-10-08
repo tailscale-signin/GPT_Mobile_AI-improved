@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.ShoppingCart
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -190,6 +191,7 @@ internal fun ToolServiceIcon(definition: ToolServiceDefinition, modifier: Modifi
         "search", "perplexity" -> Icons.Rounded.Search
         "location", "refuge", "toronto", "tomtom", "arcgis", "foursquare", "openrouteservice" -> Icons.Rounded.LocationOn
         "mcp" -> Icons.Rounded.Hub
+        "shopping" -> Icons.Rounded.ShoppingCart
         else -> Icons.Rounded.Extension
     }
     Surface(modifier.size(46.dp), shape = RoundedCornerShape(15.dp), color = MaterialTheme.colorScheme.primaryContainer) {

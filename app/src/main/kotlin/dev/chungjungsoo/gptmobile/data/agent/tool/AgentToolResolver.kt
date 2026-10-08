@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
 import dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
@@ -34,6 +35,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -61,7 +65,8 @@ class AgentToolResolver @Inject constructor(
     private val freeModelToolConsentStore: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
     private val gitHubWorkspaceStore: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceStore? = null,
     private val nativeMarketplaceRegistry: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
-    private val nativeMarketplaceClient: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceClient? = null
+    private val nativeMarketplaceClient: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceClient? = null,
+    private val amazonFreeProvider: AmazonHtmlProvider? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -176,6 +181,9 @@ class AgentToolResolver @Inject constructor(
         }
 
         if (!disableRemote) {
+            if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
+                resolved += resolveAmazonFree(profileUid)
+            }
             if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
                 val nativeInstallations = try {
                     nativeMarketplaceRegistry.load()
@@ -283,7 +291,11 @@ class AgentToolResolver @Inject constructor(
 
         return resolved.distinctBy { it.modelToolName }
             .filter { tool ->
-                !tool.isAmazonProductTool() || featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
+                if (tool.modelToolName in AmazonNativeTool.names) {
+                    featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
+                } else {
+                    !tool.isAmazonProductTool() || featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
+                }
             }
             .filter { tool ->
                 // Discovery stays visible, but runtime consent cannot be bypassed by
@@ -318,6 +330,8 @@ class AgentToolResolver @Inject constructor(
                 }
             }
             .map { resolved ->
+                // Native Amazon reads load their current settings and check live permissions themselves.
+                if (resolved.modelToolName in AmazonNativeTool.names) return@map resolved
                 val id = resolved.connectionUid?.let(ToolPluginId::connection) ?: when (resolved.realToolName) {
                     "current_date" -> ToolPluginId.CURRENT_DATE
                     "calculate_expression" -> ToolPluginId.CALCULATOR
@@ -400,6 +414,51 @@ class AgentToolResolver @Inject constructor(
         BuiltInAgentTool.GITHUB -> resolveGitHub(binding.connection)
 
         else -> null
+    }
+
+    private fun resolveAmazonFree(profileUid: String): List<ResolvedAgentTool> {
+        val provider = requireNotNull(amazonFreeProvider)
+        val permissions = combine(settingRepository.observeFeatureSettings(), settingRepository.observePlatformV2ByUid(profileUid)) { features, profile ->
+            profile?.enabled == true &&
+                !profile.disableAllTools &&
+                !profile.disableRemoteTools &&
+                features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
+        }.distinctUntilChanged()
+        return listOf(false, true).map { details ->
+            AmazonNativeTool(
+                provider,
+                details,
+                settings = { settingRepository.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings() },
+                isAllowed = {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    current?.enabled == true &&
+                        !current.disableAllTools &&
+                        !current.disableRemoteTools &&
+                        settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
+                },
+                permissionChanges = permissions
+            ).resolved(null, "Amazon Research Free", if (details) AmazonSearchTool.GET_PRODUCTS else AmazonSearchTool.SEARCH)
+                // Shared turn caches must recheck every consumer's live profile grant before reuse.
+                .copy(shareableReadOnly = false)
+        }
+    }
+
+    /** An explicit one-request UI action, independent of AI-profile assignment. */
+    suspend fun testAmazonFreeSearch(): AgentToolResult {
+        val tool = AmazonNativeTool(
+            requireNotNull(amazonFreeProvider),
+            false,
+            settings = { settingRepository.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings() },
+            isAllowed = { settingRepository.getFeatureSettings().isToolPluginEnabled(ToolPluginId.AMAZON_FREE) },
+            permissionChanges = settingRepository.observeFeatureSettings().map { it.isToolPluginEnabled(ToolPluginId.AMAZON_FREE) }
+        )
+        return tool.execute(
+            "amazon-free-settings-test",
+            kotlinx.serialization.json.buildJsonObject {
+                put("query", kotlinx.serialization.json.JsonPrimitive("headphones"))
+                put("maxResults", kotlinx.serialization.json.JsonPrimitive(1))
+            }
+        )
     }
 
     private suspend fun resolveAmazon(connection: ToolConnection, features: AppFeatureSettings): List<ResolvedAgentTool> {

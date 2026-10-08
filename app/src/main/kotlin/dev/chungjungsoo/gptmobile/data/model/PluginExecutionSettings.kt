@@ -16,7 +16,8 @@ data class PluginExecutionSettings(
     val githubCacheSeconds: Int = 15,
     val amazonMarketplace: String = "amazon.ca",
     val amazonIncludeSponsored: Boolean = false,
-    val amazonFreshPrices: Boolean = false
+    val amazonFreshPrices: Boolean = false,
+    val amazonDailyRequests: Int = 100
 ) {
     fun normalized() = copy(
         nearbyRadiusMeters = nearbyRadiusMeters.coerceIn(100, 5000),
@@ -25,6 +26,7 @@ data class PluginExecutionSettings(
         maxOutputCharacters = maxOutputCharacters.coerceIn(1000, 128000),
         searchResults = searchResults.coerceIn(1, 10),
         decimalPlaces = decimalPlaces.coerceIn(0, 15),
-        githubCacheSeconds = githubCacheSeconds.coerceIn(0, 120)
+        githubCacheSeconds = githubCacheSeconds.coerceIn(0, 120),
+        amazonDailyRequests = amazonDailyRequests.coerceIn(1, 100)
     )
 }

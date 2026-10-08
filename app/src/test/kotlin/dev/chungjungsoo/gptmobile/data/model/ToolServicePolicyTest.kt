@@ -12,6 +12,19 @@ import org.junit.Test
 
 class ToolServicePolicyTest {
     @Test
+    fun nativeAmazonIsSeparateFromPaidServiceAndDefaultsOffForOldSettings() {
+        val old = Json.decodeFromString<AppFeatureSettings>("{}")
+        assertFalse(old.isToolPluginEnabled(ToolPluginId.AMAZON_FREE))
+        assertFalse(old.isToolPluginSelected("one", ToolPluginId.AMAZON_FREE))
+        val selected = old.withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true)
+            .withProfileToolPluginEnabled("one", ToolPluginId.AMAZON_FREE, true)
+        assertTrue(selected.isToolPluginEnabledForProfile("one", ToolPluginId.AMAZON_FREE))
+        assertFalse(selected.isToolPluginEnabledForProfile("two", ToolPluginId.AMAZON_FREE))
+        assertFalse(selected.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH))
+        assertTrue(ToolServiceCatalog.integrated.any { it.id == ToolPluginId.AMAZON_FREE && it.usesNetwork })
+    }
+
+    @Test
     fun amazonRequiresBothGlobalActivationAndProfileOptIn() {
         val defaults = AppFeatureSettings()
         assertFalse(defaults.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH))

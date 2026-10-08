@@ -106,6 +106,7 @@ internal fun ProfileToolsPanel(
                         !mcpAllowed -> "Remote MCP is disabled in Plugins & Tools"
                         remoteOnly -> "${bindings.selectedMcpTools.count { selection -> service.connections.any { it.connectionUid == selection.connectionUid } }} tools assigned · Remote MCP"
                         service.id == ToolPluginId.AMAZON_SEARCH -> if (selected(service)) "Amazon tools allowed for this profile" else "Optional · Off until selected for this profile"
+                        service.id == ToolPluginId.AMAZON_FREE -> if (selected(service)) "Free native preview · Search and details" else "Optional · Off until selected for this profile"
                         else -> if (service.definition.usesNetwork) "In-app plugin · Uses the network" else "In-app plugin · On device"
                     },
                     required = service.requiredFields(installations),

@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonFetchResult
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -46,6 +48,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test
+    fun nativeAmazonRequiresIndependentGlobalAndProfileGrantsAndHonorsRemoteDisable() = runBlocking {
+        val provider = mockk<AmazonHtmlProvider>()
+        val profile = PlatformV2(uid = "profile", name = "Research")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        assertFalse(resolver(settings = settings, amazonFree = provider).resolve(profile.uid).any { it.modelToolName in AmazonNativeTool.names })
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true)
+        assertFalse(resolver(settings = settings, amazonFree = provider).resolve(profile.uid).any { it.modelToolName in AmazonNativeTool.names })
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, ToolPluginId.AMAZON_FREE, true).copy(remoteMcpConnections = false)
+        val native = resolver(settings = settings, amazonFree = provider).resolve(profile.uid).filter { it.modelToolName in AmazonNativeTool.names }
+        assertEquals(AmazonNativeTool.names, native.map { it.modelToolName }.toSet())
+        assertEquals(setOf("amazon_search", "amazon_get_products"), native.map { it.realToolName }.toSet())
+        assertTrue(native.all { !it.shareableReadOnly && it.isAmazonProductTool() })
+        assertFalse(settings.features.isToolPluginEnabled(ToolPluginId.AMAZON_SEARCH))
+        coEvery { provider.search(any(), any()) } returns AmazonFetchResult(emptyList())
+        val search = native.single { it.modelToolName == AmazonNativeTool.SEARCH }.tool
+        assertFalse(search.execute("read", buildJsonObject { put("query", "audio") }).isError)
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_FREE, false)
+        assertTrue(search.execute("revoked", buildJsonObject { put("query", "audio") }).isError)
+        val granted = settings.features.withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true)
+        for (blocked in listOf(profile.copy(disableRemoteTools = true), profile.copy(disableAllTools = true), profile.copy(enabled = false))) {
+            val result = resolver(settings = ResolverFakeSettingRepository(listOf(blocked), granted), amazonFree = provider).resolve(profile.uid)
+            assertFalse(result.any { it.modelToolName in AmazonNativeTool.names })
+        }
+    }
+
     @Test
     fun `installed enabled native adapters join conversation tools and respect disable switches`() = runBlocking {
         val registry = mockk<NativeMarketplaceRegistry>()
@@ -864,7 +892,8 @@ class AgentToolResolverTest {
         facts: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
         consent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
         nativeRegistry: NativeMarketplaceRegistry? = null,
-        nativeClient: NativeMarketplaceClient? = null
+        nativeClient: NativeMarketplaceClient? = null,
+        amazonFree: AmazonHtmlProvider? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -880,7 +909,8 @@ class AgentToolResolverTest {
             factVault = facts,
             freeModelToolConsentStore = consent,
             nativeMarketplaceRegistry = nativeRegistry,
-            nativeMarketplaceClient = nativeClient
+            nativeMarketplaceClient = nativeClient,
+            amazonFreeProvider = amazonFree
         )
     }
 
@@ -928,6 +958,7 @@ private class ResolverFakeSettingRepository(
     var features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
 ) : SettingRepository {
     override suspend fun getFeatureSettings() = features
+    override fun observeFeatureSettings(): Flow<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings> = flowOf(features)
 
     override suspend fun fetchProviderConnections(): List<ProviderConnection> = emptyList()
     override fun observeProviderConnections(): Flow<List<ProviderConnection>> = kotlinx.coroutines.flow.flowOf(emptyList())
@@ -939,7 +970,7 @@ private class ResolverFakeSettingRepository(
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
     override suspend fun fetchPlatformV2s(): List<PlatformV2> = profiles
     override fun observePlatformV2s(): Flow<List<PlatformV2>> = flowOf(emptyList())
-    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(null)
+    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(profiles.firstOrNull { it.uid == uid })
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
     override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) = Unit

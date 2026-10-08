@@ -113,14 +113,44 @@ object AmazonProducts {
     fun limitResult(payload: JsonObject, maxCharacters: Int): JsonObject {
         if (payload.toString().length <= maxCharacters) return payload
         val products = (payload["products"] as? JsonArray).orEmpty().toMutableList()
-        val base = payload.filterKeys { it in setOf("schema", "marketplace", "provider", "page") } + mapOf(
+        var base = payload.filterKeys { it in setOf("schema", "status", "requestId", "marketplace", "provider", "page", "coverage", "preview", "observedAt", "retrievedAt", "cached", "errors", "partialErrors") } + mapOf(
             "outputLimited" to JsonPrimitive(true),
-            "notice" to JsonPrimitive("Some products were omitted by the plugin output limit. Narrow the query or increase the limit. Prices may change at checkout.")
+            "notice" to JsonPrimitive("Output limited. Narrow the request or increase the limit. Prices may change at checkout.")
         )
         while (true) {
             val bounded = JsonObject(base + ("products" to JsonArray(products)))
-            if (bounded.toString().length <= maxCharacters || products.isEmpty()) return bounded
-            products.removeAt(products.lastIndex)
+            if (bounded.toString().length <= maxCharacters) return bounded
+            if (products.isNotEmpty()) {
+                products.removeAt(products.lastIndex)
+                continue
+            }
+            val errors = base["errors"] as? JsonArray
+            val partial = base["partialErrors"] as? JsonArray
+            if (errors != null && errors.size > 1) {
+                base = base + ("errors" to JsonArray(errors.take(1))) + ("omittedErrors" to JsonPrimitive(errors.size - 1))
+                continue
+            }
+            if (partial != null && partial.size > 1) {
+                base = base + ("partialErrors" to JsonArray(partial.take(1)))
+                continue
+            }
+            // Runtime plugin limits are at least 1,000 chars. Keep a typed explanation even for large upstream messages.
+            val firstError = errors?.firstOrNull() as? JsonObject
+            val compact = JsonObject(
+                base.filterKeys { it in setOf("schema", "status", "requestId", "marketplace", "provider", "page", "preview", "coverage") } + mapOf(
+                    "products" to JsonArray(emptyList()),
+                    "outputLimited" to JsonPrimitive(true),
+                    "errors" to JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("code", firstError?.let { text(it, "code") } ?: "OUTPUT_LIMITED")
+                                put("message", (firstError?.let { text(it, "message") } ?: "Product facts exceeded the output limit; narrow the request.").take(160))
+                            }
+                        )
+                    )
+                )
+            )
+            return compact
         }
     }
 

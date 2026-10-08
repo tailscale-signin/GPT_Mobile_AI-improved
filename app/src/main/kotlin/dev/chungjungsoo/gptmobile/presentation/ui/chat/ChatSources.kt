@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.agent.tool.parseSearchPayload
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import java.net.URI
@@ -80,6 +81,7 @@ internal fun collectChatSources(answer: String, events: List<ToolEvent>): ChatSo
         when (value) {
             is JsonArray -> value.forEach { visit(it, depth + 1) }
             is JsonObject -> {
+                if (value.sourceString("asin") != null && value.sourceString("marketplace")?.let(AmazonProducts::marketplace) != null && !AmazonProducts.hasPrice(value)) return
                 if (value.sourceString("status")?.lowercase(Locale.ROOT) in unavailableSourceStates) return
                 if (value.sourceString("schema") == "amazon_products_v1") value.sourceString("provider")?.let(::addEngine)
                 value.sourceString("engine")?.let { label ->

@@ -17,6 +17,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonMcpResultToolTest {
+    @Test fun missingOrUSSerpApiDomainAlwaysUsesConfiguredCanada() = runBlocking {
+        for (domain in listOf<String?>(null, "amazon.com")) {
+            var sent = JsonObject(emptyMap())
+            val delegate = object : AgentTool {
+                override val definition = fake(AgentToolResult("mcp", ToolResultContent.Json(payload), false)).definition
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    sent = arguments
+                    return AgentToolResult(callId, ToolResultContent.Json(payload), false)
+                }
+            }
+            val params = buildJsonObject {
+                put("engine", "amazon")
+                put("k", "headphones")
+                domain?.let { put("amazon_domain", it) }
+            }
+            val result = AmazonMcpResultTool.wrap(delegate, "https://mcp.serpapi.com/mcp", "search").execute("canada", buildJsonObject { put("params", params) })
+            assertEquals("amazon.ca", AmazonProducts.text(sent["params"] as JsonObject, "amazon_domain"))
+            assertEquals("amazon.ca", AmazonProducts.text((result.content as ToolResultContent.Json).value as JsonObject, "marketplace"))
+        }
+    }
+
     @Test
     fun `Amazon MCP always requests JSON so Markdown output cannot lose product facts`() = runBlocking {
         var request = JsonObject(emptyMap())

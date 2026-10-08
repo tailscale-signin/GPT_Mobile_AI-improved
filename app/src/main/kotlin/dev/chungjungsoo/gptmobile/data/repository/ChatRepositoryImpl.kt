@@ -207,7 +207,8 @@ class ChatRepositoryImpl(
     private val pendingPromptDao: dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao? = null,
     private val memoryEnrichment: dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue? = null,
     private val conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion? = null,
-    private val workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null
+    private val workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
+    private val amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache? = null
 ) : ChatRepository {
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
@@ -2050,6 +2051,7 @@ class ChatRepositoryImpl(
                 rooms.filter { compactedArchives.add(it.id) }.forEach { room ->
                     try {
                         agentPersistenceDao.compactArchivedConversation(room.id)
+                        amazonMedia?.clearConversation(room.id)
                     } catch (error: CancellationException) {
                         compactedArchives.remove(room.id)
                         throw error
@@ -2063,7 +2065,10 @@ class ChatRepositoryImpl(
     }
 
     override suspend fun setChatArchived(chatId: Int, isArchived: Boolean) {
-        withContext(Dispatchers.IO) { agentPersistenceDao.setArchivedWithCompression(chatId, isArchived) }
+        withContext(Dispatchers.IO) {
+            agentPersistenceDao.setArchivedWithCompression(chatId, isArchived)
+            if (isArchived) amazonMedia?.clearConversation(chatId)
+        }
     }
 
     override suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean) {
@@ -2307,7 +2312,12 @@ class ChatRepositoryImpl(
             memoryEnrichment?.cancelChat(room.id)
             if ((!room.isTemporary || conversationDeletion == null) && (room.isTemporary || factVault?.state?.value?.settings?.forgetWithConversation == true)) factVault?.forgetChat(room.id, preventFutureCapture = true)
         }
-        if (conversationDeletion != null) conversationDeletion.delete(chatRooms) else chatRoomV2Dao.deleteChatRooms(*chatRooms.toTypedArray())
+        if (conversationDeletion != null) {
+            conversationDeletion.delete(chatRooms)
+        } else {
+            chatRoomV2Dao.deleteChatRooms(*chatRooms.toTypedArray())
+            chatRooms.forEach { amazonMedia?.clearConversation(it.id) }
+        }
     }
 
     private fun contextString(resId: Int, fallback: String): String = runCatching { context.getString(resId) }.getOrDefault(fallback)

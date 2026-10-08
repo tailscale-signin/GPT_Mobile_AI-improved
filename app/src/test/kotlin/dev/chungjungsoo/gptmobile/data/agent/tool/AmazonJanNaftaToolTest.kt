@@ -22,6 +22,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonJanNaftaToolTest {
+    @Test fun canadaCannotBeOverriddenAndUnpricedOrForeignSearchResultsAreOmitted() = runBlocking {
+        var sent = JsonObject(emptyMap())
+        val response = "Top 2 results:\n\n1. US headphones\n   50.00 USD\n   Buy (affiliate): https://www.amazon.com/dp/B000000001\n\n2. Unpriced keyboard\n   — CAD\n   Buy (affiliate): https://www.amazon.ca/dp/B000000002"
+        val tool = AmazonJanNaftaTool(fake(response) { sent = it }, "search_products", PluginExecutionSettings(amazonMarketplace = "amazon.ca"))
+        val result = tool.execute(
+            "canada",
+            buildJsonObject {
+                put("query", "audio")
+                put("marketplace", "US")
+            }
+        )
+        assertEquals("CA", AmazonProducts.text(sent, "marketplace"))
+        val data = (result.content as ToolResultContent.Json).value as JsonObject
+        assertTrue((data["products"] as JsonArray).isEmpty())
+        assertFalse(result.content.toString().contains("US headphones"))
+    }
+
     @Test
     fun `search cards keep facts and validated affiliate links and apply profile limits`() = runBlocking {
         var sent = JsonObject(emptyMap())
@@ -62,7 +79,7 @@ class AmazonJanNaftaToolTest {
         assertFalse("priceAmount" in card)
         assertFalse("affiliateUrl" in card)
         assertEquals("In stock", AmazonProducts.text(card, "availability"))
-        assertEquals(response, (data["sourceText"] as kotlinx.serialization.json.JsonPrimitive).content)
+        assertFalse("sourceText" in data)
     }
 
     @Test

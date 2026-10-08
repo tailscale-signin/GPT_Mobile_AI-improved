@@ -33,16 +33,33 @@ internal class AmazonMcpResultTool private constructor(
         val engine = AmazonProducts.text(params, "engine")
         val amazon = if (provider == "SerpApi") engine in setOf("amazon", "amazon_product") else remoteName in BRIGHT_DATA_TOOLS
         val boundedArguments = if (amazon && provider == "SerpApi") {
-            val jsonParams = params - "output"
+            val jsonParams = params - "output" + ("amazon_domain" to kotlinx.serialization.json.JsonPrimitive(settings.amazonMarketplace))
             JsonObject(arguments + ("params" to JsonObject(if (settings.amazonFreshPrices) jsonParams + ("no_cache" to kotlinx.serialization.json.JsonPrimitive(true)) else jsonParams)))
+        } else if (amazon && provider == "Bright Data") {
+            JsonObject(
+                arguments.mapValues { (key, value) ->
+                    val location = (value as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    if (key in setOf("domain", "url") && location != null) {
+                        val replacement = if (AmazonProducts.marketplace(location) != null) {
+                            settings.amazonMarketplace
+                        } else if (AmazonProducts.marketplaceFromUrl(location) != null) {
+                            val uri = URI(location)
+                            URI("https", "www.${settings.amazonMarketplace}", uri.path, uri.query, null).toASCIIString()
+                        } else {
+                            location
+                        }
+                        kotlinx.serialization.json.JsonPrimitive(replacement)
+                    } else {
+                        value
+                    }
+                }
+            )
         } else {
             arguments
         }
         val result = delegate.execute(callId, boundedArguments)
         if (!amazon || result.isError) return result
-        val domain = AmazonProducts.text(params, "amazon_domain", "domain", "url")?.let { AmazonProducts.marketplace(it) ?: AmazonProducts.marketplaceFromUrl(it) }
-            ?: "amazon.com".takeIf { provider == "SerpApi" && "amazon_domain" !in params }
-            ?: return result
+        val domain = settings.amazonMarketplace
         val payload = when (val content = result.content) {
             is ToolResultContent.Json -> content.value
             is ToolResultContent.Text -> runCatching { Json.parseToJsonElement(content.text) }.getOrNull()
@@ -53,6 +70,7 @@ internal class AmazonMcpResultTool private constructor(
             return result.copy(content = ToolResultContent.Text("The Amazon provider could not complete this request. Check the connection and provider account."), isError = true, traceContent = null, retainedContent = null)
         }
         val products = AmazonProducts.normalize(payload, domain, provider, includeSponsored = settings.amazonIncludeSponsored, maxResults = settings.searchResults)
+            .filter { engine == "amazon_product" || remoteName == "web_data_amazon_product" || AmazonProducts.hasPrice(it) }
         val emptySearch = (data as? JsonObject)?.get("organic_results")?.let { it is kotlinx.serialization.json.JsonArray && it.isEmpty() } == true ||
             (data is kotlinx.serialization.json.JsonArray && data.isEmpty())
         val sponsoredOnly = !settings.amazonIncludeSponsored && AmazonProducts.normalize(payload, domain, provider, includeSponsored = true, maxResults = 1).isNotEmpty()

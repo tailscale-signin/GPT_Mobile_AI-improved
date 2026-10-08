@@ -230,6 +230,7 @@ fun OpponentChatBubble(
     timeline: List<AssistantTimelineItem> = emptyList(),
     attachments: List<String> = emptyList(),
     agentRun: AgentRun? = null,
+    conversationId: Int? = agentRun?.chatId,
     generationTiming: GenerationTiming? = responseGenerationTiming(agentRun),
     runNotices: List<ChatRunNotice> = emptyList(),
     toolEvents: List<ToolEvent> = emptyList(),
@@ -437,7 +438,9 @@ fun OpponentChatBubble(
                 AmazonProductResults(
                     toolEvents = toolEvents,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    ownerProfileUid = agentRun?.profileUid
+                    ownerProfileUid = agentRun?.profileUid,
+                    conversationId = conversationId,
+                    debugMode = debugMode
                 )
 
                 LocationToolMapPreview(
@@ -450,43 +453,6 @@ fun OpponentChatBubble(
                     usePrimaryColors = false,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    if (!isLoading) {
-                        AnimatedVisibility(
-                            visible = actionsExpanded,
-                            enter = fadeIn(tween(180)),
-                            exit = fadeOut(tween(120))
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (!isError) {
-                                    CopyTextIcon(onCopyClick)
-                                    Spacer(Modifier.width(4.dp))
-                                    SelectTextIcon(onSelectClick)
-                                    Spacer(Modifier.width(4.dp))
-                                    FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
-                                    if (canEdit) {
-                                        Spacer(Modifier.width(4.dp))
-                                        EditTextIcon(onEditClick)
-                                    }
-                                }
-                                onInspectContext?.let { inspect -> androidx.compose.material3.TextButton(onClick = inspect) { Text("Context") } }
-                                if (canRetry) {
-                                    Spacer(Modifier.width(4.dp))
-                                    RetryIcon(onRetryClick)
-                                }
-                            }
-                        }
-
-                        MessageActionsToggle(actionsExpanded) { actionsExpanded = !actionsExpanded }
-                    }
-                }
 
                 if (debugMode && activityExpanded) {
                     ChatDebugDiagnosticsCard(
@@ -727,13 +693,48 @@ fun OpponentChatBubble(
                 }
             }
         }
-        ChatResponseSources(
-            answer = text,
-            events = sourceToolEvents,
-            contentIdentity = contentIdentity,
-            isLoading = isLoading,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End
+        ) {
+            if (!isLoading) {
+                AnimatedVisibility(
+                    visible = actionsExpanded,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(120))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!isError) {
+                            CopyTextIcon(onCopyClick)
+                            Spacer(Modifier.width(4.dp))
+                            SelectTextIcon(onSelectClick)
+                            Spacer(Modifier.width(4.dp))
+                            FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
+                            if (canEdit) {
+                                Spacer(Modifier.width(4.dp))
+                                EditTextIcon(onEditClick)
+                            }
+                        }
+                        onInspectContext?.let { inspect -> androidx.compose.material3.TextButton(onClick = inspect) { Text("Context") } }
+                        if (canRetry) {
+                            Spacer(Modifier.width(4.dp))
+                            RetryIcon(onRetryClick)
+                        }
+                    }
+                }
+
+                ChatResponseSources(
+                    answer = text,
+                    events = sourceToolEvents,
+                    contentIdentity = contentIdentity,
+                    isLoading = isLoading
+                )
+                MessageActionsToggle(actionsExpanded) { actionsExpanded = !actionsExpanded }
+            }
+        }
     }
 }
 

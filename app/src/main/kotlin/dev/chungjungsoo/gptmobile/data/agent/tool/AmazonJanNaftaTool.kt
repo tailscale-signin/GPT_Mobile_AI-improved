@@ -28,7 +28,7 @@ internal class AmazonJanNaftaTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         var bounded = arguments
-        if (remoteName != "list_price_watches" && remoteName != "remove_price_watch" && remoteName != "compare_marketplaces" && "marketplace" !in bounded) {
+        if (remoteName != "list_price_watches" && remoteName != "remove_price_watch" && remoteName != "compare_marketplaces") {
             MARKETS.entries.firstOrNull { it.value == settings.amazonMarketplace }?.key?.let { code -> bounded = JsonObject(bounded + ("marketplace" to JsonPrimitive(code))) }
         }
         if (remoteName in setOf("search_products", "get_deals")) {
@@ -67,13 +67,13 @@ internal class AmazonJanNaftaTool(
                 if (affiliate != null) JsonObject(product + ("affiliateUrl" to JsonPrimitive(affiliate))) else product
             }
         }.take(settings.searchResults)
-        if (products.isEmpty()) return result
+        val pricedProducts = if (remoteName == "get_product") products else products.filter(AmazonProducts::hasPrice)
         val content = ToolResultContent.Json(
             buildJsonObject {
                 put("schema", AmazonProducts.SCHEMA)
                 put("provider", "Jan Nafta Amazon MCP")
-                put("products", JsonArray(products))
-                put("sourceText", text)
+                put("marketplace", settings.amazonMarketplace)
+                put("products", JsonArray(pricedProducts))
                 put("notice", "Prices may come from the host cache and may change at checkout. Tagged links support the host's configured Amazon Associate.")
             }
         )

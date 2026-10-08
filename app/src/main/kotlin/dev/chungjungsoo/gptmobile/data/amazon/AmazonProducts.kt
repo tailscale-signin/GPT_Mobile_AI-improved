@@ -32,6 +32,7 @@ object AmazonProducts {
         "amazon.pl" to "Poland", "amazon.se" to "Sweden", "amazon.ae" to "United Arab Emirates",
         "amazon.sa" to "Saudi Arabia", "amazon.com.tr" to "Turkey", "amazon.eg" to "Egypt"
     )
+    private val unavailablePrice = Regex("(?i)unavailable|indisponible|not available|unknown|n/a|%|save")
     private val asinPattern = Regex("[A-Z0-9]{10}")
     private val asinPath = Regex("/(?:dp|gp/product)/([A-Z0-9]{10})(?:/|$)", RegexOption.IGNORE_CASE)
 
@@ -74,8 +75,28 @@ object AmazonProducts {
         }.getOrDefault(false)
     }
 
+    /** Providers return either a URL, an image object or an array of gallery images. */
+    fun productImageUrl(product: JsonObject): String? {
+        fun find(value: JsonElement?, depth: Int = 0): String? {
+            if (depth > 3) return null
+            return when (value) {
+                is JsonPrimitive -> imageUrl(value.contentOrNull)
+                is JsonObject -> listOf("link", "url", "src", "large", "hi_res").firstNotNullOfOrNull { find(value[it], depth + 1) }
+                is JsonArray -> value.take(20).firstNotNullOfOrNull { find(it, depth + 1) }
+                else -> null
+            }
+        }
+        return listOf("imageUrl", "thumbnail", "image", "image_url", "main_image", "images", "thumbnails").firstNotNullOfOrNull { find(product[it]) }
+    }
+
     fun text(value: JsonObject, vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
         (value[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it != "null" && it.isNotBlank() }?.take(500)
+    }
+
+    fun hasPrice(product: JsonObject): Boolean {
+        if (decimal(product["priceAmount"]) != null) return true
+        val display = text(product, "price") ?: return false
+        return display.any(Char::isDigit) && !unavailablePrice.containsMatchIn(display)
     }
 
     /** Enrich the same product without replacing the card's offer, price, currency or affiliate link. */
@@ -197,6 +218,7 @@ object AmazonProducts {
                 if (marketplaceFromUrl(link) != market) null else asinPath.find(URI(link).path.orEmpty())?.groupValues?.get(1)?.let(::asin)
             } ?: return@mapNotNull null
             // An explicit different marketplace must never be relabeled as the requested one.
+            if (text(item, "marketplace")?.let { marketplace(it) != market } == true) return@mapNotNull null
             val sourceUrl = text(item, "url", "link", "link_clean")
             if (sourceUrl != null && marketplaceFromUrl(sourceUrl) != market) return@mapNotNull null
             val title = text(item, "title", "name", "product_title", "product_name") ?: return@mapNotNull null
@@ -215,7 +237,7 @@ object AmazonProducts {
                 ((item["features"] ?: item["feature_bullets"]) as? JsonArray)?.let { put("features", JsonArray(it.take(12))) }
                 put("retrievedAt", retrieved)
                 observed?.let { put("observedAt", it) }
-                imageUrl(text(item, "imageUrl", "thumbnail", "image", "image_url", "main_image"))?.let { put("imageUrl", it) }
+                productImageUrl(item)?.let { put("imageUrl", it) }
                 mapOf("brand" to listOf("brand", "manufacturer"), "model" to listOf("model", "model_number"), "color" to listOf("color", "colour"), "size" to listOf("size"), "material" to listOf("material"), "dimensions" to listOf("dimensions", "product_dimensions"), "weight" to listOf("weight", "item_weight")).forEach { (key, aliases) ->
                     text(item, *aliases.toTypedArray())?.let { put(key, it) }
                 }

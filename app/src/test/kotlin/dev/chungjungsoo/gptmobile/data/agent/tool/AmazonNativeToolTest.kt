@@ -29,8 +29,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonNativeToolTest {
+    @Test fun canadaConfigurationOverridesModelRequestedUnitedStatesAndFiltersForeignOrUnpricedFacts() = runBlocking {
+        val provider = FakeProvider(AmazonFetchResult(listOf(item, item.copy(asin = "B000000002", marketplace = AmazonFreeMarket.UNITED_STATES), item.copy(asin = "B000000003", price = null))))
+        val result = AmazonNativeTool(provider, false, { PluginExecutionSettings(amazonMarketplace = "amazon.ca") }, { true })
+            .execute("canada", arguments("""{"query":"audio","marketplace":"amazon.com"}"""))
+        assertEquals(AmazonFreeMarket.CANADA, provider.request?.marketplace)
+        assertEquals("amazon.ca", AmazonProducts.text(payload(result), "marketplace"))
+        assertEquals(1, (payload(result)["products"] as JsonArray).size)
+        assertEquals("B000000001", AmazonProducts.text((payload(result)["products"] as JsonArray).single() as JsonObject, "asin"))
+    }
+
+    @Test fun ukAndFranceConfigurationSelectTheCorrectProviderMarket() = runBlocking {
+        for (market in listOf(AmazonFreeMarket.UNITED_KINGDOM, AmazonFreeMarket.FRANCE)) {
+            val provider = FakeProvider()
+            val tool = AmazonNativeTool(provider, false, { PluginExecutionSettings(amazonMarketplace = market.domain) }, { true })
+            assertFalse(tool.execute("country", arguments("""{"query":"audio","marketplace":"amazon.com"}""")).isError)
+            assertEquals(market, provider.request?.marketplace)
+        }
+    }
+
     private val market = AmazonFreeMarket.CANADA
-    private val item = AmazonProductObservation("B000000001", market, "Headphones", Instant.parse("2026-10-08T00:00:00Z"), "product_page")
+    private val item = AmazonProductObservation("B000000001", market, "Headphones", Instant.parse("2026-10-08T00:00:00Z"), "product_page", price = "$49.99")
     private fun arguments(raw: String) = Json.parseToJsonElement(raw) as JsonObject
     private fun payload(result: AgentToolResult) = (result.content as ToolResultContent.Json).value as JsonObject
     private fun code(result: AgentToolResult) = AmazonProducts.text((payload(result)["errors"] as JsonArray).first() as JsonObject, "code")

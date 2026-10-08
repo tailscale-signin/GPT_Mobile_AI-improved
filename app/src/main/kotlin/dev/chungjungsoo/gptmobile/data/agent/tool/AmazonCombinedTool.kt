@@ -20,6 +20,11 @@ import kotlinx.serialization.json.put
 
 /** Combine only selected, authorized leaf tools after their permission and budget wrappers. */
 internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>, private val details: Boolean) : AgentTool {
+    private val configuredMarket = children.firstNotNullOfOrNull { child ->
+        val properties = child.tool.definition.inputSchema["properties"] as? JsonObject
+        val markets = (properties?.get("marketplace") as? JsonObject)?.get("enum") as? JsonArray
+        (markets?.singleOrNull() as? JsonPrimitive)?.content?.let(AmazonProducts::marketplace)
+    }
     override val managesExecutionBudget = true
     private val lock = Mutex()
     private val cache = linkedMapOf<String, AgentToolResult>()
@@ -37,7 +42,7 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
                         "marketplace",
                         buildJsonObject {
                             put("type", "string")
-                            put("enum", JsonArray(AmazonProducts.marketplaces.keys.map(::JsonPrimitive)))
+                            put("enum", JsonArray((configuredMarket?.let { listOf(it) } ?: AmazonProducts.marketplaces.keys.toList()).map(::JsonPrimitive)))
                         }
                     )
                     if (details) {
@@ -99,7 +104,9 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = lock.withLock {
-        val key = JsonObject(arguments.toSortedMap()).toString()
+        val market = configuredMarket ?: AmazonProducts.text(arguments, "marketplace")?.let(AmazonProducts::marketplace) ?: "amazon.ca"
+        val bounded = JsonObject(arguments + ("marketplace" to JsonPrimitive(market)))
+        val key = JsonObject(bounded.toSortedMap()).toString()
         cache[key]?.let { previous ->
             if (children.all { it.canReuseResult?.invoke() == true }) {
                 return@withLock previous.copy(callId = callId, sharedResult = true)
@@ -110,13 +117,13 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
             children.mapIndexed { index, child ->
                 async {
                     val properties = child.tool.definition.inputSchema["properties"] as? JsonObject ?: JsonObject(emptyMap())
-                    val market = arguments["marketplace"] as? JsonPrimitive
+                    val requestedMarket = bounded["marketplace"] as? JsonPrimitive
                     val markets = (properties["marketplace"] as? JsonObject)?.get("enum") as? JsonArray
-                    if (market != null && markets != null && market !in markets) {
+                    if (requestedMarket != null && markets != null && requestedMarket !in markets) {
                         return@async child to AgentToolResult(callId, ToolResultContent.Text("This provider does not support the requested marketplace."), true)
                     }
                     val mapped = JsonObject(
-                        arguments.filterKeys { it in properties }.mapValues { (name, value) ->
+                        bounded.filterKeys { it in properties }.mapValues { (name, value) ->
                             if ((properties[name] as? JsonObject)?.get("type") == JsonPrimitive("string") && value is JsonPrimitive && !value.isString) JsonPrimitive(value.content) else value
                         }
                     )
@@ -141,14 +148,14 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
                 else -> null
             }
             if (!result.isError && AmazonProducts.text(payload ?: JsonObject(emptyMap()), "schema") == AmazonProducts.SCHEMA) {
-                (payload?.get("products") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach { product ->
+                (payload?.get("products") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { AmazonProducts.text(it, "marketplace") == market && (details || AmazonProducts.hasPrice(it)) }.forEach { product ->
                     val identity = listOf("marketplace", "asin", "seller", "condition", "variant").map { AmazonProducts.text(product, it) }
                     val previous = products[identity]
                     val providers = ((previous?.get("providers") as? JsonArray).orEmpty() + listOfNotNull(product["provider"], JsonPrimitive(child.connectionName.orEmpty()))).distinct()
                     // Preserve the earliest provider's observed price; fill only absent facts.
                     products[identity] = JsonObject(product + previous.orEmpty() + ("providers" to JsonArray(providers)))
                 }
-                (payload?.get("unverifiedProducts") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach { product ->
+                (payload?.get("unverifiedProducts") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { AmazonProducts.text(it, "marketplace") == market && (details || AmazonProducts.hasPrice(it)) }.forEach { product ->
                     val identity = listOf("marketplace", "asin", "seller", "condition", "variant").map { AmazonProducts.text(product, it) }
                     unverified.putIfAbsent(identity, product)
                 }
@@ -167,6 +174,7 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
                 buildJsonObject {
                     put("schema", AmazonProducts.SCHEMA)
                     put("provider", "combined")
+                    put("marketplace", market)
                     put(
                         "status",
                         if (allFailed) {

@@ -42,7 +42,7 @@ object AmazonHtmlParser {
             throw AmazonReadException(AmazonReadError.PARSE_CHANGED, "Amazon product cards could not be verified in this page layout.")
         }
         // A page full of verified sponsored products is a valid filtered empty result.
-        val products = verified.filter { request.includeSponsored || it.sponsored != true }.distinctBy { it.asin }
+        val products = verified.filter { (request.includeSponsored || it.sponsored != true) && AmazonProducts.hasPrice(it.toJson()) }.distinctBy { it.asin }
         val filtered = products.filter { item ->
             if (request.minimum == null && request.maximum == null) {
                 true
@@ -119,12 +119,14 @@ object AmazonHtmlParser {
         // Ambiguous bare dollars retain their display text, without a numeric amount usable for alerts/filters.
         val amount = if (currency == market.currency) raw?.let(::decimalPrice) else null
         val ratingText = firstText(element, "#acrPopover .a-icon-alt", "i.a-icon-star-small .a-icon-alt", "i.a-icon-star .a-icon-alt")
-        val rating = ratingText?.let { Regex("^([0-5](?:\\.[0-9]+)?) out of 5 stars$", RegexOption.IGNORE_CASE).matchEntire(it)?.groupValues?.get(1)?.toDoubleOrNull() }
+        val rating = ratingText?.let { Regex("^([0-5](?:[.,][0-9]+)?) (?:out of 5 stars|sur 5 (?:étoiles|etoiles))$", RegexOption.IGNORE_CASE).matchEntire(it)?.groupValues?.get(1)?.replace(',', '.')?.toDoubleOrNull() }
             ?.takeIf { it.isFinite() && it in 0.0..5.0 }
         val countText = firstText(element, "#acrCustomerReviewText", "a[href*=customerReviews] .s-underline-text", "a[aria-label*=ratings] span")
-        val count = countText?.let { Regex("^([0-9][0-9,]*)(?: (?:ratings|reviews))?$", RegexOption.IGNORE_CASE).matchEntire(it)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() }
+        val count = countText?.let { Regex("^([0-9][0-9, \u00a0\u202f]*)(?: (?:ratings|reviews|évaluations|evaluations))?$", RegexOption.IGNORE_CASE).matchEntire(it)?.groupValues?.get(1)?.filter(Char::isDigit)?.toIntOrNull() }
         val image = element.selectFirst("img.s-image, #landingImage, #imgBlkFront")?.let { image ->
-            AmazonProducts.imageUrl(image.attr("data-old-hires")) ?: AmazonProducts.imageUrl(image.attr("src"))
+            sequenceOf("data-old-hires", "data-src", "src").map { AmazonProducts.imageUrl(image.attr(it)) }.firstOrNull { it != null }
+                ?: image.attr("srcset").split(',').map { it.trim().substringBefore(' ') }.firstNotNullOfOrNull(AmazonProducts::imageUrl)
+                ?: runCatching { kotlinx.serialization.json.Json.parseToJsonElement(image.attr("data-a-dynamic-image")) as? kotlinx.serialization.json.JsonObject }.getOrNull()?.keys?.firstNotNullOfOrNull(AmazonProducts::imageUrl)
         }
         return AmazonProductObservation(
             asin, market, title.take(300), acquiredAt, sourceType,
@@ -143,7 +145,7 @@ object AmazonHtmlParser {
     private fun currencyMetadata(element: Element): String? {
         val values = element.select("meta[property=product:price:currency], [itemprop=priceCurrency], [data-csa-c-currency], [data-currency-code]")
             .map { it.attr("content").ifBlank { it.attr("data-csa-c-currency") }.ifBlank { it.attr("data-currency-code") }.ifBlank { it.text() }.trim().uppercase(Locale.ROOT) }
-            .filter { it in setOf("CAD", "USD") }.distinct()
+            .filter { it in setOf("CAD", "USD", "GBP", "EUR") }.distinct()
         return values.singleOrNull()
     }
 
@@ -151,22 +153,30 @@ object AmazonHtmlParser {
         // Mobile cards can split the visible price without supplying an a-offscreen span.
         val price = element.select(".a-price:not(.a-text-price):not([data-a-strike=true])").firstOrNull() ?: return null
         firstText(price, ".a-offscreen")?.let { return it }
-        val whole = firstText(price, ".a-price-whole")?.trimEnd('.') ?: return null
+        val whole = firstText(price, ".a-price-whole")?.trimEnd('.', ',') ?: return null
         val fraction = firstText(price, ".a-price-fraction")
-        if (!Regex("[0-9][0-9,]*").matches(whole) || (fraction != null && !Regex("[0-9]{2}").matches(fraction))) return null
+        if (!Regex("[0-9][0-9, .\\u00a0\\u202f]*").matches(whole) || (fraction != null && !Regex("[0-9]{2}").matches(fraction))) return null
         return firstText(price, ".a-price-symbol").orEmpty() + whole + if (fraction != null) ".$fraction" else ""
     }
 
     private fun explicitCurrency(raw: String): String? = when {
         Regex("(?:\\bCAD\\b|CDN[$]|CA[$]|C[$])", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> "CAD"
         Regex("(?:\\bUSD\\b|US[$])", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> "USD"
+        raw.contains('£') || Regex("\\bGBP\\b", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> "GBP"
+        raw.contains('€') || Regex("\\bEUR\\b", RegexOption.IGNORE_CASE).containsMatchIn(raw) -> "EUR"
         else -> null
     }
 
     private fun decimalPrice(raw: String): BigDecimal? {
-        val amount = raw.replace(Regex("(?i)(CAD|USD|CDN|CA|US|C)?[$]|\\b(?:CAD|USD)\\b"), "").trim()
-        if (!Regex("(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,9})(?:\\.[0-9]{2})?").matches(amount)) return null
-        return amount.replace(",", "").toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO && it <= BigDecimal("1000000000") }
+        var amount = raw.replace(Regex("(?i)(CAD|USD|CDN|CA|US|C)?[$]|[£€]|\\b(?:CAD|USD|GBP|EUR)\\b"), "").trim()
+        amount = amount.replace(Regex("[ \\u00a0\\u202f]"), "")
+        amount = if (raw.contains('€') || raw.contains("EUR", true)) {
+            if (Regex("[0-9]+(?:[.][0-9]{3})*(?:,[0-9]{2})?").matches(amount)) amount.replace(".", "").replace(',', '.') else amount
+        } else {
+            amount.replace(",", "")
+        }
+        if (!Regex("[0-9]{1,9}(?:\\.[0-9]{2})?").matches(amount)) return null
+        return amount.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO && it <= BigDecimal("1000000000") }
     }
 
     private fun matchingLink(raw: String, market: AmazonFreeMarket, asin: String): Boolean = runCatching {

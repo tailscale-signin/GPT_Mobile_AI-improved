@@ -77,7 +77,8 @@ object ChatRepositoryModule {
         database: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2,
         memoryEnrichment: dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue,
         conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion,
-        workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository
+        workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository,
+        amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -107,6 +108,7 @@ object ChatRepositoryModule {
         pendingPromptDao = database.pendingPromptDao(),
         memoryEnrichment = memoryEnrichment,
         conversationDeletion = conversationDeletion,
-        workspace = workspace
+        workspace = workspace,
+        amazonMedia = amazonMedia
     )
 }

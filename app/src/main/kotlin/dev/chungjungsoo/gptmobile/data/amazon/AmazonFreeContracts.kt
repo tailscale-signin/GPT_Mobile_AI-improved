@@ -10,7 +10,9 @@ import kotlinx.serialization.json.put
 /** These markets are a preview, pending the live reliability gate in the implementation plan. */
 enum class AmazonFreeMarket(val domain: String, val label: String, val currency: String, val language: String) {
     CANADA("amazon.ca", "Canada", "CAD", "en-CA"),
-    UNITED_STATES("amazon.com", "United States", "USD", "en-US");
+    UNITED_STATES("amazon.com", "United States", "USD", "en-US"),
+    UNITED_KINGDOM("amazon.co.uk", "United Kingdom", "GBP", "en-GB"),
+    FRANCE("amazon.fr", "France", "EUR", "fr-FR");
 
     companion object {
         fun fromDomain(domain: String): AmazonFreeMarket? = entries.firstOrNull { it.domain == domain }

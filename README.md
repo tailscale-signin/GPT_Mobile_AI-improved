@@ -83,6 +83,7 @@ Supported adapters include OpenAI, Anthropic, Google, Groq, OpenRouter, NVIDIA, 
 
 - Android Keystore-backed `SecretVault` protects credentials, authoritative fact memory and memory-bearing context receipts.
 - Room chat/history/derived graph data, imported files and local vector indexes have app-private storage protection; they are **not all application-level encrypted**. App lock protects entry, not database bytes.
+- Backup and restore present three saved groups: **AI platforms** (profiles, credentials/APIs, local models), **Conversations** (chats, favorites, memory, attachments, agent/tool history, statistics, Amazon data), and **Settings & tools** (preferences, themes, plugins, MCP connections). Older archives and partial selections remain compatible; active operations hide the restore action.
 - Automatic Android cloud backup and device transfer are disabled/excluded. Use the explicit selective backup/export flow; encryption and selected data sections matter.
 - Temporary sessions disable memory capture/indexing/recall and pause diagnostic logging. Temporary rows and their files are excluded from portable backups and purged on leaving/restart. App-private WAL/storage remnants are not a secure-erasure guarantee.
 - Deletion removes dependent runs/approvals/context, cancels pending enrichment and deletes unshared app-owned attachments. Optional learned-memory deletion removes memories supported by that chat, including jointly supported facts, to avoid retaining unwanted evidence. It does not delete a remote provider's records.

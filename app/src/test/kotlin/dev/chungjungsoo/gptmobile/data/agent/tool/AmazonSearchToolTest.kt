@@ -18,6 +18,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonSearchToolTest {
+    @Test fun modelRequestedUSCannotOverrideCanadaAndUnpricedRowsAreNotSourced() = runBlocking {
+        var domain: String? = null
+        val tool = AmazonSearchTool({ params ->
+            domain = params["amazon_domain"]
+            response
+        }, PluginExecutionSettings(amazonMarketplace = "amazon.ca"))
+        val result = tool.execute("canada", Json.parseToJsonElement("""{"query":"audio","marketplace":"amazon.com"}""") as JsonObject)
+        assertEquals("amazon.ca", domain)
+        assertEquals(1, products(result).size)
+        assertFalse(result.content.toString().contains("Speakers"))
+    }
+
     private val response = Json.parseToJsonElement("""{"organic_results":[{"asin":"B000000001","title":"Headphones","price":"$49.99","extracted_price":49.99},{"asin":"B000000002","title":"Speakers"}]}""") as JsonObject
 
     @Test
@@ -115,7 +127,7 @@ class AmazonSearchToolTest {
                     }
                 )
             }
-        }, productDetails = true)
+        }, settings = PluginExecutionSettings(amazonMarketplace = "amazon.com"), productDetails = true)
         val result = tool.execute("details", Json.parseToJsonElement("""{"asins":["B000000001","B000000002"],"marketplace":"amazon.com"}""") as JsonObject)
         assertFalse(result.isError)
         assertEquals(2, calls.size)

@@ -9,6 +9,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonHtmlParserTest {
+    @Test fun britishPoundsFrenchDecimalsAndLazyProductImagesAreParsed() {
+        for ((market, price, amount) in listOf(Triple(AmazonFreeMarket.UNITED_KINGDOM, "£1,234.56", "1234.56"), Triple(AmazonFreeMarket.FRANCE, "1\u202f234,56 €", "1234.56"))) {
+            val html = """
+                <div data-component-type="s-search-result" data-asin="B000000001">
+                <a href="/dp/B000000001"><h2>Headphones</h2></a>
+                <span class="a-price"><span class="a-offscreen">$price</span></span>
+                <img class="s-image" src="data:image/gif;base64,placeholder" data-src="https://m.media-amazon.com/images/I/photo.jpg">
+                <i class="a-icon-star-small"><span class="a-icon-alt">4,5 sur 5 étoiles</span></i>
+                <a href="/dp/B000000001#customerReviews"><span class="s-underline-text">1 234 évaluations</span></a>
+                </div>
+            """.trimIndent()
+            val product = AmazonHtmlParser.search(html, AmazonSearchRequest("headphones", market), at).products.single()
+            assertEquals(BigDecimal(amount), product.amount)
+            assertEquals(market.currency, product.currency)
+            assertEquals("https://m.media-amazon.com/images/I/photo.jpg", product.imageUrl)
+            assertEquals(4.5, product.rating)
+            assertEquals(1234, product.reviewCount)
+        }
+    }
+
+    @Test fun listingsWithNoPurchasePriceAreExcludedFromSearchResults() {
+        val products = AmazonHtmlParser.search(fixture("search-ca"), AmazonSearchRequest("audio", canada, includeSponsored = true), at).products
+        assertFalse(products.any { it.asin == "B000000002" })
+        assertTrue(products.all { AmazonProducts.hasPrice(it.toJson()) })
+    }
+
     @Test
     fun productDetailsKeepImageBrandAvailabilityAndSpecifications() {
         val html = fixture("product-ca").replace(
@@ -42,7 +68,7 @@ class AmazonHtmlParserTest {
     @Test
     fun searchKeepsVerifiedFactsAndDoesNotPromoteReferencePrices() {
         val result = AmazonHtmlParser.search(fixture("search-ca"), AmazonSearchRequest("headphones", canada), at)
-        assertEquals(listOf("B000000001", "B000000002"), result.products.map { it.asin })
+        assertEquals(listOf("B000000001"), result.products.map { it.asin })
         val item = result.products.first()
         assertEquals(BigDecimal("89.99"), item.amount)
         assertEquals("CAD", item.currency)
@@ -51,7 +77,7 @@ class AmazonHtmlParserTest {
         assertEquals(at, item.acquiredAt)
         assertFalse(item.toJson().containsKey("affiliateUrl"))
         assertEquals("search_page", AmazonProducts.text(item.toJson(), "sourceType"))
-        assertEquals(AmazonReadError.PRICE_UNAVAILABLE, result.errors.single().code)
+        assertTrue(result.errors.isEmpty())
     }
 
     @Test
@@ -148,7 +174,8 @@ class AmazonHtmlParserTest {
 
     @Test
     fun unverifiedDiscoveryNeverIncludesAConfirmedOverBudgetListing() {
-        val result = AmazonHtmlParser.search(fixture("search-ca"), AmazonSearchRequest("headphones", canada, maximum = BigDecimal("20")), at)
+        val html = fixture("search-ca").replace("<h2>Unpriced synthetic listing</h2></a>", "<h2>Unconfirmed synthetic listing</h2></a><span class=\"a-price\"><span class=\"a-offscreen\">US$12.99</span></span>")
+        val result = AmazonHtmlParser.search(html, AmazonSearchRequest("headphones", canada, maximum = BigDecimal("20")), at)
         assertTrue(result.products.isEmpty())
         assertEquals(listOf("B000000002"), result.unverifiedProducts.map { it.asin })
         assertEquals(AmazonReadError.PRICE_UNAVAILABLE, result.errors.single().code)

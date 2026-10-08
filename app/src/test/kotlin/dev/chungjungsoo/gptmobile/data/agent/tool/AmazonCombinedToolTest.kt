@@ -21,6 +21,7 @@ class AmazonCombinedToolTest {
     private val schema = Json.parseToJsonElement("""{"type":"object","properties":{"query":{"type":"string"},"minPrice":{"type":"string"}}}""") as JsonObject
     private val arguments = buildJsonObject {
         put("query", "audio")
+        put("marketplace", "amazon.com")
         put("minPrice", 10)
     }
     private fun child(name: String, allowed: suspend () -> Boolean = { true }, execute: suspend (JsonObject) -> AgentToolResult): ResolvedAgentTool {
@@ -43,6 +44,7 @@ class AmazonCombinedToolTest {
                                 put("asin", "B000000001")
                                 put("marketplace", "amazon.com")
                                 put("title", "Headphones")
+                                put("price", "$49.99")
                                 put("provider", provider)
                                 description?.let { put("description", it) }
                             }

@@ -78,6 +78,20 @@ object AmazonProducts {
         (value[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it != "null" && it.isNotBlank() }?.take(500)
     }
 
+    /** Enrich the same product without replacing the card's offer, price, currency or affiliate link. */
+    fun withDetails(product: JsonObject, details: JsonObject): JsonObject {
+        if (text(product, "marketplace") != text(details, "marketplace") || text(product, "asin") != text(details, "asin")) return product
+        val variant = text(product, "variant")
+        val detailedVariant = text(details, "variant")
+        if (variant != null && detailedVariant != null && !variant.equals(detailedVariant, true)) return product
+        val fields = details.filter { (key, value) ->
+            key in setOf("description", "features", "imageUrl", "brand", "model", "color", "size", "material", "dimensions", "weight", "specifications") &&
+                value != kotlinx.serialization.json.JsonNull &&
+                value.toString() !in setOf("\"\"", "[]", "{}")
+        }
+        return JsonObject(product + fields)
+    }
+
     private fun decimal(value: JsonElement?): String? = (value as? JsonPrimitive)?.contentOrNull?.let { raw ->
         if (raw.length > 40) return@let null
         runCatching { BigDecimal(raw).takeIf { it.scale() in -12..12 && it.signum() >= 0 && it <= BigDecimal("1000000000") }?.stripTrailingZeros()?.toPlainString() }.getOrNull()
@@ -197,11 +211,24 @@ object AmazonProducts {
                 put("title", title.take(300))
                 put("url", requireNotNull(productUrl(market, id)))
                 put("provider", provider)
-                text(item, "description", "product_description")?.let { put("description", it.take(4000)) }
+                ((item["description"] ?: item["product_description"]) as? JsonPrimitive)?.contentOrNull?.takeIf { it != "null" && it.isNotBlank() }?.let { put("description", it.take(4000)) }
                 ((item["features"] ?: item["feature_bullets"]) as? JsonArray)?.let { put("features", JsonArray(it.take(12))) }
                 put("retrievedAt", retrieved)
                 observed?.let { put("observedAt", it) }
-                imageUrl(text(item, "thumbnail", "image", "image_url"))?.let { put("imageUrl", it) }
+                imageUrl(text(item, "imageUrl", "thumbnail", "image", "image_url", "main_image"))?.let { put("imageUrl", it) }
+                mapOf("brand" to listOf("brand", "manufacturer"), "model" to listOf("model", "model_number"), "color" to listOf("color", "colour"), "size" to listOf("size"), "material" to listOf("material"), "dimensions" to listOf("dimensions", "product_dimensions"), "weight" to listOf("weight", "item_weight")).forEach { (key, aliases) ->
+                    text(item, *aliases.toTypedArray())?.let { put(key, it) }
+                }
+                ((item["specifications"] ?: item["product_information"]) as? JsonObject)?.let { specifications ->
+                    put(
+                        "specifications",
+                        JsonObject(
+                            specifications.entries.take(24).mapNotNull { (key, value) ->
+                                (value as? JsonPrimitive)?.contentOrNull?.takeIf { it != "null" && it.isNotBlank() }?.let { key.take(80) to JsonPrimitive(it.take(500)) }
+                            }.toMap()
+                        )
+                    )
+                }
                 (text(item, "price", "price_string") ?: priceObject?.let { text(it, "raw", "display") } ?: amount)?.let { put("price", it) }
                 amount?.let { put("priceAmount", it) }
                 decimal(item["extracted_max_price"])?.let { put("priceMaxAmount", it) }

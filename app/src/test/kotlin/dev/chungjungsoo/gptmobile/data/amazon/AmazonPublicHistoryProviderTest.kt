@@ -7,7 +7,13 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -15,6 +21,67 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonPublicHistoryProviderTest {
+    @Test fun preloadsKeepEveryCarouselChartCachedInsteadOfEvictingAfterEightProducts() = runBlocking {
+        val requests = AtomicInteger()
+        client(
+            MockEngine {
+                requests.incrementAndGet()
+                respond(png, HttpStatusCode.OK, headersOf("Content-Type", "image/png"))
+            }
+        ).use { http ->
+            val provider = AmazonPublicHistoryProvider(http)
+            val asins = (1..30).map { "B" + it.toString().padStart(9, '0') }
+            asins.map { asin -> async { provider.fetch("amazon.ca", asin) { true } } }.awaitAll()
+            asins.forEach { assertNotNull(provider.fetch("amazon.ca", it) { true }.png) }
+            assertEquals(30, requests.get())
+        }
+    }
+
+    @Test fun unrelatedChartsLoadConcurrentlyButAtMostThreeNetworkReadsRun() = runBlocking {
+        val started = Channel<String>(Channel.UNLIMITED)
+        val release = CompletableDeferred<Unit>()
+        val requests = AtomicInteger()
+        client(
+            MockEngine { request ->
+                requests.incrementAndGet()
+                started.send(requireNotNull(request.url.parameters["asin"]))
+                release.await()
+                respond(png, HttpStatusCode.OK, headersOf("Content-Type", "image/png"))
+            }
+        ).use { http ->
+            val provider = AmazonPublicHistoryProvider(http)
+            val pending = (1..5).map { index -> async { provider.fetch("amazon.ca", "B" + index.toString().padStart(9, '0')) { true } } }
+            withTimeout(5000) { repeat(3) { started.receive() } }
+            assertEquals(3, requests.get())
+            release.complete(Unit)
+            withTimeout(5000) { pending.awaitAll() }
+            assertEquals(5, requests.get())
+        }
+    }
+
+    @Test fun openingAProductDuringItsPreloadSharesTheSameNetworkRead() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val requests = AtomicInteger()
+        client(
+            MockEngine {
+                requests.incrementAndGet()
+                started.complete(Unit)
+                release.await()
+                respond(png, HttpStatusCode.OK, headersOf("Content-Type", "image/png"))
+            }
+        ).use { http ->
+            val provider = AmazonPublicHistoryProvider(http)
+            val preload = async { provider.fetch("amazon.ca", "B000000001") { true } }
+            withTimeout(5000) { started.await() }
+            val open = async { provider.fetch("amazon.ca", "B000000001") { true } }
+            release.complete(Unit)
+            assertNotNull(withTimeout(5000) { preload.await() }.png)
+            assertNotNull(withTimeout(5000) { open.await() }.png)
+            assertEquals(1, requests.get())
+        }
+    }
+
     @Test fun emptyHistoryBannerWithSuccessfulHttpStatusStillFallsBack() = runBlocking {
         val banner = png.copyOf().apply { java.nio.ByteBuffer.wrap(this, 16, 8).putInt(500).putInt(200) }
         client(

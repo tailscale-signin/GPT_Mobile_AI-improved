@@ -127,12 +127,6 @@ fun ToolConnectionsScreen(
             FactVaultScreen(hiltViewModel(), onBack = { memorySettingsOpen = false })
         }
     }
-    var amazonDataOpen by remember { mutableStateOf(false) }
-    if (amazonDataOpen) {
-        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { amazonDataOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-            dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonDataScreen(onBack = { amazonDataOpen = false })
-        }
-    }
     var toolkitFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitFilter.ALL) }
     var toolkitSort by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitSort.NAME) }
     val marketplaceViewModel: dev.chungjungsoo.gptmobile.presentation.ui.mcp.MarketplaceViewModel = hiltViewModel()
@@ -331,12 +325,11 @@ fun ToolConnectionsScreen(
                                 }
                             }
                             if (service.id == ToolPluginId.AMAZON_FREE) {
-                                Text("No API key required · Canada/US preview. Amazon may block public pages. Local history and manual watches are available; background alerts are off.", style = MaterialTheme.typography.bodySmall)
+                                Text("No API key required · Canada/US preview. Tap a product for details and automatically loaded price history. Amazon may block public pages.", style = MaterialTheme.typography.bodySmall)
                                 OutlinedButton(
                                     onClick = viewModel::testAmazonFreeSearch,
                                     enabled = features.isToolPluginEnabled(ToolPluginId.AMAZON_FREE) && uiState.connectionHealth[ToolPluginId.AMAZON_FREE]?.status != ToolConnectionHealthStatus.CHECKING
                                 ) { Text("Test search · 1 request") }
-                                OutlinedButton(onClick = { amazonDataOpen = true }) { Text("History & manual watches") }
                                 uiState.connectionHealth[ToolPluginId.AMAZON_FREE]?.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                             }
                         }

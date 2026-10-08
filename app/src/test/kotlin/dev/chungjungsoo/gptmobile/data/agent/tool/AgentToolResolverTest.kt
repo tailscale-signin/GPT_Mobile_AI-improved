@@ -56,7 +56,8 @@ class AgentToolResolverTest {
         val settings = ResolverFakeSettingRepository(listOf(profile), features)
         val access = dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy(settings)
         val local = resolver(settings = settings, history = history, access = access).resolve(profile.uid).filter { it.modelToolName in AmazonLocalTool.names }
-        assertEquals(AmazonLocalTool.names, local.map { it.modelToolName }.toSet())
+        assertEquals(setOf(AmazonLocalTool.HISTORY), local.map { it.modelToolName }.toSet())
+        assertFalse(local.any { it.modelToolName == AmazonLocalTool.WATCHES })
         assertTrue(local.all { !it.shareableReadOnly && it.connectionUid == null })
         val blocked = resolver(settings = ResolverFakeSettingRepository(listOf(profile.copy(disableLocalTools = true)), features), history = history, access = access).resolve(profile.uid)
         assertFalse(blocked.any { it.modelToolName in AmazonLocalTool.names })

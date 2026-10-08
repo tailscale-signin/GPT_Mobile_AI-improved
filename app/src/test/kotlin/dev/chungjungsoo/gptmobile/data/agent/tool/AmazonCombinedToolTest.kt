@@ -50,7 +50,8 @@ class AmazonCombinedToolTest {
                     )
                 )
             }
-        )
+        ),
+        isError = false
     )
 
     @Test fun providersStartTogetherMergeProductsAndReuseOnlyWhileAuthorized() = runBlocking {

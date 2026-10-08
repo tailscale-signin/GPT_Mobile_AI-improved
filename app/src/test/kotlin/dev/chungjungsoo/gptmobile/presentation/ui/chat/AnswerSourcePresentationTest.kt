@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnswerSourcePresentationTest {
+    @Test fun numericVectorsAreNotMistakenForReferences() {
+        val answer = "Vectors [1] and [1, 2, 3] are data."
+        assertEquals(answer, answerWithoutSourceLists(answer))
+    }
+
+    @Test fun boldSourceHeadingsAndLinkedCitationIdsStayInPickerWhileCommandsStayReadable() {
+        val answer = "Run `curl https://example.org/api`. [S1](https://example.org/docs)\n\n**Sources:**\n- [Docs](https://example.org/docs)"
+        assertEquals("Run `curl https://example.org/api`.", answerWithoutSourceLists(answer))
+    }
+
     @Test fun inlineReferencesKeepReadableLabelsAndIndentedCodeRemainsUnchanged() {
         assertEquals("Read the documentation.", answerWithoutSourceLists("Read the [documentation](https://example.org/docs). [1]"))
         val code = "    Sources:\n    https://example.org/code\n    value[1]"

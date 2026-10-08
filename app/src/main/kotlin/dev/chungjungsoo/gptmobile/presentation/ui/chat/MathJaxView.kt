@@ -113,6 +113,12 @@ svg {
 })();
 window.mathJaxReady = false;
 window.MathJax = {
+  loader: {
+    paths: {fonts: 'file:///android_asset/mathjax/fonts'}
+  },
+  output: {
+    fontPath: '[fonts]/%%FONT%%-font'
+  },
   options: {
     enableMenu: false,
     enableEnrichment: false,
@@ -147,38 +153,45 @@ window.MathJax = {
 </script>
 <script defer src="tex-svg.js"></script>
 <script>
+window.mathRenderKey = null;
+window.mathRenderResult = null;
 window.renderMath = function(expression, displayMode, textColor, fontSizePx) {
   if (!window.mathJaxReady || !window.MathJax || typeof MathJax.tex2svg !== 'function') {
     return 'loading';
   }
 
   const root = document.getElementById('root');
+  const key = JSON.stringify([expression, displayMode, textColor, fontSizePx]);
+  if (window.mathRenderKey === key) return window.mathRenderResult || 'loading';
+  window.mathRenderKey = key;
+  window.mathRenderResult = null;
   document.body.className = displayMode ? 'display' : 'inline';
   document.body.style.color = textColor;
   document.body.style.fontSize = fontSizePx + 'px';
   root.className = displayMode ? 'display' : 'inline';
 
-  try {
-    const node = MathJax.tex2svg(expression, { display: displayMode });
+  const finish = (node) => {
+    if (window.mathRenderKey !== key) return;
     root.replaceChildren(node);
-  } catch (error) {
+    const measuredNode = root.firstElementChild || root;
+    const rect = measuredNode.getBoundingClientRect();
+    window.mathRenderResult = {
+      width: Math.max(Math.ceil(rect.width), Math.ceil(root.scrollWidth), 1),
+      height: Math.max(Math.ceil(rect.height), Math.ceil(root.scrollHeight), 1),
+      html: root.innerHTML
+    };
+  };
+  MathJax.tex2svgPromise(expression, { display: displayMode }).then(finish).catch(() => {
     const fallback = document.createElement(displayMode ? 'pre' : 'span');
     fallback.textContent = displayMode ? '\\[' + expression + '\\]' : '\\(' + expression + '\\)';
-    root.replaceChildren(fallback);
-  }
-
-  const measuredNode = root.firstElementChild || root;
-  const rect = measuredNode.getBoundingClientRect();
-  const width = Math.max(Math.ceil(rect.width), Math.ceil(root.scrollWidth), 1);
-  const height = Math.max(Math.ceil(rect.height), Math.ceil(root.scrollHeight), 1);
-  return {
-    width,
-    height,
-    html: root.innerHTML
-  };
+    finish(fallback);
+  });
+  return 'loading';
 };
 
 window.applyCachedMath = function(html, displayMode, textColor, fontSizePx) {
+  window.mathRenderKey = null;
+  window.mathRenderResult = null;
   const root = document.getElementById('root');
   document.body.className = displayMode ? 'display' : 'inline';
   document.body.style.color = textColor;
@@ -433,7 +446,7 @@ private class MathJaxWebView(context: Context, private val onRendererGone: () ->
         }
 
         evaluateJavascript(buildRenderScript(request)) { rawResult ->
-            if (disposed) return@evaluateJavascript
+            if (disposed || pendingRequest != request) return@evaluateJavascript
             if (rawResult == "\"loading\"") {
                 scheduleRenderRetry()
                 return@evaluateJavascript
@@ -477,6 +490,8 @@ private class MathJaxWebView(context: Context, private val onRendererGone: () ->
         evaluateJavascript(
             """
             (function() {
+              window.mathRenderKey = null;
+              window.mathRenderResult = null;
               const root = document.getElementById('root');
               if (root) {
                 root.replaceChildren();

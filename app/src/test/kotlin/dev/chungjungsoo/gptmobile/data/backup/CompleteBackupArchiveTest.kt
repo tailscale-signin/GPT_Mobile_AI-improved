@@ -50,6 +50,19 @@ class CompleteBackupArchiveTest {
     }
 
     @Test
+    fun convertedBackupsAndRecoveryKeysNeverBecomeAttachmentPayloads() {
+        val internal = temp.newFolder("internal")
+        File(internal, "converted-backups/old.gptkey").apply {
+            parentFile!!.mkdirs()
+            writeText("private recovery key")
+        }
+        File(internal, "converted-backups/old.gptbackup").writeText("protected backup")
+        File(internal, "photo.txt").writeText("attachment")
+        val files = CompleteBackupFiles(mapOf("internal" to internal, "external" to temp.newFolder("external"))).collect()
+        assertEquals(setOf("internal/photo.txt"), files.keys)
+    }
+
+    @Test
     fun failedFileInstallationRestoresOriginalFiles() {
         val internal = temp.newFolder("internal")
         val external = temp.newFolder("external")

@@ -15,11 +15,46 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+
+/** Extract the failure before clipping metadata so diagnostics retain the actual cause. */
+internal fun toolFailureReason(content: ToolResultContent, fallback: String?): String {
+    fun message(value: JsonElement?, depth: Int = 0): String? {
+        if (depth > 6) return null
+        return when (value) {
+            is JsonObject -> {
+                val code = (value["code"] as? JsonPrimitive)?.contentOrNull
+                val text = (value["message"] as? JsonPrimitive)?.contentOrNull
+                if (text != null) {
+                    listOfNotNull(code, text).joinToString(": ")
+                } else {
+                    listOf("errors", "error", "partialErrors", "providers", "detail", "notice").firstNotNullOfOrNull { key -> message(value[key], depth + 1) }
+                }
+            }
+            is JsonArray -> value.take(5).mapNotNull { message(it, depth + 1) }.takeIf { it.isNotEmpty() }?.joinToString("; ")
+            is JsonPrimitive -> value.contentOrNull?.takeIf { it != "null" && it.isNotBlank() }
+            else -> null
+        }
+    }
+    val raw = when (content) {
+        is ToolResultContent.Json -> message(content.value) ?: fallback ?: content.value.toString()
+        is ToolResultContent.Text -> {
+            val structured = runCatching { Json.parseToJsonElement(content.text) }.getOrNull()
+                ?.takeIf { it is JsonObject || it is JsonArray }
+            message(structured) ?: fallback?.takeIf { it.isNotBlank() } ?: content.text
+        }
+        is ToolResultContent.ResourceLinks -> fallback ?: "Tool call failed."
+    }
+    return dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(raw).take(4000)
+}
 
 class ToolEventRecorder @Inject constructor(
     private val dao: AgentPersistenceDao,
@@ -84,10 +119,11 @@ class ToolEventRecorder @Inject constructor(
         } else {
             result
         }
+        val failureReason = if (normalizedResult.isError) toolFailureReason(normalizedResult.content, error) else null
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Tool",
             "Finished ${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError}" +
-                if (normalizedResult.isError) " · reason=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.orEmpty()).take(240)}" else "",
+                if (normalizedResult.isError) " · reason=${failureReason.orEmpty().take(1000)}" else "",
             if (normalizedResult.isError) "E" else "I"
         )
         val content = (normalizedResult.retainedContent ?: normalizedResult.content).serialized()
@@ -108,7 +144,7 @@ class ToolEventRecorder @Inject constructor(
             status = if (normalizedResult.isError) ToolEventStatus.FAILED else ToolEventStatus.COMPLETED,
             isError = normalizedResult.isError,
             completedAt = completedAt,
-            error = if (normalizedResult.isError) error else null
+            error = failureReason
         )
         if (affectedRows != 1) return null
         return dao.getToolEventById(eventId)

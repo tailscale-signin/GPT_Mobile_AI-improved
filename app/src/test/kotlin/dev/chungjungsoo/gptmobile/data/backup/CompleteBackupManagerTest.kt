@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -69,6 +70,105 @@ class CompleteBackupManagerTest {
     fun cleanup() {
         database.close()
         scope.cancel()
+    }
+
+    @Test
+    fun statisticsRoundTripRetainsAllRequestsCostsTimingsAndProfileIdentity() = runBlocking {
+        seed(File(context.cacheDir, "statistics-file").apply { writeText("attachment") })
+        database.agentRunDao().updateStatus("run", "COMPLETED", null, 456, null)
+        val invocation = dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation("timing", "run", "turn", "provider", "model", "primary", 123, 456, false, "COMPLETED", 1000, 1500, 200, "profile", 3456, "CAD", "test price")
+        database.invocationDao().save(invocation)
+        database.invocationDao().save(invocation.copy(id = "unfinished", status = "RUNNING"))
+        val selected = CompleteBackupSelection(emptySet()).toggled(CompleteBackupSection.STATISTICS, true)
+        val archive = File(context.cacheDir, "statistics.gptbackup")
+        assertTrue(backupFixture(archive, selected).success)
+        database.invocationDao().clear()
+        database.platformDao().editPlatform(PlatformV2(id = 9, uid = "profile", name = "changed"))
+        val result = manager.restore(Uri.fromFile(archive), selection = selected)
+        assertTrue(result.message, result.success)
+        val restored = database.invocationDao().statistics().first().associateBy { it.id }
+        assertEquals(invocation, restored.getValue("timing"))
+        assertEquals("INTERRUPTED", restored.getValue("unfinished").status)
+        assertEquals("saved", database.platformDao().getPlatforms().single().name)
+        assertEquals("COMPLETED", database.agentRunDao().getById("run")?.status)
+    }
+
+    @Test
+    fun legacyUserBackupRestoresRelationshipsAndConvertsMissingModelsWithoutClaimingTheyAreReady() = runBlocking {
+        val realLegacy = AppBackupManager(context, database, database.platformDao(), database.toolConnectionDao(), database.chatPlatformModelDao(), database.chatRoomDao(), database.messageDao(), settings, vault)
+        val realManager = CompleteBackupManager(context, database, preferences, vault, settings, realLegacy)
+        val budget = dev.chungjungsoo.gptmobile.data.amazon.AmazonBudgetEntity(stateJson = "installation usage and cooldowns")
+        database.amazonDao().saveBudget(budget)
+        val payload = UserBackupData(
+            version = 1,
+            chatRooms = listOf(ChatRoomV2(id = 7, title = "legacy conversation", enabledPlatform = listOf("profile"))),
+            messages = listOf(MessageV2(id = 11, chatId = 7, content = "legacy question", platformType = null)),
+            platforms = listOf(PlatformV2(id = 9, uid = "profile", name = "legacy profile")),
+            models = listOf(ChatPlatformModelV2(7, "profile", "legacy model")),
+            localModels = listOf(LocalModel("missing-model", "revision", "weights.bin", "models/missing-model/revision", 1234, "READY"))
+        )
+        val original = File(context.cacheDir, "legacy-user.gptbackup")
+        original.outputStream().use { AppBackupCrypto.encryptUserBackup(payload, it, "old-password") }
+        val bytes = original.readBytes()
+        val restored = realManager.restore(Uri.fromFile(original), legacyPassword = "old-password")
+        assertTrue(restored.message, restored.success)
+        assertTrue(restored.message, restored.convertedBackupUri != null)
+        assertEquals(null, restored.convertedRecoveryKeyUri)
+        assertTrue(bytes.contentEquals(original.readBytes()))
+        assertEquals("legacy conversation", database.chatRoomDao().getChatRooms().single().title)
+        assertEquals("legacy model", database.chatPlatformModelDao().getChatPlatformModels().single().model)
+        assertEquals("FAILED", database.localModelDao().getAll().single().status)
+        assertEquals(budget, database.amazonDao().budget())
+        val converted = Uri.parse(restored.convertedBackupUri)
+        database.chatRoomDao().updateTitle(7, "changed", true)
+        val secondRestore = realManager.restore(converted, legacyPassword = "old-password")
+        assertTrue(secondRestore.message, secondRestore.success)
+        assertEquals(null, secondRestore.convertedBackupUri)
+        assertEquals("legacy conversation", database.chatRoomDao().getChatRooms().single().title)
+        assertEquals(budget, database.amazonDao().budget())
+    }
+
+    @Test
+    fun historyOnlyBackupNeverAdvertisesOrClearsProfilesMissingFromTheArchive() = runBlocking {
+        seed(File(context.cacheDir, "history-only-file").apply { writeText("original") })
+        database.agentRunDao().updateStatus("run", "COMPLETED", null, null, null)
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.AGENT_HISTORY)).normalized()
+        val archive = File(context.cacheDir, "history-only.gptbackup")
+        assertTrue(backupFixture(archive, selection).success)
+        database.platformDao().editPlatform(PlatformV2(id = 9, uid = "profile", name = "keep current profile"))
+        val result = manager.restore(Uri.fromFile(archive))
+        assertTrue(result.message, result.success)
+        assertEquals("keep current profile", database.platformDao().getPlatforms().single().name)
+    }
+
+    @Test
+    fun legacyImportsCreateAProtectedCurrentCopyWithoutChangingTheOriginal() = runBlocking {
+        val original = File(context.cacheDir, "legacy-favorites.gptbackup")
+        original.writeBytes("GPTBKUP".toByteArray() + byteArrayOf(1, 4) + ByteArray(32))
+        val oldBytes = original.readBytes()
+        coEvery { legacy.importFavorites(any(), any()) } returns BackupRestoreResult(true, "Favorites restored.")
+        val imported = manager.restore(Uri.fromFile(original))
+        assertTrue(imported.message, imported.success)
+        assertTrue(imported.message.contains("Converted"))
+        assertTrue(oldBytes.contentEquals(original.readBytes()))
+        val converted = File(requireNotNull(Uri.parse(imported.convertedBackupUri).path))
+        val keyFile = File(requireNotNull(Uri.parse(imported.convertedRecoveryKeyUri).path))
+        assertTrue(converted.isFile && keyFile.isFile)
+        val key = keyFile.inputStream().use(CompleteBackupCrypto::readRecoveryKey)
+        val decoded = File(context.cacheDir, "converted.zip")
+        try {
+            converted.inputStream().use { CompleteBackupCrypto.decryptPortable(it, decoded, key) }
+        } finally {
+            key.fill(0)
+        }
+        val stage = File(context.cacheDir, "converted-stage").apply { mkdirs() }
+        val manifest = CompleteBackupArchive.read(decoded, stage, Long.MAX_VALUE)
+        assertEquals(2, manifest.version)
+        assertTrue(manifest.sections.contains("CONVERSATIONS"))
+        val exported = File(context.cacheDir, "exported-current.gptbackup")
+        assertTrue(manager.exportConvertedBackup(requireNotNull(imported.convertedBackupUri), Uri.fromFile(exported)).success)
+        assertTrue(converted.readBytes().contentEquals(exported.readBytes()))
+        assertTrue(manager.restore(Uri.fromFile(exported), recoveryKeyUri = Uri.fromFile(keyFile)).success)
     }
 
     @Test
@@ -269,6 +369,7 @@ class CompleteBackupManagerTest {
         assertEquals("profile", records.getValue("primary").profileUid)
         assertEquals(null, records.getValue("delegate").profileUid)
         assertEquals(20, records.getValue("primary").outputTokens)
+        assertTrue(result.message, result.convertedBackupUri != null)
         stage.deleteRecursively()
         Unit
     }

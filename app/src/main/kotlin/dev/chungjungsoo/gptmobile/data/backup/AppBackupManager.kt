@@ -26,7 +26,9 @@ import kotlinx.serialization.json.Json
 data class BackupRestoreResult(
     val success: Boolean,
     val message: String,
-    val count: Int = 0
+    val count: Int = 0,
+    val convertedBackupUri: String? = null,
+    val convertedRecoveryKeyUri: String? = null
 )
 
 data class BackupStatus(
@@ -46,6 +48,25 @@ class AppBackupManager @Inject constructor(
     private val settingRepository: SettingRepository,
     private val secretVault: SecretVault
 ) {
+    suspend fun restoreUserBackup(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
+        try {
+            val payload = context.contentResolver.openInputStream(uri)?.use { AppBackupCrypto.decryptUserBackup(it, passphrase) } ?: error("Could not read the user backup.")
+            require(payload.version in 1..UserBackupData.BACKUP_VERSION) { "Unsupported user backup version." }
+            val imported = database.withTransaction {
+                val result = UserBackupManager(context, database).restoreBackupData(payload, clearExisting = true)
+                payload.platforms.filter { !it.token.isNullOrBlank() }.forEach { settingRepository.updatePlatformV2(it) }
+                result
+            }
+            if (payload.favoriteGroups.isNotEmpty()) settingRepository.saveFavoriteGroups(payload.favoriteGroups)
+            if (payload.messageGroups.isNotEmpty()) settingRepository.saveFavoriteMessageGroups(payload.messageGroups)
+            BackupRestoreResult(true, "User backup restored successfully.", imported.messagesImported)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            BackupRestoreResult(false, error.localizedMessage ?: "Could not restore the user backup.")
+        }
+    }
+
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true

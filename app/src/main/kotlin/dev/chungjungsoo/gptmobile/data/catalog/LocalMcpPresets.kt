@@ -9,6 +9,7 @@ object LocalMcpPresets {
             category = McpCategory.MEMORY, commandOrUrl = "builtin://memory",
             transportType = McpTransportType.STDIO, iconName = "memory",
             author = "GPT Mobile", isPreinstalled = true, integratedTool = "memory",
+            websiteUrl = "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/main/docs/LOCAL_MEMORY_AND_TOOL_TRACES.md",
             toolCapabilities = listOf("Capture user preferences and relationships", "Recall matching facts", "Review, disable and delete saved facts"),
             setupInstructions = "Enabled for a new Memory. Existing saved choices are preserved. Configure or disable in Settings → Tool connections. Cloud recall, chat scope, review and retention are configurable."
         ),
@@ -18,6 +19,7 @@ object LocalMcpPresets {
             category = McpCategory.DEVELOPMENT, commandOrUrl = "builtin://delegation",
             transportType = McpTransportType.STDIO, iconName = "delegation",
             author = "GPT Mobile", isPreinstalled = true, integratedTool = "delegation",
+            websiteUrl = "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/main/docs/diagnostics-2026-10-04-delegation-memory.md",
             toolCapabilities = listOf("Local search planning and bounded page crawling", "Compact cited evidence and tool-result processing", "Control coverage, concurrency, input, output and duration"),
             setupInstructions = "Configure in Settings → Local models → Delegation. Enable it and choose an enabled on-device or private-server helper. Uses the main profile's selected tools and chat permissions. This is a native implementation; the separate Houtini LM card connects to that package."
         ),

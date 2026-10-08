@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
@@ -41,6 +42,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 data class ResolvedAgentTool(
     val tool: AgentTool,
@@ -68,7 +70,8 @@ class AgentToolResolver @Inject constructor(
     private val nativeMarketplaceClient: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceClient? = null,
     private val amazonFreeProvider: AmazonHtmlProvider? = null,
     private val amazonHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
-    private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null
+    private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
+    private val amazonPublicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicPriceHistoryClient? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -190,6 +193,12 @@ class AgentToolResolver @Inject constructor(
         }
 
         if (!disableRemote) {
+            if (amazonPublicHistory != null && platform?.enabled == true && listOf(ToolPluginId.AMAZON_FREE, ToolPluginId.AMAZON_SEARCH).any { featureSettings.isToolPluginEnabledForProfile(profileUid, it) }) {
+                resolved += AmazonPriceHistoryTool(profileUid, amazonPublicHistory, amazonHistory, { publicAmazonHistoryAllowed(profileUid) }, {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    current?.enabled == true && !current.disableLocalTools && !current.disableAllTools
+                }).resolved(null, "Amazon price history · Keepa", "amazon_get_price_history")
+            }
             if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
                 resolved += resolveAmazonFree(profileUid, userMessage?.chatId)
             }
@@ -225,7 +234,7 @@ class AgentToolResolver @Inject constructor(
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)) {
                 connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(it.connectionUid)) }
-                    .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
+                    .forEach { connection -> resolved += resolveAmazon(connection, featureSettings, profileUid, userMessage?.chatId) }
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_URL)) {
                 resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
@@ -302,6 +311,8 @@ class AgentToolResolver @Inject constructor(
             .filter { tool ->
                 if (tool.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) {
                     featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
+                } else if (tool.modelToolName == AmazonPriceHistoryTool.NAME) {
+                    listOf(ToolPluginId.AMAZON_FREE, ToolPluginId.AMAZON_SEARCH).any { featureSettings.isToolPluginEnabledForProfile(profileUid, it) }
                 } else {
                     !tool.isAmazonProductTool() || featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
                 }
@@ -341,6 +352,10 @@ class AgentToolResolver @Inject constructor(
             .map { resolved ->
                 // Native Amazon reads load their current settings and check live permissions themselves.
                 if (resolved.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) return@map resolved
+                if (resolved.modelToolName == AmazonPriceHistoryTool.NAME) {
+                    val plugin = if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH
+                    return@map resolved.copy(tool = ConfiguredPluginTool(resolved.tool, featureSettings.pluginExecution[plugin] ?: PluginExecutionSettings()))
+                }
                 val id = resolved.connectionUid?.let(ToolPluginId::connection) ?: when (resolved.realToolName) {
                     "current_date" -> ToolPluginId.CURRENT_DATE
                     "calculate_expression" -> ToolPluginId.CALCULATOR
@@ -361,6 +376,17 @@ class AgentToolResolver @Inject constructor(
             }
             .sortedBy { it.modelToolName }
     }
+
+    private suspend fun publicAmazonHistoryAllowed(profileUid: String): Boolean {
+        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        val features = settingRepository.getFeatureSettings()
+        return current?.enabled == true &&
+            !current.disableAllTools &&
+            !current.disableRemoteTools &&
+            listOf(ToolPluginId.AMAZON_FREE, ToolPluginId.AMAZON_SEARCH).any { features.isToolPluginEnabledForProfile(profileUid, it) }
+    }
+
+    suspend fun fetchPublicAmazonPriceHistoryChart(profileUid: String, marketplace: String, asin: String): dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryChart = requireNotNull(amazonPublicHistory).chart(marketplace, asin, allowed = { publicAmazonHistoryAllowed(profileUid) })
 
     private fun pluginEnabledForBinding(
         settings: AppFeatureSettings,
@@ -480,7 +506,7 @@ class AgentToolResolver @Inject constructor(
         )
     }
 
-    private suspend fun resolveAmazon(connection: ToolConnection, features: AppFeatureSettings): List<ResolvedAgentTool> {
+    private suspend fun resolveAmazon(connection: ToolConnection, features: AppFeatureSettings, profileUid: String? = null, chatId: Int? = null): List<ResolvedAgentTool> {
         val token = connection.secretRef?.let { secretVault.read(it) }?.let { bytes ->
             try {
                 bytes.decodeToString().trim()
@@ -493,9 +519,66 @@ class AgentToolResolver @Inject constructor(
             ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings()
         return listOf(false, true).map { details ->
             val name = if (details) AmazonSearchTool.GET_PRODUCTS else AmazonSearchTool.SEARCH
-            AmazonSearchTool(client::fetch, settings, details, "${name}__${connection.alias}")
+            val allowed: suspend () -> Boolean = {
+                if (profileUid == null) {
+                    true
+                } else {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val enabled = settingRepository.getFeatureSettings()
+                    current?.enabled == true &&
+                        !current.disableAllTools &&
+                        !current.disableRemoteTools &&
+                        enabled.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH) &&
+                        enabled.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid)) &&
+                        toolConnectionRepository.listConnections().any { it.connectionUid == connection.connectionUid }
+                }
+            }
+            AmazonSearchTool(
+                fetch = { params ->
+                    check(allowed()) { "Amazon Search was disabled for this profile." }
+                    client.fetch(params).also { check(allowed()) { "Amazon Search was disabled during this lookup." } }
+                },
+                settings = settings,
+                productDetails = details,
+                modelToolName = "${name}__${connection.alias}",
+                onFetched = if (profileUid != null && chatId != null && amazonHistory != null) {
+                    { requestId, products ->
+                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                        if (current?.disableLocalTools == false) amazonHistory.recordProvider(profileUid, requestId, products, if (details) "serpapi_product" else "serpapi_search", allowed, chatId)
+                    }
+                } else {
+                    null
+                }
+            )
                 .resolved(connection.connectionUid, connection.name, name)
         }
+    }
+
+    /** A product-card click authorizes this bounded read of one ASIN using the owning profile's enabled plugins. */
+    suspend fun fetchAmazonProductDetails(profileUid: String, marketplace: String, asin: String, chatId: Int?): AgentToolResult {
+        require(AmazonProducts.productUrl(marketplace, asin) != null)
+        val features = settingRepository.getFeatureSettings()
+        val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        if (profile?.enabled != true || profile.disableAllTools || profile.disableRemoteTools) {
+            return AgentToolResult("product-details", ToolResultContent.Text("Enable Amazon tools for this profile to refresh product details."), true)
+        }
+        val tools = buildList {
+            if (amazonFreeProvider != null && features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) addAll(resolveAmazonFree(profileUid, chatId))
+            if (features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)) {
+                toolConnectionRepository.listConnections().filter { it.type == ToolConnectionType.AMAZON_SERPAPI && features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(it.connectionUid)) }.forEach {
+                    addAll(resolveAmazon(it, features, profileUid, chatId))
+                }
+            }
+        }.filter { it.realToolName == AmazonSearchTool.GET_PRODUCTS }
+        if (tools.isEmpty()) return AgentToolResult("product-details", ToolResultContent.Text("Saved product information is available. Enable an Amazon plugin for this profile to refresh it."), true)
+        val configured = tools.map { it.copy(tool = ConfiguredPluginTool(it.tool, features.pluginExecution[if (it.modelToolName in AmazonNativeTool.names) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings())) }
+        return AmazonCombinedTool(configured, AmazonSearchTool.GET_PRODUCTS).execute(
+            "product-details-${java.util.UUID.randomUUID()}",
+            kotlinx.serialization.json.buildJsonObject {
+                put("marketplace", marketplace)
+                put("asins", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(asin))))
+            }
+        )
     }
 
     /** Explicit settings test only: it spends one search request and never runs during discovery. */

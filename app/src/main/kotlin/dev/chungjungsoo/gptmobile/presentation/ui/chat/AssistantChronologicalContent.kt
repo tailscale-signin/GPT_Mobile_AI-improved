@@ -78,6 +78,17 @@ internal fun AssistantChronologicalContent(
     } else {
         timeline
     }
+    val responses = remember(items, isError) {
+        val projection = AnswerSourceProjection()
+        items.map { item ->
+            if (item.type != AssistantTimelineItemType.TEXT) {
+                null
+            } else {
+                val parsed = ThinkingParser.extractThinking(item.content)
+                parsed to if (isError) parsed.response else projection.project(parsed.response)
+            }
+        }
+    }
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
         run {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -105,15 +116,15 @@ internal fun AssistantChronologicalContent(
                         Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     AssistantTimelineItemType.TEXT -> {
-                        val parsed = androidx.compose.runtime.remember(item.content) { ThinkingParser.extractThinking(item.content) }
+                        val (parsed, response) = checkNotNull(responses[index])
                         if (expanded && showReasoning && !parsed.thinking.isNullOrBlank()) {
                             Text(parsed.thinking.orEmpty(), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }
-                        if (parsed.response.isNotBlank()) {
+                        if (response.isNotBlank()) {
                             if (isError) {
-                                Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
+                                Text(response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
-                                ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }

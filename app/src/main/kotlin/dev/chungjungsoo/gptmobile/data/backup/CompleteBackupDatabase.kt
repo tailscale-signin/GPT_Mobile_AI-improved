@@ -91,6 +91,7 @@ internal object CompleteBackupDatabase {
         // History is portable; active jobs must never be replayed by service recovery.
         if ("agent_runs" in tables(destination)) destination.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING')")
         if ("tool_events" in tables(destination)) destination.execSQL("UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' WHERE status IN ('PENDING', 'RUNNING')")
+        if ("model_invocations" in tables(destination)) destination.execSQL("UPDATE model_invocations SET status = 'INTERRUPTED' WHERE status = 'RUNNING'")
     }
 
     fun retainSections(database: SupportSQLiteDatabase, selection: CompleteBackupSelection) {
@@ -156,6 +157,7 @@ internal object CompleteBackupDatabase {
                 "UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' " +
                     "WHERE status IN ('PENDING', 'RUNNING')"
             )
+            destination.execSQL("UPDATE model_invocations SET status = 'INTERRUPTED' WHERE status = 'RUNNING'")
         }
         if (CompleteBackupSection.AMAZON_DATA in selection.sections) {
             destination.execSQL("DELETE FROM amazon_check_events")

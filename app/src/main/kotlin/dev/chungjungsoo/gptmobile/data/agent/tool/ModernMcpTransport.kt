@@ -366,7 +366,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         const val VERSION = "2026-07-28"
         private val LEGACY_VERSIONS = setOf("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
         private const val DISCOVERY_CACHE_MS = 60 * 60 * 1000L
-        private const val LEGACY_DECISION_CACHE_MS = 60_000L
+
+        // A standard-MCP server will not acquire stateless discovery every minute.
+        // Endpoint/credential changes and explicit refresh still invalidate this decision.
+        private const val LEGACY_DECISION_CACHE_MS = 60 * 60 * 1000L
         private const val LOCAL_DISCOVERY_TIMEOUT_MS = 12_000L
         private const val REMOTE_DISCOVERY_TIMEOUT_MS = 5_000L
         private val MODERN_ERRORS = (-32029..-32020).toSet() + -32601

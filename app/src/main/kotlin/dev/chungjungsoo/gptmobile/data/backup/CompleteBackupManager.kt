@@ -180,6 +180,10 @@ class CompleteBackupManager @Inject constructor(
         recoveryKeyUri: Uri? = null,
         encrypt: Boolean = true
     ): BackupRestoreResult = operation { work ->
+        writeBackup(work, uri, selection, password, recoveryKeyUri, encrypt)
+    }
+
+    private suspend fun writeBackup(work: File, uri: Uri, selection: CompleteBackupSelection, password: String?, recoveryKeyUri: Uri?, encrypt: Boolean): BackupRestoreResult {
         val selected = selection.normalized()
         require(selected.sections.isNotEmpty()) { "Select at least one backup section." }
 
@@ -269,7 +273,7 @@ class CompleteBackupManager @Inject constructor(
 
         legacy.recordBackupMetadata()
         recordRecentBackup(uri)
-        BackupRestoreResult(
+        return BackupRestoreResult(
             true,
             if (!encrypt) {
                 "Backup saved without encryption."
@@ -292,6 +296,7 @@ class CompleteBackupManager @Inject constructor(
         ensureIdle(restoring = true)
 
         val archive = File(work, "archive.zip")
+        var needsConversion = false
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
             input.mark(64)
             val header = ByteArray(9)
@@ -302,11 +307,18 @@ class CompleteBackupManager @Inject constructor(
                 val result = when (header[8].toInt()) {
                     1 -> legacy.restoreConfiguration(uri, legacyPassword?.takeIf(String::isNotEmpty))
                     2 -> legacy.restoreDatabase(uri, legacyPassword?.takeIf(String::isNotEmpty))
+                    3 -> legacy.restoreUserBackup(uri, legacyPassword?.takeIf(String::isNotEmpty))
                     4 -> legacy.importFavorites(uri, legacyPassword?.takeIf(String::isNotEmpty))
                     else -> error("Unsupported legacy backup type.")
                 }
                 settings.invalidatePlatformCache()
-                return@operation result.copy(message = "Legacy backup: ${result.message}")
+                if (!result.success) return@operation result
+                val legacySections = when (header[8].toInt()) {
+                    1 -> setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.PLATFORMS, CompleteBackupSection.TOOLS, CompleteBackupSection.CREDENTIALS)
+                    3 -> setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.PLATFORMS, CompleteBackupSection.TOOLS, CompleteBackupSection.CREDENTIALS, CompleteBackupSection.LOCAL_MODELS)
+                    else -> setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.CONVERSATIONS)
+                }
+                return@operation convertRestoredBackup(work, result, CompleteBackupSelection(legacySections), legacyPassword)
             }
 
             val isLegacyComplete = headerBytes >= 8 &&
@@ -337,6 +349,7 @@ class CompleteBackupManager @Inject constructor(
                     }
                 }
                 isPasswordlessComplete -> {
+                    needsConversion = true
                     val backupKey = requireExistingBackupKey()
                     try {
                         CompleteBackupCrypto.decryptWithKey(input, archive, backupKey, work.usableSpace - RESERVE)
@@ -356,6 +369,7 @@ class CompleteBackupManager @Inject constructor(
 
         val staging = File(work, "files").apply { mkdirs() }
         val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE)
+        needsConversion = needsConversion || manifest.version < 2 || manifest.sections.any { it in setOf("database", "settings", "credentials", "app_files") }
         val available = manifestSelection(manifest)
         val effective = CompleteBackupSelection(
             requested.sections.intersect(available.sections)
@@ -395,6 +409,9 @@ class CompleteBackupManager @Inject constructor(
         }
 
         val snapshot = if (restoreDatabase) {
+            android.database.sqlite.SQLiteDatabase.openDatabase(File(staging, "database.sqlite").absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use {
+                needsConversion = needsConversion || it.version < database.openHelper.writableDatabase.version
+            }
             prepareSnapshot(File(staging, "database.sqlite"))
         } else {
             null
@@ -465,12 +482,50 @@ class CompleteBackupManager @Inject constructor(
             snapshot?.close()
         }
 
-        BackupRestoreResult(
+        val restored = BackupRestoreResult(
             true,
             "Restored: " + effective.sections
                 .sortedBy { it.ordinal }
                 .joinToString { section -> section.displayName() } + "."
         )
+        if (needsConversion) convertRestoredBackup(work, restored, effective, legacyPassword) else restored
+    }
+
+    /** Creates a portable modern copy after a successful import; the original is never overwritten. */
+    private suspend fun convertRestoredBackup(work: File, restored: BackupRestoreResult, selection: CompleteBackupSelection, password: String?): BackupRestoreResult {
+        val directory = File(context.filesDir, "converted-backups").apply { mkdirs() }
+        val id = UUID.randomUUID().toString()
+        val converted = File(directory, "converted-$id.gptbackup")
+        val key = File(directory, "converted-$id.gptkey")
+        val conversionWork = File(work, "conversion").apply { mkdirs() }
+        val retainedPassword = password?.takeIf { it.length >= 8 }
+        return try {
+            writeBackup(conversionWork, Uri.fromFile(converted), selection, retainedPassword, if (retainedPassword == null) Uri.fromFile(key) else null, true)
+            restored.copy(
+                message = "${restored.message} Converted to the current backup format. Save the converted copy${if (retainedPassword == null) " and its recovery key" else "; it uses the same password"} below.",
+                convertedBackupUri = Uri.fromFile(converted).toString(),
+                convertedRecoveryKeyUri = key.takeIf { it.isFile }?.let { Uri.fromFile(it).toString() }
+            )
+        } catch (cancelled: CancellationException) {
+            converted.delete()
+            key.delete()
+            throw cancelled
+        } catch (error: Exception) {
+            converted.delete()
+            key.delete()
+            restored.copy(message = "${restored.message} The converted copy could not be saved: ${error.localizedMessage.orEmpty()}. Create a new backup to save the restored data.")
+        }
+    }
+
+    suspend fun exportConvertedBackup(sourceUri: String, destination: Uri): BackupRestoreResult = operation { _ ->
+        val source = File(requireNotNull(Uri.parse(sourceUri).path)).canonicalFile
+        require(Uri.parse(sourceUri).scheme == "file" && source.parentFile == File(context.filesDir, "converted-backups").canonicalFile && source.extension in setOf("gptbackup", "gptkey")) { "Select a converted backup created by this app." }
+        require(Uri.fromFile(source) != destination) { "Choose a separate destination." }
+        source.inputStream().buffered().use { input ->
+            context.contentResolver.openOutputStream(destination, "wt")?.use { input.copyTo(it) } ?: error("Could not save the converted file.")
+        }
+        if (source.extension == "gptbackup") recordRecentBackup(destination)
+        BackupRestoreResult(true, if (source.extension == "gptkey") "Recovery key saved. Keep it separate from the converted backup." else "Converted backup saved.")
     }
 
     suspend fun requiresPassword(uri: Uri): Boolean = withContext(Dispatchers.IO) {
@@ -691,6 +746,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.TOOLS,
         CompleteBackupSection.LOCAL_MODELS,
         CompleteBackupSection.AGENT_HISTORY,
+        CompleteBackupSection.STATISTICS,
         CompleteBackupSection.AMAZON_DATA -> true
 
         CompleteBackupSection.CREDENTIALS,
@@ -709,7 +765,12 @@ class CompleteBackupManager @Inject constructor(
         if (FactVaultRepository.VAULT_REFERENCE in manifest.secrets && CompleteBackupSection.CREDENTIALS in modern) {
             return CompleteBackupSelection(modern + CompleteBackupSection.MEMORY).normalized()
         }
-        if (modern.isNotEmpty()) return CompleteBackupSelection(modern).normalized()
+        if (modern.isNotEmpty()) {
+            // Old agent-history exports include invocation rows, but may omit profiles.
+            // Never advertise absent profiles as restorable: doing so would clear current profiles.
+            val hasStatisticsDependencies = CompleteBackupSection.AGENT_HISTORY in modern && CompleteBackupSection.PLATFORMS in modern
+            return CompleteBackupSelection(if (hasStatisticsDependencies) modern + CompleteBackupSection.STATISTICS else modern).normalized()
+        }
 
         // Compatibility with brief v2 development builds that used four broad section names.
         val legacySections = buildSet {
@@ -743,6 +804,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.LOCAL_MODELS -> "local models"
         CompleteBackupSection.ATTACHMENTS -> "attachments"
         CompleteBackupSection.AGENT_HISTORY -> "agent history"
+        CompleteBackupSection.STATISTICS -> "statistics & model usage"
         CompleteBackupSection.AMAZON_DATA -> "Amazon observations & manual watches"
     }
 

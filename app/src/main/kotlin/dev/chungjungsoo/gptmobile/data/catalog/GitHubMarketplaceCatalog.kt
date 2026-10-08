@@ -50,7 +50,8 @@ object MarketplacePresentation {
     ): List<McpPreset> {
         val needle = query.trim()
         val filtered = presets.filter { preset ->
-            section(preset) == section &&
+            !preset.documentationOnly &&
+                section(preset) == section &&
                 (category == null || preset.category == category) &&
                 (pricing == null || preset.pricing == pricing) &&
                 (
@@ -265,5 +266,6 @@ object GitHubMarketplaceCatalog {
     )
 
     fun find(id: String): GitHubMarketplacePackage? = (packages + legacyPackages).firstOrNull { it.id == id }
-    val allPresets: List<McpPreset> get() = (packages.map { it.preset } + McpPresetCatalog.presets).distinctBy { it.id }
+    val allPresets: List<McpPreset> get() = (packages.filter { it.canConnect }.map { it.preset } + McpPresetCatalog.presets)
+        .filterNot { it.documentationOnly }.distinctBy { it.id }
 }

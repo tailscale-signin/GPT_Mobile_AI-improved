@@ -260,7 +260,7 @@ fun McpMarketplaceScreen(
                     Column(Modifier.weight(1f)) {
                         Text("Build your toolkit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            "${GitHubMarketplaceCatalog.packages.size} optional GitHub packages · choose what you use",
+                            "${GitHubMarketplaceCatalog.packages.count { it.canConnect }} optional GitHub packages · choose what you use",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -565,6 +565,12 @@ private fun MarketplacePackageCard(
                     Text(preset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(preset.author, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (preset.websiteUrl.startsWith("https://")) {
+                    IconButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
+                            .onFailure { marketplaceLinkError(context) }
+                    }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Open ${preset.name} documentation", tint = MaterialTheme.colorScheme.primary) }
+                }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 PricingBadge(preset.pricing)
@@ -603,7 +609,7 @@ private fun MarketplacePackageCard(
                         TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
                     }
                     preset.integratedTool != null -> Button(onClick = onAddClick) { Text("Configure") }
-                    !isInstalled -> Button(onClick = onAddClick) { Text(if (preset.documentationOnly) "View guide" else "Set up") }
+                    !isInstalled && !preset.documentationOnly -> Button(onClick = onAddClick) { Text("Set up") }
                 }
                 enabled?.let { value ->
                     Button(onClick = { onEnabledChange(!value) }, enabled = !removing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
@@ -631,6 +637,7 @@ private fun MarketplacePackageCard(
                     if (preset.websiteUrl.isNotBlank()) {
                         TextButton(onClick = {
                             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
+                                .onFailure { marketplaceLinkError(context) }
                         }) {
                             Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
@@ -646,6 +653,10 @@ private fun MarketplacePackageCard(
             }
         }
     }
+}
+
+private fun marketplaceLinkError(context: android.content.Context) {
+    android.widget.Toast.makeText(context, "No browser could open this plugin link.", android.widget.Toast.LENGTH_SHORT).show()
 }
 
 @Composable

@@ -198,6 +198,29 @@ class ToolEventRecorderTest {
     }
 
     @Test
+    fun failureReasonFindsNestedProviderErrorsBeforeClippingAndRedactsSecrets() {
+        val envelope = buildJsonObject {
+            put("description", "Product metadata ".repeat(1000))
+            put(
+                "errors",
+                kotlinx.serialization.json.buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("code", "RATE_LIMITED")
+                            put("message", "Provider rejected https://example.com?api_key=private-test-key")
+                        }
+                    )
+                }
+            )
+        }
+        val reason = toolFailureReason(ToolResultContent.Text(envelope.toString()), envelope.toString())
+        assertTrue(reason.startsWith("RATE_LIMITED: Provider rejected"))
+        assertTrue(reason.contains("[redacted]"))
+        assertTrue(!reason.contains("private-test-key"))
+        assertTrue(reason.length < 200)
+    }
+
+    @Test
     fun finishTool_preservesFullContentAlongsideItsDisplayTrace() = runBlocking {
         val event = recorder.startTool("run-1", 0, "call-trace", "image", "image", buildJsonObject {}, startedAt = 100L)
 

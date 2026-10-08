@@ -48,9 +48,15 @@ profile. The Brave API key is not the MCP server's bearer credential.
   filtering uses provider parameters where supported; engines without them report
   `unsupportedFilters: ["recencyDays"]`. Search-engine freshness is not a verified
   publication-date guarantee.
-- Up to four engines run concurrently. Each child retains its own permission
-  gate, timeout, and the shared call/output budget. One failure does not discard
-  successful results. Cancellation propagates.
+- Every selected engine starts concurrently when parallel search is enabled.
+  Each child retains its permission gate, timeout, and shared call/output budget.
+  One failure does not discard successful results. Cancellation propagates.
+- Each provider is asked for extra candidates within its schema limits. Duplicate
+  pages retain their engine provenance without consuming the next engine's unique
+  result allowance. Already collected pages are skipped across different queries
+  in the response; identical queries reuse their complete cached evidence.
+  Only the resulting unique union is passed to the crawler after searches finish.
+  Meaningful query values and encoded path boundaries remain distinct.
 - The chat's Web search switch disables all participating engines. Individual
   connection/tool switches and profile remote-tool restrictions still apply.
 - Unknown required parameters or unsupported query shapes keep a tool separate

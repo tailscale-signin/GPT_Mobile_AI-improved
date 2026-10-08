@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
@@ -76,6 +77,12 @@ fun DebugDiagnosticsScreen(
             IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
         }, actions = {
             if (workspaceTab == 0 && selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause" else "Resume") }
+            if (workspaceTab == 1) {
+                TextButton(onClick = {
+                    settingViewModel.updateBackupSection(CompleteBackupSection.STATISTICS, true)
+                    settingViewModel.openBackupRestoreDialog()
+                }) { Text("Backup / restore") }
+            }
         })
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -161,6 +168,7 @@ fun DebugDiagnosticsScreen(
             }
         }
     }
+    BackupRestoreHost(settingViewModel)
 }
 
 @Composable

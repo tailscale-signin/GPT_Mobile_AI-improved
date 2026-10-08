@@ -243,7 +243,8 @@ object McpPresetCatalog {
                 "web_search: Search the web through the configured search backend",
                 "read_url: Retrieve and normalize supported web content"
             ),
-            isPreinstalled = true
+            isPreinstalled = true,
+            websiteUrl = "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/main/docs/WEB_SEARCH_INTEGRATION.md"
         ),
         McpPreset(
             id = "device-location",
@@ -260,7 +261,8 @@ object McpPresetCatalog {
             toolCapabilities = listOf(
                 "device_location: Current latitude, longitude, accuracy, altitude and provider metadata"
             ),
-            isPreinstalled = true
+            isPreinstalled = true,
+            websiteUrl = "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/blob/main/docs/llama-location-tool-handoff.md"
         ),
         McpPreset(
             id = "github-all",
@@ -515,7 +517,7 @@ object McpPresetCatalog {
             suggestedAuthType = "OAUTH",
             pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Search developer questions and answers"),
-            websiteUrl = "https://stackoverflow.com/help/mcp-server",
+            websiteUrl = "https://api.stackexchange.com/docs/mcp-server/",
             verifiedRemote = true,
             setupInstructions = "Sign in with a Stack Overflow account. Review the service documentation for current access requirements."
         ),

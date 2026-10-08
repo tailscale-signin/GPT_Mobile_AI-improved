@@ -10,6 +10,8 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,6 +40,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -663,11 +666,11 @@ fun ChatScreen(
                         .padding(bottom = composerHeight + 12.dp),
                     contentAlignment = Alignment.BottomCenter
                 ) {
-                    ScrollToBottomButton {
+                    ScrollToBottomButton(isGenerating = !isIdle) {
                         isHoldingEntryCenter = false
                         isModelTabPositionLocked = false
                         scope.launch {
-                            listState.animateScrollToLatestChatMessage()
+                            listState.scrollToLatestChatMessage()
                             isFollowingBottom = true
                         }
                     }
@@ -1252,6 +1255,11 @@ internal suspend fun LazyListState.animateScrollToLatestChatMessage() {
     }
 }
 
+internal suspend fun LazyListState.scrollToLatestChatMessage() {
+    val latestItemIndex = layoutInfo.totalItemsCount - 1
+    if (latestItemIndex >= 0) scrollToItem(latestItemIndex)
+}
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun ChatTopBar(
@@ -1809,11 +1817,23 @@ private fun isImageFile(extension: String?): Boolean {
 }
 
 @Composable
-fun ScrollToBottomButton(onClick: () -> Unit) {
+fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
+    val pulse = remember { Animatable(1f) }
+    LaunchedEffect(isGenerating) {
+        pulse.snapTo(1f)
+        if (isGenerating) {
+            while (true) {
+                pulse.animateTo(0.5f, tween(500))
+                pulse.animateTo(1f, tween(500))
+            }
+        }
+    }
     SmallFloatingActionButton(
         onClick = onClick,
-        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+        modifier = Modifier.size(48.dp).graphicsLayer { alpha = pulse.value },
+        shape = CircleShape,
+        containerColor = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary
     ) {
         Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon))
     }

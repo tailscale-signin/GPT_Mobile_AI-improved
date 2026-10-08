@@ -52,7 +52,8 @@ internal fun collectChatSources(answer: String, events: List<ToolEvent>): ChatSo
         }?.joinToString("&").orEmpty()
         val port = uri.port.takeUnless { it == -1 || (it == 80 && uri.scheme == "http") || (it == 443 && uri.scheme == "https") }
         val key = "${uri.scheme.lowercase(Locale.ROOT)}://$host${port?.let { ":$it" }.orEmpty()}${uri.rawPath.orEmpty().trimEnd('/')}" +
-            query.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty()
+            query.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty() +
+            uri.rawFragment?.takeIf { host == "keepa.com" && it.startsWith("!product/") }?.let { "#$it" }.orEmpty()
         val existing = sources[key]
         val label = title?.trim()?.takeIf { it.isNotBlank() && it != rawUrl && it != url } ?: host
         if (existing == null) {
@@ -108,7 +109,7 @@ internal fun collectChatSources(answer: String, events: List<ToolEvent>): ChatSo
     events.distinctBy { it.eventId }.forEach { event ->
         if (event.isError || event.status != ToolEventStatus.COMPLETED) return@forEach
         if (!researchTool.containsMatchIn("${event.toolName} ${event.modelToolName}") &&
-            event.toolName !in setOf("amazon_get_products", "web_data_amazon_product")
+            event.toolName !in setOf("amazon_get_products", "amazon_get_price_history", "web_data_amazon_product")
         ) {
             return@forEach
         }

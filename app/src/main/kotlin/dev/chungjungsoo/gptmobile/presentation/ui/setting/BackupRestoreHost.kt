@@ -42,6 +42,8 @@ fun BackupRestoreHost(settingViewModel: SettingViewModelV2, onRestored: () -> Un
         contract = ActivityResultContracts.OpenDocument(),
         onResult = settingViewModel::restoreSourceSelected
     )
+    val convertedBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { settingViewModel.exportConvertedBackup(it) }
+    val convertedKeyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { settingViewModel.exportConvertedBackup(it, recoveryKey = true) }
 
     val recoveryKeyBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -74,7 +76,7 @@ fun BackupRestoreHost(settingViewModel: SettingViewModelV2, onRestored: () -> Un
     val restoredCallback by androidx.compose.runtime.rememberUpdatedState(onRestored)
     LaunchedEffect(settingViewModel) {
         settingViewModel.restoreCompleted.collect {
-            settingViewModel.closeBackupRestoreDialog()
+            if (settingViewModel.backupUi.value.convertedBackupUri == null) settingViewModel.closeBackupRestoreDialog()
             restoredCallback()
         }
     }
@@ -107,7 +109,21 @@ fun BackupRestoreHost(settingViewModel: SettingViewModelV2, onRestored: () -> Un
             onRecentRestore = settingViewModel::restoreRecentBackup,
             onSectionChange = settingViewModel::updateBackupSection,
             onPasswordProtectionChange = settingViewModel::updateBackupPasswordProtection,
-            onPasswordChange = settingViewModel::updateBackupPassword
+            onPasswordChange = settingViewModel::updateBackupPassword,
+            onSaveConvertedBackup = {
+                try {
+                    convertedBackupLauncher.launch("gpt_mobile_converted_${System.currentTimeMillis()}.gptbackup")
+                } catch (_: android.content.ActivityNotFoundException) {
+                    Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
+                }
+            },
+            onSaveConvertedKey = {
+                try {
+                    convertedKeyLauncher.launch("gpt_mobile_converted_${System.currentTimeMillis()}.gptkey")
+                } catch (_: android.content.ActivityNotFoundException) {
+                    Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
+                }
+            }
         )
     }
 

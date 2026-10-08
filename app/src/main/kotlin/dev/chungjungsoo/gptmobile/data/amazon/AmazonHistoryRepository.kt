@@ -51,11 +51,38 @@ class AmazonHistoryRepository internal constructor(private val database: ChatDat
         checkAllowed(allowed)
     }
 
-    suspend fun history(owner: String, market: AmazonFreeMarket, asin: String, limit: Int = 100): AmazonLocalHistory {
-        validateListing(market, asin)
+    suspend fun history(owner: String, market: AmazonFreeMarket, asin: String, limit: Int = 100): AmazonLocalHistory = history(owner, market.domain, asin, limit)
+
+    suspend fun history(owner: String, marketplace: String, asin: String, limit: Int = 100): AmazonLocalHistory {
+        require(AmazonProducts.marketplace(marketplace) == marketplace && AmazonProducts.asin(asin) == asin)
         return database.withTransaction {
-            AmazonLocalHistory(dao.history(owner, market.domain, asin, limit.coerceIn(1, 100)), dao.historyCount(owner, market.domain, asin), dao.checkEvents(owner, market.domain, asin, 30))
+            AmazonLocalHistory(dao.history(owner, marketplace, asin, limit.coerceIn(1, 100)), dao.historyCount(owner, marketplace, asin), dao.checkEvents(owner, marketplace, asin, 30))
         }
+    }
+
+    /** Provider snapshots stay in separate series from public pages and never establish a historical low. */
+    suspend fun recordProvider(owner: String, requestId: String, products: List<JsonObject>, sourceType: String, allowed: suspend () -> Boolean, chatId: Int? = null) = database.withTransaction {
+        require(owner.isNotBlank() && owner.length <= 200 && requestId.isNotBlank())
+        require(sourceType in setOf("serpapi_search", "serpapi_product"))
+        checkAllowed(allowed)
+        if (chatId != null && database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return@withTransaction
+        val now = clock.millis()
+        for (product in products.take(10)) {
+            val market = AmazonProducts.text(product, "marketplace")?.let(AmazonProducts::marketplace) ?: continue
+            val asin = AmazonProducts.text(product, "asin")?.let(AmazonProducts::asin) ?: continue
+            if (AmazonProducts.text(product, "url") != AmazonProducts.productUrl(market, asin)) continue
+            val amount = AmazonProducts.text(product, "priceAmount")?.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO && it.scale() <= 2 && it < MAX_AMOUNT } ?: continue
+            val maximum = AmazonProducts.text(product, "priceMaxAmount")?.toBigDecimalOrNull()
+            if (maximum != null && maximum.compareTo(amount) != 0) continue
+            val currency = AmazonProducts.text(product, "currency")?.takeIf { Regex("[A-Z]{3}").matches(it) } ?: continue
+            val timestamp = AmazonProducts.text(product, "observedAt", "retrievedAt")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }?.takeIf { it in 0..now + 300_000 } ?: continue
+            val offer = JsonArray(listOf("seller", "condition", "variant").map { kotlinx.serialization.json.JsonPrimitive(AmazonProducts.text(product, it).orEmpty()) }).toString()
+            val key = "$market:$asin:$currency:base_item:$sourceType:$offer"
+            dao.addObservation(AmazonObservationEntity(UUID.randomUUID().toString(), owner, requestId.take(100), key, market, asin, AmazonProducts.text(product, "title").orEmpty().take(200), amount.toPlainString(), currency, sourceType, timestamp))
+        }
+        dao.pruneHistory(now - 365 * DAY)
+        dao.trimHistory(50_000)
+        checkAllowed(allowed)
     }
 
     suspend fun listWatches(owner: String) = dao.watches(owner)

@@ -57,11 +57,11 @@ internal fun amazonProductResults(events: List<ToolEvent>): List<JsonObject> = e
             AmazonProducts.productUrl(domain, id) == AmazonProducts.text(product, "url") && AmazonProducts.text(product, "title") != null
         }
     }
-    .distinctBy { listOf(AmazonProducts.text(it, "marketplace"), AmazonProducts.text(it, "asin"), AmazonProducts.text(it, "seller"), AmazonProducts.text(it, "condition"), AmazonProducts.text(it, "variant")) }
+    .let(AmazonProducts::mergeProducts)
     .take(30)
 
 @Composable
-internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier, ownerProfileUid: String? = null) {
+internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier, ownerProfileUid: String? = null, chatId: Int? = null) {
     val products = remember(toolEvents) { amazonProductResults(toolEvents) }
     if (products.isEmpty()) return
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -70,17 +70,18 @@ internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifie
             Text("Amazon products", style = MaterialTheme.typography.titleSmall)
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(products) { product -> AmazonProductCard(product, ownerProfileUid) }
+            items(products) { product -> AmazonProductCard(product, ownerProfileUid, chatId) }
         }
         Text("Prices and availability may change at checkout.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
+private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?, chatId: Int?) {
     val context = LocalContext.current
     var openFailed by remember(product) { mutableStateOf(false) }
     var historyOpen by remember(product) { mutableStateOf(false) }
+    var detailsOpen by remember(product) { mutableStateOf(false) }
     val domain = AmazonProducts.text(product, "marketplace").orEmpty()
     val id = AmazonProducts.text(product, "asin").orEmpty()
     val canonical = AmazonProducts.productUrl(domain, id) ?: return
@@ -91,6 +92,7 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
     }
     val nativePreview = AmazonProducts.text(product, "provider") == "free_native"
     val market = dev.chungjungsoo.gptmobile.data.amazon.AmazonFreeMarket.fromDomain(domain)
+    if (detailsOpen) dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonProductDetailsDialog(product, ownerProfileUid, chatId) { detailsOpen = false }
     if (historyOpen && nativePreview && market != null && ownerProfileUid != null) {
         dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { historyOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonDataScreen(
@@ -103,6 +105,7 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
         }
     }
     Card(
+        onClick = { detailsOpen = true },
         modifier = Modifier.width(272.dp),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -127,6 +130,7 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
             }
             if ((product["prime"] as? JsonPrimitive)?.booleanOrNull == true) Text("Prime", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
             timestamp?.let { Text("${if ("observedAt" in product) "Observed" else "Retrieved"} $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            TextButton(modifier = Modifier.fillMaxWidth(), onClick = { detailsOpen = true }) { Text("Details & price history") }
             if (affiliate != null) Text("Affiliate link · supports the server's configured Associate", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (nativePreview && ownerProfileUid != null && market != null) {
                 TextButton(modifier = Modifier.fillMaxWidth(), onClick = { historyOpen = true }) { Text("History & manual watch") }

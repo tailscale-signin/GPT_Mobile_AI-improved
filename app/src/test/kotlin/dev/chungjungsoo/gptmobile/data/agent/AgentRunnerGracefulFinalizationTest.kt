@@ -10,6 +10,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerGracefulFinalizationTest {
+    @Test fun `closing a repeat circuit preserves accepted calls in the same batch`() = runBlocking {
+        var executions = 0
+        var round = 0
+        var results = emptyList<AgentToolResult>()
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("amazon_search", "Amazon search", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("Product found"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (round++ == 0) {
+                    repeat(7) { emit(ProviderEvent.ToolCall("call-$it", "amazon_search", buildJsonObject {})) }
+                } else {
+                    results = exchanges.single().results
+                    emit(ProviderEvent.TextDelta("The collected products are ready."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        AgentRunner(AgentRunLimits(maxToolCalls = 10)).run(session, listOf(tool)).collect()
+        assertEquals(6, executions)
+        assertEquals(7, results.size)
+        assertTrue(results.take(6).none { it.isError })
+        assertTrue(results.last().isError)
+        assertFalse(results.any { (it.content as? ToolResultContent.Text)?.text?.contains("not assigned") == true })
+    }
+
     @Test
     fun `batched calls stop before limit and final round has no tools`() = runBlocking {
         val calls = listOf(

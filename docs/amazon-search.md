@@ -29,6 +29,35 @@ Shopping tasks with an enabled Amazon tool go to the tool-capable delegate inste
 
 The native client accepts only the fixed HTTPS SerpApi endpoint, refuses redirects, bounds response bodies, and returns sanitized failures without exposing raw provider bodies or credential-bearing URLs. It does not cache raw provider responses on disk.
 
+## Shared product details and public price history
+
+Amazon Search and Amazon Research Free share the same chat cards. When both are
+enabled, compatible providers run together; duplicate ASIN/offer cards merge and
+partial failures remain visible. Price, currency, observation time and provider
+are kept as one set of facts rather than mixing offers. Paid-provider observations
+also feed profile-owned local history for persistent chats when local tools are
+allowed.
+
+Click a card to open its description, features, available product facts, and a
+price-history chart below the description. The shared model tool
+`amazon_get_price_history__public` also returns the provider reference and a card.
+The public Keepa image endpoint needs no account or API key and supports CA, US,
+UK, DE, FR, JP, IT, ES, IN and MX. Model requests can choose 31, 90 or 365 days;
+the popup uses 365 days. Charts are cached in memory for 90 minutes and remain
+subject to current profile and plugin grants.
+
+Keepa's public charts are images, not an open numeric price-history API. Historical
+values are not fabricated or extracted from a chart URL. The app displays the
+provider's actual chart, links to the product's Keepa page, and separates it from
+local sampled observations. Unsupported countries or provider failures show an
+unavailable message while retaining saved product information. The model receives
+the chart reference, not numeric claims about lows or coverage. Keepa references
+appear in the response's Sources popup alongside Amazon links.
+
+Provider reference: [Keepa graph image documentation](https://keepa.com/api-docs/graph-image.html).
+The public `graph.keepa.com/pricehistory.png` endpoint was checked without credentials
+on 2026-10-08; future availability remains provider-controlled.
+
 ## Optional MCP providers
 
 The MCP marketplace also includes:

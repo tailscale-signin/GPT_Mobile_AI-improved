@@ -469,6 +469,8 @@ class SettingViewModelV2 @Inject constructor(
                     it.copy(
                         isBusy = false,
                         restoreUri = uri,
+                        convertedBackupUri = null,
+                        convertedRecoveryKeyUri = null,
                         requiresLegacyPassword = requiresPassword,
                         legacyPassword = if (requiresPassword) it.backupPassword else "",
                         requiresRecoveryKey = requiresKey,
@@ -513,6 +515,12 @@ class SettingViewModelV2 @Inject constructor(
     private val _restoreCompleted = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val restoreCompleted = _restoreCompleted.asSharedFlow()
 
+    fun exportConvertedBackup(destination: Uri?, recoveryKey: Boolean = false) {
+        if (destination == null || _backupUi.value.isBusy) return
+        val source = if (recoveryKey) _backupUi.value.convertedRecoveryKeyUri else _backupUi.value.convertedBackupUri
+        if (source != null) runBackupOperation { completeBackupManager.exportConvertedBackup(source, destination) }
+    }
+
     private fun runBackupOperation(restoring: Boolean = false, operation: suspend () -> BackupRestoreResult) {
         if (_backupUi.value.isWorking) return
         _backupUi.update { it.copy(isBusy = true, isWorking = true) }
@@ -523,6 +531,8 @@ class SettingViewModelV2 @Inject constructor(
                     it.copy(
                         message = result.message,
                         isError = !result.success,
+                        convertedBackupUri = result.convertedBackupUri ?: it.convertedBackupUri,
+                        convertedRecoveryKeyUri = result.convertedRecoveryKeyUri ?: it.convertedRecoveryKeyUri,
                         legacyPassword = if (result.success) "" else it.legacyPassword
                     )
                 }
@@ -554,6 +564,8 @@ class SettingViewModelV2 @Inject constructor(
         val backupUri: Uri? = null,
         val recoveryKeyUri: Uri? = null,
         val requiresRecoveryKey: Boolean = false,
+        val convertedBackupUri: String? = null,
+        val convertedRecoveryKeyUri: String? = null,
         val recentBackups: List<dev.chungjungsoo.gptmobile.data.backup.RecentBackup> = emptyList(),
         val message: String? = null,
         val isError: Boolean = false

@@ -34,6 +34,29 @@ class AmazonProductResultsTest {
     }
 
     @Test
+    fun `history reference cannot replace an existing product title or create a duplicate offer`() {
+        val product = buildJsonObject {
+            put("marketplace", "amazon.ca")
+            put("asin", "B000000001")
+            put("title", "Headphones")
+            put("seller", "Example seller")
+            put("price", "CAD 49.99")
+            put("provider", "SerpApi")
+        }
+        val reference = buildJsonObject {
+            put("marketplace", "amazon.ca")
+            put("asin", "B000000001")
+            put("title", "Amazon product B000000001")
+            put("provider", "Keepa")
+            put("historyOnly", true)
+        }
+        val merged = AmazonProducts.mergeProducts(listOf(reference, product))
+        assertEquals(1, merged.size)
+        assertEquals("Headphones", AmazonProducts.text(merged.single(), "title"))
+        assertEquals("CAD 49.99", AmazonProducts.text(merged.single(), "price"))
+    }
+
+    @Test
     fun `failed events and unsafe restored product links cannot produce cards`() {
         val valid = event(1, "Blue", "$49.99")
         assertTrue(amazonProductResults(listOf(valid.copy(isError = true))).isEmpty())

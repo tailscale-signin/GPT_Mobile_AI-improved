@@ -78,6 +78,34 @@ object AmazonProducts {
         (value[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it != "null" && it.isNotBlank() }?.take(500)
     }
 
+    fun mergeProducts(products: List<JsonObject>): List<JsonObject> = products.filter { product ->
+        (product["historyOnly"] as? JsonPrimitive)?.booleanOrNull != true ||
+            products.none { other ->
+                (other["historyOnly"] as? JsonPrimitive)?.booleanOrNull != true &&
+                    text(other, "marketplace") == text(product, "marketplace") &&
+                    text(other, "asin") == text(product, "asin")
+            }
+    }.groupBy {
+        listOf(text(it, "marketplace"), text(it, "asin"), text(it, "seller"), text(it, "condition"), text(it, "variant"))
+    }.values.map { group ->
+        val first = group.first()
+        val fields = first.toMutableMap()
+        val offerFields = setOf("price", "priceAmount", "priceMaxAmount", "currency", "observedAt", "retrievedAt", "cached", "provider", "sourceType", "priceBasis", "contextQuality")
+        group.drop(1).forEach { product -> product.filterKeys { it !in offerFields && it !in fields }.forEach { (key, value) -> fields[key] = value } }
+        if (text(first, "price") == null) {
+            group.firstOrNull { text(it, "price") != null }?.let { priced ->
+                offerFields.forEach { fields.remove(it) }
+                priced.filterKeys { it in offerFields }.forEach { (key, value) -> fields[key] = value }
+            }
+        }
+        fields["providers"] = JsonArray(
+            group.flatMap { item ->
+                (item["providers"] as? JsonArray).orEmpty() + listOfNotNull(item["provider"])
+            }.distinct()
+        )
+        JsonObject(fields)
+    }.take(100)
+
     private fun decimal(value: JsonElement?): String? = (value as? JsonPrimitive)?.contentOrNull?.let { raw ->
         if (raw.length > 40) return@let null
         runCatching { BigDecimal(raw).takeIf { it.scale() in -12..12 && it.signum() >= 0 && it <= BigDecimal("1000000000") }?.stripTrailingZeros()?.toPlainString() }.getOrNull()
@@ -200,6 +228,13 @@ object AmazonProducts {
                 text(item, "save_with_coupon")?.let { put("coupon", it) }
                 ((item["prime"] ?: item["is_prime"]) as? JsonPrimitive)?.booleanOrNull?.let { put("prime", it) }
                 sponsored?.let { put("sponsored", it) }
+                listOf("description", "product_description").firstNotNullOfOrNull { key ->
+                    (item[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }?.take(4000)
+                }?.let { put("description", it) }
+                val features = (item["feature_bullets"] ?: item["features"]) as? JsonArray
+                features?.filterIsInstance<JsonPrimitive>()?.filter { it.isString }?.take(10)?.let {
+                    put("features", JsonArray(it.map { feature -> JsonPrimitive(feature.content.take(500)) }))
+                }
             }
         }.distinctBy { listOf(text(it, "marketplace"), text(it, "asin"), text(it, "seller"), text(it, "condition"), text(it, "variant")) }
             .take(maxResults.coerceIn(1, 100))

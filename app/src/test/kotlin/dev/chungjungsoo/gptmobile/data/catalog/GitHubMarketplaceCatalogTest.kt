@@ -31,6 +31,8 @@ class GitHubMarketplaceCatalogTest {
             assertTrue(it.preset.documentationOnly)
             assertTrue(it.preset.commandOrUrl.isEmpty())
         }
+        assertTrue(GitHubMarketplaceCatalog.allPresets.none { it.documentationOnly })
+        assertTrue(GitHubMarketplaceCatalog.allPresets.all { it.websiteUrl?.startsWith("https://") == true })
     }
 
     @Test

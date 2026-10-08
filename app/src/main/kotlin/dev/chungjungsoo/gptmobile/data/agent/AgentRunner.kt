@@ -227,12 +227,19 @@ class AgentRunner(
                 (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
             }
             val executableCalls = mutableListOf<ProviderEvent.ToolCall>()
+            // A later call can close the repeat circuit; already accepted calls in
+            // this batch must retain the authorized tool that accepted them.
+            val batchToolByName = executableToolByName
             val deferredCalls = mutableListOf<ProviderEvent.ToolCall>()
             val perToolSuppressedIds = mutableSetOf<String>()
             val hostSuppressedIds = mutableSetOf<String>()
             calls.take(remainingCalls).forEach { call ->
                 val used = toolCallsByName[call.name] ?: 0
-                val repeatLimit = if (Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else MAX_SAME_TOOL_CALLS_PER_RUN
+                val repeatLimit = when {
+                    call.name.startsWith("amazon_search") -> 6
+                    Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name) -> 3
+                    else -> MAX_SAME_TOOL_CALLS_PER_RUN
+                }
                 if (failureScope(call) in blockedReadScopes) {
                     deferredCalls += call
                     hostSuppressedIds += call.callId
@@ -251,7 +258,7 @@ class AgentRunner(
 
             executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
-            val executedResults = executeToolBatch(executableCalls, executableToolByName)
+            val executedResults = executeToolBatch(executableCalls, batchToolByName)
             toolCallCount += executableCalls.size
 
             val newlyBlockedTools = mutableSetOf<String>()

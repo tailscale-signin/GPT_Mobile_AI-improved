@@ -6,6 +6,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import java.math.BigDecimal
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,6 +35,29 @@ class AmazonHistoryRepositoryTest {
     }
 
     @After fun close() = database.close()
+
+    @Test fun providerSnapshotsKeepOffersSeparateIgnoreRangesAndRespectRevocation() = runBlocking {
+        fun product(seller: String, range: Boolean = false) = buildJsonObject {
+            put("marketplace", "amazon.co.uk")
+            put("asin", asin)
+            put("url", "https://www.amazon.co.uk/dp/$asin")
+            put("title", "Headphones")
+            put("priceAmount", "49.99")
+            put("currency", "GBP")
+            put("observedAt", clock.instant().toString())
+            put("seller", seller)
+            if (range) put("priceMaxAmount", "59.99")
+        }
+        repository.recordProvider("owner", "request", listOf(product("A"), product("B"), product("Range", true)), "serpapi_search", { true })
+        repository.recordProvider("owner", "request", listOf(product("A")), "serpapi_search", { true })
+        val saved = repository.history("owner", "amazon.co.uk", asin)
+        assertEquals(2, saved.retainedCount)
+        assertEquals(2, saved.observations.map { it.seriesKey }.distinct().size)
+        var checks = 0
+        assertTrue(runCatching { repository.recordProvider("owner", "revoked", listOf(product("C")), "serpapi_product", { ++checks == 1 }) }.isFailure)
+        assertEquals(2, repository.history("owner", "amazon.co.uk", asin).retainedCount)
+        assertTrue(repository.history("other", "amazon.co.uk", asin).observations.isEmpty())
+    }
 
     @Test fun duplicateAcquisitionSeparatePageSeriesAndUnknownCurrencyRemainHonest() = runBlocking {
         val result = AmazonFetchResult(listOf(point()))

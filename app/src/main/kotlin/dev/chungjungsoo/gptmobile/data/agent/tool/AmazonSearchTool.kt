@@ -25,7 +25,8 @@ class AmazonSearchTool(
     settings: PluginExecutionSettings = PluginExecutionSettings(),
     private val productDetails: Boolean = false,
     modelToolName: String = if (productDetails) GET_PRODUCTS else SEARCH,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    private val onFetched: (suspend (String, List<JsonObject>) -> Unit)? = null
 ) : AgentTool {
     private val settings = settings.normalized()
 
@@ -198,6 +199,7 @@ class AmazonSearchTool(
                     amount != null && (minimum == null || amount >= minimum) && (maximum == null || (upper != null && upper <= maximum))
                 }
             }.take(if (productDetails) 5 else minOf(limit, settings.searchResults))
+            onFetched?.invoke(callId, filtered)
             val content = buildJsonObject {
                 put("schema", AmazonProducts.SCHEMA)
                 put("marketplace", domain)

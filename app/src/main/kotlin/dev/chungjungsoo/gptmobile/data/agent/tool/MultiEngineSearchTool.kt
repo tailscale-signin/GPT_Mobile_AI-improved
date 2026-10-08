@@ -80,6 +80,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
     // distinct query ever attempted; only successful evidence enters the bounded cache.
     private val resultCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, AgentToolResult>>()
     private val queryLocks = Array(32) { Mutex() }
+    private val collectedUrls = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if (!deduplicate) return search(callId, arguments)
@@ -135,7 +136,9 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         // passes its existing consent and shared-budget wrapper before execution.
         val selected = engines.distinctBy { it.selectionId() }
             .sortedByDescending { reliability[it.modelToolName]?.get() ?: 0 }
-        val permits = Semaphore(if (parallel) 3 else 1)
+        // Launch every selected engine together. Each child still reserves its own
+        // shared run budget and authorization before any network operation.
+        val permits = Semaphore(if (parallel) selected.size.coerceAtLeast(1) else 1)
         val responses = selected.mapIndexed { index, engine ->
             async {
                 permits.withPermit {
@@ -147,7 +150,10 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                             return@withPermit engine to AgentToolResult(callId, ToolResultContent.Text("Search skipped: insufficient remaining run budget."), true, outputBudgetExhausted = true)
                         }
                         val adapter = requireNotNull(WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition))
-                        val mapped = adapter.arguments(arguments, clock)
+                        // Collect extra candidates so duplicate pages do not consume
+                        // the requested unique-page allowance for the next engine.
+                        val candidateRequest = if (deduplicate) JsonObject(arguments + ("maxResults" to JsonPrimitive((maxResults * 3).coerceAtMost(30)))) else arguments
+                        val mapped = adapter.arguments(candidateRequest, clock)
                         val childId = "$callId:engine:$index"
                         val result = withTimeoutOrNull(engineTimeoutMillis) {
                             engine.tool.execute(childId, mapped)
@@ -189,16 +195,25 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
             val rawSources = if (result.isError) emptyList() else extractSearchSources(payload)
             val extracted = rawSources
                 .filter { source -> matchesSearchDomains((source["url"] as? JsonPrimitive)?.contentOrNull.orEmpty(), includeDomains, excludeDomains) }
-                .take(maxResults)
+                .take(100)
+            var uniqueResults = 0
+            var duplicates = 0
             extracted.forEach { source ->
                 val url = (source["url"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
                 val key = canonicalSearchUrl(url)
                 val previous = sourceIndexes[key].takeIf { deduplicate }
                 val provenance = ((source["engines"] as? JsonArray).orEmpty() + listOfNotNull(source["engine"], JsonPrimitive(label))).distinct()
                 if (previous == null) {
+                    if (uniqueResults >= maxResults) return@forEach
+                    if (deduplicate && !collectedUrls.add(key)) {
+                        duplicates++
+                        return@forEach
+                    }
                     sourceIndexes[key] = sources.size
                     sources += JsonObject(source + mapOf("engine" to (source["engine"] ?: JsonPrimitive(label)), "engines" to JsonArray(provenance)))
+                    uniqueResults++
                 } else {
+                    duplicates++
                     val existing = sources[previous] as JsonObject
                     val labels = ((existing["engines"] as? JsonArray).orEmpty() + provenance).distinct()
                     sources[previous] = JsonObject(existing + ("engines" to JsonArray(labels)))
@@ -209,7 +224,9 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 (payload as? JsonObject)?.get("engines")?.let { put("engines", it) }
                 put("tool", engine.realToolName)
                 put("status", if (result.isError) "unavailable" else "completed")
-                put("results", extracted.size)
+                put("results", uniqueResults)
+                put("duplicatePagesSkipped", duplicates)
+                put("candidates", extracted.size)
                 if (recencyDays != null && WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition)?.supportsRecency == false) {
                     put("unsupportedFilters", JsonArray(listOf(JsonPrimitive("recencyDays"))))
                 }
@@ -245,6 +262,8 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                     put("query", query)
                     put("engines", JsonArray(statuses))
                     put("results", JsonArray(sources))
+                    put("uniquePages", sources.size)
+                    if (deduplicate && sources.isEmpty() && responses.any { !it.second.isError }) put("notice", "No new unique pages were found. Reuse evidence already collected earlier in this response.")
                     if (selected.isEmpty()) put("notice", "No selected compatible search engines are available.")
                     crawl?.let { put("pages", it) }
                 }
@@ -270,11 +289,17 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
 
 internal fun canonicalSearchUrl(url: String): String = runCatching {
     val uri = URI(url)
-    val query = uri.rawQuery?.split('&')?.filterNot {
+    val parameters = uri.rawQuery?.split('&')?.filterNot {
         val name = it.substringBefore('=').lowercase()
-        name.startsWith("utm_") || name in setOf("fbclid", "gclid")
-    }?.sorted()?.joinToString("&")?.takeIf { it.isNotEmpty() }
-    URI(uri.scheme?.lowercase(), uri.userInfo, uri.host?.lowercase(), uri.port, uri.path.orEmpty().trimEnd('/'), query, null).toString()
+        name.startsWith("utm_") || name in setOf("fbclid", "gclid", "msclkid")
+    }.orEmpty()
+    // Preserve repeated-parameter ordering and encoded path/query boundaries:
+    // /a%2Fb and /a/b can be different pages.
+    val query = (if (parameters.map { it.substringBefore('=') }.distinct().size == parameters.size) parameters.sorted() else parameters).joinToString("&")
+    val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
+    val port = uri.port.takeUnless { it == -1 || (it == 80 && scheme == "http") || (it == 443 && scheme == "https") }
+    val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return@runCatching url
+    "$scheme://$host${port?.let { ":$it" }.orEmpty()}${uri.rawPath.orEmpty().ifEmpty { "/" }}${query.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty()}"
 }.getOrDefault(url)
 
 /** Compose only after child authorization/budget wrappers have been installed. */

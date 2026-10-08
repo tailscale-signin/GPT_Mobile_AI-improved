@@ -58,7 +58,9 @@ fun CompleteBackupDialog(
     onPasswordProtectionChange: (Boolean) -> Unit = {},
     onPasswordChange: (String) -> Unit = {},
     onDismiss: () -> Unit,
-    restoreOnly: Boolean = false
+    restoreOnly: Boolean = false,
+    onSaveConvertedBackup: () -> Unit = {},
+    onSaveConvertedKey: () -> Unit = {}
 ) {
     var pendingAction by rememberSaveable { mutableStateOf<BackupAction?>(null) }
 
@@ -190,6 +192,12 @@ fun CompleteBackupDialog(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
+                if (state.convertedBackupUri != null) {
+                    Button(onClick = onSaveConvertedBackup, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) { Text("Save converted backup") }
+                    if (state.convertedRecoveryKeyUri != null) {
+                        OutlinedButton(onClick = onSaveConvertedKey, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) { Text("Save recovery key") }
+                    }
+                }
                 TextButton(onClick = onDismiss, enabled = !state.isBusy, modifier = Modifier.align(Alignment.End)) {
                     Text(stringResource(R.string.close))
                 }
@@ -294,6 +302,7 @@ internal fun BackupSelectionContent(
         BackupOptionRow(state, CompleteBackupSection.LOCAL_MODELS, "Local models", "Installed model records and model files.", onSectionChange)
         BackupOptionRow(state, CompleteBackupSection.ATTACHMENTS, "Attachments", "Files and images attached to conversations.", onSectionChange)
         BackupOptionRow(state, CompleteBackupSection.AGENT_HISTORY, "Agent & tool history", "Agent runs, tool events and diagnostics history.", onSectionChange)
+        BackupOptionRow(state, CompleteBackupSection.STATISTICS, "Statistics & model usage", "Full token, timing, model, tool, success and failure history. Includes profiles, conversations and agent records to restore totals.", onSectionChange)
         BackupOptionRow(state, CompleteBackupSection.AMAZON_DATA, "Amazon history & manual watches", "Local observations and targets. Restored watches are paused; request usage and cooldowns stay on this device.", onSectionChange)
         Text(
             "These choices are saved and reused the next time you open Backup & Restore.",

@@ -13,6 +13,7 @@ enum class CompleteBackupSection {
     LOCAL_MODELS,
     ATTACHMENTS,
     AGENT_HISTORY,
+    STATISTICS,
     AMAZON_DATA
 }
 
@@ -27,6 +28,7 @@ data class CompleteBackupSelection(
 
     fun normalized(): CompleteBackupSelection {
         val normalized = sections.toMutableSet()
+        if (CompleteBackupSection.STATISTICS in normalized) normalized += setOf(CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.PLATFORMS)
         if (CompleteBackupSection.AGENT_HISTORY in normalized ||
             CompleteBackupSection.ATTACHMENTS in normalized
         ) {
@@ -40,7 +42,12 @@ data class CompleteBackupSelection(
             sections + section
         } else {
             sections - section -
-                if (section == CompleteBackupSection.CONVERSATIONS) setOf(CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY) else emptySet()
+                when (section) {
+                    CompleteBackupSection.CONVERSATIONS -> setOf(CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.STATISTICS)
+                    CompleteBackupSection.AGENT_HISTORY -> setOf(CompleteBackupSection.STATISTICS)
+                    CompleteBackupSection.PLATFORMS -> setOf(CompleteBackupSection.STATISTICS)
+                    else -> emptySet()
+                }
         }
         return copy(sections = updated).normalized()
     }
@@ -53,6 +60,7 @@ data class CompleteBackupSelection(
             CompleteBackupSection.LOCAL_MODELS,
             CompleteBackupSection.ATTACHMENTS,
             CompleteBackupSection.AGENT_HISTORY,
+            CompleteBackupSection.STATISTICS,
             CompleteBackupSection.AMAZON_DATA
         )
         val ALL = CompleteBackupSelection(CompleteBackupSection.entries.toSet())

@@ -10,17 +10,25 @@ This is the second usable stage of the custom Amazon add-on: native search/detai
 | Details | `amazon_get_products__free_native`: 1–5 distinct ASINs; one page per ASIN, independent failures retained |
 | Markets | `amazon.ca` / CAD and `amazon.com` / USD; English HTML only |
 | Controls | Global and per-profile opt-in, off when no stored choice exists; live grant checks and cancellation when the global/profile grant or network permission is revoked |
-| Product cards | Existing `amazon_products_v1` rendering, canonical untagged Amazon link, actual retrieval timestamp, preview/currency/context labels |
+| Product cards | Shared `amazon_products_v1` rendering; clicking a card opens product details, description, public price history, and separate local observations. Open on Amazon follows the canonical product link. |
 | Bounds | 200-character query, exact marketplace/ASIN validation, 2 MiB decoded HTML, three redirects, 5–120 second operation timeout, bounded JSON output |
 | Request budget | Atomic Room installation ledger; the previous `noBackupFilesDir` ledger is imported once without changing its usage, pacing or cooldowns; 1–100 physical requests per UTC day, shared across profiles and marketplaces, including redirects and failed attempts; serialized requests at least five seconds apart |
 | Blocking | No automatic retry; 24-hour challenge cooldown; HTTP 429 honors a bounded Retry-After or uses six hours; cooldowns survive restart |
 | History | Profile-scoped confirmed-currency observations in Room schema 34; search/detail pages remain separate incomplete-offer series; no persistence from ordinary temporary-chat lookups |
+| Public history | Shared `amazon_get_price_history__public` fetches a no-key Keepa chart; separate from local observations and available with either enabled Amazon plugin. See [Amazon search](amazon-search.md#shared-product-details-and-public-price-history). |
 | Manual watches | Explicit native save/edit/pause/delete; 20 per owning profile; Check now uses the current remote grant and shared allowance; no background checks or notifications |
 | Local tools | `amazon_get_price_history__free_native` (up to 100 returned points) and `amazon_list_price_watches__free_native` (up to 20); no model-selected owner or hidden network refresh; respect Disable local tools |
 | Backup | Optional Amazon history/manual-watches section; restored watches pause or become orphaned, free-plugin grants are cleared, installation usage/cooldowns are preserved |
 | Data handling | No cookies, credentials, affiliate tags, raw HTML storage, raw response/error logging, or result sharing between profiles |
 
 The existing SerpApi Amazon service and JanNafta desktop MCP bridge remain independently controlled. Switching off remote MCP connections does not switch off this native HTTP service; a profile's **Disable remote tools** and **Disable all tools** controls do.
+
+When Amazon Search and Amazon Research Free are both enabled, the app exposes one
+search and one details tool that query compatible providers together, merge cards
+by marketplace/ASIN/offer identity, retain provenance, and preserve successful
+results when another provider fails. Unsupported native marketplaces are skipped;
+enabling one provider never activates the other. Identical lookups reuse evidence
+within the current response without another provider request.
 
 Search and detail tools use the existing canonical tool classifications so the chat product cards recognize their results. Native results deliberately opt out of the shared read-only turn cache until cached consumers can recheck their current grants. The provider uses a dedicated Ktor/OkHttp client rather than the general credential-bearing network client.
 
@@ -66,7 +74,7 @@ Complete backups explicitly map observations and watches to the optional Amazon 
 
 1. Validate precise comparable offer identity, then add explicitly approved AI watch mutations, bounded WorkManager scheduling and notifications with the plan’s crossing/rearm/outbox rules. Current manual watches grant no background activity; failed/ambiguous prices must never trigger a price-drop alert.
 2. Expand live Android checks for storage, restore, visual layout and CA/US provider reliability. Daily allowance resets assume the device’s forward UTC clock; backwards resets are guarded, but the allowance is not server-enforced.
-3. Add comparisons, deal evidence, authorized optional historical data, and bounded product images. First observation must never imply historical coverage.
+3. Add comparisons, deal evidence, numeric historical-provider adapters, and bounded product images. Public historical charts are available; a local first observation must never imply historical coverage.
 4. Add optional hosted/seller/B2B adapters only behind separate credentials, consent, and spend budgets. Do not advertise account actions or purchases as consumer search.
 
 Background alerts, AI watch mutations, seller/review text, checkout, affiliate attribution, additional markets, hosted-provider fallback, and cross-market currency conversion are not exposed by the native preview tools.

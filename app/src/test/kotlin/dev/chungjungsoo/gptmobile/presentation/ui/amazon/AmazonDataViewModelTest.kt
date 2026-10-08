@@ -46,7 +46,7 @@ class AmazonDataViewModelTest {
         every { settings.observePlatformV2s() } returns profiles
         every { settings.observeFeatureSettings() } returns MutableStateFlow(AppFeatureSettings())
         every { repository.watches } returns watches
-        coEvery { repository.history(any(), any(), any(), any()) } returns AmazonLocalHistory(emptyList(), 0, emptyList())
+        coEvery { repository.history(any(), any<AmazonFreeMarket>(), any(), any()) } returns AmazonLocalHistory(emptyList(), 0, emptyList())
         viewModel = AmazonDataViewModel(repository, mockk<AmazonAccessPolicy>(), provider, settings)
     }
 

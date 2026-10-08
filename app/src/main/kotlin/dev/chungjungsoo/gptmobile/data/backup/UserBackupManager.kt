@@ -10,12 +10,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import java.io.InputStream
-import java.io.OutputStream
 
 /**
  * Backup payload data structure representing user chats, settings, models, tools, and favorites.
@@ -155,24 +154,35 @@ class UserBackupManager(
         )
     }
 
-    private suspend fun restoreBackupData(
+    internal suspend fun restoreBackupData(
         data: UserBackupData,
         clearExisting: Boolean
     ): BackupImportResult = database.withTransaction {
         if (clearExisting) {
+            val installationBudget = database.amazonDao().budget()
             database.clearAllTables()
+            // Importing user data must not reset physical-request usage or challenge cooldowns.
+            installationBudget?.let { database.amazonDao().saveBudget(it) }
         }
 
         data.platforms.forEach { platform ->
             database.platformDao().addPlatform(platform)
         }
 
-        data.models.forEach { model ->
-            database.chatPlatformModelDao().upsertChatPlatformModel(model)
-        }
-
         data.localModels.forEach { localModel ->
-            database.localModelDao().upsert(localModel)
+            // Legacy JSON backups contain model metadata, never the downloaded weights.
+            // Keep a usable existing download, and leave missing/interrupted downloads retryable.
+            val path = "${localModel.relativeDirectory}/${localModel.fileName}"
+            require(path.startsWith("models/")) { "Unsupported model location in legacy backup." }
+            CompleteBackupArchive.validatePath("external/$path")
+            val root = (context.getExternalFilesDir(null) ?: context.filesDir).canonicalFile
+            val file = File(root, path)
+            require(file.canonicalFile == file.absoluteFile && file.toPath().startsWith(root.toPath())) { "Invalid legacy model location." }
+            val ready = localModel.status == LocalModelStatus.READY &&
+                file.isFile &&
+                file.length() > 0 &&
+                (localModel.totalBytes <= 0 || file.length() == localModel.totalBytes)
+            database.localModelDao().upsert(localModel.copy(status = if (ready) LocalModelStatus.READY else LocalModelStatus.FAILED))
         }
 
         data.chatRooms.forEach { room ->
@@ -181,6 +191,10 @@ class UserBackupManager(
 
         if (data.messages.isNotEmpty()) {
             database.messageDao().insertMessageList(data.messages)
+        }
+
+        data.models.forEach { model ->
+            database.chatPlatformModelDao().upsertChatPlatformModel(model)
         }
 
         data.toolConnections.forEach { connection ->

@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Debug observations are local and transient, and require an explicit debug-mode choice. */
+/** Local debug observations require an explicit debug-mode choice; retained statistics are portable. */
 object LocalDiagnosticsPolicy {
     private val debugEnabled = MutableStateFlow(false)
     val state = debugEnabled.asStateFlow()

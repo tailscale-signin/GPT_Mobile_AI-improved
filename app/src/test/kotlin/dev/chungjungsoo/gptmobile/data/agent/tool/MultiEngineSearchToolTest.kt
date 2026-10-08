@@ -11,6 +11,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
@@ -28,6 +29,85 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MultiEngineSearchToolTest {
+    @Test fun `every selected engine starts before any engine finishes`() = runBlocking {
+        val allStarted = CompletableDeferred<Unit>()
+        var started = 0
+        val budget = ToolExecutionBudget(AgentRunLimits())
+        val engines = (1..7).map { index ->
+            engine("engine-$index") { id, _ ->
+                if (++started == 7) allStarted.complete(Unit)
+                withTimeout(1000) { allStarted.await() }
+                AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/$index\nDescription: Result"), false)
+            }
+        }.map { it.copy(tool = budget.bind(it.tool)) }
+        val result = MultiEngineSearchTool(engines, engineTimeoutMillis = 2000).execute("parallel", buildJsonObject { put("query", "evidence") })
+        assertEquals(7, started)
+        assertEquals(7, ((result.content as ToolResultContent.Json).value.jsonObject["results"] as JsonArray).size)
+    }
+
+    @Test fun `oversampled candidates replace duplicate pages before collective crawling`() = runBlocking {
+        val crawled = mutableListOf<List<String>>()
+        val engines = (1..2).map { index ->
+            engine("engine-$index", extraProperties = buildJsonObject { put("maxResults", buildJsonObject { put("type", "integer") }) }) { id, args ->
+                assertEquals(JsonPrimitive(6), args["maxResults"])
+                val changed = args["query"] == JsonPrimitive("follow up")
+                val urls = listOf("shared", "unique-${index}a", "unique-${index}b") + if (changed) listOf("new-$index") else emptyList()
+                AgentToolResult(
+                    id,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put(
+                                "results",
+                                JsonArray(
+                                    urls.map { url ->
+                                        buildJsonObject {
+                                            put("url", "https://example.org/$url")
+                                            put("title", url)
+                                        }
+                                    }
+                                )
+                            )
+                        }
+                    ),
+                    false
+                )
+            }
+        }
+        val tool = MultiEngineSearchTool(engines, afterSearch = { _, sources ->
+            crawled += sources.map { it.getValue("url").jsonPrimitive.content }
+            buildJsonObject { put("inspected", sources.size) }
+        })
+        val first = tool.execute(
+            "first",
+            buildJsonObject {
+                put("query", "evidence")
+                put("maxResults", 2)
+            }
+        )
+        val firstPayload = (first.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(4, (firstPayload["results"] as JsonArray).size)
+        assertEquals(4, crawled.single().distinct().size)
+        val second = tool.execute(
+            "second",
+            buildJsonObject {
+                put("query", "follow up")
+                put("maxResults", 2)
+            }
+        )
+        val secondSources = (second.content as ToolResultContent.Json).value.jsonObject["results"] as JsonArray
+        assertTrue(secondSources.any { it.jsonObject.getValue("url").jsonPrimitive.content.endsWith("new-1") })
+        assertTrue(secondSources.any { it.jsonObject.getValue("url").jsonPrimitive.content.endsWith("new-2") })
+        assertTrue(crawled.last().none { it in crawled.first() })
+        assertEquals(crawled.last().size, crawled.last().distinct().size)
+    }
+
+    @Test fun `canonical URLs keep encoded boundaries repeated queries and distinct pages`() {
+        org.junit.Assert.assertNotEquals(canonicalSearchUrl("https://example.org/a%2Fb"), canonicalSearchUrl("https://example.org/a/b"))
+        org.junit.Assert.assertNotEquals(canonicalSearchUrl("https://example.org/a?id=1"), canonicalSearchUrl("https://example.org/a?id=2"))
+        org.junit.Assert.assertNotEquals(canonicalSearchUrl("https://example.org/a?tag=1&tag=2"), canonicalSearchUrl("https://example.org/a?tag=2&tag=1"))
+        assertEquals(canonicalSearchUrl("https://EXAMPLE.org:443/a?b=2&a=1&utm_source=x#top"), canonicalSearchUrl("https://example.org/a?a=1&b=2"))
+    }
+
     @Test
     fun `built-in provider provenance survives aggregation and duplicate URLs`() = runBlocking {
         fun provider(name: String, connection: String) = engine(connection) { id, _ ->
@@ -113,7 +193,12 @@ class MultiEngineSearchToolTest {
                 override val definition = AgentToolDefinition("mcp__provider__$name", "Web search", fixture.getValue("schema").jsonObject)
                 override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
                     queried += name
-                    assertEquals(name, fixture["expectedArguments"], arguments)
+                    val expected = JsonObject(
+                        fixture.getValue("expectedArguments").jsonObject.mapValues { (key, value) ->
+                            if (key in setOf("maxResults", "max_results", "numResults", "limit", "num", "count")) JsonPrimitive(6) else value
+                        }
+                    )
+                    assertEquals(name, expected, arguments)
                     return AgentToolResult(callId, ToolResultContent.Text(fixture.getValue("response").jsonPrimitive.content), false)
                 }
             }
@@ -216,7 +301,7 @@ class MultiEngineSearchToolTest {
             }
         ) { id, args ->
             assertEquals(JsonPrimitive("Compose site:example.org"), args["query"])
-            assertEquals(JsonPrimitive(2), args["count"])
+            assertEquals(JsonPrimitive(6), args["count"])
             assertEquals(JsonPrimitive("2026-07-30to2026-08-01"), args["freshness"])
             assertEquals(JsonArray(listOf(JsonPrimitive("web"))), args["result_filter"])
             assertFalse(args.containsKey("maxResults"))

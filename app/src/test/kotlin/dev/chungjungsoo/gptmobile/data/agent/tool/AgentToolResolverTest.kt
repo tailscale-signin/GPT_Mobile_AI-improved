@@ -49,6 +49,24 @@ import org.junit.Test
 
 class AgentToolResolverTest {
     @Test
+    fun publicHistoryIsSharedByEitherAmazonPluginAndRespectsRemotePermissions() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Research")
+        val history = mockk<dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicPriceHistoryClient>()
+        for (plugins in listOf(setOf(ToolPluginId.AMAZON_FREE), setOf(ToolPluginId.AMAZON_SEARCH), setOf(ToolPluginId.AMAZON_FREE, ToolPluginId.AMAZON_SEARCH))) {
+            val features = plugins.fold(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()) { settings, plugin ->
+                settings.withToolPluginEnabled(plugin, true).withProfileToolPluginEnabled(profile.uid, plugin, true)
+            }
+            val tools = resolver(settings = ResolverFakeSettingRepository(listOf(profile), features), publicHistory = history).resolve(profile.uid)
+            assertEquals(1, tools.count { it.modelToolName == AmazonPriceHistoryTool.NAME })
+            for (blocked in listOf(profile.copy(disableRemoteTools = true), profile.copy(disableAllTools = true), profile.copy(enabled = false))) {
+                assertFalse(resolver(settings = ResolverFakeSettingRepository(listOf(blocked), features), publicHistory = history).resolve(profile.uid).any { it.modelToolName == AmazonPriceHistoryTool.NAME })
+            }
+        }
+        assertFalse(resolver(settings = ResolverFakeSettingRepository(listOf(profile)), publicHistory = history).resolve(profile.uid).any { it.modelToolName == AmazonPriceHistoryTool.NAME })
+        io.mockk.coVerify(exactly = 0) { history.chart(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun localAmazonToolsRemainAvailableWithRemoteToolsDisabledAndRespectLocalDisable() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Research", disableRemoteTools = true)
         val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings().withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.AMAZON_FREE, true)
@@ -131,7 +149,7 @@ class AgentToolResolverTest {
         dao.upsertConnection(connection("shopping", ToolConnectionType.AMAZON_SERPAPI))
         val profile = PlatformV2(uid = "profile", name = "Local only", disableRemoteTools = true)
         assertFalse(resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile), amazonEnabled())).resolve(profile.uid).any { it.connectionUid == "shopping" })
-        val tool = resolver(dao = dao, settings = ResolverFakeSettingRepository(features = amazonEnabled())).resolve("profile").single { it.realToolName == AmazonSearchTool.SEARCH }
+        val tool = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile.copy(disableRemoteTools = false)), amazonEnabled())).resolve("profile").single { it.realToolName == AmazonSearchTool.SEARCH }
         val result = tool.tool.execute("missing-key", buildJsonObject { put("query", "headphones") })
         assertTrue(result.isError)
         assertTrue(result.content.toString().contains("SerpApi API key"))
@@ -909,7 +927,8 @@ class AgentToolResolverTest {
         nativeClient: NativeMarketplaceClient? = null,
         amazonFree: AmazonHtmlProvider? = null,
         history: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
-        access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null
+        access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
+        publicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicPriceHistoryClient? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -928,7 +947,8 @@ class AgentToolResolverTest {
             nativeMarketplaceClient = nativeClient,
             amazonFreeProvider = amazonFree,
             amazonHistory = history,
-            amazonAccess = access
+            amazonAccess = access,
+            amazonPublicHistory = publicHistory
         )
     }
 

@@ -76,6 +76,38 @@ class InvocationLedgerTest {
         coVerify(exactly = 0) { dao.reserve(any(), any(), any()) }
         coVerify(exactly = 0) { dao.save(any()) }
         ledger.recover()
-        coVerify(exactly = 1) { dao.clear() }
+        coVerify(exactly = 0) { dao.clear() }
+        coVerify(exactly = 1) { dao.recover() }
+    }
+
+    @Test fun `debug statistics persist without a spending budget and survive recovery`() = runTest {
+        val policy = dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
+        policy.setEnabled(true)
+        try {
+            val saved = mutableListOf<ModelInvocation>()
+            val dao = mockk<InvocationDao>(relaxed = true)
+            every { dao.recent() } returns flowOf(emptyList())
+            coEvery { dao.save(any()) } answers {
+                saved.add(firstArg())
+                Unit
+            }
+            val database = mockk<ChatDatabaseV2>()
+            every { database.invocationDao() } returns dao
+            val ledger = InvocationLedger(database)
+            val session = object : AgentProviderSession {
+                override val handlesToolsInternally = false
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta("Answer"), ProviderEvent.Usage(12, 8), ProviderEvent.Completed)
+            }
+            ledger.wrap(session, "run", "turn", "provider", "model", "primary", 10, 100, Int.MAX_VALUE, "profile").streamRound(emptyList(), emptyList()).toList()
+            assertEquals(listOf("RUNNING", "COMPLETED"), saved.map { it.status })
+            assertEquals(12, saved.last().inputTokens)
+            assertEquals(8, saved.last().outputTokens)
+            assertEquals("profile", saved.last().profileUid)
+            ledger.recover()
+            coVerify(exactly = 0) { dao.clear() }
+            coVerify(exactly = 1) { dao.recover() }
+        } finally {
+            policy.setEnabled(false)
+        }
     }
 }

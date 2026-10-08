@@ -10,6 +10,6 @@ internal fun isAmazonShoppingTask(task: String): Boolean =
         (AMAZON_ASIN.containsMatchIn(task) || (AMAZON_MARKET.containsMatchIn(task) && RETAIL_INTENT.containsMatchIn(task)))
 
 internal fun ResolvedAgentTool.isAmazonProductTool(): Boolean =
-    realToolName in setOf(AmazonSearchTool.SEARCH, AmazonSearchTool.GET_PRODUCTS, "web_data_amazon_product_search", "web_data_amazon_product") ||
+    realToolName in setOf(AmazonSearchTool.SEARCH, AmazonSearchTool.GET_PRODUCTS, "amazon_get_price_history", "web_data_amazon_product_search", "web_data_amazon_product") ||
         tool.definition.description.contains("For Amazon products use params.engine=amazon") ||
         tool.definition.description.contains(AmazonJanNaftaTool.MARKER)

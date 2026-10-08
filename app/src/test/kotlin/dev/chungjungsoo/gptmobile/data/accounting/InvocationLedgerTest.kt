@@ -76,6 +76,33 @@ class InvocationLedgerTest {
         coVerify(exactly = 0) { dao.reserve(any(), any(), any()) }
         coVerify(exactly = 0) { dao.save(any()) }
         ledger.recover()
-        coVerify(exactly = 1) { dao.clear() }
+        coVerify(exactly = 1) { dao.recover() }
+        coVerify(exactly = 0) { dao.clear() }
+    }
+
+    @Test fun `debug mode persists unlimited requests and retains history when turned off`() = runTest {
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(true)
+        try {
+            val saved = mutableListOf<ModelInvocation>()
+            val dao = mockk<InvocationDao>(relaxed = true)
+            every { dao.recent() } returns flowOf(emptyList())
+            coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+            val database = mockk<ChatDatabaseV2>()
+            every { database.invocationDao() } returns dao
+            val ledger = InvocationLedger(database)
+            val session = object : AgentProviderSession {
+                override val handlesToolsInternally = false
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta("Hello"), ProviderEvent.Completed)
+            }
+            ledger.wrap(session, "parent", "turn", "provider", "model", "primary", 10, 100, Int.MAX_VALUE, "profile").streamRound(emptyList(), emptyList()).toList()
+            assertEquals("COMPLETED", saved.single().status)
+            assertEquals("profile", saved.single().profileUid)
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
+            ledger.recover()
+            coVerify(exactly = 1) { dao.recover() }
+            coVerify(exactly = 0) { dao.clear() }
+        } finally {
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
+        }
     }
 }

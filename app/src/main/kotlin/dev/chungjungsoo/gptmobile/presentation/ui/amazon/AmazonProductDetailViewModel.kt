@@ -108,5 +108,6 @@ class AmazonProductDetailViewModel @Inject constructor(
 
     fun close() {
         lookup?.cancel()
+        current.value = AmazonProductDetailState()
     }
 }

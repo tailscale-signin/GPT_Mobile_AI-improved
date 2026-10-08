@@ -68,7 +68,7 @@ class AmazonNativeToolTest {
         assertEquals("10.20", provider.request?.minimum?.toPlainString())
         assertEquals(7, provider.context?.dailyLimit)
         assertEquals("partial", AmazonProducts.text(payload(result), "status"))
-        assertEquals("partial", AmazonProducts.text(payload(result), "requestId"))
+        assertTrue(java.util.UUID.fromString(AmazonProducts.text(payload(result), "requestId")) != null)
         assertEquals("PRICE_UNAVAILABLE", code(result))
         assertEquals(1, (payload(result)["products"] as JsonArray).size)
     }
@@ -135,11 +135,41 @@ class AmazonNativeToolTest {
         val result = AmazonNativeTool(provider, false, { PluginExecutionSettings(maxOutputCharacters = 1000) }, { true }).execute("limited", arguments("""{"query":"audio"}"""))
         val data = payload(result)
         assertTrue(data.toString().length <= 1000)
-        assertEquals("limited", AmazonProducts.text(data, "requestId"))
+        assertTrue(java.util.UUID.fromString(AmazonProducts.text(data, "requestId")) != null)
         assertEquals("partial", AmazonProducts.text(data, "status"))
         assertEquals(AmazonProducts.SCHEMA, AmazonProducts.text(data, "schema"))
         assertTrue(data.containsKey("coverage"))
         assertEquals("PRICE_UNAVAILABLE", code(result))
+    }
+
+    @Test
+    fun permissionObserverRemainsActiveWhileHistoryIsBeingSaved() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val permissions = MutableStateFlow(true)
+        val tool = AmazonNativeTool(FakeProvider(AmazonFetchResult(listOf(item))), false, { PluginExecutionSettings() }, { permissions.value }, permissions, onFetched = { _, _, _ ->
+            started.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                cancelled.complete(Unit)
+            }
+        })
+        val result = async { tool.execute("revoked-save", arguments("""{"query":"audio"}""")) }
+        started.await()
+        permissions.value = false
+        assertEquals("PLUGIN_DISABLED", code(result.await()))
+        cancelled.await()
+    }
+
+    @Test
+    fun repeatedModelCallIdsStillGetDistinctAcquisitionIdentities() = runBlocking {
+        val ids = mutableListOf<String>()
+        val tool = AmazonNativeTool(FakeProvider(AmazonFetchResult(listOf(item))), false, { PluginExecutionSettings() }, { true }, onFetched = { requestId, _, _ -> ids += requestId })
+        val first = tool.execute("same-model-id", arguments("""{"query":"audio"}"""))
+        val second = tool.execute("same-model-id", arguments("""{"query":"audio"}"""))
+        assertEquals(2, ids.distinct().size)
+        assertEquals(ids, listOf(AmazonProducts.text(payload(first), "requestId"), AmazonProducts.text(payload(second), "requestId")))
     }
 
     private class FakeProvider(private val result: AmazonFetchResult = AmazonFetchResult(emptyList())) : AmazonProvider {

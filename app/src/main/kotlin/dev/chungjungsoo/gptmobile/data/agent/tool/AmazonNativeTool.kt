@@ -29,18 +29,19 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
-/** Reviewed reads only. No history, watch mutation, affiliate or account action is exposed here. */
+/** Reviewed network reads only. Optional capture stays inside the live permission observer. */
 class AmazonNativeTool(
     private val provider: AmazonProvider,
     private val productDetails: Boolean,
     private val settings: suspend () -> PluginExecutionSettings,
     private val isAllowed: suspend () -> Boolean,
-    private val permissionChanges: Flow<Boolean>? = null
+    private val permissionChanges: Flow<Boolean>? = null,
+    private val onFetched: (suspend (String, AmazonFreeMarket, AmazonFetchResult) -> Unit)? = null
 ) : AgentTool {
     override val definition = AgentToolDefinition(
         name = if (productDetails) GET_PRODUCTS else SEARCH,
         description = if (productDetails) {
-            "Read Amazon Canada/US product details for 1–5 ASINs using public pages. Free native preview; no API key. Missing price or offer identity is unknown. No historical prices or alert tools are provided."
+            "Read Amazon Canada/US product details for 1–5 ASINs using public pages. Free native preview; no API key. Missing price or offer identity is unknown. Local observations may be saved outside temporary chats. Incomplete offer context cannot trigger an alert."
         } else {
             "Search Amazon Canada/US products using one public results page. Free native preview; no API key. Sort and price filters apply only to this page. Prices need a confirmed currency; unknown prices cannot pass numeric filters. Amazon may block public pages."
         },
@@ -140,10 +141,22 @@ class AmazonNativeTool(
                 emptyList()
             }
             if (!isAllowed()) throw AmazonReadException(AmazonReadError.PLUGIN_DISABLED, "Enable Amazon Research Free globally and for this AI profile before using it.")
+            val requestId = java.util.UUID.randomUUID().toString()
             val context = AmazonReadContext(config.timeoutSeconds, config.amazonDailyRequests, isAllowed)
             val result = supervisorScope {
                 val operation = async {
-                    if (productDetails) provider.products(AmazonProductRequest(asins, market), context) else provider.search(requireNotNull(request), context)
+                    val fetched = if (productDetails) provider.products(AmazonProductRequest(asins, market), context) else provider.search(requireNotNull(request), context)
+                    if (!isAllowed()) throw PermissionRevoked()
+                    try {
+                        onFetched?.invoke(requestId, market, fetched)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: AmazonReadException) {
+                        throw failure
+                    } catch (_: Exception) {
+                        throw AmazonReadException(AmazonReadError.STORAGE_ERROR, "Product facts were fetched, but local Amazon history could not be saved.")
+                    }
+                    fetched
                 }
                 val observer = permissionChanges?.let { changes -> launch { changes.collect { allowed -> if (!allowed) operation.cancel(PermissionRevoked()) } } }
                 try {
@@ -155,7 +168,7 @@ class AmazonNativeTool(
                 }
             }
             if (!isAllowed()) throw AmazonReadException(AmazonReadError.PLUGIN_DISABLED, "Amazon Research Free was disabled during this lookup.")
-            val content = ToolResultContent.Json(AmazonProducts.limitResult(result.toJson(callId, market), outputLimit))
+            val content = ToolResultContent.Json(AmazonProducts.limitResult(result.toJson(requestId, market), outputLimit))
             return AgentToolResult(callId, content, result.products.isEmpty() && result.errors.isNotEmpty())
         } catch (cancelled: CancellationException) {
             throw cancelled

@@ -436,7 +436,8 @@ fun OpponentChatBubble(
 
                 AmazonProductResults(
                     toolEvents = toolEvents,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    ownerProfileUid = agentRun?.profileUid
                 )
 
                 LocationToolMapPreview(

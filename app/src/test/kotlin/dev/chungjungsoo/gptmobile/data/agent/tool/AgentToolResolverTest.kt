@@ -49,6 +49,20 @@ import org.junit.Test
 
 class AgentToolResolverTest {
     @Test
+    fun localAmazonToolsRemainAvailableWithRemoteToolsDisabledAndRespectLocalDisable() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Research", disableRemoteTools = true)
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings().withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.AMAZON_FREE, true)
+        val history = mockk<dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository>()
+        val settings = ResolverFakeSettingRepository(listOf(profile), features)
+        val access = dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy(settings)
+        val local = resolver(settings = settings, history = history, access = access).resolve(profile.uid).filter { it.modelToolName in AmazonLocalTool.names }
+        assertEquals(AmazonLocalTool.names, local.map { it.modelToolName }.toSet())
+        assertTrue(local.all { !it.shareableReadOnly && it.connectionUid == null })
+        val blocked = resolver(settings = ResolverFakeSettingRepository(listOf(profile.copy(disableLocalTools = true)), features), history = history, access = access).resolve(profile.uid)
+        assertFalse(blocked.any { it.modelToolName in AmazonLocalTool.names })
+    }
+
+    @Test
     fun nativeAmazonRequiresIndependentGlobalAndProfileGrantsAndHonorsRemoteDisable() = runBlocking {
         val provider = mockk<AmazonHtmlProvider>()
         val profile = PlatformV2(uid = "profile", name = "Research")
@@ -893,7 +907,9 @@ class AgentToolResolverTest {
         consent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
         nativeRegistry: NativeMarketplaceRegistry? = null,
         nativeClient: NativeMarketplaceClient? = null,
-        amazonFree: AmazonHtmlProvider? = null
+        amazonFree: AmazonHtmlProvider? = null,
+        history: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
+        access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -910,7 +926,9 @@ class AgentToolResolverTest {
             freeModelToolConsentStore = consent,
             nativeMarketplaceRegistry = nativeRegistry,
             nativeMarketplaceClient = nativeClient,
-            amazonFreeProvider = amazonFree
+            amazonFreeProvider = amazonFree,
+            amazonHistory = history,
+            amazonAccess = access
         )
     }
 

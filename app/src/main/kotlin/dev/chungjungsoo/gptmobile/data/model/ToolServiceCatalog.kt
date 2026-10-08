@@ -11,7 +11,8 @@ data class ToolServiceDefinition(
     val name: String,
     val description: String,
     val iconName: String,
-    val usesNetwork: Boolean = false
+    val usesNetwork: Boolean = false,
+    val supportsLocalTools: Boolean = !usesNetwork
 )
 
 /** Shared identities for the service list, profile controls and runtime tool filtering. */
@@ -25,7 +26,7 @@ object ToolServiceCatalog {
         ToolServiceDefinition(ToolPluginId.READ_URL, "Web Pages", "Read web pages using the app's built-in plugin.", "web", true),
         ToolServiceDefinition(ToolPluginId.GITHUB, "GitHub", "Repository tools and workspace access in one service.", "github", true),
         ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Product search, deals and price tracking. Connect a search key or an Amazon MCP server.", "amazon", true),
-        ToolServiceDefinition(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Preview: search public Amazon Canada/US pages without an API key. Product details only; page availability varies.", "shopping", true),
+        ToolServiceDefinition(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Preview: Amazon Canada/US search and details, local history and manual targets. No API key; public-page availability varies.", "shopping", true, supportsLocalTools = true),
         ToolServiceDefinition(ToolPluginId.WEB_SEARCH, "Web Search", "Search the web with the app's built-in engines.", "search", true),
         ToolServiceDefinition(ToolPluginId.DEVICE_LOCATION, "Device Location", "Share the phone's location when you allow it.", "location")
     )

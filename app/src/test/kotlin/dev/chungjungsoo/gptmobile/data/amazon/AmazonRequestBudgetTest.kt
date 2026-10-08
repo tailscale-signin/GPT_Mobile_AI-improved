@@ -56,7 +56,7 @@ class AmazonRequestBudgetTest {
         assertCode(AmazonReadError.PLUGIN_DISABLED) { budget.request(market, 1, { false }) { error("must not send") } }
         assertTrue(!file().exists())
         file().writeText("{broken")
-        assertCode(AmazonReadError.NETWORK_ERROR) { AmazonRequestBudget(file(), clock).request(market, 1, { true }) { error("must not send") } }
+        assertCode(AmazonReadError.STORAGE_ERROR) { AmazonRequestBudget(file(), clock).request(market, 1, { true }) { error("must not send") } }
         assertEquals("{broken", file().readText())
     }
 

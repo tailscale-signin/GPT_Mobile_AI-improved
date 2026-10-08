@@ -66,7 +66,9 @@ class AgentToolResolver @Inject constructor(
     private val gitHubWorkspaceStore: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceStore? = null,
     private val nativeMarketplaceRegistry: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
     private val nativeMarketplaceClient: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceClient? = null,
-    private val amazonFreeProvider: AmazonHtmlProvider? = null
+    private val amazonFreeProvider: AmazonHtmlProvider? = null,
+    private val amazonHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
+    private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -180,9 +182,16 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
+        if (!disableLocal && amazonHistory != null && amazonAccess != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
+            resolved += listOf(false, true).map { watches ->
+                AmazonLocalTool(profileUid, amazonHistory, amazonAccess, { settingRepository.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings() }, watches)
+                    .resolved(null, "Amazon Research Free", if (watches) "amazon_list_price_watches" else "amazon_get_price_history").copy(shareableReadOnly = false)
+            }
+        }
+
         if (!disableRemote) {
             if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
-                resolved += resolveAmazonFree(profileUid)
+                resolved += resolveAmazonFree(profileUid, userMessage?.chatId)
             }
             if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
                 val nativeInstallations = try {
@@ -291,7 +300,7 @@ class AgentToolResolver @Inject constructor(
 
         return resolved.distinctBy { it.modelToolName }
             .filter { tool ->
-                if (tool.modelToolName in AmazonNativeTool.names) {
+                if (tool.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) {
                     featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
                 } else {
                     !tool.isAmazonProductTool() || featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
@@ -331,7 +340,7 @@ class AgentToolResolver @Inject constructor(
             }
             .map { resolved ->
                 // Native Amazon reads load their current settings and check live permissions themselves.
-                if (resolved.modelToolName in AmazonNativeTool.names) return@map resolved
+                if (resolved.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) return@map resolved
                 val id = resolved.connectionUid?.let(ToolPluginId::connection) ?: when (resolved.realToolName) {
                     "current_date" -> ToolPluginId.CURRENT_DATE
                     "calculate_expression" -> ToolPluginId.CALCULATOR
@@ -416,7 +425,7 @@ class AgentToolResolver @Inject constructor(
         else -> null
     }
 
-    private fun resolveAmazonFree(profileUid: String): List<ResolvedAgentTool> {
+    private fun resolveAmazonFree(profileUid: String, chatId: Int?): List<ResolvedAgentTool> {
         val provider = requireNotNull(amazonFreeProvider)
         val permissions = combine(settingRepository.observeFeatureSettings(), settingRepository.observePlatformV2ByUid(profileUid)) { features, profile ->
             profile?.enabled == true &&
@@ -436,7 +445,17 @@ class AgentToolResolver @Inject constructor(
                         !current.disableRemoteTools &&
                         settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
                 },
-                permissionChanges = permissions
+                permissionChanges = permissions,
+                onFetched = if (amazonHistory != null && chatId != null) {
+                    { requestId, market, fetched ->
+                        amazonHistory.record(profileUid, requestId, fetched, {
+                            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                            current?.enabled == true && !current.disableAllTools && !current.disableRemoteTools && settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
+                        }, chatId, market)
+                    }
+                } else {
+                    null
+                }
             ).resolved(null, "Amazon Research Free", if (details) AmazonSearchTool.GET_PRODUCTS else AmazonSearchTool.SEARCH)
                 // Shared turn caches must recheck every consumer's live profile grant before reuse.
                 .copy(shareableReadOnly = false)

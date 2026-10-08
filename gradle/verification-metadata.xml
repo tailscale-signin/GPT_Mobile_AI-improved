@@ -4401,6 +4401,9 @@
          <artifact name="ktor-client-encoding-3.6.0.module">
             <sha256 value="efe898bc301f692e3cff808ea715650e69628a5b7dfc266f8ed02408bb6452a2" origin="Verified against Maven Central over HTTPS"/>
          </artifact>
+         <artifact name="ktor-client-encoding-3.6.0.pom">
+            <sha256 value="4271da986672287a3681c1e718383e37b4cfc7ec46194f2fa49ef48f4888f5c4" origin="Verified against Maven Central over HTTPS and its published SHA-1"/>
+         </artifact>
       </component>
       <component group="io.ktor" name="ktor-client-encoding-jvm" version="3.6.0">
          <artifact name="ktor-client-encoding-jvm-3.6.0.jar">
@@ -4408,6 +4411,9 @@
          </artifact>
          <artifact name="ktor-client-encoding-jvm-3.6.0.module">
             <sha256 value="f6d860b7ff7194ae352c8aa95b93c75a710bacf072caf24df2873d88ad1ce01a" origin="Verified against Maven Central over HTTPS"/>
+         </artifact>
+         <artifact name="ktor-client-encoding-jvm-3.6.0.pom">
+            <sha256 value="f0c9efff6903cbe945420d7a09fdd7cd692953bf0a2733df73cf2033711edcd3" origin="Verified against Maven Central over HTTPS and its published SHA-1"/>
          </artifact>
       </component>
       <component group="io.ktor" name="ktor-client-logging-jvm" version="3.6.0">

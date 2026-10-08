@@ -61,7 +61,7 @@ internal fun amazonProductResults(events: List<ToolEvent>): List<JsonObject> = e
     .take(30)
 
 @Composable
-internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier) {
+internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier, ownerProfileUid: String? = null) {
     val products = remember(toolEvents) { amazonProductResults(toolEvents) }
     if (products.isEmpty()) return
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -70,16 +70,17 @@ internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifie
             Text("Amazon products", style = MaterialTheme.typography.titleSmall)
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(products) { product -> AmazonProductCard(product) }
+            items(products) { product -> AmazonProductCard(product, ownerProfileUid) }
         }
         Text("Prices and availability may change at checkout.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun AmazonProductCard(product: JsonObject) {
+private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
     val context = LocalContext.current
     var openFailed by remember(product) { mutableStateOf(false) }
+    var historyOpen by remember(product) { mutableStateOf(false) }
     val domain = AmazonProducts.text(product, "marketplace").orEmpty()
     val id = AmazonProducts.text(product, "asin").orEmpty()
     val canonical = AmazonProducts.productUrl(domain, id) ?: return
@@ -89,6 +90,18 @@ private fun AmazonProductCard(product: JsonObject) {
         runCatching { DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault()).format(Instant.parse(raw)) }.getOrNull()
     }
     val nativePreview = AmazonProducts.text(product, "provider") == "free_native"
+    val market = dev.chungjungsoo.gptmobile.data.amazon.AmazonFreeMarket.fromDomain(domain)
+    if (historyOpen && nativePreview && market != null && ownerProfileUid != null) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { historyOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonDataScreen(
+                onBack = { historyOpen = false },
+                viewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-data-$ownerProfileUid-$domain-$id"),
+                initialOwner = ownerProfileUid,
+                initialMarket = market,
+                initialAsin = id
+            )
+        }
+    }
     Card(
         modifier = Modifier.width(272.dp),
         shape = RoundedCornerShape(20.dp),
@@ -115,6 +128,9 @@ private fun AmazonProductCard(product: JsonObject) {
             if ((product["prime"] as? JsonPrimitive)?.booleanOrNull == true) Text("Prime", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
             timestamp?.let { Text("${if ("observedAt" in product) "Observed" else "Retrieved"} $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (affiliate != null) Text("Affiliate link · supports the server's configured Associate", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (nativePreview && ownerProfileUid != null && market != null) {
+                TextButton(modifier = Modifier.fillMaxWidth(), onClick = { historyOpen = true }) { Text("History & manual watch") }
+            }
             TextButton(modifier = Modifier.fillMaxWidth(), onClick = {
                 openFailed = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isFailure
             }) { Text("Open on Amazon") }

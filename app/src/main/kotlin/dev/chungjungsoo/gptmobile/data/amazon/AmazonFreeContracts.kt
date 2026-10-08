@@ -79,7 +79,8 @@ enum class AmazonReadError {
     PARSE_CHANGED,
     RESPONSE_TOO_LARGE,
     TIMEOUT,
-    NETWORK_ERROR
+    NETWORK_ERROR,
+    STORAGE_ERROR
 }
 
 class AmazonReadException(val code: AmazonReadError, message: String, val retryAfterMillis: Long? = null) : Exception(message)
@@ -122,6 +123,6 @@ data class AmazonFetchResult(
         )
         put("products", JsonArray(products.map(AmazonProductObservation::toJson)))
         put("errors", JsonArray(errors.take(10).map(AmazonItemFailure::toJson)))
-        put("notice", "Public-page preview. Prices and availability may change at checkout. Shipping, tax, coupons and offer identity are not confirmed. Sorting and price filters apply only to the retrieved page. No historical prices or alerts are supplied by this provider yet.")
+        put("notice", "Public-page preview. Prices and availability may change at checkout. Shipping, tax, coupons and offer identity are not confirmed. Sorting and price filters apply only to the retrieved page. Local sampled history is separate from provider data. Incomplete offer context cannot trigger alerts.")
     }
 }

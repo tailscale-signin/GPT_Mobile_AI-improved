@@ -100,16 +100,22 @@ data class AmazonItemFailure(val code: AmazonReadError, val message: String, val
 data class AmazonFetchResult(
     val products: List<AmazonProductObservation>,
     val errors: List<AmazonItemFailure> = emptyList(),
-    val pagesFetched: Int = 1
+    val pagesFetched: Int = 1,
+    /** Discovery facts whose price could not be checked against a requested budget. */
+    val unverifiedProducts: List<AmazonProductObservation> = emptyList()
 ) {
+    val hasProducts: Boolean get() = products.isNotEmpty() || unverifiedProducts.isNotEmpty()
+
     fun toJson(requestId: String, market: AmazonFreeMarket): JsonObject = buildJsonObject {
         put("schema", AmazonProducts.SCHEMA)
         put(
             "status",
-            if (errors.isEmpty()) {
-                "success"
-            } else if (products.isEmpty()) {
+            if (!hasProducts && errors.isNotEmpty()) {
                 "failure"
+            } else if (!hasProducts) {
+                "no_results"
+            } else if (errors.isEmpty()) {
+                "success"
             } else {
                 "partial"
             }
@@ -126,6 +132,13 @@ data class AmazonFetchResult(
             }
         )
         put("products", JsonArray(products.map(AmazonProductObservation::toJson)))
+        if (unverifiedProducts.isNotEmpty()) {
+            put(
+                "unverifiedProducts",
+                JsonArray(unverifiedProducts.map { JsonObject(it.toJson() + ("priceFilterVerified" to kotlinx.serialization.json.JsonPrimitive(false))) })
+            )
+            put("filterNotice", "The unverifiedProducts are discovery listings only. Their price or currency could not be confirmed, so do not claim they meet the requested price filters.")
+        }
         put("errors", JsonArray(errors.take(10).map(AmazonItemFailure::toJson)))
         put("notice", "Public-page preview. Prices and availability may change at checkout. Shipping, tax, coupons and offer identity are not confirmed. Sorting and price filters apply only to the retrieved page. Local sampled history is separate from provider data. Incomplete offer context cannot trigger alerts.")
     }

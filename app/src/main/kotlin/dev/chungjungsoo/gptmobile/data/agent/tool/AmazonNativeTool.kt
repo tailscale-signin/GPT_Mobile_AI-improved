@@ -168,8 +168,14 @@ class AmazonNativeTool(
                 }
             }
             if (!isAllowed()) throw AmazonReadException(AmazonReadError.PLUGIN_DISABLED, "Amazon Research Free was disabled during this lookup.")
-            val content = ToolResultContent.Json(AmazonProducts.limitResult(result.toJson(requestId, market), outputLimit))
-            return AgentToolResult(callId, content, result.products.isEmpty() && result.errors.isNotEmpty())
+            val full = result.toJson(requestId, market)
+            val content = ToolResultContent.Json(AmazonProducts.limitResult(full, outputLimit))
+            return AgentToolResult(
+                callId,
+                content,
+                !result.hasProducts && result.errors.isNotEmpty(),
+                retainedContent = ToolResultContent.Json(full).takeIf { content.value != full }
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: AmazonReadException) {

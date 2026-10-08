@@ -28,7 +28,7 @@ private val sourcePayloadKeys = setOf(
     "sources", "results", "result", "data", "web", "organic", "organic_results",
     "search_results", "items", "content", "text", "structuredContent", "resourceLinks",
     "engines", "detail", "citations", "references", "evidence", "local_evidence", "pages", "urls", "links",
-    "products", "product_results"
+    "products", "product_results", "unverifiedProducts"
 )
 private val sourceUrls = Regex("https?://[^\\s<>\"`\\\\]+", RegexOption.IGNORE_CASE)
 private val sourceMarkdownLinks = Regex("(?<!!)\\[([^]\\n]+)]\\((https?://[^\\s]+?)\\)(?=\\s|$|[.,;:!?])", RegexOption.IGNORE_CASE)

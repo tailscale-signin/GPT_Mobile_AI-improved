@@ -112,14 +112,27 @@ object AmazonProducts {
     /** Keep the retail contract valid when the user chooses a small output limit. */
     fun limitResult(payload: JsonObject, maxCharacters: Int): JsonObject {
         if (payload.toString().length <= maxCharacters) return payload
-        val products = (payload["products"] as? JsonArray).orEmpty().toMutableList()
-        var base = payload.filterKeys { it in setOf("schema", "status", "requestId", "marketplace", "provider", "page", "coverage", "preview", "observedAt", "retrievedAt", "cached", "errors", "partialErrors") } + mapOf(
+        fun compactProduct(value: JsonElement): JsonElement {
+            val product = value as? JsonObject ?: return value
+            return JsonObject(
+                product.filterKeys { it !in setOf("description", "features", "imageUrl") }.mapValues { (key, field) ->
+                    if (key == "title" && field is JsonPrimitive && field.isString) JsonPrimitive(field.content.take(120)) else field
+                }
+            )
+        }
+        val products = (payload["products"] as? JsonArray).orEmpty().map(::compactProduct).toMutableList()
+        val unverified = (payload["unverifiedProducts"] as? JsonArray).orEmpty().map(::compactProduct).toMutableList()
+        var base = payload.filterKeys { it in setOf("schema", "status", "requestId", "marketplace", "provider", "page", "coverage", "preview", "observedAt", "retrievedAt", "cached", "errors", "partialErrors", "filterNotice") } + mapOf(
             "outputLimited" to JsonPrimitive(true),
             "notice" to JsonPrimitive("Output limited. Narrow the request or increase the limit. Prices may change at checkout.")
         )
         while (true) {
-            val bounded = JsonObject(base + ("products" to JsonArray(products)))
+            val bounded = JsonObject(base + ("products" to JsonArray(products)) + if (unverified.isNotEmpty()) mapOf("unverifiedProducts" to JsonArray(unverified)) else emptyMap())
             if (bounded.toString().length <= maxCharacters) return bounded
+            if (unverified.isNotEmpty()) {
+                unverified.removeAt(unverified.lastIndex)
+                continue
+            }
             if (products.isNotEmpty()) {
                 products.removeAt(products.lastIndex)
                 continue

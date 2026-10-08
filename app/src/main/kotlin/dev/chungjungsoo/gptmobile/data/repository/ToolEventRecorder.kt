@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.repository
 import dev.chungjungsoo.gptmobile.data.agent.AgentResourceLink
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -91,6 +93,18 @@ class ToolEventRecorder @Inject constructor(
             if (normalizedResult.isError) "E" else "I"
         )
         val content = (normalizedResult.retainedContent ?: normalizedResult.content).serialized()
+        val retail = runCatching { Json.parseToJsonElement(content.value) as? JsonObject }.getOrNull()
+        if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {
+            val products = (retail["products"] as? JsonArray).orEmpty()
+            val unverified = (retail["unverifiedProducts"] as? JsonArray).orEmpty()
+            val prices = (products + unverified).filterIsInstance<JsonObject>().count { AmazonProducts.text(it, "price") != null }
+            val codes = (retail["errors"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                .mapNotNull { AmazonProducts.text(it, "code") }.distinct().joinToString(",")
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Amazon",
+                "PRODUCT_RESULT · call=${normalizedResult.callId} · status=${AmazonProducts.text(retail, "status")} · products=${products.size} · unverified=${unverified.size} · withPrice=$prices · codes=$codes"
+            )
+        }
         val display = (normalizedResult.traceContent ?: normalizedResult.content).serialized()
         val checkpoint = content.value != display.value
         val stored = if (checkpoint) dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.encode(content.value, content.type, display.value) else content.value

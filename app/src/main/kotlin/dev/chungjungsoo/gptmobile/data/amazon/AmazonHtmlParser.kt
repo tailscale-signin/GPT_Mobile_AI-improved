@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.amazon
 
 import java.math.BigDecimal
 import java.net.URI
+import java.net.URLDecoder
 import java.time.Instant
 import java.util.Locale
 import org.jsoup.Jsoup
@@ -16,7 +17,7 @@ object AmazonHtmlParser {
         val document = Jsoup.parse(html)
         rejectChallenge(document)
         val currency = currencyContext(document, request.marketplace)
-        val cards = document.select("div[data-component-type=s-search-result][data-asin]").take(100)
+        val cards = document.select("[data-component-type=s-search-result][data-asin], .s-result-item[data-asin]").take(100)
         if (cards.isEmpty()) {
             val empty = document.selectFirst(".s-no-results") != null ||
                 document.select(".s-main-slot .s-no-outline").any { it.text().startsWith("No results for", true) }
@@ -25,11 +26,13 @@ object AmazonHtmlParser {
         }
         val verified = cards.mapNotNull { card ->
             val id = AmazonProducts.asin(card.attr("data-asin")) ?: return@mapNotNull null
-            val title = firstText(card, "h2 a span", "h2 span", "[data-cy=title-recipe] span", "h2") ?: return@mapNotNull null
+            val title = firstText(card, "h2 a span", "h2 span", "h2", "[data-cy=title-recipe] .a-text-normal")
+                ?: card.selectFirst("h2[aria-label]")?.attr("aria-label")?.trim()?.takeIf(String::isNotBlank)
+                ?: return@mapNotNull null
             val link = card.selectFirst("a:has(h2)") ?: card.selectFirst("h2 a") ?: card.selectFirst("a[href*=/dp/]")
             if (link != null && !matchingLink(link.attr("href"), request.marketplace, id)) return@mapNotNull null
             val sponsored = when {
-                card.selectFirst(".puis-sponsored-label-text, .s-sponsored-label-info-icon, [data-component-type=sp-sponsored-result]") != null -> true
+                card.selectFirst(".puis-sponsored-label-text, .s-sponsored-label-info-icon, [data-component-type=sp-sponsored-result], a[href*=/sspa/click]") != null -> true
                 card.attr("data-sponsored") == "false" -> false
                 else -> null
             }
@@ -56,7 +59,13 @@ object AmazonHtmlParser {
             "rating" -> filtered.sortedByDescending { it.rating ?: -1.0 }
             else -> filtered
         }.take(request.maxResults)
-        return AmazonFetchResult(sorted, priceFailures(sorted))
+        val unverified = if (request.minimum != null || request.maximum != null) {
+            products.filter { it.amount == null || it.currency != request.marketplace.currency }
+                .take((request.maxResults - sorted.size).coerceAtLeast(0))
+        } else {
+            emptyList()
+        }
+        return AmazonFetchResult(sorted, priceFailures(sorted + unverified), unverifiedProducts = unverified)
     }
 
     fun product(html: String, asin: String, market: AmazonFreeMarket, acquiredAt: Instant): AmazonFetchResult {
@@ -74,7 +83,7 @@ object AmazonHtmlParser {
         val title = firstText(document, "#productTitle", "h1#title span")
             ?: throw AmazonReadException(AmazonReadError.PARSE_CHANGED, "Amazon did not return a recognized product-details page.")
         // Restrict price selection to the product's core price, never recommendations or struck-out list prices.
-        val priceScope = document.selectFirst("#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #corePrice_desktop")
+        val priceScope = document.selectFirst("#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #corePrice_desktop, #corePriceDisplay_mobile_feature_div, #corePrice_mobile_feature_div")
         val item = observation(document, asin, title, market, acquiredAt, "product_page", currencyContext(document, market), null, priceScope).copy(
             description = document.selectFirst("#productDescription")?.text()?.takeIf { it.isNotBlank() }?.take(4000),
             features = document.select("#feature-bullets li span.a-list-item").map { it.text().trim().take(500) }.filter { it.isNotBlank() }.distinct().take(12)
@@ -93,10 +102,10 @@ object AmazonHtmlParser {
         sponsored: Boolean?,
         priceScope: Element? = element
     ): AmazonProductObservation {
-        val raw = priceScope?.let { firstText(it, ".a-price:not(.a-text-price) .a-offscreen") }
+        val raw = priceScope?.let(::displayPrice)
             ?: if (sourceType == "product_page") firstText(element, "#priceblock_ourprice", "#priceblock_dealprice", "#price_inside_buybox") else null
         val explicitCurrency = raw?.let(::explicitCurrency)
-        val currency = explicitCurrency ?: contextCurrency
+        val currency = explicitCurrency ?: priceScope?.let(::currencyMetadata) ?: contextCurrency
         // Ambiguous bare dollars retain their display text, without a numeric amount usable for alerts/filters.
         val amount = if (currency == market.currency) raw?.let(::decimalPrice) else null
         val ratingText = firstText(element, "#acrPopover .a-icon-alt", "i.a-icon-star-small .a-icon-alt", "i.a-icon-star .a-icon-alt")
@@ -114,11 +123,26 @@ object AmazonHtmlParser {
     }
 
     private fun currencyContext(document: Element, market: AmazonFreeMarket): String? {
-        val metadata = document.select("meta[property=product:price:currency], meta[itemprop=priceCurrency]")
-            .map { it.attr("content").uppercase(Locale.ROOT) }.distinct()
-        if (metadata.size == 1) return metadata.single().takeIf { it in setOf("CAD", "USD") }
+        currencyMetadata(document)?.let { return it }
         val selector = document.selectFirst("#icp-touch-link-cop")?.text().orEmpty()
         return Regex("\\b${market.currency}\\b").find(selector)?.let { market.currency }
+    }
+
+    private fun currencyMetadata(element: Element): String? {
+        val values = element.select("meta[property=product:price:currency], [itemprop=priceCurrency], [data-csa-c-currency], [data-currency-code]")
+            .map { it.attr("content").ifBlank { it.attr("data-csa-c-currency") }.ifBlank { it.attr("data-currency-code") }.ifBlank { it.text() }.trim().uppercase(Locale.ROOT) }
+            .filter { it in setOf("CAD", "USD") }.distinct()
+        return values.singleOrNull()
+    }
+
+    private fun displayPrice(element: Element): String? {
+        // Mobile cards can split the visible price without supplying an a-offscreen span.
+        val price = element.select(".a-price:not(.a-text-price):not([data-a-strike=true])").firstOrNull() ?: return null
+        firstText(price, ".a-offscreen")?.let { return it }
+        val whole = firstText(price, ".a-price-whole")?.trimEnd('.') ?: return null
+        val fraction = firstText(price, ".a-price-fraction")
+        if (!Regex("[0-9][0-9,]*").matches(whole) || (fraction != null && !Regex("[0-9]{2}").matches(fraction))) return null
+        return firstText(price, ".a-price-symbol").orEmpty() + whole + if (fraction != null) ".$fraction" else ""
     }
 
     private fun explicitCurrency(raw: String): String? = when {
@@ -134,7 +158,14 @@ object AmazonHtmlParser {
     }
 
     private fun matchingLink(raw: String, market: AmazonFreeMarket, asin: String): Boolean = runCatching {
-        val uri = URI("https://www.${market.domain}").resolve(raw)
+        var uri = URI("https://www.${market.domain}").resolve(raw)
+        if (AmazonProducts.marketplaceFromUrl(uri.toString()) != market.domain) return@runCatching false
+        if (uri.path == "/sspa/click") {
+            val targets = uri.rawQuery.orEmpty().split('&').map { it.split('=', limit = 2) }
+                .filter { it.first() == "url" }
+            if (targets.size != 1) return@runCatching false
+            uri = uri.resolve(URLDecoder.decode(targets.single().getOrElse(1) { "" }, "UTF-8"))
+        }
         AmazonProducts.marketplaceFromUrl(uri.toString()) == market.domain &&
             Regex("/(?:dp|gp/product)/${Regex.escape(asin)}(?:/|$)").containsMatchIn(uri.path.orEmpty())
     }.getOrDefault(false)

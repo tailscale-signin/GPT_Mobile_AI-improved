@@ -62,7 +62,11 @@ class AmazonHtmlParserTest {
         assertNull(result.products.first().currency)
         assertEquals("$89.99", result.products.first().price)
         assertTrue(result.errors.all { it.code == AmazonReadError.PRICE_UNAVAILABLE })
-        assertTrue(AmazonHtmlParser.search(html, AmazonSearchRequest("headphones", canada, maximum = BigDecimal("100")), at).products.isEmpty())
+        val filtered = AmazonHtmlParser.search(html, AmazonSearchRequest("headphones", canada, maximum = BigDecimal("100")), at)
+        assertTrue(filtered.products.isEmpty())
+        assertEquals(result.products.map { it.asin }, filtered.unverifiedProducts.map { it.asin })
+        assertTrue(filtered.hasProducts)
+        assertEquals("partial", AmazonProducts.text(filtered.toJson("filter", canada), "status"))
     }
 
     @Test
@@ -96,6 +100,53 @@ class AmazonHtmlParserTest {
         assertCode(AmazonReadError.CHALLENGE_REQUIRED) { AmazonHtmlParser.search("<title>Robot Check</title><form action='/errors/validateCaptcha'></form>", AmazonSearchRequest("headphones", canada), at) }
         assertCode(AmazonReadError.PARSE_CHANGED) { AmazonHtmlParser.search("<h1>Something went wrong</h1>", AmazonSearchRequest("headphones", canada), at) }
         assertTrue(AmazonHtmlParser.search("<div class='s-no-results'>No results for this query</div>", AmazonSearchRequest("headphones", canada), at).products.isEmpty())
+    }
+
+    @Test
+    fun mobileCardsWithSplitPricesAndCurrencyMetadataRemainFilterable() {
+        val html = """
+            <div class="s-result-item" data-asin="B000000001" data-csa-c-currency="CAD">
+                <a href="/dp/B000000001"><h2 aria-label="Mobile headphones"></h2></a>
+                <span class="a-price" data-a-strike="true"><span class="a-offscreen">$199.99</span></span>
+                <span class="a-price"><span class="a-price-symbol">$</span><span class="a-price-whole">89.</span><span class="a-price-fraction">09</span></span>
+            </div>
+        """.trimIndent()
+        val result = AmazonHtmlParser.search(html, AmazonSearchRequest("headphones", canada, maximum = BigDecimal("100")), at)
+        val product = result.products.single()
+        assertEquals("Mobile headphones", product.title)
+        assertEquals("$89.09", product.price)
+        assertEquals(BigDecimal("89.09"), product.amount)
+        assertEquals("CAD", product.currency)
+        assertTrue(result.unverifiedProducts.isEmpty())
+    }
+
+    @Test
+    fun unverifiedDiscoveryNeverIncludesAConfirmedOverBudgetListing() {
+        val result = AmazonHtmlParser.search(fixture("search-ca"), AmazonSearchRequest("headphones", canada, maximum = BigDecimal("20")), at)
+        assertTrue(result.products.isEmpty())
+        assertEquals(listOf("B000000002"), result.unverifiedProducts.map { it.asin })
+        assertEquals(AmazonReadError.PRICE_UNAVAILABLE, result.errors.single().code)
+    }
+
+    @Test
+    fun mobileProductCorePriceUsesTheSameVerifiedPriceParser() {
+        val html = fixture("product-ca").replace("corePriceDisplay_desktop_feature_div", "corePriceDisplay_mobile_feature_div")
+            .replace("<span class=\"a-offscreen\">CDN$89.99</span>", "<span class=\"a-price-symbol\">CDN$</span><span class=\"a-price-whole\">89.</span><span class=\"a-price-fraction\">99</span>")
+        val item = AmazonHtmlParser.product(html, "B000000001", canada, at).products.single()
+        assertEquals(BigDecimal("89.99"), item.amount)
+        assertEquals("CDN$89.99", item.price)
+    }
+
+    @Test
+    fun sponsoredRedirectsRequireTheMatchingMarketAndAsin() {
+        val request = AmazonSearchRequest("headphones", canada, includeSponsored = true)
+        val html = fixture("search-ca").replace("href=\"/dp/B000000001\"", "href=\"/sspa/click?url=%2Fdp%2FB000000001\"")
+        val result = AmazonHtmlParser.search(html, request, at)
+        assertTrue(result.products.first().sponsored == true)
+        assertFalse(AmazonHtmlParser.search(html, request.copy(includeSponsored = false), at).products.any { it.asin == "B000000001" })
+        for (target in listOf("https%3A%2F%2Fevil.example%2Fdp%2FB000000001", "%2Fdp%2FB000000099", "https%3A%2F%2Fwww.amazon.com%2Fdp%2FB000000001")) {
+            assertFalse(AmazonHtmlParser.search(html.replace("%2Fdp%2FB000000001", target), request, at).products.any { it.asin == "B000000001" })
+        }
     }
 
     private fun assertCode(code: AmazonReadError, block: () -> Unit) {

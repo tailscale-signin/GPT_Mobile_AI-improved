@@ -89,6 +89,39 @@ class AmazonCombinedToolTest {
         assertEquals("serpapi", AmazonProducts.text((((revoked.content as ToolResultContent.Json).value as JsonObject)["products"] as JsonArray).single() as JsonObject, "provider"))
     }
 
+    @Test fun retainedNativeProductsAndUnverifiedDiscoverySurviveProviderOutputLimits() = runBlocking {
+        val full = (listing("free_native").content as ToolResultContent.Json).value as JsonObject
+        val discovery = buildJsonObject {
+            put("asin", "B000000002")
+            put("marketplace", "amazon.com")
+            put("title", "Unconfirmed headphones")
+            put("price", "$29.99")
+            put("priceFilterVerified", false)
+        }
+        val retained = JsonObject(full + ("unverifiedProducts" to JsonArray(listOf(discovery))))
+        val limited = JsonObject(full + ("products" to JsonArray(emptyList())))
+        val native = child("free") { AgentToolResult("limited", ToolResultContent.Json(limited), false, retainedContent = ToolResultContent.Json(retained)) }
+        val other = child("other") { AgentToolResult("blocked", ToolResultContent.Text("blocked"), true) }
+        val result = AmazonCombinedTool(listOf(native, other), false).execute("combined", arguments)
+        val data = (result.content as ToolResultContent.Json).value as JsonObject
+        assertFalse(result.isError)
+        assertEquals(1, (data["products"] as JsonArray).size)
+        assertEquals(discovery, (data["unverifiedProducts"] as JsonArray).single())
+        assertEquals("partial", AmazonProducts.text(data, "status"))
+    }
+
+    @Test fun confirmedProviderListingSupersedesTheSameUnverifiedDiscovery() = runBlocking {
+        val full = (listing("free_native").content as ToolResultContent.Json).value as JsonObject
+        val discovery = child("free") {
+            AgentToolResult("discovery", ToolResultContent.Json(JsonObject(full + ("products" to JsonArray(emptyList())) + ("unverifiedProducts" to full.getValue("products")))), false)
+        }
+        val known = child("paid") { listing("serpapi") }
+        val result = AmazonCombinedTool(listOf(discovery, known), false).execute("merged", arguments)
+        val data = (result.content as ToolResultContent.Json).value as JsonObject
+        assertEquals(1, (data["products"] as JsonArray).size)
+        assertFalse(data.containsKey("unverifiedProducts"))
+    }
+
     @Test fun oneProviderFailurePreservesVerifiedListingsAndSingleProviderRemainsUsable() = runBlocking {
         val good = child("paid") { listing("serpapi") }
         val bad = child("free") { AgentToolResult("failed", ToolResultContent.Text("quota"), true) }

@@ -15,7 +15,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -52,15 +54,36 @@ class AmazonPublicHistoryProvider internal constructor(private val client: HttpC
     )
 
     private val mutex = Mutex()
+    private val productLocks = Array(64) { Mutex() }
+    private val requests = Semaphore(3)
     private val cache = linkedMapOf<String, AmazonPublicHistory>()
 
-    suspend fun fetch(domain: String, rawAsin: String, allowed: suspend () -> Boolean): AmazonPublicHistory = mutex.withLock {
+    suspend fun fetch(domain: String, rawAsin: String, allowed: suspend () -> Boolean): AmazonPublicHistory {
         val asin = AmazonProducts.asin(rawAsin)?.takeIf { rawAsin.length == 10 } ?: error("Invalid ASIN.")
         require(domain in AmazonProducts.marketplaces)
         check(allowed()) { "Amazon history permission is disabled." }
         val key = "$domain/$asin"
+        return productLocks[(key.hashCode() and Int.MAX_VALUE) % productLocks.size].withLock {
+            check(allowed()) { "Amazon history permission was revoked." }
+            val cached = mutex.withLock {
+                cache.remove(key)?.takeIf { clock.millis() - it.checkedAt in 0..if (it.png == null) 60_000L else 90 * 60_000L }?.also { cache[key] = it }
+            }
+            if (cached != null) return@withLock cached
+            val result = requests.withPermit {
+                check(allowed()) { "Amazon history permission was revoked." }
+                read(domain, asin, allowed)
+            }
+            check(allowed()) { "Amazon history permission was revoked." }
+            mutex.withLock {
+                cache[key] = result
+                while (cache.size > 60 || cache.values.sumOf { it.png?.size ?: 0 } > MAX_CACHE_BYTES) cache.remove(cache.keys.first())
+            }
+            result
+        }
+    }
+
+    private suspend fun read(domain: String, asin: String, allowed: suspend () -> Boolean): AmazonPublicHistory {
         val now = clock.millis()
-        cache[key]?.takeIf { now - it.checkedAt in 0..if (it.png == null) 60_000L else 90 * 60_000L }?.let { return@withLock it }
         val tld = domain.removePrefix("amazon.")
         val keepa = "https://graph.keepa.com/pricehistory.png?asin=$asin&domain=$tld&amazon=1&new=1&used=0&range=365&width=900&height=320"
         val region = when (domain) {
@@ -76,7 +99,7 @@ class AmazonPublicHistoryProvider internal constructor(private val client: HttpC
                 add(AmazonPublicHistory("camelcamelcamel", "https://$region.camelcamelcamel.com/product/$asin", "https://charts.camelcamelcamel.com/$region/$asin/amazon-new-used.png?w=900&h=320&legend=1&tp=all&zero=0", now))
             }
         }
-        var result = candidates.first().copy(notice = "Public history is unavailable for this product. Open the provider or use the local observations below.")
+        var result = candidates.first().copy(notice = "Public price history is unavailable for this product.")
         for (candidate in candidates) {
             check(allowed()) { "Amazon history permission was revoked." }
             val bytes = try {
@@ -114,13 +137,12 @@ class AmazonPublicHistoryProvider internal constructor(private val client: HttpC
                 break
             }
         }
-        if (cache.size >= 8) cache.remove(cache.keys.first())
-        cache[key] = result
-        result
+        return result.copy(checkedAt = clock.millis())
     }
 
     companion object {
         private const val MAX_BYTES = 1_048_576
+        private const val MAX_CACHE_BYTES = 16 * 1_048_576
 
         // Keepa returns this fixed-size empty-history banner with HTTP 200,
         // rather than the requested 900x320 chart. Continue to the other provider.

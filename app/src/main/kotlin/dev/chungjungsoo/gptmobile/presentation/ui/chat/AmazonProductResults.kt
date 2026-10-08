@@ -1,11 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,15 +12,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,6 +30,7 @@ import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonProductHistoryViewModel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -99,6 +96,10 @@ internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifie
     val products = remember(toolEvents) { amazonProductResults(toolEvents) }
     val notice = remember(toolEvents) { amazonResultNotice(toolEvents) }
     if (products.isEmpty() && notice == null) return
+    if (products.isNotEmpty()) {
+        val history: AmazonProductHistoryViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-history-$ownerProfileUid")
+        LaunchedEffect(products, ownerProfileUid) { history.preload(ownerProfileUid, products) }
+    }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(painterResource(R.drawable.mcp_brand_amazon), null, tint = MaterialTheme.colorScheme.primary)
@@ -116,32 +117,16 @@ internal fun AmazonProductResults(toolEvents: List<ToolEvent>, modifier: Modifie
 
 @Composable
 private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
-    val context = LocalContext.current
-    var openFailed by remember(product) { mutableStateOf(false) }
-    var historyOpen by remember(product) { mutableStateOf(false) }
     var detailsOpen by remember(product) { mutableStateOf(false) }
     if (detailsOpen) dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonProductDetailDialog(product, ownerProfileUid) { detailsOpen = false }
     val domain = AmazonProducts.text(product, "marketplace").orEmpty()
     val id = AmazonProducts.text(product, "asin").orEmpty()
-    val canonical = AmazonProducts.productUrl(domain, id) ?: return
+    if (AmazonProducts.productUrl(domain, id) == null) return
     val affiliate = AmazonProducts.text(product, "affiliateUrl")?.let { AmazonProducts.affiliateUrl(it, domain, id) }
-    val url = affiliate ?: canonical
     val timestamp = AmazonProducts.text(product, "observedAt", "retrievedAt")?.let { raw ->
         runCatching { DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault()).format(Instant.parse(raw)) }.getOrNull()
     }
     val nativePreview = AmazonProducts.text(product, "provider") == "free_native"
-    val market = dev.chungjungsoo.gptmobile.data.amazon.AmazonFreeMarket.fromDomain(domain)
-    if (historyOpen && nativePreview && market != null && ownerProfileUid != null) {
-        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { historyOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-            dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonDataScreen(
-                onBack = { historyOpen = false },
-                viewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-data-$ownerProfileUid-$domain-$id"),
-                initialOwner = ownerProfileUid,
-                initialMarket = market,
-                initialAsin = id
-            )
-        }
-    }
     Card(
         onClick = { detailsOpen = true },
         modifier = Modifier.width(272.dp),
@@ -171,14 +156,6 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
             if ((product["prime"] as? JsonPrimitive)?.booleanOrNull == true) Text("Prime", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
             timestamp?.let { Text("${if ("observedAt" in product) "Observed" else "Retrieved"} $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (affiliate != null) Text("Affiliate link · supports the server's configured Associate", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (nativePreview && ownerProfileUid != null && market != null) {
-                TextButton(modifier = Modifier.fillMaxWidth(), onClick = { historyOpen = true }) { Text("History & manual watch") }
-            }
-            TextButton(modifier = Modifier.fillMaxWidth(), onClick = { detailsOpen = true }) { Text("Details & price history") }
-            TextButton(modifier = Modifier.fillMaxWidth(), onClick = {
-                openFailed = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isFailure
-            }) { Text("Open on Amazon") }
-            if (openFailed) Text("No app could open this product link.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
     }
 }

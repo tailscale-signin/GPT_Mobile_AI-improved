@@ -44,7 +44,11 @@ data class AmazonProductObservation(
     val sponsored: Boolean? = null,
     val prime: Boolean? = null,
     val description: String? = null,
-    val features: List<String> = emptyList()
+    val features: List<String> = emptyList(),
+    val brand: String? = null,
+    val availability: String? = null,
+    val seller: String? = null,
+    val specifications: Map<String, String> = emptyMap()
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("asin", asin)
@@ -68,6 +72,10 @@ data class AmazonProductObservation(
         prime?.let { put("prime", it) }
         description?.let { put("description", it) }
         if (features.isNotEmpty()) put("features", JsonArray(features.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        brand?.let { put("brand", it) }
+        availability?.let { put("availability", it) }
+        seller?.let { put("seller", it) }
+        if (specifications.isNotEmpty()) put("specifications", JsonObject(specifications.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }))
     }
 }
 

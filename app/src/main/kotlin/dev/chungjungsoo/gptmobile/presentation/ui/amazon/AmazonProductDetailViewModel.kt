@@ -6,9 +6,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonFreeMarket
-import dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
-import dev.chungjungsoo.gptmobile.data.amazon.AmazonLocalHistory
+import dev.chungjungsoo.gptmobile.data.amazon.AmazonProductImageProvider
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProductRequest
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistory
@@ -20,25 +19,29 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 
 data class AmazonProductDetailState(
     val product: JsonObject = JsonObject(emptyMap()),
     val publicHistory: AmazonPublicHistory? = null,
-    val localHistory: AmazonLocalHistory? = null,
+    val image: ByteArray? = null,
     val loading: Boolean = false,
+    val historyLoading: Boolean = false,
+    val imageLoading: Boolean = false,
     val notice: String? = null
 )
 
 @HiltViewModel
 class AmazonProductDetailViewModel @Inject constructor(
     private val publicHistory: AmazonPublicHistoryProvider,
-    private val localHistory: AmazonHistoryRepository,
+    private val images: AmazonProductImageProvider,
     private val native: AmazonHtmlProvider,
     private val access: AmazonAccessPolicy,
     private val settings: SettingRepository,
@@ -47,66 +50,101 @@ class AmazonProductDetailViewModel @Inject constructor(
     private val current = MutableStateFlow(AmazonProductDetailState())
     val state = current.asStateFlow()
     private var lookup: Job? = null
+    private var requestVersion = 0
 
     fun open(owner: String?, product: JsonObject) {
+        val version = ++requestVersion
         lookup?.cancel()
-        current.value = AmazonProductDetailState(product = product, loading = true)
+        current.value = AmazonProductDetailState(product = product, loading = true, historyLoading = true)
         lookup = viewModelScope.launch {
-            val domain = AmazonProducts.text(product, "marketplace").orEmpty()
-            val asin = AmazonProducts.text(product, "asin").orEmpty()
-            try {
-                val profile = settings.fetchPlatformV2s().firstOrNull { it.uid == owner }
-                suspend fun allowed(): Boolean {
-                    val features = settings.getFeatureSettings()
-                    val live = settings.fetchPlatformV2s().firstOrNull { it.uid == owner }
-                    return live?.enabled == true &&
-                        !live.disableAllTools &&
-                        !live.disableRemoteTools &&
-                        (features.isToolPluginEnabledForProfile(live.uid, ToolPluginId.AMAZON_FREE) || features.isToolPluginEnabledForProfile(live.uid, ToolPluginId.AMAZON_SEARCH))
+            access.mediaChanges(owner).collectLatest { permitted ->
+                if (!permitted) {
+                    publish(version) { AmazonProductDetailState(product = product, notice = "Enable an Amazon plugin and remote tools for this profile to load product media.") }
+                    return@collectLatest
                 }
-                val market = AmazonFreeMarket.fromDomain(domain)
-                val local = if (owner != null && profile != null && !profile.disableLocalTools && market != null) localHistory.history(owner, market, asin) else null
-                if (!allowed()) {
-                    current.value = AmazonProductDetailState(product, localHistory = local, notice = "Enable Amazon and remote tools for this profile to load public price history.")
-                    return@launch
-                }
-                val result = coroutineScope {
-                    val graph = async { publicHistory.fetch(domain, asin, ::allowed) }
-                    val details = async {
-                        if (owner == null) return@async product
-                        try {
-                            if (market == null || !access.allowed(owner, network = true)) {
-                                return@async tools.amazonProductDetails(owner, domain, asin)?.let { JsonObject(product + it) } ?: product
-                            }
-                            val fetched = try {
-                                val config = (settings.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized()
-                                native.products(AmazonProductRequest(listOf(asin), market), AmazonReadContext(config.timeoutSeconds, config.amazonDailyRequests) { access.allowed(owner, network = true) })
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                null
-                            }
-                            if (!access.allowed(owner, network = true)) return@async product
-                            val full = fetched?.products?.firstOrNull()?.toJson() ?: tools.amazonProductDetails(owner, domain, asin)
-                            full?.let { JsonObject(product + it) } ?: product
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            product
-                        }
-                    }
-                    AmazonProductDetailState(details.await(), graph.await(), local)
-                }
-                if (allowed()) current.value = result else current.value = AmazonProductDetailState(product, notice = "Amazon access was disabled during this lookup.")
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                current.value = AmazonProductDetailState(product, notice = "Additional product information is unavailable. You can still open the listing on Amazon.")
+                publish(version) { AmazonProductDetailState(product = product, loading = true, historyLoading = true) }
+                load(owner, product, version)
             }
         }
     }
 
+    private suspend fun load(owner: String?, product: JsonObject, version: Int) = coroutineScope {
+        val domain = AmazonProducts.text(product, "marketplace").orEmpty()
+        val asin = AmazonProducts.text(product, "asin").orEmpty()
+        launch {
+            try {
+                val graph = publicHistory.fetch(domain, asin) { access.mediaAllowed(owner) }
+                if (access.mediaAllowed(owner)) publish(version) { it.copy(publicHistory = graph) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The product remains usable even when neither public history provider has a chart.
+            } finally {
+                publish(version) { it.copy(historyLoading = false) }
+            }
+        }
+        val initialImage = launch { loadImage(owner, product, version) }
+        launch {
+            try {
+                val details = fetchDetails(owner, product, domain, asin)
+                if (!access.mediaAllowed(owner)) return@launch
+                publish(version) { it.copy(product = details) }
+                if (AmazonProducts.text(details, "imageUrl") != AmazonProducts.text(product, "imageUrl")) {
+                    initialImage.cancelAndJoin()
+                    loadImage(owner, details, version)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                publish(version) { it.copy(notice = "Additional product information is unavailable.") }
+            } finally {
+                publish(version) { it.copy(loading = false) }
+            }
+        }
+    }
+
+    private suspend fun fetchDetails(owner: String?, product: JsonObject, domain: String, asin: String): JsonObject {
+        if (owner == null || !access.mediaAllowed(owner)) return product
+        if (AmazonProducts.text(product, "sourceType") == "product_page") return product
+        val market = AmazonFreeMarket.fromDomain(domain)
+        val fetched = if (market != null && access.allowed(owner, network = true)) {
+            try {
+                val config = (settings.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized()
+                native.products(AmazonProductRequest(listOf(asin), market), AmazonReadContext(config.timeoutSeconds, config.amazonDailyRequests) { access.allowed(owner, network = true) }).products.firstOrNull()?.toJson()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+        if (!access.mediaAllowed(owner)) return product
+        val details = fetched ?: tools.amazonProductDetails(owner, domain, asin)
+        return details?.let { AmazonProducts.withDetails(product, it) } ?: product
+    }
+
+    private suspend fun loadImage(owner: String?, product: JsonObject, version: Int) {
+        val url = AmazonProducts.imageUrl(AmazonProducts.text(product, "imageUrl")) ?: return
+        publish(version) { it.copy(imageLoading = true, image = null) }
+        try {
+            val image = images.fetch(url) { access.mediaAllowed(owner) }
+            if (access.mediaAllowed(owner)) publish(version) { it.copy(image = image) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Missing images leave the title, price and history available.
+        } finally {
+            publish(version) { it.copy(imageLoading = false) }
+        }
+    }
+
+    private fun publish(version: Int, transform: (AmazonProductDetailState) -> AmazonProductDetailState) {
+        if (version == requestVersion) current.update(transform)
+    }
+
     fun close() {
+        requestVersion++
         lookup?.cancel()
         current.value = AmazonProductDetailState()
     }

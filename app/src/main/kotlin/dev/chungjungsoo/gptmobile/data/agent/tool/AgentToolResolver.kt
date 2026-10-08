@@ -185,10 +185,8 @@ class AgentToolResolver @Inject constructor(
         }
 
         if (!disableLocal && amazonHistory != null && amazonAccess != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
-            resolved += listOf(false, true).map { watches ->
-                AmazonLocalTool(profileUid, amazonHistory, amazonAccess, { settingRepository.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings() }, watches, amazonPublicHistory)
-                    .resolved(null, "Amazon Research Free", if (watches) "amazon_list_price_watches" else "amazon_get_price_history").copy(shareableReadOnly = false)
-            }
+            resolved += AmazonLocalTool(profileUid, amazonHistory, amazonAccess, { settingRepository.getFeatureSettings().pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings() }, publicHistory = amazonPublicHistory)
+                .resolved(null, "Amazon Research Free", "amazon_get_price_history").copy(shareableReadOnly = false)
         }
 
         if (!disableRemote) {

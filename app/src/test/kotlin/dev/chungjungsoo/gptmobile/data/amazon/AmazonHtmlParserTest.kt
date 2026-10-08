@@ -9,6 +9,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonHtmlParserTest {
+    @Test
+    fun productDetailsKeepImageBrandAvailabilityAndSpecifications() {
+        val html = fixture("product-ca").replace(
+            "</body>",
+            """
+            <img id="landingImage" src="https://m.media-amazon.com/images/I/small.jpg" data-old-hires="https://m.media-amazon.com/images/I/large.jpg">
+            <div id="availability"><span>In stock</span></div>
+            <a id="sellerProfileTriggerId">Acme Store</a>
+            <div id="productOverview_feature_div"><table><tr><td>Brand</td><td>Acme</td></tr><tr><td>Colour</td><td>Blue</td></tr></table></div>
+            <table id="productDetails_techSpec_section_1"><tr><th>Item Weight</th><td>200 g</td></tr></table>
+            <div id="productDescription">Comfortable headphones</div>
+            <div id="feature-bullets"><ul><li><span class="a-list-item">Noise cancelling</span></li></ul></div>
+            </body>
+            """.trimIndent()
+        )
+        val item = AmazonHtmlParser.product(html, "B000000001", canada, at).products.single()
+        assertEquals("Acme", item.brand)
+        assertEquals("In stock", item.availability)
+        assertEquals("Acme Store", item.seller)
+        assertEquals("https://m.media-amazon.com/images/I/large.jpg", item.imageUrl)
+        assertEquals(mapOf("Brand" to "Acme", "Colour" to "Blue", "Item Weight" to "200 g"), item.specifications)
+        assertEquals("Comfortable headphones", item.description)
+        assertEquals(listOf("Noise cancelling"), item.features)
+        assertTrue(item.toJson().containsKey("specifications"))
+    }
+
     private val at = Instant.parse("2026-10-08T00:00:00Z")
     private val canada = AmazonFreeMarket.CANADA
     private fun fixture(name: String) = requireNotNull(javaClass.getResource("/amazon/$name.html")).readText()

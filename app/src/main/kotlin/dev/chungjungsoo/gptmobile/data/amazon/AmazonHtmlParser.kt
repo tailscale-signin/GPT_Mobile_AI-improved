@@ -84,9 +84,19 @@ object AmazonHtmlParser {
             ?: throw AmazonReadException(AmazonReadError.PARSE_CHANGED, "Amazon did not return a recognized product-details page.")
         // Restrict price selection to the product's core price, never recommendations or struck-out list prices.
         val priceScope = document.selectFirst("#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #corePrice_desktop, #corePriceDisplay_mobile_feature_div, #corePrice_mobile_feature_div")
+        val specifications = document.select("#productOverview_feature_div tr, #productDetails_techSpec_section_1 tr, #productDetails_detailBullets_sections1 tr")
+            .mapNotNull { row ->
+                val label = row.selectFirst("th, td:first-child")?.text()?.replace("\u200e", "")?.trim()?.trimEnd(':')?.take(80)
+                val value = row.selectFirst("td:last-child")?.text()?.trim()?.take(500)
+                if (label.isNullOrBlank() || value.isNullOrBlank() || label == value) null else label to value
+            }.distinctBy { it.first.lowercase(Locale.ROOT) }.take(24).toMap()
         val item = observation(document, asin, title, market, acquiredAt, "product_page", currencyContext(document, market), null, priceScope).copy(
             description = document.selectFirst("#productDescription")?.text()?.takeIf { it.isNotBlank() }?.take(4000),
-            features = document.select("#feature-bullets li span.a-list-item").map { it.text().trim().take(500) }.filter { it.isNotBlank() }.distinct().take(12)
+            features = document.select("#feature-bullets li span.a-list-item").map { it.text().trim().take(500) }.filter { it.isNotBlank() }.distinct().take(12),
+            brand = specifications.entries.firstOrNull { it.key.equals("Brand", true) || it.key.equals("Manufacturer", true) }?.value,
+            availability = firstText(document, "#availability span", "#availabilityInsideBuyBox_feature_div span"),
+            seller = firstText(document, "#sellerProfileTriggerId", "#merchantInfoFeature_feature_div #sellerProfileTriggerId"),
+            specifications = specifications
         )
         return AmazonFetchResult(listOf(item), priceFailures(listOf(item)))
     }
@@ -113,7 +123,9 @@ object AmazonHtmlParser {
             ?.takeIf { it.isFinite() && it in 0.0..5.0 }
         val countText = firstText(element, "#acrCustomerReviewText", "a[href*=customerReviews] .s-underline-text", "a[aria-label*=ratings] span")
         val count = countText?.let { Regex("^([0-9][0-9,]*)(?: (?:ratings|reviews))?$", RegexOption.IGNORE_CASE).matchEntire(it)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() }
-        val image = element.selectFirst("img.s-image, #landingImage, #imgBlkFront")?.attr("src")?.let(AmazonProducts::imageUrl)
+        val image = element.selectFirst("img.s-image, #landingImage, #imgBlkFront")?.let { image ->
+            AmazonProducts.imageUrl(image.attr("data-old-hires")) ?: AmazonProducts.imageUrl(image.attr("src"))
+        }
         return AmazonProductObservation(
             asin, market, title.take(300), acquiredAt, sourceType,
             price = raw?.take(80), amount = amount, currency = currency,

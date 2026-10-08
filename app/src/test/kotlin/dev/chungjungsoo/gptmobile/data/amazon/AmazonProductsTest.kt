@@ -14,6 +14,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonProductsTest {
+    @Test
+    fun detailsAddProductInformationWithoutReplacingTheSelectedOffer() {
+        val listing = Json.parseToJsonElement("""{"asin":"B000000001","marketplace":"amazon.ca","title":"Headphones","price":"CAD 50","currency":"CAD","seller":"Selected seller","variant":"Blue","affiliateUrl":"https://www.amazon.ca/dp/B000000001?tag=store-20"}""") as kotlinx.serialization.json.JsonObject
+        val details = Json.parseToJsonElement("""{"asin":"B000000001","marketplace":"amazon.ca","price":"USD 100","currency":"USD","seller":"Different seller","variant":"Blue","brand":"Acme","description":"Noise cancelling","features":[]}""") as kotlinx.serialization.json.JsonObject
+        val result = AmazonProducts.withDetails(listing, details)
+        assertEquals("CAD 50", AmazonProducts.text(result, "price"))
+        assertEquals("CAD", AmazonProducts.text(result, "currency"))
+        assertEquals("Selected seller", AmazonProducts.text(result, "seller"))
+        assertEquals("Blue", AmazonProducts.text(result, "variant"))
+        assertEquals("Acme", AmazonProducts.text(result, "brand"))
+        assertEquals("Noise cancelling", AmazonProducts.text(result, "description"))
+        assertEquals(AmazonProducts.text(listing, "affiliateUrl"), AmazonProducts.text(result, "affiliateUrl"))
+        assertFalse(result.containsKey("features"))
+        assertEquals(listing, AmazonProducts.withDetails(listing, kotlinx.serialization.json.JsonObject(details + ("asin" to kotlinx.serialization.json.JsonPrimitive("B000000002")))))
+        assertEquals(listing, AmazonProducts.withDetails(listing, kotlinx.serialization.json.JsonObject(details + ("variant" to kotlinx.serialization.json.JsonPrimitive("Red")))))
+    }
+
+    @Test
+    fun providersRetainImagesBrandAndSpecifications() {
+        val payload = Json.parseToJsonElement("""{"asin":"B000000001","title":"Headphones","imageUrl":"https://m.media-amazon.com/images/I/product.jpg","brand":"Acme","model_number":"A1","product_dimensions":"20 x 10 cm","specifications":{"Material":"Steel","bad":null,"nested":{"secret":"value"}}}""")
+        val product = AmazonProducts.normalize(payload, "amazon.ca", "SerpApi").single()
+        assertEquals("Acme", AmazonProducts.text(product, "brand"))
+        assertEquals("A1", AmazonProducts.text(product, "model"))
+        assertEquals("20 x 10 cm", AmazonProducts.text(product, "dimensions"))
+        assertEquals("https://m.media-amazon.com/images/I/product.jpg", AmazonProducts.text(product, "imageUrl"))
+        assertEquals("{\"Material\":\"Steel\"}", product["specifications"].toString())
+    }
+
     private val clock = Clock.fixed(Instant.parse("2026-10-07T12:00:00Z"), ZoneOffset.UTC)
 
     @Test

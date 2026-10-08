@@ -1427,7 +1427,11 @@ class ChatRepositoryImpl(
                 (behavior.crawlersEnabled && resolved.selectionId() in behavior.crawlerToolIds) ||
                     resolved in connectedMemoryTools ||
                     localResearch ||
-                    contextPlan.tools.any { it.name == resolved.modelToolName || (it.name == "web_search" && resolved.isWebSearchEngine()) }
+                    contextPlan.tools.any {
+                        it.name == resolved.modelToolName ||
+                            (it.name == "web_search" && resolved.isWebSearchEngine()) ||
+                            (it.name in setOf("amazon_search", "amazon_get_products") && it.name == resolved.realToolName)
+                    }
             }.map { resolved ->
                 resolved.copy(
                     tool = toolBudget.bind(resolved.tool.withRunContext(runId), onFinished = { callId, success ->
@@ -1451,8 +1455,8 @@ class ChatRepositoryImpl(
             val searchStageTools = if (crawlStage != null) boundedTools.filterNot { it in selectedCrawlers } else boundedTools
             val aggregatedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(
                 searchStageTools,
-                runFeatures.parallelSearch,
-                runFeatures.deduplicateSearch,
+                true,
+                true,
                 afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } },
                 canExecute = toolBudget::canExecute,
                 remainingBytes = toolBudget::remainingOutputBytes

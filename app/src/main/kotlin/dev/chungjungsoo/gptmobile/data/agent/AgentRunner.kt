@@ -230,6 +230,8 @@ class AgentRunner(
             val deferredCalls = mutableListOf<ProviderEvent.ToolCall>()
             val perToolSuppressedIds = mutableSetOf<String>()
             val hostSuppressedIds = mutableSetOf<String>()
+            // Removing a storming tool must not invalidate calls already admitted in this batch.
+            val toolsForBatch = executableToolByName
             calls.take(remainingCalls).forEach { call ->
                 val used = toolCallsByName[call.name] ?: 0
                 val repeatLimit = if (Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else MAX_SAME_TOOL_CALLS_PER_RUN
@@ -251,7 +253,7 @@ class AgentRunner(
 
             executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
-            val executedResults = executeToolBatch(executableCalls, executableToolByName)
+            val executedResults = executeToolBatch(executableCalls, toolsForBatch)
             toolCallCount += executableCalls.size
 
             val newlyBlockedTools = mutableSetOf<String>()

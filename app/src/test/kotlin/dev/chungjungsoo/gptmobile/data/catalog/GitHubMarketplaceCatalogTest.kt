@@ -10,6 +10,17 @@ import org.junit.Test
 class GitHubMarketplaceCatalogTest {
     private val packages = GitHubMarketplaceCatalog.packages
 
+    @Test fun marketplaceSurfacesOnlyUsableEntriesAndEveryEntryHasAWebsite() {
+        val all = packages.map { it.preset } + McpPresetCatalog.presets
+        MarketplaceSection.entries.forEach { section ->
+            val visible = MarketplacePresentation.filterAndSort(all, section, "", null, null, MarketplaceSort.RECOMMENDED, emptySet())
+            assertTrue(visible.none { it.documentationOnly })
+            assertTrue(visible.all { java.net.URI(it.websiteLink).host.isNotBlank() })
+        }
+        val imported = packages.first().preset.copy(websiteUrl = "", commandOrUrl = "https://user:secret@mcp.example.org/mcp?token=private")
+        assertEquals("https://mcp.example.org/", imported.websiteLink)
+    }
+
     @Test
     fun catalogHasUniqueOptInEntriesAndValidAliases() {
         assertEquals(19, packages.size)

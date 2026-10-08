@@ -75,7 +75,10 @@ object AmazonHtmlParser {
             ?: throw AmazonReadException(AmazonReadError.PARSE_CHANGED, "Amazon did not return a recognized product-details page.")
         // Restrict price selection to the product's core price, never recommendations or struck-out list prices.
         val priceScope = document.selectFirst("#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #corePrice_desktop")
-        val item = observation(document, asin, title, market, acquiredAt, "product_page", currencyContext(document, market), null, priceScope)
+        val item = observation(document, asin, title, market, acquiredAt, "product_page", currencyContext(document, market), null, priceScope).copy(
+            description = document.selectFirst("#productDescription")?.text()?.takeIf { it.isNotBlank() }?.take(4000),
+            features = document.select("#feature-bullets li span.a-list-item").map { it.text().trim().take(500) }.filter { it.isNotBlank() }.distinct().take(12)
+        )
         return AmazonFetchResult(listOf(item), priceFailures(listOf(item)))
     }
 

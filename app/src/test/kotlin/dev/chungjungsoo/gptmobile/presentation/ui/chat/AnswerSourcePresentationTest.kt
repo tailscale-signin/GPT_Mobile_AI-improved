@@ -1,0 +1,37 @@
+package dev.chungjungsoo.gptmobile.presentation.ui.chat
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AnswerSourcePresentationTest {
+    @Test fun inlineReferencesKeepReadableLabelsAndIndentedCodeRemainsUnchanged() {
+        assertEquals("Read the documentation.", answerWithoutSourceLists("Read the [documentation](https://example.org/docs). [1]"))
+        val code = "    Sources:\n    https://example.org/code\n    value[1]"
+        assertEquals(code, answerWithoutSourceLists(code))
+    }
+
+    @Test fun referencesMoveOutOfAnswerWithoutRemovingFollowingContent() {
+        val answer = "A grounded result. [S1]\n\n## Sources\n- [Documentation](https://example.org/doc)\n\n## Next steps\nKeep working."
+        val display = answerWithoutSourceLists(answer)
+        assertTrue(display.contains("A grounded result."))
+        assertTrue(display.contains("Keep working."))
+        assertFalse(display.contains("https://") || display.contains("[S1]"))
+        assertEquals(1, collectChatSources(answer, emptyList()).sources.size)
+    }
+
+    @Test fun codeAndSubstantiveSourceHeadingsRemainIntact() {
+        val code = "```text\nSources:\nhttps://example.org\nvalue[1]\n```"
+        assertEquals(code, answerWithoutSourceLists(code))
+        val answer = "## Energy sources\nSolar and wind.\n\n## References\nC++ references bind to objects."
+        assertEquals(answer, answerWithoutSourceLists(answer))
+    }
+
+    @Test fun unknownSitesShareOtherAndDistinctPagesRemainVisible() {
+        val sources = listOf(ChatSource("https://example.org/a", "A", "example.org"), ChatSource("https://example.org/b", "B", "example.org"), ChatSource("https://github.com/repo", "Repo", "github.com"))
+        assertEquals(2, filterChatSources(sources, "other").size)
+        assertEquals(1, filterChatSources(sources, "github").size)
+        assertEquals("github.com", filterChatSources(sources, null).first().host)
+    }
+}

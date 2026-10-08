@@ -294,6 +294,7 @@ internal fun BackupSelectionContent(
         BackupOptionRow(state, CompleteBackupSection.LOCAL_MODELS, "Local models", "Installed model records and model files.", onSectionChange)
         BackupOptionRow(state, CompleteBackupSection.ATTACHMENTS, "Attachments", "Files and images attached to conversations.", onSectionChange)
         BackupOptionRow(state, CompleteBackupSection.AGENT_HISTORY, "Agent & tool history", "Agent runs, tool events and diagnostics history.", onSectionChange)
+        BackupOptionRow(state, CompleteBackupSection.STATISTICS, "Debug statistics", "All token, model, profile, tool and performance statistics, with the conversation and profile records they depend on.", onSectionChange)
         BackupOptionRow(state, CompleteBackupSection.AMAZON_DATA, "Amazon history & manual watches", "Local observations and targets. Restored watches are paused; request usage and cooldowns stay on this device.", onSectionChange)
         Text(
             "These choices are saved and reused the next time you open Backup & Restore.",

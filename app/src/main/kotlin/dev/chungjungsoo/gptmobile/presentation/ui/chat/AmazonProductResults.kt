@@ -81,6 +81,8 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
     val context = LocalContext.current
     var openFailed by remember(product) { mutableStateOf(false) }
     var historyOpen by remember(product) { mutableStateOf(false) }
+    var detailsOpen by remember(product) { mutableStateOf(false) }
+    if (detailsOpen) dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonProductDetailDialog(product, ownerProfileUid) { detailsOpen = false }
     val domain = AmazonProducts.text(product, "marketplace").orEmpty()
     val id = AmazonProducts.text(product, "asin").orEmpty()
     val canonical = AmazonProducts.productUrl(domain, id) ?: return
@@ -103,6 +105,7 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
         }
     }
     Card(
+        onClick = { detailsOpen = true },
         modifier = Modifier.width(272.dp),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
@@ -131,6 +134,7 @@ private fun AmazonProductCard(product: JsonObject, ownerProfileUid: String?) {
             if (nativePreview && ownerProfileUid != null && market != null) {
                 TextButton(modifier = Modifier.fillMaxWidth(), onClick = { historyOpen = true }) { Text("History & manual watch") }
             }
+            TextButton(modifier = Modifier.fillMaxWidth(), onClick = { detailsOpen = true }) { Text("Details & price history") }
             TextButton(modifier = Modifier.fillMaxWidth(), onClick = {
                 openFailed = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isFailure
             }) { Text("Open on Amazon") }

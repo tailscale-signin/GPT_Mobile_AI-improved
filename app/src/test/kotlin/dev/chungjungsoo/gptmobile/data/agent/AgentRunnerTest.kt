@@ -21,6 +21,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun `repeat guard preserves calls admitted earlier in the same batch`() = runBlocking {
+        var executed = 0
+        var rounds = 0
+        val events = AgentRunner(AgentRunLimits(maxToolCalls = 50)).run(
+            session { _, _ ->
+                flow {
+                    if (rounds++ == 0) repeat(26) { emit(toolCall("call-$it", "search")) } else emit(ProviderEvent.TextDelta("Finished"))
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(
+                tool("search") { id, _ ->
+                    executed++
+                    AgentToolResult(id, ToolResultContent.Text("ok"), false)
+                }
+            )
+        ).toList()
+        assertEquals(24, executed)
+        assertEquals(24, events.filterIsInstance<AgentRunEvent.ToolFinished>().count { !it.result.isError })
+    }
+
     @Test fun `unassigned MCP search routes through the authorized aggregate only`() = kotlinx.coroutines.test.runTest {
         var searches = 0
         val events = AgentRunner().run(

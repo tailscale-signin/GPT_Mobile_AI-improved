@@ -50,7 +50,8 @@ object MarketplacePresentation {
     ): List<McpPreset> {
         val needle = query.trim()
         val filtered = presets.filter { preset ->
-            section(preset) == section &&
+            !preset.documentationOnly &&
+                section(preset) == section &&
                 (category == null || preset.category == category) &&
                 (pricing == null || preset.pricing == pricing) &&
                 (

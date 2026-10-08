@@ -17,20 +17,21 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
-/** Local reads only. Watch writes are explicit native UI actions, outside the automatic read path. */
+/** Local observations with optional authorized public history reads. Watch writes are explicit UI actions. */
 class AmazonLocalTool(
     private val owner: String,
     private val history: AmazonHistoryRepository,
     private val access: AmazonAccessPolicy,
     private val settings: suspend () -> PluginExecutionSettings,
-    private val listWatches: Boolean = false
+    private val listWatches: Boolean = false,
+    private val publicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryProvider? = null
 ) : AgentTool {
     override val definition = AgentToolDefinition(
         name = if (listWatches) WATCHES else HISTORY,
         description = if (listWatches) {
             "List only this AI profile's explicitly saved manual Amazon watches. Local read, no network, checks, writes, background work, or notifications. Incomplete offer context remains awaiting a matching price."
         } else {
-            "Read this AI profile's locally observed Amazon prices for an ASIN. No network. History begins with this installation's successful checks; sampled listing prices are not comparable offers or evidence of a historical low. Search/detail series remain separate."
+            "Read this AI profile's locally observed Amazon prices and fetch a public Keepa/camelcamelcamel history chart when Amazon remote access is enabled. Provider charts are attributed and separate from local observations. Chart images do not supply a numeric series; do not invent historical prices or lows."
         },
         inputSchema = buildJsonObject {
             put("type", "object")
@@ -109,7 +110,13 @@ class AmazonLocalTool(
                 require(rawAsin.length == 10)
                 val asin = AmazonProducts.asin(rawAsin) ?: error("Invalid ASIN")
                 val market = if ("marketplace" in arguments) AmazonFreeMarket.fromDomain(string(arguments, "marketplace").orEmpty()) else AmazonFreeMarket.fromDomain(config.amazonMarketplace)
-                history.history(owner, requireNotNull(market), asin, limit).toJson(market, asin)
+                val local = history.history(owner, requireNotNull(market), asin, limit).toJson(market, asin)
+                if (publicHistory != null && access.allowed(owner, network = true)) {
+                    val external = publicHistory.fetch(market.domain, asin) { access.allowed(owner, network = true) }
+                    JsonObject(local + ("publicHistory" to external.toJson()))
+                } else {
+                    local
+                }
             }
             if (!access.allowed(owner, network = false)) return failure(callId, "PLUGIN_DISABLED", "Amazon access was revoked. Local data was withheld.")
             val arrayKey = if (listWatches) "watches" else "observations"

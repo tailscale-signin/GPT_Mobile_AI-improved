@@ -99,13 +99,8 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
     }
 
     suspend fun recover() {
-        val features = settings?.getFeatureSettings()
-        if (features?.spendBudget?.enforced == true || features?.tokenBudget?.normalized()?.totalRunTokens?.let { it != Int.MAX_VALUE } == true) {
-            dao.recover()
-        } else {
-            // Old diagnostic histories serve no purpose when no budget needs reservations.
-            dao.clear()
-        }
+        // Statistics are user data. Recovery ends abandoned requests without deleting history.
+        dao.recover()
     }
     fun wrap(
         session: AgentProviderSession,
@@ -122,7 +117,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
         override val handlesToolsInternally = session.handlesToolsInternally
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
             val spend = settings?.getFeatureSettings()?.spendBudget ?: SpendBudgetSettings()
-            val retainAccounting = totalLimit != Int.MAX_VALUE || spend.enforced
+            val retainAccounting = totalLimit != Int.MAX_VALUE || spend.enforced || LocalDiagnosticsPolicy.enabled
             if (!retainAccounting && !LocalDiagnosticsPolicy.enabled) {
                 emitAll(session.streamRound(tools, exchanges))
                 return@flow

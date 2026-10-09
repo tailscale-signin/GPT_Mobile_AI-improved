@@ -78,7 +78,6 @@ internal data class ToolServiceItem(
 
     fun requiredFields(installations: Map<String, NativePluginInstallation>): List<String> = buildList {
         if (id == ToolPluginId.AMAZON_SEARCH && connections.none { it.type == ToolConnectionType.AMAZON_SERPAPI || it.type == ToolConnectionType.MCP }) add("Connect SerpApi with an API key or a remote Amazon MCP provider")
-        if (id == ToolPluginId.AIRBNB && connections.isEmpty()) add("Connect hosted OpenBnB or your self-hosted Airbnb MCP endpoint from Marketplace")
         if (id == ToolPluginId.GOOGLE_PLACES && connections.isEmpty() && packages.isEmpty()) add("Install Google Places from Marketplace with an API key, or connect Google Maps Grounding MCP")
         packages.forEach { entry ->
             val installation = installations[entry.id]

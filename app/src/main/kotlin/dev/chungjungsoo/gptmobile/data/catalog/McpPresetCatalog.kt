@@ -123,7 +123,7 @@ object McpPresetCatalog {
         McpPreset(
             id = "airbnb-native", name = "Airbnb · In-app browsing", description = "Public listing search, details and galleries processed directly on your phone. No sign-up, key or MCP server.",
             category = McpCategory.SEARCH, commandOrUrl = "builtin://airbnb", alias = "airbnb_native", iconName = "airbnb",
-            author = "GPT Mobile", isPreinstalled = true, integratedTool = "airbnb",
+            author = "GPT Mobile", isPreinstalled = true,
             toolCapabilities = listOf("Public listing search", "Listing details and photos", "Indexed fallback when public pages are unavailable"),
             websiteUrl = "https://www.airbnb.com/",
             setupInstructions = "Enable Airbnb here and for your AI profile. Runs in the app without OpenBnB or a computer. Internet is needed for current listings. Prices and availability remain unknown when Airbnb blocks a page or only indexed results are available."

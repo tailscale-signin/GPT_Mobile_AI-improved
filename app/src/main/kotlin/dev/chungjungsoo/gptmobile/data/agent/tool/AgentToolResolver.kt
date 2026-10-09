@@ -193,7 +193,7 @@ class AgentToolResolver @Inject constructor(
 
         if (!disableRemote) {
             if (publicAirbnb != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AIRBNB)) {
-                resolved += nativeAirbnb(profileUid, defaultWebSearch).resolved(null, "Airbnb", "airbnb")
+                resolved += nativeAirbnb(profileUid).resolved(null, "Airbnb", "airbnb")
                     .copy(shareableReadOnly = true, canReuseResult = { pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB) })
             }
             if (publicNews != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.NEWS)) {
@@ -518,11 +518,11 @@ class AgentToolResolver @Inject constructor(
             settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profile.uid, serviceId)
     }
 
-    private fun nativeAirbnb(profileUid: String, searchTool: WebSearchTool? = null): AirbnbNativeTool = AirbnbNativeTool(
+    private fun nativeAirbnb(profileUid: String): AirbnbNativeTool = AirbnbNativeTool(
         requireNotNull(publicAirbnb),
         { pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB) },
         { query ->
-            val tool = searchTool ?: WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), networkClient)
+            val tool = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), networkClient)
             val arguments = kotlinx.serialization.json.buildJsonObject {
                 put("query", kotlinx.serialization.json.JsonPrimitive(query))
                 put("maxResults", kotlinx.serialization.json.JsonPrimitive(10))

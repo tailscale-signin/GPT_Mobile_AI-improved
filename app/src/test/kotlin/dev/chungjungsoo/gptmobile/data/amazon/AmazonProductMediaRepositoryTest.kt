@@ -71,4 +71,15 @@ class AmazonProductMediaRepositoryTest {
         coVerify(exactly = 0) { native.products(any(), any()) }
         coVerify(exactly = 0) { tools.amazonProductDetails(any(), any(), any()) }
     }
+
+    @Test fun unavailablePrimaryImageFallsBackToProviderGallery() = runBlocking {
+        val repository = repository()
+        val unavailable = "https://m.media-amazon.com/images/I/missing.jpg"
+        coEvery { images.fetch(unavailable, any()) } returns null
+        val listing = Json.parseToJsonElement(product.toString().dropLast(1) + ",\"imageUrl\":\"$unavailable\",\"images\":[{\"hiRes\":\"$url\"}]}") as JsonObject
+        assertNotNull(repository.photo("owner", 7, listing).image)
+        coVerify(exactly = 1) { images.fetch(unavailable, any()) }
+        coVerify(exactly = 1) { images.fetch(url, any()) }
+        coVerify(exactly = 0) { native.products(any(), any()) }
+    }
 }

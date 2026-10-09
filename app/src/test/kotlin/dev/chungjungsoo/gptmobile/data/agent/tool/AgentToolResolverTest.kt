@@ -48,6 +48,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun googleMcpApiKeyUsesDedicatedHeaderConfigurationAndClearsVaultBytes() = runBlocking {
+        val vault = ResolverFakeSecretVault(mapOf("google-key" to "test-google-key".toByteArray()))
+        val connection = connection("google", ToolConnectionType.MCP, "https://mapstools.googleapis.com/mcp", "google-key", ToolConnectionAuthType.API_KEY)
+        val config = resolver(vault = vault).mcpConfig(connection)
+        assertEquals(null, config.authorizationHeader)
+        assertEquals("test-google-key", config.googleApiKey)
+        assertTrue(vault.lastReadBytes!!.all { it == 0.toByte() })
+    }
+
+    @Test fun newsRequiresGlobalAndProfileGrantsAndCachedResultsRecheckPermissions() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Research")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { error("Resolution performs no news requests") })
+        try {
+            val resolver = resolver(settings = settings, news = PublicNewsClient(http))
+            assertFalse(resolver.resolve(profile.uid).any { it.modelToolName == "news" })
+            settings.features = settings.features.withToolPluginEnabled(ToolPluginId.NEWS, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.NEWS, true)
+            val news = resolver.resolve(profile.uid).single { it.modelToolName == "news" }
+            assertTrue(requireNotNull(news.canReuseResult).invoke())
+            settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, ToolPluginId.NEWS, false)
+            assertFalse(requireNotNull(news.canReuseResult).invoke())
+        } finally {
+            http.close()
+        }
+    }
+
     @Test
     fun localAmazonToolsRemainAvailableWithRemoteToolsDisabledAndRespectLocalDisable() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Research", disableRemoteTools = true)
@@ -910,7 +936,8 @@ class AgentToolResolverTest {
         nativeClient: NativeMarketplaceClient? = null,
         amazonFree: AmazonHtmlProvider? = null,
         history: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
-        access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null
+        access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
+        news: PublicNewsClient? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -929,7 +956,8 @@ class AgentToolResolverTest {
             nativeMarketplaceClient = nativeClient,
             amazonFreeProvider = amazonFree,
             amazonHistory = history,
-            amazonAccess = access
+            amazonAccess = access,
+            publicNews = news
         )
     }
 

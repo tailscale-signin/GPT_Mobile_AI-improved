@@ -17,7 +17,7 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val properties = definition.inputSchema["properties"] as? JsonObject
-        val countKey = if (isNamedWebSearch(definition.name, definition.description)) {
+        val countKey = if (definition.name == "news" || isNamedWebSearch(definition.name, definition.description)) {
             listOf("maxResults", "max_results", "count", "numResults").firstOrNull { properties?.containsKey(it) == true }
         } else {
             null
@@ -44,6 +44,19 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
         if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {
             val content = ToolResultContent.Json(AmazonProducts.limitResult(retail, settings.maxOutputCharacters))
             return result.copy(content = content, traceContent = content, retainedContent = result.retainedContent ?: result.content.takeIf { content.value != retail })
+        }
+        if (retail?.get("schema") == JsonPrimitive(dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.SCHEMA)) {
+            if (retail.toString().length <= settings.maxOutputCharacters) return result
+            val listings = dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.normalize(retail).map { it.copy(description = it.description?.take(1200), amenities = it.amenities.take(15), houseRules = it.houseRules.take(10)) }.toMutableList()
+            val count = listings.size
+            fun payload() = JsonObject(dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.json(listings) + mapOf("outputLimited" to JsonPrimitive(true), "omittedListings" to JsonPrimitive(count - listings.size)))
+            var limited = payload()
+            while (limited.toString().length > settings.maxOutputCharacters && listings.isNotEmpty()) {
+                listings.removeAt(listings.lastIndex)
+                limited = payload()
+            }
+            val content = ToolResultContent.Json(limited)
+            return result.copy(content = content, traceContent = content, retainedContent = result.retainedContent ?: result.content)
         }
         val text = when (val content = result.content) {
             is ToolResultContent.Text -> content.text

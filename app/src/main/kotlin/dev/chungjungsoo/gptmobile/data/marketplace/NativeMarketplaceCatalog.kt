@@ -24,7 +24,7 @@ object NativeMarketplaceCatalog {
         "eventbrite" to mapOf("organization_events" to listOf("organization_id")),
         "arcgis" to mapOf("geocode" to listOf("query")),
         "openrouteservice" to mapOf("walking_route" to listOf("latitude", "longitude", "end_latitude", "end_longitude")),
-        "google-places" to mapOf("places" to listOf("query")),
+        "google-places" to mapOf("places" to listOf("query"), "nearby" to listOf("latitude", "longitude"), "details" to listOf("place_id")),
         "foursquare" to mapOf("places" to listOf("query", "location"))
     )
     val keyedProviders = setOf("ticketmaster", "tomtom", "yelp", "eventbrite", "arcgis", "openrouteservice", "google-places", "foursquare")

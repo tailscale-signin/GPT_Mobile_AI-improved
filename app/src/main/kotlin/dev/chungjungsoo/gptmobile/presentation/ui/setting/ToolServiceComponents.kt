@@ -18,10 +18,12 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Newspaper
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
@@ -76,6 +78,8 @@ internal data class ToolServiceItem(
 
     fun requiredFields(installations: Map<String, NativePluginInstallation>): List<String> = buildList {
         if (id == ToolPluginId.AMAZON_SEARCH && connections.none { it.type == ToolConnectionType.AMAZON_SERPAPI || it.type == ToolConnectionType.MCP }) add("Connect SerpApi with an API key or a remote Amazon MCP provider")
+        if (id == ToolPluginId.AIRBNB && connections.isEmpty()) add("Connect hosted OpenBnB or your self-hosted Airbnb MCP endpoint from Marketplace")
+        if (id == ToolPluginId.GOOGLE_PLACES && connections.isEmpty() && packages.isEmpty()) add("Install Google Places from Marketplace with an API key, or connect Google Maps Grounding MCP")
         packages.forEach { entry ->
             val installation = installations[entry.id]
             if (entry.provider == "openstreetmap") {
@@ -192,6 +196,8 @@ internal fun ToolServiceIcon(definition: ToolServiceDefinition, modifier: Modifi
         "location", "refuge", "toronto", "tomtom", "arcgis", "foursquare", "openrouteservice" -> Icons.Rounded.LocationOn
         "mcp" -> Icons.Rounded.Hub
         "shopping" -> Icons.Rounded.ShoppingCart
+        "news" -> Icons.Rounded.Newspaper
+        "airbnb" -> Icons.Rounded.Home
         else -> Icons.Rounded.Extension
     }
     Surface(modifier.size(46.dp), shape = RoundedCornerShape(15.dp), color = MaterialTheme.colorScheme.primaryContainer) {

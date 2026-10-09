@@ -84,6 +84,20 @@ internal fun PluginConfigurationDialog(
                         }
                     }
                 }
+                if (id == ToolPluginId.NEWS) {
+                    SettingsPanel("News region") {
+                        OutlinedTextField(config.newsCountry, { config = config.copy(newsCountry = it.take(2)) }, label = { Text("Country · CA, US, GB") }, singleLine = true)
+                        OutlinedTextField(config.newsLanguage, { config = config.copy(newsLanguage = it.take(5)) }, label = { Text("Language · en, fr") }, singleLine = true)
+                        Text("Google News, Trends and Hacker News need no key. The optional Google News SerpApi backend needs its key on your MCP host.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = onConnection) { Text("MCP connections") }
+                    }
+                }
+                if (id == ToolPluginId.AIRBNB || id == ToolPluginId.GOOGLE_PLACES) {
+                    SettingsPanel("Connections") {
+                        Text(if (id == ToolPluginId.AIRBNB) "Choose Airbnb · OpenBnB from Marketplace and sign in, or connect your own Airbnb MCP host. Prices and fees depend on dates and guests; missing data stays unknown." else "Install Google Places from Marketplace and enter a Places API key, or connect Google Maps Grounding MCP with its API key. Google account billing and API restrictions apply.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = onConnection) { Text("Manage connections") }
+                    }
+                }
                 if (id == ToolPluginId.GITHUB) {
                     SettingsPanel("Speed & efficiency") {
                         PluginSwitch("Conditional requests", options.githubConditionalReads) { options = options.copy(githubConditionalReads = it) }

@@ -211,10 +211,13 @@ object ToolPluginId {
     const val GITHUB = "github"
     const val AMAZON_SEARCH = "amazon_search"
     const val AMAZON_FREE = "amazon_free"
+    const val NEWS = "news"
+    const val AIRBNB = "airbnb"
+    const val GOOGLE_PLACES = "service:google"
     const val WEB_SEARCH = "web_search"
     const val DEVICE_LOCATION = "device_location"
 
-    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE)
+    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES)
 
     fun nativeOperation(packageId: String, operation: String): String = "native:$packageId:$operation"
 

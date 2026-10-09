@@ -88,7 +88,7 @@ fun AmazonProductDetailDialog(
     val displayedState = state.takeIf {
         listOf("marketplace", "asin", "variant", "seller", "condition").all { field -> AmazonProducts.text(it.product, field) == AmazonProducts.text(product, field) }
     } ?: AmazonProductDetailState(product, loading = true, historyLoading = true, imageLoading = true)
-    AmazonProductDetailContent(product, displayedState, selectedIndex, products.size, onSelect, onDismiss)
+    AmazonProductDetailContent(product, displayedState, selectedIndex, products.size, onSelect, onRetryPhoto = { model.retryPhoto(owner, conversationId) }, onDismiss = onDismiss)
 }
 
 @Composable
@@ -98,6 +98,7 @@ internal fun AmazonProductDetailContent(
     selectedIndex: Int = 0,
     productCount: Int = 1,
     onSelect: (Int) -> Unit = {},
+    onRetryPhoto: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val displayed = state.product.takeUnless { it.isEmpty() } ?: product
@@ -163,18 +164,23 @@ internal fun AmazonProductDetailContent(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    if (photo.image != null || photo.loading || state.imageLoading) {
-                        item {
-                            Surface(
-                                Modifier.fillMaxWidth(),
-                                shape = MaterialTheme.shapes.large,
-                                color = Color.White,
-                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
-                            ) {
-                                Box(Modifier.fillMaxWidth().height(200.dp).padding(16.dp), contentAlignment = Alignment.Center) {
-                                    photo.image?.let { Image(it, "Product image: $title", Modifier.size(168.dp), contentScale = ContentScale.Fit) }
-                                        ?: CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
-                                }
+                    item {
+                        Surface(
+                            Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.large,
+                            color = Color.White,
+                            border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
+                        ) {
+                            Box(Modifier.fillMaxWidth().height(200.dp).padding(16.dp), contentAlignment = Alignment.Center) {
+                                photo.image?.let { Image(it, "Product image: $title", Modifier.size(168.dp), contentScale = ContentScale.Fit) }
+                                    ?: if (photo.loading || state.imageLoading) {
+                                        CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text("Photo unavailable", color = scheme.onSurfaceVariant)
+                                            onRetryPhoto?.let { TextButton(onClick = it) { Text("Retry photo") } }
+                                        }
+                                    }
                             }
                         }
                     }
@@ -274,7 +280,7 @@ private fun ProductBadge(label: String) {
 }
 
 @Composable
-private fun amazonBitmap(bytes: ByteArray?, maxDimension: Int, palette: AmazonGraphPalette? = null) = key(bytes, maxDimension, palette) {
+internal fun amazonBitmap(bytes: ByteArray?, maxDimension: Int, palette: AmazonGraphPalette? = null) = key(bytes, maxDimension, palette) {
     produceState(AmazonBitmapState(loading = bytes != null), bytes, maxDimension, palette) {
         val bitmap = bytes?.let {
             withContext(Dispatchers.Default) {
@@ -297,4 +303,4 @@ private fun amazonBitmap(bytes: ByteArray?, maxDimension: Int, palette: AmazonGr
     }
 }
 
-private data class AmazonBitmapState(val image: ImageBitmap? = null, val loading: Boolean = false)
+internal data class AmazonBitmapState(val image: ImageBitmap? = null, val loading: Boolean = false)

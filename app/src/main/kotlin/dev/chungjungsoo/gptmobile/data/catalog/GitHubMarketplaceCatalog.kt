@@ -207,8 +207,8 @@ object GitHubMarketplaceCatalog {
         companion(
             "google-places",
             "Google Places",
-            "Text Search with a bounded result count and explicit requested fields.",
-            listOf("places: text search, no automatic details/photos"),
+            "Text and nearby search, plus place details with explicit requested fields.",
+            listOf("places: bounded text search", "nearby: supplied coordinates within 1,500 metres", "details: explicit Place ID; no automatic photo downloads"),
             "https://developers.google.com/maps/documentation/places/web-service/text-search",
             "GOOGLE_PLACES_API_KEY",
             "Billing, storage and display restrictions apply. Provider-specific chat retention is not implemented; review before activation.",

@@ -14,6 +14,7 @@ import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -50,7 +51,11 @@ class AmazonProductImageProvider internal constructor(private val client: HttpCl
             if (cached != null) return@withLock cached
             val image = requests.withPermit {
                 check(allowed()) { "Amazon image permission was revoked." }
-                read(url)
+                read(url) ?: run {
+                    delay(250)
+                    check(allowed()) { "Amazon image permission was revoked." }
+                    read(url)
+                }
             }
             check(allowed()) { "Amazon image permission was revoked." }
             if (image != null) {
@@ -73,7 +78,8 @@ class AmazonProductImageProvider internal constructor(private val client: HttpCl
                 socketTimeoutMillis = 5_000
             }
         }.execute { response ->
-            if (response.status.value != 200 || response.headers[HttpHeaders.ContentType]?.substringBefore(';') !in setOf("image/png", "image/jpeg", "image/webp")) return@execute null
+            val type = response.headers[HttpHeaders.ContentType]?.substringBefore(';')?.trim()?.lowercase()
+            if (response.status.value != 200 || type !in setOf("image/png", "image/jpeg", "image/jpg", "image/webp", "application/octet-stream", null)) return@execute null
             if ((response.headers[HttpHeaders.ContentLength]?.toLongOrNull() ?: 0) > MAX_BYTES) return@execute null
             val input = response.bodyAsChannel()
             val output = ByteArrayOutputStream()

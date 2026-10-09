@@ -1,8 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -11,15 +16,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,6 +40,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonProductHistoryViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonProductMediaViewModel
+import dev.chungjungsoo.gptmobile.presentation.ui.amazon.amazonBitmap
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -94,25 +103,38 @@ internal fun AmazonProductResults(
     toolEvents: List<ToolEvent>,
     modifier: Modifier = Modifier,
     ownerProfileUid: String? = null,
+    profilesByRun: Map<String, String> = emptyMap(),
     conversationId: Int? = null,
     debugMode: Boolean = false
 ) {
     val products = remember(toolEvents) { amazonProductResults(toolEvents) }
+    val owners = remember(toolEvents, products, profilesByRun, ownerProfileUid) {
+        products.map { product ->
+            toolResultOwner(toolEvents, profilesByRun, ownerProfileUid) { event ->
+                amazonProductResults(listOf(event)).any { candidate ->
+                    listOf("marketplace", "asin", "seller", "condition", "variant").all { AmazonProducts.text(product, it) == AmazonProducts.text(candidate, it) }
+                }
+            }
+        }
+    }
     val notice = remember(toolEvents) { amazonResultNotice(toolEvents) }
     if (products.isEmpty() && notice == null) return
     var selectedIndex by remember(products) { mutableStateOf<Int?>(null) }
+    val media: AmazonProductMediaViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-media-$ownerProfileUid-$conversationId")
     if (products.isNotEmpty()) {
         val history: AmazonProductHistoryViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-history-$ownerProfileUid")
-        val media: AmazonProductMediaViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(key = "amazon-media-$ownerProfileUid-$conversationId")
-        LaunchedEffect(products, ownerProfileUid, conversationId) {
-            history.preload(ownerProfileUid, products)
-            media.preload(ownerProfileUid, conversationId, products)
+        LaunchedEffect(products, owners, conversationId) {
+            products.indices.groupBy { owners[it] }.forEach { (owner, indexes) ->
+                val group = indexes.map(products::get)
+                history.preload(owner, group)
+                media.preload(owner, conversationId, group)
+            }
         }
         selectedIndex?.let { index ->
             dev.chungjungsoo.gptmobile.presentation.ui.amazon.AmazonProductDetailDialog(
                 products = products,
                 selectedIndex = index,
-                owner = ownerProfileUid,
+                owner = owners.getOrNull(index),
                 conversationId = conversationId,
                 onSelect = { selectedIndex = it },
                 onDismiss = { selectedIndex = null }
@@ -127,24 +149,33 @@ internal fun AmazonProductResults(
         notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (products.isNotEmpty()) {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                itemsIndexed(products) { index, product -> AmazonProductCard(product, debugMode) { selectedIndex = index } }
+                itemsIndexed(products) { index, product -> AmazonProductCard(product, debugMode, media, owners.getOrNull(index), conversationId) { selectedIndex = index } }
             }
         }
     }
 }
 
 @Composable
-private fun AmazonProductCard(product: JsonObject, debugMode: Boolean, onClick: () -> Unit) {
+private fun AmazonProductCard(product: JsonObject, debugMode: Boolean, media: AmazonProductMediaViewModel, owner: String?, chatId: Int?, onClick: () -> Unit) {
     val domain = AmazonProducts.text(product, "marketplace").orEmpty()
     val id = AmazonProducts.text(product, "asin").orEmpty()
     if (AmazonProducts.productUrl(domain, id) == null) return
     val nativePreview = AmazonProducts.text(product, "provider") == "free_native"
+    val bytes by produceState<ByteArray?>(null, product, owner, chatId) { value = media.thumbnail(owner, chatId, product) }
+    val photo by amazonBitmap(bytes, 512)
     Card(
         onClick = onClick,
         modifier = Modifier.width(272.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .35f))
     ) {
+        Surface(Modifier.fillMaxWidth().height(156.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Box(contentAlignment = Alignment.Center) {
+                photo.image?.let { Image(it, "Amazon product photo", Modifier.fillMaxWidth().height(140.dp), contentScale = ContentScale.Fit) }
+                    ?: Text("Photo loading / unavailable", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (debugMode && nativePreview) "$domain · Public-page preview" else domain, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if ((product["sponsored"] as? JsonPrimitive)?.booleanOrNull == true) Text("Sponsored", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)

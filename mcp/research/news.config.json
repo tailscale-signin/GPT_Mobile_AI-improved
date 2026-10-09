@@ -1,0 +1,44 @@
+{
+  "sources": [
+    {
+      "prefix": "news_google",
+      "command": "uvx",
+      "args": [
+        "google-news-trends-mcp@0.2.9"
+      ],
+      "tools": [
+        "get_news_by_keyword",
+        "get_news_by_location",
+        "get_news_by_topic",
+        "get_top_news",
+        "get_trending_terms"
+      ]
+    },
+    {
+      "prefix": "news_serpapi",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@chanmeng666/google-news-server@1.0.0"
+      ],
+      "tools": [
+        "google_news_search"
+      ],
+      "requiresEnv": "SERP_API_KEY",
+      "envKeys": [
+        "SERP_API_KEY"
+      ],
+      "optional": true
+    },
+    {
+      "prefix": "news_hacker",
+      "command": "node",
+      "args": [
+        "upstreams/hn-server/build/index.js"
+      ],
+      "tools": [
+        "get_stories"
+      ]
+    }
+  ]
+}

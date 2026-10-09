@@ -62,4 +62,13 @@ class AmazonProductMediaCacheTest {
         val variant = Json.parseToJsonElement(product.toString().dropLast(1) + ",\"variant\":\"Blue\"}") as JsonObject
         assertNull(cache.load(7, variant))
     }
+
+    @Test fun replacementImageMetadataDoesNotDiscardTheWorkingPhotoBeforeDownload() = runBlocking {
+        val cache = AmazonProductMediaCache(temporary.newFolder(), { AmazonMediaConversation.ACTIVE }, images)
+        cache.save(7, AmazonProductMedia(product, bytes))
+        val updated = Json.parseToJsonElement(product.toString().replace("product.jpg", "replacement.jpg")) as JsonObject
+        cache.save(7, AmazonProductMedia(updated, detailed = true))
+        assertTrue(bytes.contentEquals(cache.load(7, updated)?.image))
+        assertEquals("https://m.media-amazon.com/images/I/replacement.jpg", cache.load(7, updated)?.product?.let(AmazonProducts::productImageUrl))
+    }
 }

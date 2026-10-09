@@ -79,7 +79,8 @@ class AmazonProductMediaCache internal constructor(
                 val previous = previousData?.get("product") as? JsonObject
                 val merged = AmazonProducts.withDetails(AmazonProducts.withDetails(media.product, previous ?: JsonObject(emptyMap())), media.product)
                 val image = File(directory, "image")
-                if (AmazonProducts.productImageUrl(previous ?: JsonObject(emptyMap())) != AmazonProducts.productImageUrl(merged)) image.delete()
+                // Metadata can arrive before its new image. Keep the same offer's working photo
+                // until a validated replacement is ready, including concurrent preload/detail reads.
                 media.image?.takeIf { it.size <= 3 * 1_048_576 && AmazonProductImageProvider.validImage(it) }?.let { bytes ->
                     val pending = File(directory, "image.tmp")
                     pending.writeBytes(bytes)

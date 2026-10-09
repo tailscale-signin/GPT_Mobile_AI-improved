@@ -76,17 +76,21 @@ object AmazonProducts {
     }
 
     /** Providers return either a URL, an image object or an array of gallery images. */
-    fun productImageUrl(product: JsonObject): String? {
-        fun find(value: JsonElement?, depth: Int = 0): String? {
-            if (depth > 3) return null
+    fun productImageUrl(product: JsonObject): String? = productImageUrls(product).firstOrNull()
+
+    fun productImageUrls(product: JsonObject): List<String> {
+        fun find(value: JsonElement?, depth: Int = 0): List<String> {
+            if (depth > 5) return emptyList()
             return when (value) {
-                is JsonPrimitive -> imageUrl(value.contentOrNull)
-                is JsonObject -> listOf("link", "url", "src", "large", "hi_res").firstNotNullOfOrNull { find(value[it], depth + 1) }
-                is JsonArray -> value.take(20).firstNotNullOfOrNull { find(it, depth + 1) }
-                else -> null
+                is JsonPrimitive -> listOfNotNull(imageUrl(value.contentOrNull))
+                is JsonObject -> listOf("hiRes", "hi_res", "large", "link", "url", "src", "imageUrl", "image_url", "thumbnail")
+                    .flatMap { find(value[it], depth + 1) } + value.keys.mapNotNull(::imageUrl)
+                is JsonArray -> value.take(20).flatMap { find(it, depth + 1) }
+                else -> emptyList()
             }
         }
-        return listOf("imageUrl", "thumbnail", "image", "image_url", "main_image", "images", "thumbnails").firstNotNullOfOrNull { find(product[it]) }
+        return listOf("imageUrl", "thumbnail", "image", "image_url", "main_image", "mainImage", "images", "thumbnails", "image_urls", "imageUrls", "gallery", "colorImages")
+            .flatMap { find(product[it]) }.distinct().take(8)
     }
 
     fun text(value: JsonObject, vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
@@ -110,7 +114,8 @@ object AmazonProducts {
                 value != kotlinx.serialization.json.JsonNull &&
                 value.toString() !in setOf("\"\"", "[]", "{}")
         }
-        return JsonObject(product + fields)
+        val photos = (productImageUrls(details) + productImageUrls(product)).distinct().take(8)
+        return JsonObject(product + fields + if (photos.isNotEmpty()) mapOf("imageUrl" to JsonPrimitive(photos.first()), "images" to JsonArray(photos.map(::JsonPrimitive))) else emptyMap())
     }
 
     private fun decimal(value: JsonElement?): String? = (value as? JsonPrimitive)?.contentOrNull?.let { raw ->
@@ -237,7 +242,9 @@ object AmazonProducts {
                 ((item["features"] ?: item["feature_bullets"]) as? JsonArray)?.let { put("features", JsonArray(it.take(12))) }
                 put("retrievedAt", retrieved)
                 observed?.let { put("observedAt", it) }
-                productImageUrl(item)?.let { put("imageUrl", it) }
+                val photos = productImageUrls(item)
+                photos.firstOrNull()?.let { put("imageUrl", it) }
+                if (photos.size > 1) put("images", JsonArray(photos.map(::JsonPrimitive)))
                 mapOf("brand" to listOf("brand", "manufacturer"), "model" to listOf("model", "model_number"), "color" to listOf("color", "colour"), "size" to listOf("size"), "material" to listOf("material"), "dimensions" to listOf("dimensions", "product_dimensions"), "weight" to listOf("weight", "item_weight")).forEach { (key, aliases) ->
                     text(item, *aliases.toTypedArray())?.let { put(key, it) }
                 }

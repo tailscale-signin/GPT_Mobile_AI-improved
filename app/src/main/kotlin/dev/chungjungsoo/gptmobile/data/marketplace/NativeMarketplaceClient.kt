@@ -99,12 +99,41 @@ object NativeMarketplaceRequests {
             }
             "google-places" -> {
                 headers["X-Goog-Api-Key"] = key
-                headers["X-Goog-FieldMask"] = "places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri,places.attributions"
-                body = buildJsonObject {
-                    put("textQuery", query)
-                    put("pageSize", count.toInt())
-                }.toString().toRequestBody("application/json".toMediaType())
-                "https://places.googleapis.com/v1/places:searchText"
+                val fields = "id,displayName,formattedAddress,location,googleMapsUri,attributions,businessStatus"
+                if (operation == "details") {
+                    headers["X-Goog-FieldMask"] = fields
+                    require(text("place_id").matches(Regex("[A-Za-z0-9_-]{1,250}"))) { "Invalid Place ID." }
+                    "https://places.googleapis.com/v1/places/${text("place_id")}"
+                } else {
+                    headers["X-Goog-FieldMask"] = fields.split(',').joinToString(",") { "places.$it" }
+                    body = buildJsonObject {
+                        if (operation == "nearby") {
+                            put("maxResultCount", count.toInt().coerceAtMost(20))
+                            put(
+                                "locationRestriction",
+                                buildJsonObject {
+                                    put(
+                                        "circle",
+                                        buildJsonObject {
+                                            put(
+                                                "center",
+                                                buildJsonObject {
+                                                    put("latitude", args.getValue("latitude"))
+                                                    put("longitude", args.getValue("longitude"))
+                                                }
+                                            )
+                                            put("radius", 1500.0)
+                                        }
+                                    )
+                                }
+                            )
+                        } else {
+                            put("textQuery", query)
+                            put("pageSize", count.toInt().coerceAtMost(20))
+                        }
+                    }.toString().toRequestBody("application/json".toMediaType())
+                    "https://places.googleapis.com/v1/places:" + if (operation == "nearby") "searchNearby" else "searchText"
+                }
             }
             "foursquare" -> {
                 headers["Authorization"] = "Bearer $key"

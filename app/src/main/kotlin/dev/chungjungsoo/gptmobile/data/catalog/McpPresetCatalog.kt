@@ -112,6 +112,41 @@ typealias McpServerPreset = McpPreset
 object McpPresetCatalog {
     val presets = LocalMcpPresets.presets + listOf(
         McpPreset(
+            id = "news-unified-mcp", name = "News · Unified MCP", description = "One News plugin for Google News Trends, Google News SerpApi and Hacker News.",
+            category = McpCategory.SEARCH, commandOrUrl = "", alias = "news_bundle", iconName = "news",
+            author = "jmanek · ChanMeng666 · pskill9 · GPT Mobile bridge", suggestedAuthType = "BEARER",
+            requiredFields = listOf("Bridge bearer token", "Your unified News /mcp endpoint"),
+            toolCapabilities = listOf("Keyword, location, topic and top news", "Google Trends interest signals", "Optional SerpApi Google News", "Top, new, Ask HN, Show HN and jobs"),
+            websiteUrl = "https://github.com/jmanek/google-news-trends-mcp",
+            setupInstructions = "Run mcp/research/bridge.mjs with the news configuration supplied in this repository. It connects jmanek/google-news-trends-mcp, ChanMeng666/server-google-news (optional SERP_API_KEY) and pskill9/hn-server through one authenticated endpoint. Enable the News service globally and for your AI profile. Free built-in Google feeds and Hacker News also work without the bridge."
+        ),
+        McpPreset(
+            id = "airbnb-openbnb", name = "Airbnb · OpenBnB", description = "Hosted vacation rental search, details, listing cards and galleries.",
+            category = McpCategory.SEARCH, commandOrUrl = "https://mcp.openbnb.ai/mcp", alias = "airbnb", iconName = "airbnb",
+            author = "OpenBnB", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search stays by dates, guests and filters", "Details and provider photos", "Price and fee summary", "Review signals when text is supplied"),
+            websiteUrl = "https://openbnb.ai/", verifiedRemote = true,
+            setupInstructions = "Connect and sign in to your OpenBnB account, discover tools, and select search and listing details for an AI profile. Enable Airbnb globally and in that profile. Provider availability and account limits apply. Missing photos, fees and review text remain unknown. This plugin browses listings and opens Airbnb for booking."
+        ),
+        McpPreset(
+            id = "airbnb-self-hosted", name = "Airbnb · Self-hosted OpenBnB", description = "Use openbnb-org/mcp-server-airbnb on your computer with photo and review extraction enhancements.",
+            category = McpCategory.SEARCH, commandOrUrl = "", alias = "airbnb_self_hosted", iconName = "airbnb",
+            author = "openbnb-org · GPT Mobile bridge", suggestedAuthType = "BEARER",
+            requiredFields = listOf("Bridge bearer token", "Your Airbnb /mcp endpoint"),
+            toolCapabilities = listOf("Search and listing details", "Photo galleries", "Normalized deduplicated listings", "Fee and review evidence"),
+            websiteUrl = "https://github.com/openbnb-org/mcp-server-airbnb",
+            setupInstructions = "Run the authenticated bridge and upstream adapter in mcp/research on your computer. Enter its reachable /mcp endpoint and token. Android does not launch Node processes. Robots restrictions are respected; a blocked listing remains unavailable. Enable Airbnb globally and for each profile."
+        ),
+        McpPreset(
+            id = "google-places-mcp", name = "Google Places · Maps Grounding MCP", description = "Official Google Maps grounding for places, routes, weather and place identifiers.",
+            category = McpCategory.SEARCH, commandOrUrl = "https://mapstools.googleapis.com/mcp", alias = "google_places", iconName = "google",
+            author = "Google Maps Platform", suggestedAuthType = "API_KEY", pricing = McpPricingType.PAID,
+            requiredFields = listOf("Google Maps Grounding Lite API key"), verifiedRemote = true,
+            toolCapabilities = listOf("Search places", "Resolve names and Maps URLs to Place IDs", "Routes and weather"),
+            websiteUrl = "https://developers.google.com/maps/ai/grounding-lite",
+            setupInstructions = "Enable Maps Grounding Lite in your Google Cloud project and enter its API key. The app sends it in X-Goog-Api-Key. Billing and API restrictions apply. For direct Places API text, nearby search and details, install the Google Places integrated adapter instead."
+        ),
+        McpPreset(
             id = "jannafta-amazon",
             name = "Amazon Search · Jan Nafta MCP",
             description = "Product search, details, deals, price history, marketplace comparisons and price watches through your own Amazon MCP host.",

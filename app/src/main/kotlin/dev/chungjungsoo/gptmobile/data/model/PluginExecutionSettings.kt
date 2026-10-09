@@ -17,6 +17,8 @@ data class PluginExecutionSettings(
     val amazonMarketplace: String = "amazon.ca",
     val amazonIncludeSponsored: Boolean = false,
     val amazonFreshPrices: Boolean = false,
+    val newsCountry: String = "CA",
+    val newsLanguage: String = "en",
     val amazonDailyRequests: Int = 100
 ) {
     fun normalized() = copy(
@@ -28,6 +30,8 @@ data class PluginExecutionSettings(
         decimalPlaces = decimalPlaces.coerceIn(0, 15),
         githubCacheSeconds = githubCacheSeconds.coerceIn(0, 120),
         amazonDailyRequests = amazonDailyRequests.coerceIn(1, 100),
+        newsCountry = newsCountry.uppercase(java.util.Locale.ROOT).takeIf { it.matches(Regex("[A-Z]{2}")) } ?: "CA",
+        newsLanguage = newsLanguage.takeIf { it.matches(Regex("[a-z]{2}(-[A-Z]{2})?")) } ?: "en",
         amazonMarketplace = dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts.marketplace(amazonMarketplace) ?: "amazon.ca"
     )
 }

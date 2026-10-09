@@ -38,11 +38,13 @@ class AmazonProductDetailViewModel @Inject constructor(
     private val current = MutableStateFlow(AmazonProductDetailState())
     val state = current.asStateFlow()
     private var lookup: Job? = null
+    private var photoRetry: Job? = null
     private var requestVersion = 0
 
     fun open(owner: String?, product: JsonObject, chatId: Int? = null) {
         val version = ++requestVersion
         lookup?.cancel()
+        photoRetry?.cancel()
         current.value = AmazonProductDetailState(product = product, loading = true, historyLoading = true, imageLoading = true)
         lookup = viewModelScope.launch {
             access.mediaChanges(owner).collectLatest { permitted ->
@@ -101,9 +103,30 @@ class AmazonProductDetailViewModel @Inject constructor(
         if (version == requestVersion) current.update(transform)
     }
 
+    fun retryPhoto(owner: String?, chatId: Int? = null) {
+        if (current.value.imageLoading) return
+        val version = requestVersion
+        val product = current.value.product
+        photoRetry?.cancel()
+        photoRetry = viewModelScope.launch {
+            publish(version) { it.copy(imageLoading = true) }
+            try {
+                val photo = media.photo(owner, chatId, product)
+                if (access.mediaAllowed(owner)) publish(version) { it.copy(image = photo.image, product = AmazonProducts.withDetails(it.product, photo.product)) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The retry is optional; the selected product remains usable.
+            } finally {
+                publish(version) { it.copy(imageLoading = false) }
+            }
+        }
+    }
+
     fun close() {
         requestVersion++
         lookup?.cancel()
+        photoRetry?.cancel()
         current.value = AmazonProductDetailState()
     }
 }

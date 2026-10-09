@@ -6,6 +6,7 @@ on:
       - '.github/workflows/marketplace-contracts.yml'
       - 'mcp/marketplace/**'
       - 'mcp/amazon/**'
+      - 'mcp/research/**'
       - 'scripts/tests/test_marketplace_companion.py'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
@@ -44,6 +45,13 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm test
+
+      - name: Test unified News and Airbnb bridge contracts
+        working-directory: mcp/research
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+          npm run prepare-upstreams
 
       - name: Test companion transport and package integrity
         run: |

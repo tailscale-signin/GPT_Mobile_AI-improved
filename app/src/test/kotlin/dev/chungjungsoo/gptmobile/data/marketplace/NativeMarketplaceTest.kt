@@ -33,6 +33,37 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class NativeMarketplaceTest {
+    @Test fun googlePlacesNearbyAndDetailsUseCorrectHeadersCoordinatesAndSafeIds() = runBlocking {
+        val entry = entry("google-places")
+        val registry = registry()
+        registry.install(entry)
+        registry.configure(entry, "", "private-test-key", 3, 50)
+        registry.setEnabled(entry, true)
+        val config = registry.configuration(entry)
+        val nearby = NativeMarketplaceRequests.build(
+            entry,
+            "nearby",
+            buildJsonObject {
+                put("latitude", 43.0)
+                put("longitude", -79.0)
+            },
+            config
+        )
+        assertEquals("POST", nearby.method)
+        assertEquals("/v1/places:searchNearby", nearby.url.encodedPath)
+        assertEquals("private-test-key", nearby.header("X-Goog-Api-Key"))
+        assertEquals(null, nearby.header("Authorization"))
+        val buffer = okio.Buffer()
+        nearby.body!!.writeTo(buffer)
+        val body = kotlinx.serialization.json.Json.parseToJsonElement(buffer.readUtf8()).jsonObject
+        assertEquals(JsonPrimitive(43.0), body.getValue("locationRestriction").jsonObject.getValue("circle").jsonObject.getValue("center").jsonObject["latitude"])
+        val details = NativeMarketplaceRequests.build(entry, "details", buildJsonObject { put("place_id", "ChIJ_test-123") }, config)
+        assertEquals("GET", details.method)
+        assertEquals("/v1/places/ChIJ_test-123", details.url.encodedPath)
+        assertTrue(details.header("X-Goog-FieldMask").orEmpty().contains("displayName"))
+        assertTrue(runCatching { NativeMarketplaceRequests.build(entry, "details", buildJsonObject { put("place_id", "../../secrets") }, config) }.isFailure)
+    }
+
     @get:Rule val files = TemporaryFolder()
     private val vault = MemoryVault()
     private fun entry(provider: String) = (GitHubMarketplaceCatalog.packages + GitHubMarketplaceCatalog.legacyPackages).single { it.provider == provider }

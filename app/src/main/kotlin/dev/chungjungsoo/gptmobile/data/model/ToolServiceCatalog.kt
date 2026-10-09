@@ -27,6 +27,9 @@ object ToolServiceCatalog {
         ToolServiceDefinition(ToolPluginId.GITHUB, "GitHub", "Repository tools and workspace access in one service.", "github", true),
         ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Product search, deals and price tracking. Connect a search key or an Amazon MCP server.", "amazon", true),
         ToolServiceDefinition(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Preview: Amazon Canada/US search and details, local history and manual targets. No API key; public-page availability varies.", "shopping", true, supportsLocalTools = true),
+        ToolServiceDefinition(ToolPluginId.NEWS, "News", "Google News, Google Trends and Hacker News, with optional unified MCP providers.", "news", true),
+        ToolServiceDefinition(ToolPluginId.AIRBNB, "Airbnb", "OpenBnB hosted or self-hosted listing search, photo galleries, price and fee summaries, and review signals.", "airbnb", true),
+        ToolServiceDefinition(ToolPluginId.GOOGLE_PLACES, "Google Places", "Text and nearby place search, place details, and Google Maps Grounding MCP. A Google API key is required.", "google", true),
         ToolServiceDefinition(ToolPluginId.WEB_SEARCH, "Web Search", "Search the web with the app's built-in engines.", "search", true),
         ToolServiceDefinition(ToolPluginId.DEVICE_LOCATION, "Device Location", "Share the phone's location when you allow it.", "location")
     )
@@ -39,6 +42,7 @@ object ToolServiceCatalog {
             "toronto-library", "toronto-osm-pack" -> "toronto"
             else -> entry.provider
         }
+        if (provider == "google") return integrated.first { it.id == ToolPluginId.GOOGLE_PLACES }
         return ToolServiceDefinition("service:$provider", providerName(provider, entry.preset.name), entry.preset.description, provider, true)
     }
 
@@ -54,6 +58,9 @@ object ToolServiceCatalog {
         }
         if (provider == "github") return integrated.first { it.id == ToolPluginId.GITHUB }
         if (provider == "amazon") return integrated.first { it.id == ToolPluginId.AMAZON_SEARCH }
+        if (provider == "airbnb") return integrated.first { it.id == ToolPluginId.AIRBNB }
+        if (provider == "news") return integrated.first { it.id == ToolPluginId.NEWS }
+        if (provider == "google") return integrated.first { it.id == ToolPluginId.GOOGLE_PLACES }
         return ToolServiceDefinition(
             id = provider?.let { "service:$it" } ?: ToolPluginId.connection(connection.connectionUid),
             name = provider?.let { providerName(it, connection.name) } ?: connection.name,
@@ -66,7 +73,10 @@ object ToolServiceCatalog {
     private fun remoteProvider(connection: ToolConnection): String? {
         val host = runCatching { URI(connection.endpointUrl.orEmpty()).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
         if (host == "api.githubcopilot.com") return "github"
+        if (host == "mapstools.googleapis.com") return "google"
         val names = "${connection.name} ${connection.alias}".lowercase(Locale.ROOT)
+        if (host == "mcp.openbnb.ai" || Regex("\\b(airbnb|openbnb)\\b").containsMatchIn(names)) return "airbnb"
+        if (Regex("\\b(news|hacker_news|google_news|news_bundle)\\b").containsMatchIn(names)) return "news"
         if (names.contains("jannafta") || names.contains("jan nafta")) return "amazon"
         val providers = listOf("github", "amazon", "openstreetmap", "brave", "exa", "firecrawl", "perplexity", "google", "slack", "linear", "sentry", "atlassian", "cloudflare", "stripe", "supabase", "tavily", "context7", "deepwiki", "huggingface", "notion", "mem0", "supermemory", "tomtom", "foursquare", "ticketmaster", "geoapify", "yelp", "mapbox", "airtable", "asana", "vercel", "netlify", "neon", "prisma", "semgrep", "jina", "todoist", "microsoft", "excalidraw", "agentset", "dbhub", "chat2db")
         if (listOf("openstreetmap", "nominatim", "overpass").any { Regex("\\b$it\\b").containsMatchIn(names) || host.contains(it) }) return "openstreetmap"

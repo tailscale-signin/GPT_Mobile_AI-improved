@@ -32,12 +32,14 @@ class MemoryIntelligenceTest {
         assertEquals(3, memory.state.value.topics.single { it.label == "astrophotography" }.messageKeys.size)
     }
 
-    @Test fun `retries do not inflate reinforcement and opposing preferences invalidate old facts`() = runTest {
+    @Test fun `retries do not inflate reinforcement and opposing preferences require review`() = runTest {
         val memory = repository()
         for (id in listOf(1, 2, 1, 2)) memory.prepareTurn("I prefer coffee", 1, id, isLocal = true)
         assertEquals(2, memory.state.value.facts.single().occurrences)
         memory.prepareTurn("I avoid coffee", 1, 3, isLocal = true)
         assertEquals(1, memory.state.value.facts.count { it.enabled })
+        assertEquals("PREFERS", memory.state.value.facts.single { it.enabled }.fact.relation.relationType)
+        memory.reviewFacts(setOf(memory.state.value.facts.single { !it.enabled }.id), true)
         assertEquals("AVOIDS", memory.state.value.facts.single { it.enabled }.fact.relation.relationType)
         assertTrue(memory.state.value.facts.single { !it.enabled }.supersededBy != null)
     }
@@ -59,10 +61,12 @@ class MemoryIntelligenceTest {
         assertFalse(MemoryConsolidation.canMerge(entry, fact, "project:other", 1.0))
     }
 
-    @Test fun `cloud recall is enabled by default and deleting a topic prevents relearning`() = runTest {
+    @Test fun `new vault cloud recall requires opt in and deleting a topic prevents relearning`() = runTest {
         val memory = repository()
         repeat(3) { memory.prepareTurn("Astrophotography ideas?", 1, it + 1, isLocal = true) }
-        assertTrue(memory.state.value.settings.allowCloudRecall)
+        assertFalse(memory.state.value.settings.allowCloudRecall)
+        assertTrue(memory.prepareTurn("Astrophotography", 1, 4, capture = false, isLocal = false).facts.isEmpty())
+        memory.updateSettings(memory.state.value.settings.copy(allowCloudRecall = true))
         assertTrue(memory.prepareTurn("Astrophotography", 1, 4, capture = false, isLocal = false).facts.isNotEmpty())
         memory.state.value.facts.toList().forEach { memory.deleteFact(it.id) }
         memory.prepareTurn("Astrophotography ideas?", 1, 5, isLocal = true)

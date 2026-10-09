@@ -88,14 +88,12 @@ class AndroidSecretVault private constructor(
                     try {
                         val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
                         val key = getExistingKey() ?: run {
-                            atomicFile.delete()
-                            return@withLock null
+                            throw SecretVaultException("Encryption key is unavailable; the encrypted record has been preserved.")
                         }
                         try {
                             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
                         } catch (_: KeyPermanentlyInvalidatedException) {
-                            atomicFile.delete()
-                            return@withLock null
+                            throw SecretVaultException("Encryption key is unavailable; the encrypted record has been preserved.")
                         }
                         cipher.bindTo(secretRef)
                         cipher.doFinal(ciphertext).also { plaintext ->

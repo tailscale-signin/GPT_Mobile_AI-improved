@@ -67,7 +67,9 @@ data class DatabaseBackupPayload(
     val messages: List<MessageV2> = emptyList(),
     val chatPlatformModels: List<ChatPlatformModelV2> = emptyList(),
     val favoriteGroups: List<String> = emptyList(),
-    val messageGroups: Map<Int, String> = emptyMap()
+    val messageGroups: Map<Int, String> = emptyMap(),
+    val conversationFolders: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolder> = emptyList(),
+    val conversationFolderMembers: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolderMember> = emptyList()
 )
 
 @Serializable

@@ -88,7 +88,11 @@ internal object LegacyBackupConverter {
             2 -> {
                 val payload = AppBackupCrypto.decryptDatabase(input, password)
                 require(payload.version in 1..2) { "This conversation backup requires a newer app." }
-                snapshot.withTransaction { replaceConversations(payload.chatRooms, payload.messages, payload.chatPlatformModels) }
+                snapshot.withTransaction {
+                    replaceConversations(payload.chatRooms, payload.messages, payload.chatPlatformModels)
+                    payload.conversationFolders.forEach { snapshot.conversationFolderDao().restoreFolder(it) }
+                    payload.conversationFolderMembers.forEach { snapshot.conversationFolderDao().move(it) }
+                }
                 favorites(payload.favoriteGroups, payload.messageGroups)
             }
             3 -> {
@@ -98,6 +102,8 @@ internal object LegacyBackupConverter {
                     payload.platforms.forEach { platform(it) }
                     payload.toolConnections.forEach { snapshot.toolConnectionDao().upsertConnection(it) }
                     replaceConversations(payload.chatRooms, payload.messages, payload.models)
+                    payload.conversationFolders.forEach { snapshot.conversationFolderDao().restoreFolder(it) }
+                    payload.conversationFolderMembers.forEach { snapshot.conversationFolderDao().move(it) }
                 }
                 if (payload.platforms.isNotEmpty()) sections += CompleteBackupSection.PLATFORMS
                 if (payload.toolConnections.isNotEmpty()) sections += CompleteBackupSection.TOOLS

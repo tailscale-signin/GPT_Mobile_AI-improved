@@ -10,9 +10,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -64,7 +67,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -87,6 +89,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -94,6 +97,11 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -482,6 +490,38 @@ fun ChatScreen(
         previousMessageCount = currentCount
     }
 
+    var latestResponseOffset by remember(chatRoom.id, lastMessageIndex) { mutableIntStateOf(-1) }
+    val responseBoundary = remember(chatRoom.id, lastMessageIndex) { LatestResponseBoundary() }
+    val latestTurnItem = lastMessageIndex - firstVisibleTurn + historyHeaderCount
+    var navigatedFromTarget by remember(chatRoom.id) { mutableStateOf(false) }
+    LaunchedEffect(isUserDragging) { if (isUserDragging) navigatedFromTarget = true }
+    val boundaryEnabled = isIdle && entryPositioned && (!hasTargetMessage || navigatedFromTarget) && latestResponseOffset >= 0
+    val latestBoundaryEnabled by androidx.compose.runtime.rememberUpdatedState(boundaryEnabled)
+    val latestBoundaryItem by androidx.compose.runtime.rememberUpdatedState(latestTurnItem)
+    val boundaryConnection = remember(listState, responseBoundary) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (!latestBoundaryEnabled) return Offset.Zero
+                val turn = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == latestBoundaryItem } ?: return Offset.Zero
+                val responseTop = turn.offset + latestResponseOffset
+                if (available.y < 0 && responseTop <= 0) responseBoundary.returningToResponse()
+                val consumed = responseBoundary.consume(available.y, -responseTop.toFloat(), android.os.SystemClock.elapsedRealtime(), source == NestedScrollSource.UserInput)
+                return Offset(0f, consumed)
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (latestBoundaryEnabled && consumed.y < 0f) {
+                    val turn = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == latestBoundaryItem }
+                    if (turn != null && turn.offset + latestResponseOffset <= 0) responseBoundary.returningToResponse()
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    LaunchedEffect(boundaryEnabled, listState.canScrollForward) {
+        if (boundaryEnabled && !listState.canScrollForward) responseBoundary.rearm()
+    }
+
     ChatBottomAutoScroller(
         listState = listState,
         animate = !isIdle,
@@ -540,6 +580,16 @@ fun ChatScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
+                    .nestedScroll(boundaryConnection)
+                    .pointerInput(responseBoundary) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            responseBoundary.beginGesture(android.os.SystemClock.elapsedRealtime())
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
                     // Position the measured list before revealing an existing chat.
                     // Restored positions and favourite targeting never animate on entry.
                     .graphicsLayer { alpha = if (entryPositioned || groupedMessages.userMessages.isEmpty()) 1f else 0f }
@@ -616,6 +666,7 @@ fun ChatScreen(
                         isUserTyping = chatViewModel.question.text.isNotEmpty(),
                         targetMessageId = chatViewModel.targetMessageId,
                         onTargetResponseOffset = { targetResponseOffset = it },
+                        onResponseOffset = { if (index == lastMessageIndex) latestResponseOffset = it },
                         onEditQuestion = chatViewModel::openUserMessageEditDialog,
                         onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                         onCopyText = { copiedText ->
@@ -664,6 +715,7 @@ fun ChatScreen(
                     contentAlignment = Alignment.BottomCenter
                 ) {
                     ScrollToBottomButton(isGenerating = !isIdle) {
+                        navigatedFromTarget = true
                         isHoldingEntryCenter = false
                         isModelTabPositionLocked = false
                         scope.launch {
@@ -889,6 +941,7 @@ private fun ChatMessagePair(
     isUserTyping: Boolean = false,
     targetMessageId: Int = -1,
     onTargetResponseOffset: (Int) -> Unit = {},
+    onResponseOffset: (Int) -> Unit = {},
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -989,7 +1042,10 @@ private fun ChatMessagePair(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .onSizeChanged { if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx) }
+                .onSizeChanged {
+                    onResponseOffset(it.height + responseInsetPx * 2)
+                    if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx)
+                }
                 .padding(horizontal = 8.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.End
         ) {
@@ -1812,26 +1868,33 @@ private fun isImageFile(extension: String?): Boolean {
 
 @Composable
 fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
-    var bright by remember { mutableStateOf(true) }
-    LaunchedEffect(isGenerating) {
-        bright = true
-        while (isGenerating) {
-            kotlinx.coroutines.delay(1_000)
-            bright = !bright
-        }
+    val opacity = if (isGenerating) {
+        val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "latest-response-pulse")
+        val pulse by transition.animateFloat(
+            initialValue = 0.82f,
+            targetValue = 1f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                animation = androidx.compose.animation.core.tween(750, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+            ),
+            label = "latest-response-opacity"
+        )
+        pulse
+    } else {
+        1f
     }
-    val opacity by androidx.compose.animation.core.animateFloatAsState(
-        if (bright) 1f else 0.45f,
-        animationSpec = androidx.compose.animation.core.tween(200),
-        label = "latest-response-flash"
-    )
-    SmallFloatingActionButton(
-        onClick = onClick,
-        modifier = Modifier.size(52.dp).graphicsLayer { alpha = opacity },
-        shape = androidx.compose.foundation.shape.CircleShape,
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary
-    ) {
-        Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon))
+    // The visual is half-size; the touch target remains accessible.
+    Box(Modifier.size(48.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Surface(
+            modifier = Modifier.size(26.dp).graphicsLayer { alpha = opacity },
+            shape = androidx.compose.foundation.shape.CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            shadowElevation = 3.dp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon), modifier = Modifier.size(18.dp))
+            }
+        }
     }
 }

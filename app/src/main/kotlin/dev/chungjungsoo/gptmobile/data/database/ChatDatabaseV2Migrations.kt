@@ -349,6 +349,24 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_34_35 = object : Migration(34, 35) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS conversation_folders (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, color INTEGER NOT NULL, createdAt INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS conversation_folder_members (chatId INTEGER NOT NULL PRIMARY KEY, folderId TEXT NOT NULL, FOREIGN KEY(chatId) REFERENCES chats_v2(chat_id) ON DELETE CASCADE, FOREIGN KEY(folderId) REFERENCES conversation_folders(id) ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_conversation_folder_members_folderId ON conversation_folder_members(folderId)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS memory_facts (id TEXT NOT NULL PRIMARY KEY, revision INTEGER NOT NULL, identityKey BLOB NOT NULL, scope TEXT NOT NULL, enabled INTEGER NOT NULL, state TEXT NOT NULL, importance REAL NOT NULL, pinned INTEGER NOT NULL, confirmationCount INTEGER NOT NULL, lastConfirmedAt INTEGER, recordedAt INTEGER NOT NULL, validFrom INTEGER, validTo INTEGER, payload BLOB NOT NULL)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_memory_facts_scope ON memory_facts(scope)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_memory_facts_identityKey ON memory_facts(identityKey)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS memory_fact_links (id TEXT NOT NULL PRIMARY KEY, fromFactId TEXT NOT NULL, toFactId TEXT NOT NULL, relation TEXT NOT NULL, recordedAt INTEGER NOT NULL, validFrom INTEGER, validTo INTEGER, FOREIGN KEY(fromFactId) REFERENCES memory_facts(id) ON DELETE CASCADE, FOREIGN KEY(toFactId) REFERENCES memory_facts(id) ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_memory_fact_links_fromFactId ON memory_fact_links(fromFactId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_memory_fact_links_toFactId ON memory_fact_links(toFactId)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_memory_fact_links_fromFactId_toFactId_relation ON memory_fact_links(fromFactId, toFactId, relation)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS memory_pending_changes (id TEXT NOT NULL PRIMARY KEY, operationKey TEXT NOT NULL, expectedFactId TEXT NOT NULL, expectedRevision INTEGER NOT NULL, payload BLOB NOT NULL, state TEXT NOT NULL, createdAt INTEGER NOT NULL, expiresAt INTEGER)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_memory_pending_changes_operationKey ON memory_pending_changes(operationKey)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS memory_store_state (id INTEGER NOT NULL PRIMARY KEY, formatVersion INTEGER NOT NULL, generation INTEGER NOT NULL, cutoverStatus TEXT NOT NULL, payload BLOB NOT NULL, importDigest BLOB, importedCount INTEGER NOT NULL)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -373,7 +391,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_30_31,
         MIGRATION_31_32,
         MIGRATION_32_33,
-        MIGRATION_33_34
+        MIGRATION_33_34,
+        MIGRATION_34_35
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

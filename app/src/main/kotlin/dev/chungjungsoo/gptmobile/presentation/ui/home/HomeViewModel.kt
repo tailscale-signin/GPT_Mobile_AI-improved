@@ -59,6 +59,7 @@ class HomeViewModel @Inject constructor(
     private val managePlatformsUseCase: ManagePlatformsUseCase,
     private val conversationReadStateStore: dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore,
     private val completionStore: GenerationCompletionStore,
+    private val foldersRepository: dev.chungjungsoo.gptmobile.data.chat.ConversationFolderRepository,
     private val pinnedOrderStore: dev.chungjungsoo.gptmobile.data.chat.PinnedConversationOrderStore
 ) : ViewModel() {
 
@@ -84,6 +85,51 @@ class HomeViewModel @Inject constructor(
 
     private val _chatListState = MutableStateFlow(ChatListState())
     val chatListState: StateFlow<ChatListState> = _chatListState.asStateFlow()
+
+    val folders = foldersRepository.folders.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _selectedFolderId = MutableStateFlow<String?>(null)
+    val selectedFolderId = _selectedFolderId.asStateFlow()
+    private var folderMembers = emptyMap<Int, String>()
+    private var allChats = emptyList<ChatRoomV2>()
+    private val _folderError = MutableStateFlow<String?>(null)
+    val folderError = _folderError.asStateFlow()
+
+    private fun publishFolderChats() {
+        val visible = allChats.filter { _selectedFolderId.value == null || folderMembers[it.id] == _selectedFolderId.value }
+        _chatListState.update { it.copy(chats = sortChats(visible), selectedChats = List(visible.size) { false }, isSelectionMode = false) }
+    }
+
+    fun selectFolder(id: String?) {
+        _selectedFolderId.value = id
+        publishFolderChats()
+    }
+
+    fun createFolder(chatId: Int, name: String, color: Long) = folderAction {
+        foldersRepository.create(chatId, name, color)
+    }
+
+    fun moveToFolder(chatId: Int, folderId: String?) = folderAction { foldersRepository.move(chatId, folderId) }
+    fun editFolder(id: String, name: String, color: Long) = folderAction { foldersRepository.edit(id, name, color) }
+    fun deleteFolder(id: String) = folderAction {
+        foldersRepository.delete(id)
+        if (_selectedFolderId.value == id) selectFolder(null)
+    }
+    fun clearFolderError() {
+        _folderError.value = null
+    }
+
+    private fun folderAction(action: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                action()
+                _folderError.value = null
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _folderError.value = if (failure is IllegalArgumentException) failure.message else "Could not update this folder. Please try again."
+            }
+        }
+    }
 
     private val _platformState = MutableStateFlow(listOf<PlatformV2>())
     val platformState = _platformState.asStateFlow()
@@ -143,6 +189,13 @@ class HomeViewModel @Inject constructor(
         )
 
     init {
+        foldersRepository.members.onEach { members ->
+            folderMembers = members.associate { it.chatId to it.folderId }
+            publishFolderChats()
+        }.launchIn(viewModelScope)
+        foldersRepository.folders.onEach { saved ->
+            if (_selectedFolderId.value != null && saved.none { it.id == _selectedFolderId.value }) selectFolder(null)
+        }.launchIn(viewModelScope)
         // Set up debounced search for chats
         _searchQuery
             .debounce(SEARCH_DEBOUNCE_MS)
@@ -348,13 +401,8 @@ class HomeViewModel @Inject constructor(
     private fun searchChats(query: String) {
         viewModelScope.launch {
             val rawChats = chatRepository.searchChatsV2(query)
-            val sorted = sortChats(rawChats)
-            _chatListState.update {
-                it.copy(
-                    chats = sorted,
-                    selectedChats = List(sorted.size) { false }
-                )
-            }
+            allChats = rawChats
+            publishFolderChats()
         }
     }
 
@@ -513,7 +561,7 @@ class HomeViewModel @Inject constructor(
             // actively generating chats are never selected for automatic archival.
             if (rawChats.size > MAX_MAIN_CHAT_COUNT) {
                 val archiveTargets = automaticArchiveTargets(
-                    chats = rawChats,
+                    chats = rawChats.filter { it.id !in folderMembers },
                     activeIds = _activeChatIds.value,
                     maxVisible = MAX_MAIN_CHAT_COUNT
                 )
@@ -523,14 +571,8 @@ class HomeViewModel @Inject constructor(
                 }
             }
 
-            val sorted = sortChats(rawChats)
-            _chatListState.update {
-                it.copy(
-                    chats = sorted,
-                    selectedChats = List(sorted.size) { false },
-                    isSelectionMode = false
-                )
-            }
+            allChats = rawChats
+            publishFolderChats()
             fetchArchivedChats()
 
             Log.d("chats", "${_chatListState.value.chats}")

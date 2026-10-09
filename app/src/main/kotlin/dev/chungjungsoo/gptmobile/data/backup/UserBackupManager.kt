@@ -13,9 +13,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import java.io.InputStream
-import java.io.OutputStream
 
 /**
  * Backup payload data structure representing user chats, settings, models, tools, and favorites.
@@ -25,6 +22,8 @@ data class UserBackupData(
     val version: Int = BACKUP_VERSION,
     val exportedAt: Long = System.currentTimeMillis(),
     val chatRooms: List<ChatRoomV2> = emptyList(),
+    val conversationFolders: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolder> = emptyList(),
+    val conversationFolderMembers: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolderMember> = emptyList(),
     val messages: List<MessageV2> = emptyList(),
     val platforms: List<PlatformV2> = emptyList(),
     val models: List<ChatPlatformModelV2> = emptyList(),
@@ -147,6 +146,8 @@ class UserBackupManager(
 
         return UserBackupData(
             chatRooms = chatRooms,
+            conversationFolders = if (options.includeChatHistory) database.conversationFolderDao().folders() else emptyList(),
+            conversationFolderMembers = if (options.includeChatHistory) database.conversationFolderDao().members().filter { member -> chatRooms.any { it.id == member.chatId } } else emptyList(),
             messages = messages,
             platforms = platforms,
             models = models,
@@ -178,6 +179,9 @@ class UserBackupManager(
         data.chatRooms.forEach { room ->
             database.chatRoomDao().addChatRoom(room)
         }
+
+        data.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
+        data.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 
         if (data.messages.isNotEmpty()) {
             database.messageDao().insertMessageList(data.messages)

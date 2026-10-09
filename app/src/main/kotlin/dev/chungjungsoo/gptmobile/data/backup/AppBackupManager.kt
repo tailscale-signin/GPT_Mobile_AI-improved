@@ -333,6 +333,8 @@ class AppBackupManager @Inject constructor(
                 version = 2,
                 exportedAt = System.currentTimeMillis(),
                 chatRooms = chatRooms,
+                conversationFolders = database.conversationFolderDao().folders(),
+                conversationFolderMembers = database.conversationFolderDao().members().filter { member -> chatRooms.any { it.id == member.chatId } },
                 messages = allMessages,
                 chatPlatformModels = allModels,
                 favoriteGroups = favoriteGroups,
@@ -378,6 +380,9 @@ class AppBackupManager @Inject constructor(
                 payload.chatRooms.forEach { room ->
                     chatRoomV2Dao.addChatRoom(room)
                 }
+
+                payload.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
+                payload.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 
                 if (payload.messages.isNotEmpty()) {
                     messageV2Dao.addMessages(*payload.messages.toTypedArray())

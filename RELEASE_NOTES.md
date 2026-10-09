@@ -1,28 +1,24 @@
-# GPT Mobile AI 0.9.36.0
+# GPT Mobile AI 0.9.37.0
 
-## Amazon product browsing
+## Chat navigation
+- Halve the visible bottom arrow to 26 dp while retaining a 48 dp touch target. During AI generation it uses a soft 1.5-second opacity pulse.
+- Pause upward navigation at the newest completed response header. A fresh upward gesture after one second releases the boundary; returning to the response re-arms it. Favourite-response entry remains available.
 
-- Preload public price-history graphs for products returned by either Amazon plugin, including results below the visible area. Reuse cached graphs when opening product details and limit concurrent downloads.
-- Open product details by tapping anywhere on a product bubble. Remove the duplicate "Details & price history" label and the "History & manual watch" option.
-- Move "Open on Amazon" into the product-details popup as a prominent button, preserving the selected product, marketplace and supported affiliate links.
-- Simplify the popup with clear pricing, ratings, product facts, descriptions and features. Show an available Amazon product image inside a themed outline, alongside the price-history graph.
-- Load product details, images and graphs independently so a slow or unavailable source does not block the remaining information. Respect the owning AI profile's plugin permissions and discard stale results after permissions are revoked.
-- Remove manual-watch controls and the saved-watch listing tool. Preserve existing Amazon records and backup compatibility.
-- Improve Amazon Research Free product bubbles and handle empty search results without an error.
+## Conversation folders
+- Long-press and drag a conversation to the top pin target on the left or new-folder target on the right.
+- Name new folders and move conversations into existing folder chips beside Chats. Hold a folder to rename it, choose its background colour, or remove the folder while keeping conversations.
+- Store folders and memberships in Room, preserve them in conversation backups, and accept older backups without folder data.
 
-Amazon images and public graphs appear when their providers supply usable data. Public Amazon pages can still be unavailable or blocked.
+## Memory v2 development starts
+- Keep existing memories active while conflicting automatic captures await explicit review. Offer Replace existing, Keep both, and Keep existing, with persisted stale-review checks.
+- Preserve assertion history when returning to a previously retired value; allow multiple occupations.
+- Preserve encrypted records when a Keystore key is unavailable. Fact-index maintenance keeps document vectors intact.
+- Default fresh vault cloud recall off; retain settings already saved by existing users.
+- Add Room schema 35 foundation contracts for encrypted memory payloads, fact links, pending operations and cutover state, plus valid-time and authenticated-envelope primitives. Remove destructive database downgrade fallback.
+- This is the safety/foundation slice of the memory-v2 design. Existing encrypted JSON memory remains authoritative. Automatic Room conversion, protected graph migration, new retrieval ranking, proactive suggestions and portable memory-v2 archives are not enabled in this release.
 
-## Release integrity
-
-- Correct the multiple-header fixtures in the product-image tests so Android CI can compile and validate them.
-- The signed release workflow validates the release commit with unit tests, Android lint and packaged runtime checks before building APKs and the Android App Bundle.
-- Verify application identity and signing-certificate continuity, and publish checksums and provenance with the signed artifacts.
-
-## Version and installation
-
-- Version: 0.9.36.0
-- Version code: 105 (previous release: 104)
+## Release identity
 - Package: dev.melo.gptmobile.improved
-- Install the signed arm64-v8a APK for an ARM64 Android phone. Keep the existing app installed when updating with the same signing certificate.
-- Amazon product details and preloading: https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/621
-- Amazon Research Free product bubbles and empty-result handling: https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/620
+- Version: 0.9.37.0
+- Version code: 106
+- Publication must pass the existing signed-release validation and certificate-continuity checks. Physical-device gesture, layout and native-memory checks remain required; local JVM results do not certify phone performance.

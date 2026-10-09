@@ -38,7 +38,8 @@ data class VaultFact(
     val lastSourceKey: String = "",
     val evidenceSources: Set<String> = emptySet(),
     val supersededBy: String? = null,
-    val previousValues: List<String> = emptyList()
+    val previousValues: List<String> = emptyList(),
+    val pendingReplacements: Map<String, String> = emptyMap()
 )
 
 /** References only: fact text stays encrypted in the vault, not copied into message metadata. */
@@ -119,6 +120,8 @@ class FactVaultRepository @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
     private val _state = MutableStateFlow(FactVaultSnapshot())
     val state = _state.asStateFlow()
+    private val _indexWarning = MutableStateFlow<String?>(null)
+    val indexWarning = _indexWarning.asStateFlow()
 
     suspend fun scopeForChat(chatId: Int) = scopes?.resolve(chatId) ?: dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
 
@@ -136,7 +139,7 @@ class FactVaultRepository @Inject constructor(
 
     suspend fun setFactEnabled(id: String, enabled: Boolean) = mutex.withLock {
         loadLocked()
-        persist(_state.value.copy(facts = _state.value.facts.map { if (it.id == id) it.copy(enabled = enabled, supersededBy = null) else it }))
+        persist(reviewedSnapshot(_state.value, setOf(id), enabled))
     }
 
     suspend fun pin(id: String, pinned: Boolean) = mutex.withLock {
@@ -190,9 +193,9 @@ class FactVaultRepository @Inject constructor(
 
     suspend fun clear() = mutex.withLock {
         // Clearing must work even when the existing payload cannot be decoded.
-        persist(FactVaultSnapshot(enabled = false), allowUnreadablePrevious = true)
+        persist(FactVaultSnapshot(enabled = false, settings = FactVaultSettings(allowCloudRecall = false)), allowUnreadablePrevious = true)
         persistentGraph?.clear()
-        semantic?.clear()
+        semantic?.clearFacts()
         enrichedMessages.clear()
     }
 
@@ -294,12 +297,14 @@ class FactVaultRepository @Inject constructor(
             val preference = candidate.relation.relationType in setOf("PREFERS", "AVOIDS", "RESPONSE_LANGUAGE")
             if ((preference && !config.learnPreferences) || (!preference && !config.learnRelationships)) continue
             val fact = normalizeFact(candidate)
-            val id = scopedFactId(fact, scope)
+            val stableId = scopedFactId(fact, scope)
+            val currentEpisode = facts.firstOrNull { it.scope == scope && it.supersededBy == null && scopedFactId(it.fact, scope) == stableId }
+            val id = currentEpisode?.id ?: if (facts.any { scopedFactId(it.fact, scope) == stableId && it.supersededBy != null }) UUID.randomUUID().toString() else stableId
             val evidence = evidenceHash(candidate.relation.context.ifBlank { candidate.target.name })
-            if (id in current.suppressedIds || "$scope:$evidence" in current.suppressedEvidence) continue
+            if (stableId in current.suppressedIds || "$scope:$evidence" in current.suppressedEvidence) continue
             // The local model must not create a second form of an already captured statement.
             if (source == "local_model_observation" && facts.any { it.evidenceHash == evidence && it.scope == scope }) continue
-            val exclusive = fact.relation.relationType in setOf("LOCATED_IN", "NAMED", "OCCUPATION", "TIMEZONE", "PRONOUNS", "RESPONSE_LANGUAGE")
+            val exclusive = fact.relation.relationType in setOf("LOCATED_IN", "NAMED", "TIMEZONE", "PRONOUNS", "RESPONSE_LANGUAGE")
             fun conflicts(entry: VaultFact): Boolean {
                 if (entry.fact.entity.id != fact.entity.id || entry.scope != scope) return false
                 val relation = entry.fact.relation.relationType
@@ -308,8 +313,8 @@ class FactVaultRepository @Inject constructor(
             }
             if (messageId > 0 && facts.any { conflicts(it) && it.sourceMessageId > messageId }) continue
             val similar = if (config.semanticRecall && facts.none { it.id == id }) semantic?.search("${fact.entity.name} ${fact.relation.relationType.lowercase().replace('_', ' ')} ${fact.target.name}", scope, 12).orEmpty() else emptyMap()
-            val known = facts.firstOrNull { it.id == id } ?: facts.firstOrNull { existing ->
-                MemoryConsolidation.canMerge(existing, fact, scope, similar[existing.id] ?: 0.0)
+            val known = facts.firstOrNull { it.id == id && it.supersededBy == null } ?: facts.firstOrNull { existing ->
+                existing.supersededBy == null && MemoryConsolidation.canMerge(existing, fact, scope, similar[existing.id] ?: 0.0)
             }
             if (known != null) {
                 val sourceKey = sourceKey(chatId, messageId).orEmpty()
@@ -326,13 +331,15 @@ class FactVaultRepository @Inject constructor(
             }
             if (facts.size >= config.maxFacts) {
                 if (!config.rotateAutomaticFacts) continue
-                val victim = facts.filter { !it.pinned && it.source in setOf("user_message", "local_model_observation", "recurring_topic") }
+                val protectedIds = facts.flatMap { it.pendingReplacements.keys }.toSet()
+                val victim = facts.filter { !it.pinned && it.pendingReplacements.isEmpty() && it.supersededBy == null && it.id !in protectedIds && !conflicts(it) && it.source in setOf("user_message", "local_model_observation", "recurring_topic") }
                     .minWithOrNull(compareBy<VaultFact> { it.enabled }.thenBy { it.occurrences }.thenBy { it.lastSeenMillis }) ?: continue
                 facts.remove(victim)
             }
-            facts.replaceAll { if (conflicts(it)) it.copy(enabled = false, supersededBy = id) else it }
+            val replacements = facts.filter { it.enabled && it.supersededBy == null && conflicts(it) }
+                .associate { it.id to reviewFingerprint(it) }
             facts += VaultFact(
-                id, fact, enabled = !config.reviewBeforeRecall, sourceChatId = chatId, sourceMessageId = messageId,
+                id, fact, enabled = !config.reviewBeforeRecall && replacements.isEmpty(), pendingReplacements = replacements, sourceChatId = chatId, sourceMessageId = messageId,
                 savedAtMillis = now, lastSeenMillis = now, lastSourceKey = sourceKey(chatId, messageId).orEmpty(), evidenceSources = setOfNotNull(sourceKey(chatId, messageId)), source = source, confidence = if (source == "local_model_observation") 0.8f else 0.9f, scope = scope, evidenceHash = evidence
             )
             admitted++
@@ -399,9 +406,41 @@ class FactVaultRepository @Inject constructor(
         )
     }
 
+    private fun reviewFingerprint(entry: VaultFact): String = evidenceHash(json.encodeToString(entry))
+
+    private fun reviewedSnapshot(current: FactVaultSnapshot, ids: Set<String>, enabled: Boolean, replaceExisting: Boolean = true): FactVaultSnapshot {
+        val facts = current.facts.toMutableList()
+        for (id in ids.sorted()) {
+            val entry = facts.firstOrNull { it.id == id } ?: continue
+            if (enabled && entry.pendingReplacements.isNotEmpty()) {
+                require(
+                    entry.pendingReplacements.all { (oldId, expected) ->
+                        facts.firstOrNull { it.id == oldId }?.let { old ->
+                            old.scope == entry.scope && old.enabled && old.supersededBy == null && reviewFingerprint(old) == expected
+                        } == true
+                    }
+                ) { "This proposal is stale. The existing memory changed; capture or edit the correction again." }
+                if (replaceExisting) {
+                    facts.replaceAll { old ->
+                        if (old.id in entry.pendingReplacements) old.copy(enabled = false, supersededBy = entry.id) else old
+                    }
+                }
+            }
+            val index = facts.indexOfFirst { it.id == id }
+            facts[index] = entry.copy(enabled = enabled, supersededBy = if (enabled) null else entry.supersededBy, pendingReplacements = if (enabled) emptyMap() else entry.pendingReplacements)
+        }
+        return current.copy(facts = facts)
+    }
+
+    suspend fun keepBoth(id: String) = mutex.withLock {
+        loadLocked()
+        require(_state.value.facts.any { it.id == id && it.pendingReplacements.isNotEmpty() }) { "Select a pending change." }
+        persist(reviewedSnapshot(_state.value, setOf(id), enabled = true, replaceExisting = false))
+    }
+
     suspend fun reviewFacts(ids: Set<String>, enabled: Boolean) = mutex.withLock {
         loadLocked()
-        persist(_state.value.copy(facts = _state.value.facts.map { if (it.id in ids) it.copy(enabled = enabled, supersededBy = if (enabled) null else it.supersededBy) else it }))
+        persist(reviewedSnapshot(_state.value, ids, enabled))
     }
 
     suspend fun rememberUserText(text: String, message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2): String = mutex.withLock {
@@ -544,7 +583,7 @@ class FactVaultRepository @Inject constructor(
         val snapshot = if (bytes == null) {
             // Existing payloads retain their old default (disabled), including omitted fields.
             // Only a genuinely new vault starts enabled.
-            FactVaultSnapshot(enabled = preferences?.enabled() ?: !hasLoaded)
+            FactVaultSnapshot(enabled = preferences?.enabled() ?: !hasLoaded, settings = FactVaultSettings(allowCloudRecall = false))
         } else {
             try {
                 decodeSnapshot(bytes)
@@ -560,7 +599,7 @@ class FactVaultRepository @Inject constructor(
             val effective = snapshot
             runCatching { preferences?.save(effective.enabled) }
             _state.value = effective
-            rebuildGraph(effective)
+            refreshDerivedIndexes(effective)
         }
     }
 
@@ -640,7 +679,7 @@ class FactVaultRepository @Inject constructor(
             }
             committed = true
             _state.value = snapshot
-            rebuildGraph(snapshot)
+            refreshDerivedIndexes(snapshot)
             // The encrypted snapshot is authoritative once committed; a preference mirror cannot roll it back.
             runCatching { preferences?.save(snapshot.enabled) }
         } finally {
@@ -651,6 +690,19 @@ class FactVaultRepository @Inject constructor(
                     runCatching { vault.delete(reference) }
                 }
             }
+        }
+    }
+
+    private suspend fun refreshDerivedIndexes(snapshot: FactVaultSnapshot) {
+        try {
+            rebuildGraph(snapshot)
+            _indexWarning.value = null
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            indexedFacts = null
+            _indexWarning.value = "Memories are saved. Search is degraded; reopen the memory vault to retry indexing."
+            AppLogRecorder.record("Memory", "INDEX_DEGRADED · cause=${failure.javaClass.simpleName}", "W")
         }
     }
 
@@ -689,7 +741,7 @@ class FactVaultRepository @Inject constructor(
         mutex.withLock {
             loadLocked()
             require(_state.value.enabled && _state.value.settings.semanticRecall) { "Enable memory and semantic recall first." }
-            engine.clear()
+            engine.clearFacts()
         }
         do {
             val pending = mutex.withLock {

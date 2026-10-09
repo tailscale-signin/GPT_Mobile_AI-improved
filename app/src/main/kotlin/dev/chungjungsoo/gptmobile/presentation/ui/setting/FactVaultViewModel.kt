@@ -83,13 +83,15 @@ class FactVaultViewModel @Inject constructor(
                 maxFacts = 4096,
                 semanticRecall = true,
                 learnRecurringTopics = true,
-                allowCloudRecall = true,
+                allowCloudRecall = current.allowCloudRecall,
                 recallTokens = 1536,
                 alwaysRecallPinned = true
             )
         )
     }
     fun setFactEnabled(id: String, enabled: Boolean) = perform { repository.setFactEnabled(id, enabled) }
+    val indexWarning = repository.indexWarning
+    fun keepBoth(id: String) = perform { repository.keepBoth(id) }
     fun pin(id: String, pinned: Boolean) = perform { repository.pin(id, pinned) }
     fun restructure(ids: Set<String>, replacements: List<String>) = perform { repository.restructure(ids, replacements) }
     fun reviewFacts(ids: Set<String>, enabled: Boolean) = perform { repository.reviewFacts(ids, enabled) }

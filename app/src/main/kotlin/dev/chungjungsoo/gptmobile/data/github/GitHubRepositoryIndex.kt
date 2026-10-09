@@ -20,6 +20,45 @@ object GitHubRepositoryIndex {
         "cpp", "h", "hpp", "rs", "go", "sh"
     )
 
+    /** Documentation discovery keeps blob provenance and reports incomplete GitHub trees. */
+    fun documentation(treeResponse: JsonObject, page: Int, pageSize: Int = 30): JsonObject {
+        require(page in 1..1000 && pageSize in 1..100)
+        fun rank(path: String): Int {
+            val lower = path.lowercase(java.util.Locale.ROOT)
+            return when {
+                lower == "llms.txt" -> 0
+                lower == "readme.md" || lower == "readme.rst" || lower == "readme" -> 1
+                lower == "llms-full.txt" -> 2
+                else -> 3
+            }
+        }
+        val documents = treeResponse["tree"]?.jsonArray.orEmpty().filterIsInstance<JsonObject>().filter { item ->
+            val path = item["path"]?.jsonPrimitive?.content.orEmpty().lowercase(java.util.Locale.ROOT)
+            val name = path.substringAfterLast('/')
+            val regular = item["mode"]?.jsonPrimitive?.content in setOf("100644", "100755")
+            regular &&
+                item["type"]?.jsonPrimitive?.content == "blob" &&
+                (
+                    name in setOf("llms.txt", "llms-full.txt", "readme", "readme.md", "readme.rst") ||
+                        (path.startsWith("docs/") && extension(path) in setOf("md", "rst", "txt", "mdx"))
+                    )
+        }.sortedWith(compareBy({ rank(it["path"]?.jsonPrimitive?.content.orEmpty()) }, { it["path"]?.jsonPrimitive?.content.orEmpty() }))
+        return buildJsonObject {
+            put(
+                "documents",
+                JsonArray(
+                    documents.drop((page - 1) * pageSize).take(pageSize).map { item ->
+                        JsonObject(item.filterKeys { it in setOf("path", "sha", "size") })
+                    }
+                )
+            )
+            put("page", page)
+            put("has_more", page * pageSize < documents.size)
+            put("total_indexed", documents.size)
+            put("truncated", treeResponse["truncated"] ?: JsonPrimitive(false))
+        }
+    }
+
     fun compact(treeResponse: JsonObject, page: Int, pageSize: Int = 120): JsonObject {
         val all = treeResponse["tree"]?.jsonArray.orEmpty()
             .mapNotNull { it as? JsonObject }

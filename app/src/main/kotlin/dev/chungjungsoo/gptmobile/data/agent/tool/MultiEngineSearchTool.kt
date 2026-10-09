@@ -266,7 +266,12 @@ class MultiEngineSearchTool(
         val statuses = initial.mapIndexed { index, response ->
             buildJsonObject {
                 put("engine", selected[index].connectionName ?: "Built-in search")
-                (resultPayload(response.result) as? JsonObject)?.get("engines")?.let { put("engines", it) }
+                providerPayload(response.result)?.get("engines")?.let { put("engines", it) }
+                providerPayload(response.result)?.let { payload ->
+                    val metadata = listOf("cached", "retrieved_at", "cache_age_seconds", "errors", "benched_engines", "rescued_via", "dated_results", "filter_diagnostics")
+                        .mapNotNull { key -> payload[key]?.let { key to it } }.toMap()
+                    if (metadata.isNotEmpty()) put("providerMetadata", JsonObject(metadata))
+                }
                 put("tool", selected[index].realToolName)
                 put("status", if (response.result.isError) "unavailable" else "completed")
                 put("outcome", response.outcome)
@@ -277,7 +282,7 @@ class MultiEngineSearchTool(
                 put("contributedResults", merged.contributions[index] ?: 0)
                 put("duplicateResults", merged.duplicatesByOwner[index] ?: 0)
                 if (response.result.isError || buckets[index].isEmpty()) put("detail", resultText(response.result).take(6000))
-                if (recencyDays != null && WebSearchEngineAdapter.forTool(selected[index].realToolName, selected[index].tool.definition)?.supportsRecency == false) put("unsupportedFilters", JsonArray(listOf(JsonPrimitive("recencyDays"))))
+                if (recencyDays != null && WebSearchEngineAdapter.forTool(selected[index].realToolName, selected[index].tool.definition)?.supportsRecencyFor(recencyDays) == false) put("unsupportedFilters", JsonArray(listOf(JsonPrimitive("recencyDays"))))
                 refillResponses[index]?.let { extra ->
                     put(
                         "refill",
@@ -288,7 +293,7 @@ class MultiEngineSearchTool(
                         }
                     )
                 }
-                if (recencyDays != null && selected[index].realToolName == "searxng_web_search") put("recencyFilter", "approximate_upstream_range; publication dates may be unknown")
+                if (recencyDays != null && WebSearchEngineAdapter.forTool(selected[index].realToolName, selected[index].tool.definition)?.approximateRecency == true) put("recencyFilter", "approximate_upstream_range; publication dates may be unknown")
                 put("outputBudgetExhausted", response.result.outputBudgetExhausted)
                 put("toolCallBudgetExhausted", response.result.toolCallBudgetExhausted)
             }
@@ -329,7 +334,7 @@ class MultiEngineSearchTool(
                     put("contentMode", policy.contentMode.name.lowercase())
                     put("degradedContentChecking", merged.degradedContentChecking)
                     put("returnedCount", merged.sources.size)
-                    put("partial", allAttempts.any { it.result.isError || it.result.outputBudgetExhausted || it.result.toolCallBudgetExhausted })
+                    put("partial", allAttempts.any { it.result.isError || it.outcome == "partial_success" || it.result.outputBudgetExhausted || it.result.toolCallBudgetExhausted })
                     put("searchDurationMs", searchDuration)
                     put("crawlDurationMs", crawlDuration)
                 }
@@ -375,11 +380,18 @@ class MultiEngineSearchTool(
             }
         )
     }
+    private fun providerPayload(result: AgentToolResult) = searchProviderPayload(resultPayload(result))
     private fun resultSources(result: AgentToolResult) = extractSearchSources(resultPayload(result))
 
     private fun searchEvidenceOutcome(result: AgentToolResult): String {
         val sources = resultSources(result)
-        if (sources.isNotEmpty()) return if (sources.any { SearchUrlIdentity.parse((it["url"] as? JsonPrimitive)?.contentOrNull.orEmpty()) != null }) "success" else "malformed_response"
+        if (sources.isNotEmpty()) {
+            return if (sources.any { SearchUrlIdentity.parse((it["url"] as? JsonPrimitive)?.contentOrNull.orEmpty()) != null }) {
+                if ((providerPayload(result)?.get("errors") as? JsonObject)?.isNotEmpty() == true) "partial_success" else "success"
+            } else {
+                "malformed_response"
+            }
+        }
         val text = (result.content as? ToolResultContent.Text)?.text?.trim()
         if (text != null && (text.isEmpty() || (text.first() in setOf('{', '[') && runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) }.isFailure && (resultPayload(result) as? JsonArray)?.isEmpty() == true))) return "malformed_response"
         if (text != null && text.firstOrNull() !in setOf('{', '[')) return "unstructured"

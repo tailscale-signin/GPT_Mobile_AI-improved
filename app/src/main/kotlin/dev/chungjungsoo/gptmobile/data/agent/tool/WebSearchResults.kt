@@ -19,6 +19,19 @@ internal fun parseSearchPayload(text: String): JsonElement {
     return JsonArray(jsonLines + labeledSearchSources(text))
 }
 
+/** Preserve provider diagnostics through the MCP text/structured envelope. */
+internal fun searchProviderPayload(value: JsonElement?, depth: Int = 0): JsonObject? {
+    if (depth > 8) return null
+    return when (value) {
+        is JsonObject -> searchProviderPayload(value["structuredContent"], depth + 1)
+            ?: value.takeIf { it["results"] is JsonArray || it["sources"] is JsonArray }
+            ?: listOf("result", "data", "text", "content").firstNotNullOfOrNull { searchProviderPayload(value[it], depth + 1) }
+        is JsonArray -> value.firstNotNullOfOrNull { searchProviderPayload(it, depth + 1) }
+        is JsonPrimitive -> if (value.isString) runCatching { Json.parseToJsonElement(value.content) }.getOrNull()?.let { searchProviderPayload(it, depth + 1) } else null
+        else -> null
+    }
+}
+
 internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<JsonObject> {
     if (depth > 8) return emptyList()
     return when (value) {
@@ -33,10 +46,10 @@ internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<Jso
                         put("title", value.stringValue("title", "name") ?: url)
                         val highlights = (value["highlights"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.joinToString("\n")
                         put("snippet", value.stringValue("snippet", "description", "content", "text", "raw_content") ?: highlights.orEmpty())
-                        value.stringValue("publishedDate", "published_date", "date")?.let { put("publishedDate", it) }
+                        value.stringValue("publishedDate", "published_date", "published_at", "date")?.let { put("publishedDate", it) }
                         value.stringValue("engine")?.let { put("engine", it) }
                         (value["engines"] as? JsonArray)?.let { put("engines", it) }
-                        for (key in listOf("similarSources", "similarSourceCount", "publisher", "language")) value[key]?.let { put(key, it) }
+                        for (key in listOf("similarSources", "similarSourceCount", "publisher", "language", "date_source", "published_age", "retrieved_at")) value[key]?.let { put(key, it) }
                     }
                 )
             } else {

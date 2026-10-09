@@ -89,13 +89,15 @@ object ToolServiceCatalog {
 
     private fun remoteProvider(connection: ToolConnection): String? {
         val host = runCatching { URI(connection.endpointUrl.orEmpty()).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
-        if (host == "api.githubcopilot.com") return "github"
+        if (host == "api.githubcopilot.com" || host == "gitmcp.io" || host.endsWith(".gitmcp.io")) return "github"
         if (host == "mapstools.googleapis.com") return "google"
+        if (connection.alias == "gitmcp_docs") return "github"
+        if (connection.alias == "free_search_mcp") return "free_search"
         val names = "${connection.name} ${connection.alias}".lowercase(Locale.ROOT)
         if (host == "mcp.openbnb.ai" || Regex("\\b(airbnb|openbnb)\\b").containsMatchIn(names)) return "airbnb"
         if (Regex("\\b(news|hacker_news|google_news|news_bundle)\\b").containsMatchIn(names)) return "news"
         if (names.contains("jannafta") || names.contains("jan nafta")) return "amazon"
-        val providers = listOf("github", "amazon", "searxng", "youtube", "openstreetmap", "brave", "exa", "firecrawl", "perplexity", "google", "slack", "linear", "sentry", "atlassian", "cloudflare", "stripe", "supabase", "tavily", "context7", "deepwiki", "huggingface", "notion", "mem0", "supermemory", "tomtom", "foursquare", "ticketmaster", "geoapify", "yelp", "mapbox", "airtable", "asana", "vercel", "netlify", "neon", "prisma", "semgrep", "jina", "todoist", "microsoft", "excalidraw", "agentset", "dbhub", "chat2db")
+        val providers = listOf("free_search", "github", "amazon", "searxng", "youtube", "openstreetmap", "brave", "exa", "firecrawl", "perplexity", "google", "slack", "linear", "sentry", "atlassian", "cloudflare", "stripe", "supabase", "tavily", "context7", "deepwiki", "huggingface", "notion", "mem0", "supermemory", "tomtom", "foursquare", "ticketmaster", "geoapify", "yelp", "mapbox", "airtable", "asana", "vercel", "netlify", "neon", "prisma", "semgrep", "jina", "todoist", "microsoft", "excalidraw", "agentset", "dbhub", "chat2db")
         if (listOf("openstreetmap", "nominatim", "overpass").any { Regex("\\b$it\\b").containsMatchIn(names) || host.contains(it) }) return "openstreetmap"
         return providers.firstOrNull { provider ->
             host == "$provider.com" ||
@@ -113,6 +115,7 @@ object ToolServiceCatalog {
         "toronto" -> "Toronto Open Data"
         "foursquare" -> "Foursquare"
         "github" -> "GitHub"
+        "free_search" -> "Free Search"
         "amazon" -> "Amazon Search"
         "refuge" -> "REFUGE Restrooms"
         "openrouteservice" -> "OpenRouteService"

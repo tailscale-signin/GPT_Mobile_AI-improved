@@ -112,6 +112,25 @@ typealias McpServerPreset = McpPreset
 object McpPresetCatalog {
     val presets = LocalMcpPresets.presets + listOf(
         McpPreset(
+            id = "free-search-mcp", name = "Free Search", description = "Keyless multi-engine search and page reading through your computer.",
+            category = McpCategory.SEARCH, commandOrUrl = "", alias = "free_search_mcp", iconName = "search",
+            author = "sweetcornna", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE,
+            requiredFields = listOf("Reachable research bridge /mcp endpoint", "Bridge bearer token"),
+            webSearchToolNames = listOf("search", "free_search__search"),
+            toolCapabilities = listOf("Multi-engine web search", "Page and document reading", "Host-side FTS5 cache"),
+            websiteUrl = "https://github.com/sweetcornna/free-search-mcp",
+            setupInstructions = "Run the pinned free-search configuration in mcp/research on your computer. Enter the authenticated bridge /mcp URL and its bearer token; no search API key is needed. Discover tools and select free_search__search in your AI profile to include it in web_search. Fetch and read_doc are optional readers. Python, Chromium and cache files stay on the host."
+        ),
+        McpPreset(
+            id = "gitmcp-docs", name = "GitHub · Public Docs", description = "Public repository documentation and code search with GitMCP.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "", alias = "gitmcp_docs", iconName = "github",
+            author = "idosal", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE,
+            requiredFields = listOf("Reachable GitMCP bridge /mcp endpoint", "Bridge bearer token"),
+            toolCapabilities = listOf("Fetch public repository documentation", "Search documentation", "Search public code"),
+            websiteUrl = "https://github.com/idosal/git-mcp",
+            setupInstructions = "Run the GitMCP configuration in mcp/research on your computer to convert legacy SSE into authenticated Streamable HTTP. Enter the bridge /mcp endpoint and its bearer token; no GitHub token is sent to GitMCP. Discover tools, then select the generic documentation/code tools for your AI profile. GitMCP joins the GitHub plugin controls. Native GitHub handles private repositories, branches, issues, PRs and writes. GitMCP evidence is public, remote and not pinned to your selected branch; use repo_docs/read_code to verify against a commit."
+        ),
+        McpPreset(
             id = "searxng-mcp", name = "SearXNG · Private Search", description = "Search through your self-hosted SearXNG instance.",
             category = McpCategory.SEARCH, commandOrUrl = "", alias = "searxng_mcp", iconName = "search",
             author = "ihor-sokoliuk", suggestedAuthType = "BEARER",

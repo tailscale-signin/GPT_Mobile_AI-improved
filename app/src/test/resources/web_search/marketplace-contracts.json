@@ -461,5 +461,197 @@
     "response": "{\"results\": [{\"title\": \"SearXNG\", \"url\": \"https://example.org/searxng\", \"content\": \"SearXNG snippet\", \"engines\": [\"google\", \"duckduckgo\"], \"publishedDate\": \"2026-07-31\"}]}",
     "url": "https://example.org/searxng",
     "unsupportedRecency": false
+  },
+  {
+    "name": "search",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "engines": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "use_cache": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_age_hours": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "day",
+                "week",
+                "month",
+                "year"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "json"
+          ],
+          "default": "markdown"
+        },
+        "include_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "expectedArguments": {
+      "query": "local model speed",
+      "max_results": 2,
+      "include_domains": [
+        "example.org"
+      ],
+      "freshness": "week",
+      "format": "json",
+      "use_cache": true,
+      "max_age_hours": 0.25
+    },
+    "response": "{\"results\": [{\"title\": \"Free search result\", \"url\": \"https://example.org/free-search\", \"snippet\": \"Free Search snippet\", \"engines\": [\"duckduckgo\", \"bing\"], \"date_source\": \"none\"}], \"cached\": true, \"retrieved_at\": \"2026-08-01T11:59:00Z\", \"errors\": {\"mojeek\": \"captcha\"}}",
+    "url": "https://example.org/free-search",
+    "unsupportedRecency": false
+  },
+  {
+    "name": "free_search__search",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "engines": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "use_cache": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_age_hours": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "day",
+                "week",
+                "month",
+                "year"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "json"
+          ],
+          "default": "markdown"
+        },
+        "include_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "expectedArguments": {
+      "query": "local model speed",
+      "max_results": 2,
+      "include_domains": [
+        "example.org"
+      ],
+      "freshness": "week",
+      "format": "json",
+      "use_cache": true,
+      "max_age_hours": 0.25
+    },
+    "response": "{\"results\": [{\"title\": \"Free search result\", \"url\": \"https://example.org/free-search\", \"snippet\": \"Free Search snippet\", \"engines\": [\"duckduckgo\", \"bing\"], \"date_source\": \"none\"}], \"cached\": true, \"retrieved_at\": \"2026-08-01T11:59:00Z\", \"errors\": {\"mojeek\": \"captcha\"}}",
+    "url": "https://example.org/free-search",
+    "unsupportedRecency": false
   }
 ]

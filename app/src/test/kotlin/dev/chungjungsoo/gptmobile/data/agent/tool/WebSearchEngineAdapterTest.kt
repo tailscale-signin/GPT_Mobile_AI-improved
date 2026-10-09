@@ -85,6 +85,37 @@ class WebSearchEngineAdapterTest {
     }
 
     @Test
+    fun `free search uses structured output a fresh cache window and honest time range bounds`() {
+        val fixture = marketplaceSearchFixtures().first { it["name"] == JsonPrimitive("free_search__search") }
+        val adapter = requireNotNull(WebSearchEngineAdapter.forTool("free_search__search", AgentToolDefinition("free_search__search", "Web search", fixture["schema"]!!.jsonObject)))
+        for ((days, expected) in listOf(1 to "day", 2 to "week", 7 to "week", 14 to "month", 60 to "year", 365 to "year")) {
+            val args = adapter.arguments(
+                buildJsonObject {
+                    put("query", "test")
+                    put("recencyDays", days)
+                },
+                Clock.systemUTC()
+            )
+            assertEquals(JsonPrimitive(expected), args["freshness"])
+            assertEquals(JsonPrimitive("json"), args["format"])
+            assertEquals(JsonPrimitive(0.25), args["max_age_hours"])
+            assertFalse(args.containsKey("engines"))
+        }
+        assertFalse(adapter.supportsRecencyFor(400))
+        assertNull(
+            adapter.arguments(
+                buildJsonObject {
+                    put("query", "test")
+                    put("recencyDays", 400)
+                },
+                Clock.systemUTC()
+            )["freshness"]
+        )
+        val privateSearch = AgentToolDefinition("search", "Search private records", Json.parseToJsonElement("""{"properties":{"query":{"type":"string"}},"required":["query"]}""").jsonObject)
+        assertNull(WebSearchEngineAdapter.forTool("search", privateSearch))
+    }
+
+    @Test
     fun `string arrays q aliases and older Firecrawl source objects are supported`() {
         val request = buildJsonObject { put("query", "Compose") }
         for ((name, schema, expected) in listOf(

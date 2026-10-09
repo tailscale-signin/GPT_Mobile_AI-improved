@@ -269,7 +269,7 @@ class ToolConnectionsViewModel @Inject constructor(
                     credential = credentialBytes,
                     clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
                 )
-                if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts")) {
+                if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
                     pluginMutex.lock()
                     try {
                         val latest = settingRepository.getFeatureSettings()

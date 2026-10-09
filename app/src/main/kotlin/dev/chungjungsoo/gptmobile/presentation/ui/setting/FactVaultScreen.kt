@@ -69,6 +69,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
+    val indexWarning by viewModel.indexWarning.collectAsStateWithLifecycle()
     val semanticStatus by viewModel.semanticStatus.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf("Memories") }
     var filter by rememberSaveable { mutableStateOf("All") }
@@ -134,6 +135,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 }
             }
             status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) } }
+            indexWarning?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } }
             when (tab) {
                 "Topics" -> {
                     item { SettingsHero("ON DEVICE", "Recurring interests", "Topics become memories after ${settings.topicRepetitions} different messages.") }
@@ -184,6 +186,19 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                 Text(if (entry.fact.relation.relationType == "REMEMBERS" || entry.source == "local_model_observation") entry.fact.target.name else "${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.titleMedium)
                                 Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 Text("${entry.scope} · ${entry.occurrences} supporting messages · ${(entry.confidence * 100).toInt()}% extraction confidence", style = MaterialTheme.typography.labelSmall)
+                                if (entry.pendingReplacements.isNotEmpty()) {
+                                    Text("Change needs your review · existing memory stays active", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                                    entry.pendingReplacements.keys.forEach { oldId ->
+                                        vault.facts.firstOrNull { it.id == oldId }?.let { old ->
+                                            Text("Existing: ${old.fact.target.name}", style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                    Row {
+                                        TextButton(onClick = { viewModel.setFactEnabled(entry.id, true) }, enabled = !busy) { Text("Replace existing") }
+                                        TextButton(onClick = { viewModel.keepBoth(entry.id) }, enabled = !busy) { Text("Keep both") }
+                                        TextButton(onClick = { viewModel.delete(entry.id) }, enabled = !busy) { Text("Keep existing") }
+                                    }
+                                }
                                 entry.supersededBy?.let { replacement ->
                                     Text("Replaced by a newer memory: ${vault.facts.firstOrNull { it.id == replacement }?.fact?.target?.name ?: "unavailable"}", style = MaterialTheme.typography.bodySmall)
                                 }
@@ -200,7 +215,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                 if (entry.source == "recurring_topic") TextButton(onClick = { deleting = entry.id }) { Text("Wrong Topic · Forget") }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     androidx.compose.material3.Checkbox(entry.id in selectedMemories, { selectedMemories = if (it) selectedMemories + entry.id else selectedMemories - entry.id }, enabled = !busy)
-                                    Switch(entry.enabled, { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Recall this memory" })
+                                    Switch(entry.enabled, { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy && entry.pendingReplacements.isEmpty(), modifier = Modifier.semantics { contentDescription = "Recall this memory" })
                                     TextButton(onClick = {
                                         editing = entry
                                         draft = entry.fact.target.name

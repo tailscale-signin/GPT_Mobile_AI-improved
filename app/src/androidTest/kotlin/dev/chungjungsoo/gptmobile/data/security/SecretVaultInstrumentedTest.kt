@@ -80,13 +80,13 @@ class SecretVaultInstrumentedTest {
     }
 
     @Test
-    fun missingKeystoreKey_discardsIrrecoverableRecord() = runBlocking {
+    fun missingKeystoreKey_preservesEncryptedRecord() = runBlocking {
         val secretRef = "profile_missing_key"
         vault.put(secretRef, "secret".encodeToByteArray())
         KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(keyAlias)
 
-        assertNull(vault.read(secretRef))
-        assertFalse(File(context.noBackupFilesDir, "$directoryName/$secretRef.vault").exists())
+        assertFails<SecretVaultException> { vault.read(secretRef) }
+        assertTrue(File(context.noBackupFilesDir, "$directoryName/$secretRef.vault").exists())
     }
 
     private suspend inline fun <reified T : Throwable> assertFails(crossinline block: suspend () -> Unit) {

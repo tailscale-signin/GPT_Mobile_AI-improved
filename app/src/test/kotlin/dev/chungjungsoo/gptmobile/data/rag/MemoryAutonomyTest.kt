@@ -135,7 +135,16 @@ class MemoryAutonomyTest {
         val repository = repository()
         repository.prepareTurn("I live in Toronto", 1, 1, isLocal = true)
         repository.prepareTurn("I live in Montreal", 1, 2, isLocal = true)
+        repository.reviewFacts(setOf(repository.state.value.facts.single { !it.enabled }.id), true)
+        val originalEpisodes = repository.state.value.facts.filter { it.fact.target.name == "Toronto" }
+        assertEquals("Before recurrence: ${repository.state.value.facts.map { Triple(it.fact.target.name, it.enabled, it.pendingReplacements.size) }}", 1, originalEpisodes.size)
+        val firstTorontoId = originalEpisodes.single().id
         repository.prepareTurn("I live in Toronto", 1, 3, isLocal = true)
+        val proposals = repository.state.value.facts.filter { it.pendingReplacements.isNotEmpty() }
+        assertEquals("Recurrence proposals: ${repository.state.value.facts.map { Triple(it.fact.target.name, it.enabled, it.pendingReplacements.size) }}", 1, proposals.size)
+        val returnProposal = proposals.single()
+        assertTrue(returnProposal.id != firstTorontoId)
+        repository.reviewFacts(setOf(returnProposal.id), true)
         assertEquals(listOf("Toronto"), repository.state.value.facts.filter { it.enabled }.map { it.fact.target.name })
         repository.prepareTurn("I live in Montreal", 1, 2, isLocal = true)
         assertEquals(listOf("Toronto"), repository.state.value.facts.filter { it.enabled }.map { it.fact.target.name })

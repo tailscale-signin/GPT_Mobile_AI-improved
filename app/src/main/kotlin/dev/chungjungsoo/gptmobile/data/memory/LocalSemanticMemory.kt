@@ -158,6 +158,18 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             .associate { it.key.removePrefix("doc:") to it.value }
     }
 
+    /** Fact maintenance must never remove document RAG vectors from this shared index. */
+    suspend fun clearFacts() = withContext(ownerDispatcher) {
+        mutex.withLock {
+            if (store != null || File(context.noBackupFilesDir, "memory-vectors-use-qa-v1").exists()) {
+                val vectors = box()
+                vectors.remove(*vectors.all.filterNot { it.factId.startsWith("doc:") }.map { it.id }.toLongArray())
+            }
+            retryAfter = 0L
+            _status.value = SemanticMemoryStatus()
+        }
+    }
+
     suspend fun clear() = withContext(ownerDispatcher) {
         mutex.withLock {
             // Deletion failures must be visible; never report forgotten vectors as removed.

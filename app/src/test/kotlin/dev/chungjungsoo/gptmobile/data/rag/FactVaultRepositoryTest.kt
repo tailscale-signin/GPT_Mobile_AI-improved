@@ -209,14 +209,53 @@ class FactVaultRepositoryTest {
     }
 
     @Test
-    fun `multiword location correction deactivates the previous location`() = runBlocking {
+    fun `multiword location correction preserves old value until approval`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.setEnabled(true)
         repository.prepareTurn("I live in New York", 1, 1, isLocal = true)
         assertTrue(repository.state.value.facts.any { it.fact.target.name == "New York" })
         repository.prepareTurn("I live in San Francisco", 1, 2, isLocal = true)
+        val proposal = repository.state.value.facts.single { it.fact.target.name == "San Francisco" }
+        assertFalse(proposal.enabled)
+        assertTrue(repository.state.value.facts.single { it.fact.target.name == "New York" }.enabled)
+        assertTrue(proposal.pendingReplacements.isNotEmpty())
+        repository.setFactEnabled(proposal.id, true)
         assertTrue(repository.state.value.facts.any { it.fact.target.name == "San Francisco" && it.enabled })
         assertFalse(repository.state.value.facts.any { it.fact.target.name == "New York" && it.enabled })
+    }
+
+    @Test
+    fun `pending conflict survives process restart and cannot overwrite a changed original`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I live in Toronto", 1, 1, isLocal = true)
+        repository.prepareTurn("I live in Montreal", 1, 2, isLocal = true)
+        val original = repository.state.value.facts.single { it.enabled }
+        val proposal = repository.state.value.facts.single { !it.enabled }
+        val restarted = FactVaultRepository(storage, KnowledgeGraphEngine())
+        restarted.load()
+        assertEquals(proposal.pendingReplacements, restarted.state.value.facts.single { it.id == proposal.id }.pendingReplacements)
+        restarted.pin(original.id, true)
+        var rejected = false
+        try {
+            restarted.setFactEnabled(proposal.id, true)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertTrue(restarted.state.value.facts.single { it.id == original.id }.enabled)
+        assertFalse(restarted.state.value.facts.single { it.id == proposal.id }.enabled)
+    }
+
+    @Test
+    fun `keep both leaves existing assertion intact`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I prefer coffee", 1, 1, isLocal = true)
+        repository.prepareTurn("I avoid coffee", 1, 2, isLocal = true)
+        repository.keepBoth(repository.state.value.facts.single { !it.enabled }.id)
+        assertEquals(2, repository.state.value.facts.count { it.enabled && it.supersededBy == null })
     }
 
     @Test

@@ -36,6 +36,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.amazon.AmazonWatchEntity::class,
         dev.chungjungsoo.gptmobile.data.amazon.AmazonCheckEventEntity::class,
         dev.chungjungsoo.gptmobile.data.amazon.AmazonBudgetEntity::class,
+        dev.chungjungsoo.gptmobile.data.chat.ConversationFolder::class,
+        dev.chungjungsoo.gptmobile.data.chat.ConversationFolderMember::class,
+        dev.chungjungsoo.gptmobile.data.memory.v2.MemoryFactEntity::class,
+        dev.chungjungsoo.gptmobile.data.memory.v2.MemoryFactLinkEntity::class,
+        dev.chungjungsoo.gptmobile.data.memory.v2.MemoryPendingChangeEntity::class,
+        dev.chungjungsoo.gptmobile.data.memory.v2.MemoryStoreStateEntity::class,
         ChatRoomV2::class,
         dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord::class,
         MessageV2::class,
@@ -60,7 +66,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 34,
+    version = 35,
     exportSchema = true
 )
 @TypeConverters(
@@ -71,6 +77,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
+    abstract fun conversationFolderDao(): dev.chungjungsoo.gptmobile.data.chat.ConversationFolderDao
+    abstract fun memoryV2Dao(): dev.chungjungsoo.gptmobile.data.memory.v2.MemoryDao
     abstract fun amazonDao(): dev.chungjungsoo.gptmobile.data.amazon.AmazonDao
     abstract fun workspaceDao(): dev.chungjungsoo.gptmobile.data.workspace.WorkspaceDao
     abstract fun memoryGraphDao(): dev.chungjungsoo.gptmobile.data.memory.MemoryGraphDao

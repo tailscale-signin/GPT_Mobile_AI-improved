@@ -213,6 +213,15 @@ fun HomeScreen(
     var selectedDetailMessage by remember { mutableStateOf<MessageV2?>(null) }
     var showAddGroupDialog by remember { mutableStateOf(false) }
     var chatPendingDelete by remember { mutableStateOf<ChatRoomV2?>(null) }
+    val conversationFolders by homeViewModel.folders.collectAsStateWithLifecycle()
+    val selectedFolderId by homeViewModel.selectedFolderId.collectAsStateWithLifecycle()
+    val folderError by homeViewModel.folderError.collectAsStateWithLifecycle()
+    var creatingFolderForChat by remember { mutableStateOf<Int?>(null) }
+    var editingFolder by remember { mutableStateOf<dev.chungjungsoo.gptmobile.data.chat.ConversationFolder?>(null) }
+    val folderBounds = remember { mutableStateMapOf<String, Rect>() }
+    var pinBounds by remember { mutableStateOf<Rect?>(null) }
+    var newFolderBounds by remember { mutableStateOf<Rect?>(null) }
+    var draggedPointerX by remember { mutableFloatStateOf(0f) }
     val conversationBounds = remember { mutableStateMapOf<Int, Rect>() }
     val currentChats by rememberUpdatedState(chatListState.chats)
     val windowHeight = LocalWindowInfo.current.containerSize.height
@@ -222,31 +231,37 @@ fun HomeScreen(
     var draggedPointerY by remember { mutableFloatStateOf(0f) }
     var draggedDistanceY by remember { mutableFloatStateOf(0f) }
     val draggedConversation = chatListState.chats.firstOrNull { it.id == draggedConversationId }
-    val pinDropTarget = draggedConversation?.let { room ->
-        conversationPinDrop(
-            isPinned = room.isFavorite,
-            dropY = draggedPointerY,
-            windowHeight = windowHeight,
-            firstConversationTop = (conversationBounds.values.minOfOrNull { it.top } ?: conversationListTop).coerceAtLeast(conversationListTop),
-            pinTargetHeight = pinTargetHeight,
-            pinnedCenters = chatListState.chats.filter { it.isFavorite && it.id != room.id }.mapNotNull { pin ->
-                conversationBounds[pin.id]?.let { pin.id to it.center.y }
-            },
-            verticalDrag = draggedDistanceY
-        )
-    }
 
+    val dragPoint = Offset(draggedPointerX, draggedPointerY)
+    val hoveredFolder = conversationFolders.firstOrNull { folderBounds[it.id]?.contains(dragPoint) == true }?.id
+    LaunchedEffect(folderError) {
+        folderError?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            homeViewModel.clearFolderError()
+        }
+    }
+    LaunchedEffect(draggedConversationId) {
+        if (draggedConversationId != null) {
+            while (draggedConversationId != null) {
+                if (draggedPointerY < conversationListTop + 140 && listState.canScrollBackward) {
+                    listState.scroll { scrollBy(-16f) }
+                }
+                kotlinx.coroutines.delay(16)
+            }
+        }
+    }
     val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
     val backFromHome: () -> Unit = {
         backFade.fade {
             when {
                 chatListState.isSelectionMode -> homeViewModel.disableSelectionMode()
                 chatListState.isSearchMode -> homeViewModel.disableSearchMode()
+                selectedFolderId != null -> homeViewModel.selectFolder(null)
                 currentTab != HomeTab.CHATS -> homeViewModel.selectTab(HomeTab.CHATS)
             }
         }
     }
-    BackHandler(enabled = chatListState.isSelectionMode || chatListState.isSearchMode || currentTab != HomeTab.CHATS, onBack = backFromHome)
+    BackHandler(enabled = chatListState.isSelectionMode || chatListState.isSearchMode || selectedFolderId != null || currentTab != HomeTab.CHATS, onBack = backFromHome)
 
     /* State changes reached by the toolbar use the same back transition. */
     val closeSelection: () -> Unit = { backFade.fade(homeViewModel::disableSelectionMode) }
@@ -375,8 +390,15 @@ fun HomeScreen(
                             state = listState
                         ) {
                             if (!chatListState.isSearchMode) {
-                                item(key = "home-chats-title", contentType = "header") {
-                                    ChatsTitle(scrollBehavior)
+                                stickyHeader(key = "home-chats-title", contentType = "header") {
+                                    ConversationFolderStrip(
+                                        folders = conversationFolders,
+                                        selectedId = selectedFolderId,
+                                        hoveredId = hoveredFolder.takeIf { draggedConversationId != null },
+                                        onSelect = homeViewModel::selectFolder,
+                                        onEdit = { editingFolder = it },
+                                        onBounds = { id, bounds -> folderBounds[id] = bounds }
+                                    )
                                 }
                             }
                             if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
@@ -508,6 +530,7 @@ fun HomeScreen(
                                                         dragging = true
                                                         draggedConversationId = chatRoom.id
                                                         draggedDistanceY = 0f
+                                                        draggedPointerX = (conversationBounds[chatRoom.id]?.left ?: 0f) + position.x
                                                         draggedPointerY = (conversationBounds[chatRoom.id]?.top ?: 0f) + position.y
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     },
@@ -515,6 +538,7 @@ fun HomeScreen(
                                                         change.consume()
                                                         dragOffset += amount
                                                         draggedDistanceY = dragOffset.y
+                                                        draggedPointerX += amount.x
                                                         draggedPointerY += amount.y
                                                     },
                                                     onDragCancel = {
@@ -534,19 +558,27 @@ fun HomeScreen(
                                                             centers,
                                                             dragOffset.y
                                                         )
-                                                        if (target != null) {
-                                                            val firstTop = (conversationBounds.values.minOfOrNull { it.top } ?: conversationListTop).coerceAtLeast(conversationListTop)
-                                                            val globalTarget = when {
-                                                                target < 0 -> -1
-                                                                draggedPointerY <= firstTop + pinTargetHeight -> 0
-                                                                else -> centers.sortedBy { it.second }.firstOrNull { it.second >= draggedPointerY }
-                                                                    ?.let { next -> pins.indexOfFirst { it.id == next.first } }
-                                                                    ?: centers.maxByOrNull { it.second }?.let { previous -> pins.indexOfFirst { it.id == previous.first } + 1 }
-                                                                    ?: 0
+                                                        val point = Offset(draggedPointerX, draggedPointerY)
+                                                        val folderTarget = conversationFolders.firstOrNull { folderBounds[it.id]?.contains(point) == true }
+                                                        when {
+                                                            newFolderBounds?.contains(point) == true -> creatingFolderForChat = chatRoom.id
+                                                            pinBounds?.contains(point) == true -> homeViewModel.moveConversationPin(chatRoom.id, 0)
+                                                            folderTarget != null -> homeViewModel.moveToFolder(chatRoom.id, folderTarget.id)
+                                                            folderBounds[""]?.contains(point) == true -> homeViewModel.moveToFolder(chatRoom.id, null)
+                                                            target != null -> {
+                                                                val firstTop = (conversationBounds.values.minOfOrNull { it.top } ?: conversationListTop).coerceAtLeast(conversationListTop)
+                                                                val globalTarget = when {
+                                                                    target < 0 -> -1
+                                                                    draggedPointerY <= firstTop + pinTargetHeight -> 0
+                                                                    else -> centers.sortedBy { it.second }.firstOrNull { it.second >= draggedPointerY }
+                                                                        ?.let { next -> pins.indexOfFirst { it.id == next.first } }
+                                                                        ?: centers.maxByOrNull { it.second }?.let { previous -> pins.indexOfFirst { it.id == previous.first } + 1 }
+                                                                        ?: 0
+                                                                }
+                                                                homeViewModel.moveConversationPin(chatRoom.id, globalTarget)
+                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                Toast.makeText(context, if (target < 0) R.string.chat_unpinned else R.string.chat_pinned, Toast.LENGTH_SHORT).show()
                                                             }
-                                                            homeViewModel.moveConversationPin(chatRoom.id, globalTarget)
-                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                            Toast.makeText(context, if (target < 0) R.string.chat_unpinned else R.string.chat_pinned, Toast.LENGTH_SHORT).show()
                                                         }
                                                         dragging = false
                                                         dragOffset = Offset.Zero
@@ -593,11 +625,38 @@ fun HomeScreen(
                     }
                 }
             }
-            ConversationPinFeedback(
+            ConversationOrganizationTargets(
                 visible = draggedConversation != null,
-                isPinned = draggedConversation?.isFavorite == true,
-                dropTarget = pinDropTarget,
-                modifier = Modifier.fillMaxSize()
+                pinHovered = pinBounds?.contains(dragPoint) == true,
+                folderHovered = newFolderBounds?.contains(dragPoint) == true,
+                onPinBounds = { pinBounds = it },
+                onFolderBounds = { newFolderBounds = it },
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+        }
+
+        creatingFolderForChat?.let { chatId ->
+            ConversationFolderEditor(
+                folder = null,
+                onDismiss = { creatingFolderForChat = null },
+                onSave = { name, color ->
+                    homeViewModel.createFolder(chatId, name, color)
+                    creatingFolderForChat = null
+                }
+            )
+        }
+        editingFolder?.let { folder ->
+            ConversationFolderEditor(
+                folder = folder,
+                onDismiss = { editingFolder = null },
+                onSave = { name, color ->
+                    homeViewModel.editFolder(folder.id, name, color)
+                    editingFolder = null
+                },
+                onDelete = {
+                    homeViewModel.deleteFolder(folder.id)
+                    editingFolder = null
+                }
             )
         }
 

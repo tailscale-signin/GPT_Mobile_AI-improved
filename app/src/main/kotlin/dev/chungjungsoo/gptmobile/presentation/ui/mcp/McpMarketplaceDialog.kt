@@ -40,7 +40,9 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Newspaper
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
@@ -138,6 +140,8 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
     val icon = when {
         iconName in setOf("location", "refuge", "toronto", "arcgis", "tomtom", "openrouteservice") -> Icons.Rounded.TravelExplore
         iconName == "folder" -> Icons.Rounded.Folder
+        iconName == "news" -> Icons.Rounded.Newspaper
+        iconName == "airbnb" -> Icons.Rounded.Home
         category == McpCategory.SEARCH -> Icons.Rounded.Search
         category == McpCategory.DEVELOPMENT -> Icons.Rounded.Code
         category == McpCategory.DATABASE -> Icons.Rounded.Dns
@@ -670,7 +674,7 @@ fun McpPresetConfigureDialog(
         endpoint.trim()
     }
     val validEndpoint = ToolConnectionsViewModel.isValidMcpEndpoint(actualEndpoint, cleartext) && preset.hasRequiredEndpointParameters(actualEndpoint)
-    val needsKey = auth == ToolConnectionAuthType.BEARER
+    val needsKey = auth in setOf(ToolConnectionAuthType.BEARER, ToolConnectionAuthType.API_KEY)
     val validKey = !needsKey || NativeMarketplaceCatalog.validKey(credential.trim())
     val requiredColors = OutlinedTextFieldDefaults.colors(errorBorderColor = MaterialTheme.colorScheme.error, errorLabelColor = MaterialTheme.colorScheme.error, errorSupportingTextColor = MaterialTheme.colorScheme.error, errorCursorColor = MaterialTheme.colorScheme.error)
     val canSave = name.isNotBlank() && validAlias && validEndpoint && validKey
@@ -723,10 +727,11 @@ fun McpPresetConfigureDialog(
                     "Authentication: " + when (auth) {
                         ToolConnectionAuthType.OAUTH -> "Browser sign-in"
                         ToolConnectionAuthType.BEARER -> "Bearer token"
+                        ToolConnectionAuthType.API_KEY -> "API key"
                         else -> "None / endpoint key"
                     },
                     when {
-                        preset.suggestedAuthType == ToolConnectionAuthType.BEARER && preset.requiredFields.isNotEmpty() -> listOf(ToolConnectionAuthType.BEARER)
+                        preset.suggestedAuthType in setOf(ToolConnectionAuthType.BEARER, ToolConnectionAuthType.API_KEY) && preset.requiredFields.isNotEmpty() -> listOf(preset.suggestedAuthType)
                         preset.requiredEndpointQueryParameter != null -> listOf(ToolConnectionAuthType.NONE)
                         else -> listOf(ToolConnectionAuthType.NONE, ToolConnectionAuthType.BEARER, ToolConnectionAuthType.OAUTH)
                     },
@@ -735,6 +740,7 @@ fun McpPresetConfigureDialog(
                         when (it) {
                             ToolConnectionAuthType.OAUTH -> "Browser sign-in (OAuth)"
                             ToolConnectionAuthType.BEARER -> "Bearer / API token"
+                            ToolConnectionAuthType.API_KEY -> "API key"
                             else -> "None / endpoint key"
                         }
                     }

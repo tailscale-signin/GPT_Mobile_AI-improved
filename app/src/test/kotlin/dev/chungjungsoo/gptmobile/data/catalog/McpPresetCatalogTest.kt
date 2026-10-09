@@ -64,7 +64,7 @@ class McpPresetCatalogTest {
         assertTrue(
             McpPresetCatalog.presets.filter { it.isDirectlyInstallable }.all {
                 it.commandOrUrl.startsWith("https://") &&
-                    it.suggestedAuthType in setOf("NONE", "BEARER", "OAUTH") &&
+                    it.suggestedAuthType in setOf("NONE", "BEARER", "OAUTH", "API_KEY") &&
                     it.websiteUrl.startsWith("https://")
             }
         )

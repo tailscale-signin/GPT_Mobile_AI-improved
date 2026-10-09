@@ -53,15 +53,15 @@ class ChatSourcesTest {
     }
 
     @Test
-    fun `tracking fragments and duplicate events collapse without replacing the original link`() {
-        val first = event("""{"results":[{"url":"https://www.example.org/a?utm_source=search&id=7#overview"}]}""")
-        val second = event("""{"results":[{"url":"https://example.org/a?id=7#details","title":"Useful title"}]}""", id = "second")
+    fun `tracking and duplicate events collapse without replacing the original link`() {
+        val first = event("""{"results":[{"url":"https://example.org/a?utm_source=search&id=7"}]}""")
+        val second = event("""{"results":[{"url":"https://example.org/a?id=7","title":"Useful title"}]}""", id = "second")
 
         val result = collectChatSources("[Citation](https://example.org/a?id=7)", listOf(first, first, second))
 
         assertEquals(1, result.sources.size)
         assertEquals("Useful title", result.sources.single().title)
-        assertEquals("https://www.example.org/a?utm_source=search&id=7#overview", result.sources.single().url)
+        assertEquals("https://example.org/a?utm_source=search&id=7", result.sources.single().url)
         assertEquals("example.org/a", result.sources.single().compactLink)
     }
 
@@ -203,6 +203,21 @@ class ChatSourcesTest {
     fun `short engine aliases do not brand arbitrary custom names`() {
         assertNull(chatSearchEngineBrand("Example Search"))
         assertEquals("exa", chatSearchEngineBrand("mcp_exa_search")?.id)
+    }
+
+    @Test fun `restored source groups keep attribution alternate links and answer aliases together`() {
+        val payload = """{"schemaVersion":2,"results":[{"url":"https://example.org/a","title":"Original","engines":["Brave Search","DuckDuckGo"],"similarSources":[{"url":"https://other.example/b","title":"Similar report","engine":"DuckDuckGo","snippet":"Saved alternate evidence","duplicateReason":"similar_content"}]}]}"""
+        val restored = event(ToolResultCheckpoint.encode(payload, "JSON", "Research complete.")).copy(resultType = ToolEventResultType.CHECKPOINT)
+        val result = collectChatSources("[Alternate citation](https://other.example/b)", listOf(restored))
+        assertEquals(1, result.sources.size)
+        assertEquals(listOf("Brave Search", "DuckDuckGo"), result.sources.single().engines)
+        assertEquals("https://other.example/b", result.sources.single().similarSources.single().url)
+        assertEquals("Similar report", result.sources.single().similarSources.single().title)
+    }
+
+    @Test fun `source UI preserves hosts paths query order and fragment routes`() {
+        val urls = listOf("https://example.org/a", "https://www.example.org/a", "https://example.org/a/", "https://example.org/#/one", "https://example.org/#/two", "https://example.org/a?b=1&a=2", "https://example.org/a?a=2&b=1")
+        assertEquals(urls, collectChatSources(urls.joinToString(" "), emptyList()).sources.map { it.url })
     }
 
     private fun event(result: String, id: String = "event", tool: String = "web_search", arguments: String = "{}") = ToolEvent(

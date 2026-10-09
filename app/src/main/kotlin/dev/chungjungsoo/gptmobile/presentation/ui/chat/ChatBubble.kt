@@ -236,6 +236,7 @@ fun OpponentChatBubble(
     toolEvents: List<ToolEvent> = emptyList(),
     locationToolEvents: List<ToolEvent> = toolEvents,
     sourceToolEvents: List<ToolEvent> = toolEvents,
+    sourceProfilesByRun: Map<String, String> = emptyMap(),
     contentIdentity: Any = text,
     canEdit: Boolean = false,
     isFavorite: Boolean = false,
@@ -436,11 +437,19 @@ fun OpponentChatBubble(
                 }
 
                 AmazonProductResults(
-                    toolEvents = toolEvents,
+                    toolEvents = sourceToolEvents,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     ownerProfileUid = agentRun?.profileUid,
+                    profilesByRun = sourceProfilesByRun,
                     conversationId = conversationId,
                     debugMode = debugMode
+                )
+
+                AirbnbListingResults(
+                    events = sourceToolEvents,
+                    owner = agentRun?.profileUid,
+                    profilesByRun = sourceProfilesByRun,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
 
                 LocationToolMapPreview(

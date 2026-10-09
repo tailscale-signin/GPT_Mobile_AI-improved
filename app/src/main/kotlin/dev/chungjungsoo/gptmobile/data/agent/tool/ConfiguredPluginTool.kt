@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
@@ -10,19 +12,38 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 
-internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: PluginExecutionSettings) : AgentTool {
+internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: PluginExecutionSettings) : OwnedAgentTool {
     private val settings = settings.normalized()
-    override val definition = delegate.definition
+    override val definition = delegate.definition.let { original ->
+        val properties = original.inputSchema["properties"] as? JsonObject
+        if (properties == null || !isNamedWebSearch(original.name, original.description)) {
+            original
+        } else {
+            val updated = properties.mapValues { (key, value) ->
+                if (key !in setOf("maxResults", "max_results", "count", "numResults", "num_results", "limit", "num")) {
+                    value
+                } else {
+                    val field = value as? JsonObject ?: return@mapValues value
+                    val minimum = (field["minimum"] as? JsonPrimitive)?.intOrNull ?: 1
+                    val maximum = (field["maximum"] as? JsonPrimitive)?.intOrNull ?: 10
+                    JsonObject(field + ("maximum" to JsonPrimitive(minOf(maximum, maxOf(minimum, settings.searchResults)))))
+                }
+            }
+            original.copy(inputSchema = JsonObject(original.inputSchema + ("properties" to JsonObject(updated))))
+        }
+    }
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val executionOwner = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val properties = definition.inputSchema["properties"] as? JsonObject
-        val countKey = if (isNamedWebSearch(definition.name, definition.description)) {
+        val countKey = if (definition.name == "news" || isNamedWebSearch(definition.name, definition.description)) {
             listOf("maxResults", "max_results", "count", "numResults").firstOrNull { properties?.containsKey(it) == true }
         } else {
             null
         }
-        var bounded = if (countKey != null) JsonObject(arguments + (countKey to JsonPrimitive(minOf((arguments[countKey] as? JsonPrimitive)?.intOrNull ?: settings.searchResults, settings.searchResults)))) else arguments
+        val minimumCount = ((countKey?.let { properties?.get(it) } as? JsonObject)?.get("minimum") as? JsonPrimitive)?.intOrNull ?: 1
+        var bounded = if (countKey != null) JsonObject(arguments + (countKey to JsonPrimitive(maxOf(minimumCount, minOf((arguments[countKey] as? JsonPrimitive)?.intOrNull ?: settings.searchResults, settings.searchResults))))) else arguments
         if (definition.name == "read_url") {
             bounded = JsonObject(bounded + ("includeLinks" to JsonPrimitive(settings.includePageLinks)))
         }
@@ -44,6 +65,19 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
         if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {
             val content = ToolResultContent.Json(AmazonProducts.limitResult(retail, settings.maxOutputCharacters))
             return result.copy(content = content, traceContent = content, retainedContent = result.retainedContent ?: result.content.takeIf { content.value != retail })
+        }
+        if (retail?.get("schema") == JsonPrimitive(dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.SCHEMA)) {
+            if (retail.toString().length <= settings.maxOutputCharacters) return result
+            val listings = dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.normalize(retail).map { it.copy(description = it.description?.take(1200), amenities = it.amenities.take(15), houseRules = it.houseRules.take(10)) }.toMutableList()
+            val count = listings.size
+            fun payload() = JsonObject(dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.json(listings) + mapOf("outputLimited" to JsonPrimitive(true), "omittedListings" to JsonPrimitive(count - listings.size)))
+            var limited = payload()
+            while (limited.toString().length > settings.maxOutputCharacters && listings.isNotEmpty()) {
+                listings.removeAt(listings.lastIndex)
+                limited = payload()
+            }
+            val content = ToolResultContent.Json(limited)
+            return result.copy(content = content, traceContent = content, retainedContent = result.retainedContent ?: result.content)
         }
         val text = when (val content = result.content) {
             is ToolResultContent.Text -> content.text

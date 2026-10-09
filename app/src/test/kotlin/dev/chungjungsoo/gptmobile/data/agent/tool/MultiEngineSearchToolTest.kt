@@ -6,12 +6,14 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.withRunContext
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -66,7 +68,7 @@ class MultiEngineSearchToolTest {
         ) { id, args ->
             AgentToolResult(id, ToolResultContent.Text("Title: Next\nURL: https://example.org/${if (args["page"] == JsonPrimitive(2)) "b" else "a"}\nDescription: Result"), false)
         }
-        val result = MultiEngineSearchTool(listOf(first, next)).execute(
+        val result = MultiEngineSearchTool(listOf(first, next), policy = SearchMergePolicy(fetchLimitPerEngine = 1)).execute(
             "refill",
             buildJsonObject {
                 put("query", "test")
@@ -77,7 +79,8 @@ class MultiEngineSearchToolTest {
     }
 
     @Test fun `URL identity preserves distinct query pages and encoded paths`() {
-        assertEquals(canonicalSearchUrl("https://example.org:443/a?b=2&utm_source=test&a=1#section"), canonicalSearchUrl("https://example.org/a?a=1&b=2"))
+        assertEquals(canonicalSearchUrl("https://example.org:443/a?b=2&utm_source=test&a=1"), canonicalSearchUrl("https://example.org/a?b=2&a=1"))
+        assertFalse(canonicalSearchUrl("https://example.org/a#section") == canonicalSearchUrl("https://example.org/a"))
         assertFalse(canonicalSearchUrl("https://example.org/a?page=1") == canonicalSearchUrl("https://example.org/a?page=2"))
         assertFalse(canonicalSearchUrl("https://example.org/a%2Fb") == canonicalSearchUrl("https://example.org/a/b"))
     }
@@ -167,7 +170,19 @@ class MultiEngineSearchToolTest {
                 override val definition = AgentToolDefinition("mcp__provider__$name", "Web search", fixture.getValue("schema").jsonObject)
                 override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
                     queried += name
-                    assertEquals(name, fixture["expectedArguments"], arguments)
+                    val expected = fixture.getValue("expectedArguments").jsonObject
+                    val properties = fixture.getValue("schema").jsonObject["properties"]!!.jsonObject
+                    val fetched = expected.mapValues { (key, value) ->
+                        if (key in setOf("maxResults", "max_results", "numResults", "num_results", "count", "limit", "num")) {
+                            val field = properties[key] as? JsonObject
+                            val minimum = (field?.get("minimum") as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+                            val maximum = (field?.get("maximum") as? JsonPrimitive)?.content?.toIntOrNull() ?: 10
+                            JsonPrimitive(10.coerceIn(minimum, maximum))
+                        } else {
+                            value
+                        }
+                    }
+                    assertEquals(name, JsonObject(fetched), arguments)
                     return AgentToolResult(callId, ToolResultContent.Text(fixture.getValue("response").jsonPrimitive.content), false)
                 }
             }
@@ -233,6 +248,347 @@ class MultiEngineSearchToolTest {
         assertEquals(2, calls)
     }
 
+    @Test fun `completion speed never changes source ordering or late provenance`() = runBlocking {
+        for (seed in 1..8) {
+            val engines = (0..3).map { owner ->
+                engine("engine-$owner") { id, _ ->
+                    kotlinx.coroutines.delay(((owner * seed + 3) % 7).toLong())
+                    AgentToolResult(
+                        id,
+                        ToolResultContent.Json(
+                            buildJsonObject {
+                                put("results", JsonArray((1..10).map { rank -> buildJsonObject { put("url", "https://example.org/$owner-$rank") } }))
+                            }
+                        ),
+                        false
+                    )
+                }
+            }
+            val result = MultiEngineSearchTool(engines).execute(
+                "ordered-$seed",
+                buildJsonObject {
+                    put("query", "test")
+                    put("totalResults", 20)
+                }
+            )
+            val sources = ((result.content as ToolResultContent.Json).value.jsonObject["results"] as JsonArray)
+            assertEquals((1..5).flatMap { rank -> (0..3).map { owner -> "https://example.org/$owner-$rank" } }, sources.map { it.jsonObject["url"]!!.jsonPrimitive.content })
+        }
+    }
+
+    @Test fun `legacy caps new total quotas and local over-return bounds remain separate`() = runBlocking {
+        val engines = (0..2).map { owner ->
+            engine("owner-$owner") { id, _ ->
+                AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray((1..30).map { rank -> buildJsonObject { put("url", "https://example.org/$owner-$rank") } })) }), false)
+            }
+        }
+        val tool = MultiEngineSearchTool(engines)
+        suspend fun count(args: JsonObject) = ((tool.execute("quota", args).content as ToolResultContent.Json).value.jsonObject["results"] as JsonArray).size
+        assertEquals(
+            3,
+            count(
+                buildJsonObject {
+                    put("query", "test")
+                    put("maxResults", 1)
+                }
+            )
+        )
+        assertEquals(
+            2,
+            count(
+                buildJsonObject {
+                    put("query", "test")
+                    put("totalResults", 2)
+                }
+            )
+        )
+        assertEquals(
+            30,
+            count(
+                buildJsonObject {
+                    put("query", "test")
+                    put("totalResults", 50)
+                }
+            )
+        )
+        val single = MultiEngineSearchTool(engines.take(1)).execute(
+            "single",
+            buildJsonObject {
+                put("query", "test")
+                put("totalResults", 20)
+            }
+        )
+        assertEquals(10, ((single.content as ToolResultContent.Json).value.jsonObject["results"] as JsonArray).size)
+    }
+
+    @Test fun `provider count caps and missing count fields are reflected without invented parameters`() = runBlocking {
+        val capped = engine(
+            "capped",
+            extraProperties = buildJsonObject {
+                put(
+                    "count",
+                    buildJsonObject {
+                        put("type", "integer")
+                        put("maximum", 3)
+                    }
+                )
+            }
+        ) { id, args ->
+            assertEquals(JsonPrimitive(3), args["count"])
+            AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray((1..10).map { buildJsonObject { put("url", "https://example.org/cap-$it") } })) }), false)
+        }
+        val unsupported = engine("unsupported") { id, args ->
+            assertEquals(setOf("query"), args.keys)
+            AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(emptyList())) }), false)
+        }
+        val result = MultiEngineSearchTool(listOf(capped, unsupported)).execute(
+            "caps",
+            buildJsonObject {
+                put("query", "test")
+                put("totalResults", 20)
+            }
+        )
+        val value = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(3, (value["results"] as JsonArray).size)
+        assertEquals(JsonPrimitive(3), (value["engines"] as JsonArray).first().jsonObject["effectiveCount"])
+        assertEquals(JsonPrimitive("empty"), (value["engines"] as JsonArray).last().jsonObject["outcome"])
+    }
+
+    @Test fun `a full target never triggers pagination`() = runBlocking {
+        var calls = 0
+        val source = engine("pages", extraProperties = buildJsonObject { put("page", buildJsonObject { put("type", "integer") }) }) { id, args ->
+            calls++
+            assertFalse(args.containsKey("page"))
+            AgentToolResult(id, ToolResultContent.Text("Title: A\nURL: https://example.org/a"), false)
+        }
+        MultiEngineSearchTool(listOf(source), policy = SearchMergePolicy(fetchLimitPerEngine = 1)).execute(
+            "filled",
+            buildJsonObject {
+                put("query", "test")
+                put("totalResults", 1)
+            }
+        )
+        assertEquals(1, calls)
+    }
+
+    @Test fun `inner refill timeouts preserve initial evidence and status`() = runBlocking {
+        var refillCalls = 0
+        fun paged(name: String) = engine(name, extraProperties = buildJsonObject { put("page", buildJsonObject { put("type", "integer") }) }) { id, args ->
+            if (args.containsKey("page")) {
+                refillCalls++
+                withTimeout(5) { awaitCancellation() }
+            } else {
+                AgentToolResult(id, ToolResultContent.Text("Title: A\nURL: https://example.org/a"), false, toolCallBudgetUsed = 2)
+            }
+        }
+        val result = MultiEngineSearchTool(listOf(paged("one"), paged("two")), policy = SearchMergePolicy(fetchLimitPerEngine = 1)).execute(
+            "refill-timeout",
+            buildJsonObject {
+                put("query", "test")
+                put("maxResults", 1)
+            }
+        )
+        assertFalse(result.isError)
+        assertEquals(2, refillCalls)
+        assertEquals(2, result.toolCallBudgetUsed)
+        val value = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(1, (value["results"] as JsonArray).size)
+        assertTrue((value["engines"] as JsonArray).all { it.jsonObject["refill"]!!.jsonObject["outcome"] == JsonPrimitive("timeout") })
+    }
+
+    @Test fun `refill preserves original and additional shared budget snapshots`() = runBlocking {
+        val paged = engine("pages", extraProperties = buildJsonObject { put("page", buildJsonObject { put("type", "integer") }) }) { id, args ->
+            if (args.containsKey("page")) {
+                AgentToolResult(id, ToolResultContent.Text("Budget exhausted"), true, outputBudgetExhausted = true, toolCallBudgetExhausted = true, toolCallBudgetUsed = 4, toolResultBudgetUsedBytes = 1000)
+            } else {
+                AgentToolResult(id, ToolResultContent.Text("Title: A\nURL: https://example.org/a"), false, toolCallBudgetUsed = 3, toolResultBudgetUsedBytes = 500)
+            }
+        }
+        val result = MultiEngineSearchTool(listOf(paged), policy = SearchMergePolicy(fetchLimitPerEngine = 1)).execute(
+            "budget-refill",
+            buildJsonObject {
+                put("query", "test")
+                put("totalResults", 2)
+            }
+        )
+        assertFalse(result.isError)
+        assertTrue(result.outputBudgetExhausted)
+        assertTrue(result.toolCallBudgetExhausted)
+        assertEquals(4, result.toolCallBudgetUsed)
+        assertEquals(1000, result.toolResultBudgetUsedBytes)
+    }
+
+    @Test fun `permission waiting is serial and outside provider deadlines`() = kotlinx.coroutines.test.runTest {
+        val authorized = mutableListOf<Int>()
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var dispatched = 0
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 10, maxConcurrentTools = 3))
+        val engines = (1..2).map { owner ->
+            val resolved = engine("consent-$owner") { id, _ ->
+                assertEquals(listOf(1, 2), authorized)
+                if (++dispatched == 2) started.complete(Unit)
+                started.await()
+                AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/$owner"), false)
+            }
+            resolved.copy(
+                tool = budget.bind(resolved.tool, authorize = { _, _ ->
+                    kotlinx.coroutines.delay(9000)
+                    authorized += owner
+                    true
+                })
+            )
+        }
+        val result = MultiEngineSearchTool(engines, nanoTime = { testScheduler.currentTime * 1_000_000 }).execute("consent", buildJsonObject { put("query", "test") })
+        assertFalse(result.isError)
+        assertEquals(2, dispatched)
+        assertEquals(2, result.toolCallBudgetUsed)
+    }
+
+    @Test fun `permission and configuration changes invalidate request reuse independently of URL grouping`() = runBlocking {
+        var calls = 0
+        var permitted = true
+        var revision = "one"
+        val source = engine("search") { id, _ ->
+            calls++
+            AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/a"), false)
+        }.copy(canReuseResult = { permitted })
+        val tool = MultiEngineSearchTool(listOf(source), policy = SearchMergePolicy(dedupeUrls = false), configurationRevision = { revision })
+        val args = buildJsonObject { put("query", "test") }
+        tool.execute("first", args)
+        assertTrue(tool.execute("shared", args).sharedResult)
+        assertEquals(1, calls)
+        revision = "two"
+        assertFalse(tool.execute("changed", args).sharedResult)
+        assertEquals(2, calls)
+        permitted = false
+        assertFalse(tool.execute("revoked", args).sharedResult)
+        assertEquals(3, calls)
+    }
+
+    @Test fun `no engines and invalid total counts produce outcomes without network work`() = runBlocking {
+        val result = MultiEngineSearchTool(emptyList()).execute("none", buildJsonObject { put("query", "test") })
+        assertTrue(result.isError)
+        assertEquals(JsonPrimitive("no_engines"), (result.content as ToolResultContent.Json).value.jsonObject["outcome"])
+        for (count in listOf(JsonPrimitive(0), JsonPrimitive(51), JsonPrimitive("20"))) {
+            assertTrue(
+                MultiEngineSearchTool(emptyList()).execute(
+                    "invalid",
+                    buildJsonObject {
+                        put("query", "test")
+                        put("totalResults", count)
+                    }
+                ).isError
+            )
+        }
+    }
+
+    @Test fun `parent cancellation during refill closes children and writes no cached search`() = runBlocking {
+        var hanging = true
+        var calls = 0
+        var closed = 0
+        var refillStarted = 0
+        val bothRefills = kotlinx.coroutines.CompletableDeferred<Unit>()
+        fun paged(name: String) = engine(name, extraProperties = buildJsonObject { put("page", buildJsonObject { put("type", "integer") }) }) { id, args ->
+            calls++
+            if (args.containsKey("page") && hanging) {
+                if (++refillStarted == 2) bothRefills.complete(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    closed++
+                }
+            } else {
+                AgentToolResult(id, ToolResultContent.Text("Title: Source\nURL: https://example.org/${if (args.containsKey("page")) name else "shared"}"), false)
+            }
+        }
+        val tool = MultiEngineSearchTool(listOf(paged("one"), paged("two")), policy = SearchMergePolicy(fetchLimitPerEngine = 1))
+        val args = buildJsonObject {
+            put("query", "test")
+            put("maxResults", 1)
+        }
+        val pending = async { tool.execute("cancel-refill", args) }
+        withTimeout(1000) { bothRefills.await() }
+        pending.cancel()
+        pending.join()
+        assertTrue(pending.isCancelled)
+        assertEquals(2, closed)
+        hanging = false
+        val recovered = tool.execute("fresh", args)
+        assertFalse(recovered.sharedResult)
+        assertFalse(recovered.isError)
+        assertEquals(8, calls)
+    }
+
+    @Test fun `refill receives only remaining search time and preserves successful siblings`() = kotlinx.coroutines.test.runTest {
+        var refillStarted = 0
+        fun paged(name: String) = engine(name, extraProperties = buildJsonObject { put("page", buildJsonObject { put("type", "integer") }) }) { id, args ->
+            if (args.containsKey("page")) {
+                refillStarted++
+                kotlinx.coroutines.delay(6000)
+            } else {
+                kotlinx.coroutines.delay(7000)
+            }
+            AgentToolResult(id, ToolResultContent.Text("Title: Source\nURL: https://example.org/${if (args.containsKey("page")) name else "shared"}"), false)
+        }
+        val tool = MultiEngineSearchTool(listOf(paged("one"), paged("two")), policy = SearchMergePolicy(fetchLimitPerEngine = 1), nanoTime = { testScheduler.currentTime * 1_000_000 })
+        val result = tool.execute(
+            "deadline",
+            buildJsonObject {
+                put("query", "test")
+                put("maxResults", 1)
+            }
+        )
+        assertFalse(result.isError)
+        assertEquals(2, refillStarted)
+        assertEquals(12_000L, testScheduler.currentTime)
+        val value = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(1, (value["results"] as JsonArray).size)
+        assertTrue((value["engines"] as JsonArray).all { it.jsonObject["refill"]!!.jsonObject["outcome"] == JsonPrimitive("timeout") })
+    }
+
+    @Test fun `gateway engines retain ownership through wrappers and never join a client batch`() {
+        val gateway = object : dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool {
+            override val definition = engine("gateway") { _, _ -> error("unused") }.tool.definition
+            override val executionOwner = dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner.GATEWAY
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Gateway tools must stay on their owner route")
+        }
+        val configured = ConfiguredPluginTool(gateway, dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings())
+        val shared = SharedToolCallBroker().wrap("turn", "gateway", true, configured)
+        val owned = ToolExecutionBudget(AgentRunLimits()).bind(shared.withRunContext("run"))
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner.GATEWAY, (owned as dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool).executionOwner)
+        val remote = ResolvedAgentTool(owned, "gateway", "Gateway", "web_search", "gateway")
+        val client = engine("client") { _, _ -> error("Not executed") }
+        val exposed = aggregateWebSearch(listOf(client, remote))
+        assertEquals(2, exposed.size)
+        assertTrue(remote in exposed)
+    }
+
+    @Test fun `valid empty searches malformed JSON and useful prose have distinct outcomes`() = runBlocking {
+        val empty = engine("empty") { id, _ -> AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(emptyList())) }), false) }
+        val malformed = engine("malformed") { id, _ -> AgentToolResult(id, ToolResultContent.Text("{invalid JSON"), false) }
+        val prose = engine("prose") { id, _ -> AgentToolResult(id, ToolResultContent.Text("The provider supplied useful context without clickable references."), false) }
+        val result = MultiEngineSearchTool(listOf(empty, malformed, prose)).execute("outcomes", buildJsonObject { put("query", "test") })
+        assertFalse(result.isError)
+        val states = ((result.content as ToolResultContent.Json).value.jsonObject["engines"] as JsonArray).map { it.jsonObject }
+        assertEquals(listOf("empty", "malformed_response", "unstructured"), states.map { it["outcome"]!!.jsonPrimitive.content })
+        assertEquals(listOf("completed", "unavailable", "completed"), states.map { it["status"]!!.jsonPrimitive.content })
+        assertTrue(MultiEngineSearchTool(listOf(malformed)).execute("bad", buildJsonObject { put("query", "test") }).isError)
+    }
+
+    @Test fun `invalid clickable sources are malformed and partial failures are not cached`() = runBlocking {
+        var calls = 0
+        val bad = engine("bad") { id, _ -> AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(listOf(buildJsonObject { put("url", "https://user:password@example.org/a") }))) }), false) }
+        val good = engine("good") { id, _ ->
+            calls++
+            AgentToolResult(id, ToolResultContent.Text("Title: Source\nURL: https://example.org/a"), false)
+        }
+        val tool = MultiEngineSearchTool(listOf(bad, good))
+        val args = buildJsonObject { put("query", "test") }
+        assertFalse(tool.execute("first", args).isError)
+        assertFalse(tool.execute("again", args).sharedResult)
+        assertEquals(2, calls)
+    }
+
     private fun engine(
         name: String,
         realToolName: String = "web_search",
@@ -270,7 +626,7 @@ class MultiEngineSearchToolTest {
             }
         ) { id, args ->
             assertEquals(JsonPrimitive("Compose site:example.org"), args["query"])
-            assertEquals(JsonPrimitive(2), args["count"])
+            assertEquals(JsonPrimitive(10), args["count"])
             assertEquals(JsonPrimitive("2026-07-30to2026-08-01"), args["freshness"])
             assertEquals(JsonArray(listOf(JsonPrimitive("web"))), args["result_filter"])
             assertFalse(args.containsKey("maxResults"))
@@ -366,7 +722,7 @@ class MultiEngineSearchToolTest {
             queried += "broken"
             error("unavailable")
         }
-        val result = MultiEngineSearchTool(listOf(search("one", "https://example.org/doc?utm_source=one"), search("two", "https://example.org/doc#section"), broken))
+        val result = MultiEngineSearchTool(listOf(search("one", "https://example.org/doc?utm_source=one"), search("two", "https://example.org/doc?utm_source=two"), broken))
             .execute("parent", buildJsonObject { put("query", "Compose") })
         assertEquals(setOf("one", "two", "broken"), queried)
         assertFalse(result.isError)
@@ -395,6 +751,25 @@ class MultiEngineSearchToolTest {
         assertEquals(2, result.toolCallBudgetUsed)
         assertEquals(2, result.toolCallBudgetLimit)
         assertFalse(result.isError)
+    }
+
+    @Test fun `preflight call limit preserves the distinct output budget status`() = runBlocking {
+        var dispatched = 0
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1))
+        val engines = (1..2).map { index ->
+            val resolved = engine("limited-$index") { id, _ ->
+                dispatched++
+                AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/evidence\nDescription: Complete"), false)
+            }
+            resolved.copy(tool = budget.bind(resolved.tool))
+        }
+        val result = MultiEngineSearchTool(engines, canExecute = budget::canExecute, remainingBytes = budget::remainingOutputBytes)
+            .execute("limited", buildJsonObject { put("query", "news") })
+        assertEquals(1, dispatched)
+        assertFalse(result.isError)
+        assertTrue(result.toolCallBudgetExhausted)
+        assertFalse(result.outputBudgetExhausted)
+        assertEquals(1, result.toolCallBudgetUsed)
     }
 
     @Test fun `exhausted byte budget skips all engine executions`() = runBlocking {
@@ -478,11 +853,14 @@ class MultiEngineSearchToolTest {
         assertTrue(closed)
     }
 
-    @Test fun `sequential mode still visits every unique selected engine`() = runBlocking {
+    @Test fun `legacy sequential argument still starts all unique selected engines concurrently`() = runBlocking {
         val calls = mutableListOf<String>()
+        val allStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
         val engines = (1..4).map { index ->
             engine("engine$index") { id, _ ->
                 calls += "engine$index"
+                if (calls.size == 4) allStarted.complete(Unit)
+                withTimeout(1000) { allStarted.await() }
                 AgentToolResult(id, ToolResultContent.Text("source"), false)
             }
         }

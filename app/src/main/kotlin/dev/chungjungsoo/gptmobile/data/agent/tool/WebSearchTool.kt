@@ -223,7 +223,7 @@ class WebSearchTool(
         val results = (
             localResults.map { JsonObject(it + ("engine" to JsonPrimitive(localEngine))) } +
                 webResults.orEmpty().map { JsonObject(it + ("engine" to JsonPrimitive("DuckDuckGo"))) }
-            ).distinctBy {
+            ).filter { SearchUrlIdentity.parse(it["url"]?.jsonPrimitive?.content.orEmpty()) != null }.distinctBy {
             canonicalSearchUrl(it["url"]?.jsonPrimitive?.content.orEmpty())
         }
         val engines = buildList {
@@ -529,7 +529,7 @@ class WebSearchTool(
     private fun compactSearchResults(results: List<JsonObject>, maxResults: Int, engines: List<String> = emptyList()): JsonObject {
         val compact = mutableListOf<JsonObject>()
         var bytes = 0
-        for (result in results.take(maxResults)) {
+        for (result in results.filter { SearchUrlIdentity.parse(it.string("url").orEmpty()) != null }.take(maxResults)) {
             val entry = buildJsonObject {
                 put("title", truncateUtf8(result.string("title").orEmpty(), 256))
                 // Keep links intact so the model and UI can still open the source.

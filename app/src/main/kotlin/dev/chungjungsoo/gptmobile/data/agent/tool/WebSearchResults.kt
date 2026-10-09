@@ -36,6 +36,7 @@ internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<Jso
                         value.stringValue("publishedDate", "published_date", "date")?.let { put("publishedDate", it) }
                         value.stringValue("engine")?.let { put("engine", it) }
                         (value["engines"] as? JsonArray)?.let { put("engines", it) }
+                        for (key in listOf("similarSources", "similarSourceCount", "publisher", "language")) value[key]?.let { put(key, it) }
                     }
                 )
             } else {

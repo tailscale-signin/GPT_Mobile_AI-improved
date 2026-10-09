@@ -113,7 +113,7 @@ class SettingViewModelV2 @Inject constructor(
             val current = settingRepository.getFeatureSettings()
             val updated = when (name) {
                 "Quiet" -> current.copy(responseNotifications = false, responseAnimation = false, backgroundGeneration = true)
-                "Battery saver" -> current.copy(backgroundGeneration = false, parallelSearch = false, responseAnimation = false, localIdleMinutes = 1)
+                "Battery saver" -> current.copy(backgroundGeneration = false, parallelSearch = true, responseAnimation = false, localIdleMinutes = 1)
                 else -> current.copy(smoothStreaming = true, backgroundGeneration = true, responseNotifications = true, parallelSearch = true, localIdleMinutes = 10)
             }
             settingRepository.updateFeatureSettings(updated)

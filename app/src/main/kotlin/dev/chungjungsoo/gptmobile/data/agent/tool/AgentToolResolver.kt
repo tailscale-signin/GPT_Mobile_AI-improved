@@ -70,7 +70,8 @@ class AgentToolResolver @Inject constructor(
     private val amazonFreeProvider: AmazonHtmlProvider? = null,
     private val amazonHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
     private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
-    private val amazonPublicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryProvider? = null
+    private val amazonPublicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryProvider? = null,
+    private val publicNews: PublicNewsClient? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -190,6 +191,11 @@ class AgentToolResolver @Inject constructor(
         }
 
         if (!disableRemote) {
+            if (publicNews != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.NEWS)) {
+                val config = (featureSettings.pluginExecution[ToolPluginId.NEWS] ?: PluginExecutionSettings()).normalized()
+                resolved += NewsTool(publicNews, { pluginMediaAllowed(profileUid, ToolPluginId.NEWS) }, { config.newsCountry to config.newsLanguage })
+                    .resolved(null, "News", "news").copy(shareableReadOnly = true, canReuseResult = { pluginMediaAllowed(profileUid, ToolPluginId.NEWS) })
+            }
             if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
                 resolved += resolveAmazonFree(profileUid, userMessage?.chatId, (featureSettings.pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized().amazonMarketplace)
             }
@@ -348,6 +354,7 @@ class AgentToolResolver @Inject constructor(
                     "read_url" -> ToolPluginId.READ_URL
                     "device_location" -> ToolPluginId.DEVICE_LOCATION
                     "web_search" -> ToolPluginId.WEB_SEARCH
+                    "news" -> ToolPluginId.NEWS
                     "github" -> ToolPluginId.GITHUB
                     else -> ""
                 }
@@ -360,6 +367,27 @@ class AgentToolResolver @Inject constructor(
                 (featureSettings.pluginExecution[id] ?: featureSettings.pluginExecution[fallback])?.let { config -> resolved.copy(tool = ConfiguredPluginTool(resolved.tool, config)) } ?: resolved
             }
             .map { resolved ->
+                if (resolved.isWebSearchEngine()) {
+                    val snapshot = bindings.filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }
+                    return@map resolved.copy(canReuseResult = {
+                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                        val features = settingRepository.getFeatureSettings()
+                        current == platform &&
+                            current?.enabled == true &&
+                            !current.disableAllTools &&
+                            !current.disableRemoteTools &&
+                            features == featureSettings &&
+                            features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) &&
+                            (
+                                resolved.connectionUid == null ||
+                                    (
+                                        snapshot.isNotEmpty() &&
+                                            toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName } == snapshot &&
+                                            snapshot.all { it.connection?.type != ToolConnectionType.MCP || resolved.realToolName in it.connection?.approvedReadTools.orEmpty().lines().map(String::trim) }
+                                        )
+                                )
+                    })
+                }
                 if (!resolved.isAmazonProductTool()) return@map resolved
                 val plugin = if (resolved.modelToolName in AmazonNativeTool.names) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH
                 resolved.copy(canReuseResult = {
@@ -474,6 +502,53 @@ class AgentToolResolver @Inject constructor(
                 // Shared turn caches must recheck every consumer's live profile grant before reuse.
                 .copy(shareableReadOnly = false)
         }
+    }
+
+    suspend fun pluginMediaAllowed(profileUid: String?, serviceId: String): Boolean {
+        val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return false
+        return profile.enabled &&
+            !profile.disableAllTools &&
+            !profile.disableRemoteTools &&
+            settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profile.uid, serviceId)
+    }
+
+    suspend fun airbnbListingDetails(profileUid: String, listing: dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListing): dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListing? {
+        if (!pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB)) return null
+        val features = settingRepository.getFeatureSettings()
+        if (!features.remoteMcpConnections) return null
+        val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
+            .filter { it.connection?.type == ToolConnectionType.MCP && it.connection?.let(ToolServiceCatalog::forConnection)?.id == ToolPluginId.AIRBNB }
+            .filter { pluginEnabledForBinding(features, profileUid, it) }
+            .groupBy { requireNotNull(it.connection).connectionUid }
+        val available = bindings.values.flatMap { group ->
+            try {
+                resolveMcpTools(requireNotNull(group.first().connection), group, features, profileUid)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+        val tool = available.firstOrNull { resolved ->
+            val name = resolved.realToolName.lowercase(java.util.Locale.ROOT)
+            name.contains("listing") &&
+                (name.contains("detail") || name.startsWith("get_"))
+        }?.tool ?: return null
+        val fields = (tool.definition.inputSchema["properties"] as? JsonObject).orEmpty()
+        val idKey = listOf("id", "listing_id", "listingId").firstOrNull { it in fields } ?: return null
+        val arguments = kotlinx.serialization.json.buildJsonObject {
+            put(idKey, kotlinx.serialization.json.JsonPrimitive(listing.id))
+            listing.checkin?.let { if ("checkin" in fields) put("checkin", kotlinx.serialization.json.JsonPrimitive(it)) }
+            listing.checkout?.let { if ("checkout" in fields) put("checkout", kotlinx.serialization.json.JsonPrimitive(it)) }
+            listing.adults?.let { if ("adults" in fields) put("adults", kotlinx.serialization.json.JsonPrimitive(it)) }
+            listing.children?.let { if ("children" in fields) put("children", kotlinx.serialization.json.JsonPrimitive(it)) }
+            listing.infants?.let { if ("infants" in fields) put("infants", kotlinx.serialization.json.JsonPrimitive(it)) }
+            listing.pets?.let { if ("pets" in fields) put("pets", kotlinx.serialization.json.JsonPrimitive(it)) }
+        }
+        val result = tool.execute("airbnb-details-${java.util.UUID.randomUUID()}", arguments)
+        if (result.isError || !pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB)) return null
+        val payload = (result.content as? ToolResultContent.Json)?.value ?: return null
+        return dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.normalize(payload, arguments).firstOrNull { it.id == listing.id }
     }
 
     /** An explicit one-request UI action, independent of AI-profile assignment. */
@@ -641,7 +716,9 @@ class AgentToolResolver @Inject constructor(
                     clientManager = mcpClientManager
                 )
                 ResolvedAgentTool(
-                    tool = if (janNafta) {
+                    tool = if (ToolServiceCatalog.forConnection(connection).id == ToolPluginId.AIRBNB && remoteTool.name.contains(Regex("(?i)search|listing|details"))) {
+                        AirbnbMcpResultTool(tool)
+                    } else if (janNafta) {
                         AmazonJanNaftaTool(tool, remoteTool.name, features.pluginExecution[ToolPluginId.connection(connection.connectionUid)] ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings())
                     } else {
                         AmazonMcpResultTool.wrap(tool, connection.endpointUrl.orEmpty(), remoteTool.name, features.pluginExecution[ToolPluginId.connection(connection.connectionUid)] ?: features.pluginExecution[ToolPluginId.AMAZON_SEARCH] ?: PluginExecutionSettings())
@@ -673,11 +750,13 @@ class AgentToolResolver @Inject constructor(
 
             else -> throw IllegalArgumentException("Unsupported MCP authentication type.")
         }
+        val googleKey = connection.authType == ToolConnectionAuthType.API_KEY && runCatching { java.net.URI(connection.endpointUrl.orEmpty()).host == "mapstools.googleapis.com" }.getOrDefault(false)
         return McpConnectionConfig(
             connectionUid = connection.connectionUid,
             endpointUrl = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault),
             allowCleartext = connection.allowCleartext,
-            authorizationHeader = authorization
+            authorizationHeader = authorization.takeUnless { googleKey },
+            googleApiKey = authorization?.removePrefix("Bearer ").takeIf { googleKey }
         )
     }
 

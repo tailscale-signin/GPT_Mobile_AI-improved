@@ -35,7 +35,8 @@ class McpConnectionConfig(
     val connectionUid: String,
     val endpointUrl: String,
     val allowCleartext: Boolean,
-    val authorizationHeader: String? = null
+    val authorizationHeader: String? = null,
+    val googleApiKey: String? = null
 )
 
 enum class McpConnectionHealthState {
@@ -386,6 +387,7 @@ class McpClientManager internal constructor(
                         socketTimeoutMillis = sessionConnectTimeoutMs + 2_000
                     }
                     config.authorizationHeader?.let { header(HttpHeaders.Authorization, it) }
+                    config.googleApiKey?.let { header("X-Goog-Api-Key", it) }
                 }
                 val client = Client(
                     Implementation(name = CLIENT_NAME, version = CLIENT_VERSION),
@@ -469,7 +471,8 @@ class McpClientManager internal constructor(
         require(authorizationHeader == null || authorizationHeader.length <= MAX_AUTHORIZATION_HEADER_LENGTH) {
             "MCP authorization header is too long."
         }
-        return "$endpointUrl|${authorizationHeader.orEmpty().sha256()}"
+        require(googleApiKey == null || (uri.host == "mapstools.googleapis.com" && scheme == "https" && uri.port == -1 && googleApiKey.isNotBlank() && googleApiKey.length <= 4096 && googleApiKey.all { it.code in 33..126 })) { "Invalid Google MCP API key configuration." }
+        return "$endpointUrl|${authorizationHeader.orEmpty().sha256()}|${googleApiKey.orEmpty().sha256()}"
     }
 
     private class Session(val key: String, val client: Client) {

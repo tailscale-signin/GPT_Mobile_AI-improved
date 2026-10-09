@@ -62,6 +62,20 @@ class AmazonProductMediaRepositoryTest {
         coVerify(exactly = 1) { images.fetch(url, any()) }
     }
 
+    @Test fun cachedDetailsWithoutAWorkingImageRefreshTheFailedGallery() = runBlocking {
+        val repository = repository()
+        val bad = "https://m.media-amazon.com/images/I/bad.jpg"
+        coEvery { images.fetch(bad, any()) } returns null
+        val stale = AmazonProductObservation("B000000001", AmazonFreeMarket.CANADA, "Headphones", Instant.EPOCH, "product_page", price = "CAD 99", imageUrl = bad)
+        val fresh = stale.copy(imageUrl = url)
+        coEvery { native.products(any(), any()) } returnsMany listOf(AmazonFetchResult(listOf(stale)), AmazonFetchResult(listOf(fresh)))
+        repository.details("owner", 7, product)
+        val photo = repository.photo("owner", 7, product)
+        assertNotNull(photo.image)
+        assertEquals("CAD 50", AmazonProducts.text(photo.product, "price"))
+        coVerify(exactly = 2) { native.products(any(), any()) }
+    }
+
     @Test fun disabledProfileDoesNotPreloadAnyRemoteMedia() = runBlocking {
         val repository = repository()
         coEvery { access.mediaAllowed("owner") } returns false
@@ -70,5 +84,16 @@ class AmazonProductMediaRepositoryTest {
         coVerify(exactly = 0) { images.fetch(any(), any()) }
         coVerify(exactly = 0) { native.products(any(), any()) }
         coVerify(exactly = 0) { tools.amazonProductDetails(any(), any(), any()) }
+    }
+
+    @Test fun unavailablePrimaryImageFallsBackToProviderGallery() = runBlocking {
+        val repository = repository()
+        val unavailable = "https://m.media-amazon.com/images/I/missing.jpg"
+        coEvery { images.fetch(unavailable, any()) } returns null
+        val listing = Json.parseToJsonElement(product.toString().dropLast(1) + ",\"imageUrl\":\"$unavailable\",\"images\":[{\"hiRes\":\"$url\"}]}") as JsonObject
+        assertNotNull(repository.photo("owner", 7, listing).image)
+        coVerify(exactly = 1) { images.fetch(unavailable, any()) }
+        coVerify(exactly = 1) { images.fetch(url, any()) }
+        coVerify(exactly = 0) { native.products(any(), any()) }
     }
 }

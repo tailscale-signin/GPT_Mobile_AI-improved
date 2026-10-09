@@ -1159,6 +1159,11 @@ class ChatRepositoryImpl(
                 maxRoundsOverride = effectiveMaxTools
             )
             val runFeatures = settingRepository.getFeatureSettings()
+            val searchPolicy = dev.chungjungsoo.gptmobile.data.agent.tool.SearchMergePolicy(
+                reuseIdenticalRequests = runFeatures.reuseSearchRequests,
+                dedupeUrls = runFeatures.deduplicateSearch,
+                contentMode = if (runFeatures.deduplicateSearchContent) dev.chungjungsoo.gptmobile.data.agent.tool.SearchContentMode.ENABLED else dev.chungjungsoo.gptmobile.data.agent.tool.SearchContentMode.SHADOW
+            )
             val behavior = runFeatures.profileBehavior[platform.uid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
             val budgetSettings = runFeatures.tokenBudget.normalized()
             val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
@@ -1312,7 +1317,7 @@ class ChatRepositoryImpl(
             var exposedTools = if (reviewedPreparationUnavailable) {
                 emptyList()
             } else {
-                orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools))
+                orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy))
                     .let { primaryDelegationTools(it, localResearch, processingOwnership) }
                     .sortedBy { it.realToolName != "delegate_to_model" }
             }
@@ -1398,7 +1403,7 @@ class ChatRepositoryImpl(
             if (localResearch && contextPlan.tools.none { it.name == "delegate_to_model" }) {
                 localResearch = false
                 reviewedPreparationUnavailable = requiresReviewedPreparation
-                exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools)
+                exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy)
                 requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt())
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
                 AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}")
@@ -1460,7 +1465,10 @@ class ChatRepositoryImpl(
                 true,
                 afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } },
                 canExecute = toolBudget::canExecute,
-                remainingBytes = toolBudget::remainingOutputBytes
+                remainingBytes = toolBudget::remainingOutputBytes,
+                policy = searchPolicy,
+                ownerRoute = "$runId:${platform.uid}",
+                configurationRevision = { settingRepository.getFeatureSettings().hashCode().toString() }
             )
             delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }
             // The model calls the aggregate name, while local workers can call individual

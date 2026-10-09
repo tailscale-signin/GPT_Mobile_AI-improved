@@ -46,7 +46,8 @@ class AmazonProductMediaRepository @Inject constructor(
     suspend fun details(owner: String?, chatId: Int?, product: JsonObject, refreshImage: Boolean = false): JsonObject = detailLocks[slot(owner, chatId, product)].withLock {
         if (owner == null || !allowed(owner, chatId)) return@withLock product
         val retained = cache.load(chatId, product)
-        if (retained?.detailed == true && (!refreshImage || retained.image != null || AmazonProducts.productImageUrl(retained.product) != AmazonProducts.productImageUrl(product))) return@withLock retained.product
+        val untriedGallery = retained?.let { saved -> AmazonProducts.productImageUrls(saved.product).any { it !in AmazonProducts.productImageUrls(product) } } == true
+        if (retained?.detailed == true && (!refreshImage || retained.image != null || untriedGallery)) return@withLock retained.product
         if (!refreshImage && AmazonProducts.text(product, "sourceType") == "product_page") return@withLock product
         val domain = AmazonProducts.text(product, "marketplace") ?: return@withLock product
         val asin = AmazonProducts.text(product, "asin") ?: return@withLock product
@@ -77,8 +78,11 @@ class AmazonProductMediaRepository @Inject constructor(
     }
 
     private suspend fun readImage(owner: String?, chatId: Int?, product: JsonObject): ByteArray? {
-        val url = AmazonProducts.productImageUrl(product) ?: return null
-        return images.fetch(url) { allowed(owner, chatId) }
+        for (url in AmazonProducts.productImageUrls(product).take(4)) {
+            val image = images.fetch(url) { allowed(owner, chatId) }
+            if (image != null) return image
+        }
+        return null
     }
 
     private suspend fun allowed(owner: String?, chatId: Int?) = access.mediaAllowed(owner) && cache.available(chatId)

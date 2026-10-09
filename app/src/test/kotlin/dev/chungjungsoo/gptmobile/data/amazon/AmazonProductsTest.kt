@@ -14,6 +14,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonProductsTest {
+    @Test fun mixedProviderGallerySurvivesNormalizationAndDetailEnrichment() {
+        val payload = Json.parseToJsonElement("""{"asin":"B000000001","title":"Headphones","image":"https://m.media-amazon.com/images/I/first.jpg","images":[{"hiRes":"https://m.media-amazon.com/images/I/second.jpg"},{"url":"https://evil.example/image.jpg"}]}""")
+        val product = AmazonProducts.normalize(payload, "amazon.ca", "MCP").single()
+        assertEquals(2, AmazonProducts.productImageUrls(product).size)
+        val details = buildJsonObject {
+            put("asin", "B000000001")
+            put("marketplace", "amazon.ca")
+            put("thumbnail", "https://m.media-amazon.com/images/I/detail.jpg")
+        }
+        assertEquals(3, AmazonProducts.productImageUrls(AmazonProducts.withDetails(product, details)).size)
+    }
+
     @Test fun providerImageObjectsAndArraysKeepOnlyApprovedCdnImages() {
         val images = Json.parseToJsonElement("""{"asin":"B000000001","title":"Headphones","images":[{"link":"https://evil.example/image.jpg"},{"link":"https://m.media-amazon.com/images/I/photo.jpg"}]}""")
         assertEquals("https://m.media-amazon.com/images/I/photo.jpg", AmazonProducts.text(AmazonProducts.normalize(images, "amazon.ca", "SerpApi").single(), "imageUrl"))

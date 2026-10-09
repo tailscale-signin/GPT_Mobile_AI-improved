@@ -80,4 +80,16 @@ class AmazonProductImageProviderTest {
             assertEquals(2, requests)
         }
     }
+
+    @Test fun transientFailureRetriesAndValidImageWithoutContentTypeLoads() = runBlocking {
+        var requests = 0
+        client(
+            MockEngine {
+                if (++requests == 1) respond("Temporary outage", HttpStatusCode.ServiceUnavailable) else respond(png, HttpStatusCode.OK)
+            }
+        ).use { http ->
+            assertNotNull(AmazonProductImageProvider(http).fetch(url) { true })
+            assertEquals(2, requests)
+        }
+    }
 }

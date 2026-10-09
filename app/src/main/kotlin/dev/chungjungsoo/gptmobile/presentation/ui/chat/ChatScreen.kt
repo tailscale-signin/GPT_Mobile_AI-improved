@@ -1105,6 +1105,7 @@ private fun ChatMessagePair(
                     toolEvents = toolEvents,
                     locationToolEvents = provenanceToolEvents,
                     sourceToolEvents = provenanceToolEvents,
+                    sourceProfilesByRun = agentRunsById.mapValues { it.value.profileUid },
                     contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
                     revisionIndexLabel = selectedAssistantMessage?.takeIf { !isCombinedConversation && it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1

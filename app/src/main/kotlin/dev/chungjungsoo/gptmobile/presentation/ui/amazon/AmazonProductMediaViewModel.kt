@@ -16,6 +16,14 @@ import kotlinx.serialization.json.JsonObject
 class AmazonProductMediaViewModel @Inject constructor(private val media: AmazonProductMediaRepository) : ViewModel() {
     private val lookups = mutableMapOf<List<Any?>, Job>()
 
+    suspend fun thumbnail(owner: String?, chatId: Int?, product: JsonObject): ByteArray? = try {
+        media.photo(owner, chatId, product).image
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
     fun preload(owner: String?, chatId: Int?, products: List<JsonObject>) {
         if (owner == null) return
         products.take(30).forEach { product ->

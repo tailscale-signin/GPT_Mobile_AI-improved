@@ -1,5 +1,8 @@
 name: PR Validation
 
+env:
+  OBX_DISABLE_ANALYTICS: "true"
+
 on:
   pull_request:
     branches:

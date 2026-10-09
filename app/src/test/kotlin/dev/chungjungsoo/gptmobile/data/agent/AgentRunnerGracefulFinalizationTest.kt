@@ -10,6 +10,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerGracefulFinalizationTest {
+    @Test fun missingCredentialToolIsExecutedOnceAndStaleCallsFinalizeWithoutStorms() = runBlocking {
+        var round = 0
+        var executions = 0
+        val exposed = mutableListOf<Int>()
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("news_search", "news", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("Brave Search requires an API key."), true)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                exposed += tools.size
+                if (round++ < 2) {
+                    emit(ProviderEvent.ToolCall("call-$round", "news_search", buildJsonObject {}))
+                } else {
+                    emit(ProviderEvent.TextDelta("The news source needs an API key."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = mutableListOf<AgentRunEvent>()
+        AgentRunner().run(session, listOf(tool)).collect { events += it }
+        assertEquals(1, executions)
+        assertEquals(listOf(1, 0, 0), exposed)
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event == ProviderEvent.Completed })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
     @Test
     fun `batched calls stop before limit and final round has no tools`() = runBlocking {
         val calls = listOf(

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
+import dev.chungjungsoo.gptmobile.data.agent.tool.SearchUrlIdentity
 import dev.chungjungsoo.gptmobile.data.agent.tool.parseSearchPayload
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -13,7 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
-internal data class ChatSource(val url: String, val title: String, val host: String) {
+internal data class ChatSource(val url: String, val title: String, val host: String, val engines: List<String> = emptyList(), val similarSources: List<ChatSource> = emptyList()) {
     val compactLink: String
         get() = runCatching {
             val uri = URI(url)
@@ -40,26 +41,30 @@ private val unavailableSourceStates = setOf("unavailable", "failed", "error", "c
 internal fun collectChatSources(answer: String, events: List<ToolEvent>): ChatSources {
     val sources = linkedMapOf<String, ChatSource>()
     val engines = linkedMapOf<String, String>()
+    val aliasOwners = mutableMapOf<String, String>()
 
-    fun addSource(rawUrl: String, title: String? = null) {
+    fun addSource(rawUrl: String, title: String? = null, labels: List<String> = emptyList(), aliases: List<ChatSource> = emptyList()) {
         var url = rawUrl.trim().trimEnd('.', ',', ';', ']', '}')
         while (url.endsWith(')') && url.count { it == ')' } > url.count { it == '(' }) url = url.dropLast(1)
-        val uri = runCatching { URI(url) }.getOrNull() ?: return
-        if (uri.scheme?.lowercase(Locale.ROOT) !in setOf("http", "https") || uri.userInfo != null) return
-        val host = uri.host?.lowercase(Locale.ROOT)?.removePrefix("www.")?.takeIf { it.isNotBlank() } ?: return
-        val query = uri.rawQuery?.split('&')?.filterNot {
-            val key = it.substringBefore('=').lowercase(Locale.ROOT)
-            key.startsWith("utm_") || key in setOf("fbclid", "gclid", "msclkid")
-        }?.joinToString("&").orEmpty()
-        val port = uri.port.takeUnless { it == -1 || (it == 80 && uri.scheme == "http") || (it == 443 && uri.scheme == "https") }
-        val key = "${uri.scheme.lowercase(Locale.ROOT)}://$host${port?.let { ":$it" }.orEmpty()}${uri.rawPath.orEmpty().trimEnd('/')}" +
-            query.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty()
+        val identity = SearchUrlIdentity.parse(url) ?: return
+        val host = URI(identity.key).host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: return
+        val key = aliasOwners[identity.key] ?: identity.key
         val existing = sources[key]
         val label = title?.trim()?.takeIf { it.isNotBlank() && it != rawUrl && it != url } ?: host
         if (existing == null) {
-            sources[key] = ChatSource(url, label, host)
-        } else if (existing.title == existing.host && label != host) {
-            sources[key] = existing.copy(title = label)
+            sources[key] = ChatSource(url, label, host, labels.distinct(), aliases.distinctBy { it.url })
+        } else {
+            sources[key] = existing.copy(
+                title = if (existing.title == existing.host && label != host) label else existing.title,
+                engines = (existing.engines + labels).distinct(),
+                similarSources = (existing.similarSources + aliases).distinctBy { it.url }
+            )
+        }
+        aliases.forEach { alias ->
+            SearchUrlIdentity.parse(alias.url)?.let {
+                aliasOwners[it.key] = key
+                if (it.key != key) sources.remove(it.key)
+            }
         }
     }
 
@@ -91,7 +96,16 @@ internal fun collectChatSources(answer: String, events: List<ToolEvent>): ChatSo
                 engineValues?.filterIsInstance<JsonPrimitive>()?.mapNotNull { it.contentOrNull }?.forEach(::addEngine)
                 val url = value.sourceString("url", "link", "uri", "source_url", "sourceUrl")
                 if (url != null) {
-                    addSource(url, value.sourceString("title", "name", "label"))
+                    fun labels(row: JsonObject): List<String> = ((row["engines"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>().mapNotNull { it.contentOrNull } + listOfNotNull(row.sourceString("engine")))
+                        .filterNot { it.lowercase(Locale.ROOT) in setOf("built-in search", "multi-engine search", "web search") }.map { chatSearchEngineBrand(it)?.name ?: it }.distinct()
+                    val aliases = (value["similarSources"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { alias ->
+                        val original = alias.sourceString("url") ?: return@mapNotNull null
+                        val identity = SearchUrlIdentity.parse(original) ?: return@mapNotNull null
+                        val host = URI(identity.key).host?.removePrefix("www.") ?: return@mapNotNull null
+                        if (original == url) return@mapNotNull null
+                        ChatSource(original, alias.sourceString("title") ?: host, host, labels(alias))
+                    }
+                    addSource(url, value.sourceString("title", "name", "label"), labels(value), aliases)
                     // Article bodies can contain many outbound links that were never gathered.
                     return
                 }

@@ -39,11 +39,13 @@ import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Newspaper
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
@@ -287,7 +289,7 @@ fun ToolConnectionsScreen(
             visible.forEach { service ->
                 key(service.id) {
                     val required = service.requiredFields(installations)
-                    val ready = (service.integrated && service.id != ToolPluginId.AMAZON_SEARCH) ||
+                    val ready = (service.integrated && service.id !in setOf(ToolPluginId.AMAZON_SEARCH, ToolPluginId.AIRBNB, ToolPluginId.GOOGLE_PLACES)) ||
                         service.connections.any(::connectionReady) ||
                         service.packages.any { installations[it.id]?.ready(it) == true }
                     ToolServiceCard(
@@ -451,6 +453,9 @@ private val INTEGRATED_PLUGINS = listOf(
     IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Rounded.Code),
     IntegratedPluginUi(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Finds Amazon products with prices, ratings and product links. Add a SerpApi API key in Tool Connections.", Icons.Rounded.Storefront),
     IntegratedPluginUi(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Read public Amazon Canada, US, UK and France pages. No API key required. Preview access varies.", Icons.Rounded.Storefront),
+    IntegratedPluginUi(ToolPluginId.NEWS, "News", "Google News, Trends and Hacker News. Free public feeds plus optional MCP backends.", Icons.Rounded.Newspaper),
+    IntegratedPluginUi(ToolPluginId.AIRBNB, "Airbnb", "Search and compare stays through hosted OpenBnB or your own Airbnb MCP server.", Icons.Rounded.Home),
+    IntegratedPluginUi(ToolPluginId.GOOGLE_PLACES, "Google Places", "Google place search and details, with an optional hosted Google Maps MCP connection.", Icons.Rounded.LocationOn),
     IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Rounded.Search),
     IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Rounded.LocationOn)
 )

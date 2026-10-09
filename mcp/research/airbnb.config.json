@@ -1,0 +1,15 @@
+{
+  "sources": [
+    {
+      "prefix": "airbnb",
+      "command": "node",
+      "args": [
+        "upstreams/airbnb/dist/index.js"
+      ],
+      "tools": [
+        "airbnb_search",
+        "airbnb_listing_details"
+      ]
+    }
+  ]
+}

@@ -107,6 +107,12 @@ class AgentRunner(
             return call.name
         }
 
+        fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {
+            is ToolResultContent.Text -> content.text
+            is ToolResultContent.Json -> content.value.toString()
+            is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
+        }
+
         fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
             if (!result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
             val text = when (val content = result.content) {
@@ -235,7 +241,10 @@ class AgentRunner(
             calls.take(remainingCalls).forEach { call ->
                 val used = toolCallsByName[call.name] ?: 0
                 val repeatLimit = if (Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else MAX_SAME_TOOL_CALLS_PER_RUN
-                if (failureScope(call) in blockedReadScopes) {
+                if (call.name !in toolsForBatch) {
+                    deferredCalls += call
+                    perToolSuppressedIds += call.callId
+                } else if (failureScope(call) in blockedReadScopes) {
                     deferredCalls += call
                     hostSuppressedIds += call.callId
                 } else if (used >= repeatLimit) {
@@ -264,6 +273,7 @@ class AgentRunner(
                 .groupBy(keySelector = { failureScope(it.first) }, valueTransform = { it.second })
                 .forEach { (toolName, roundResults) ->
                     val failures = when {
+                        roundResults.any { result -> result.isError && toolResultText(result).let { text -> listOf("requires an api key", "api key required", "credential is missing", "authentication or access failed").any { text.contains(it, true) } } } -> MAX_CONSECUTIVE_TOOL_FAILURES
                         roundResults.any { !it.isError } -> 0
                         roundResults.none(::countsTowardToolFailureCircuit) -> consecutiveToolFailures[toolName] ?: 0
                         else -> (consecutiveToolFailures[toolName] ?: 0) + 1
@@ -327,12 +337,19 @@ class AgentRunner(
             ).toLong()
             val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
                 limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
-            val mustFinalize = roundLimitReached ||
+            val unavailableCallsOnly = executableCalls.isEmpty() && calls.isNotEmpty() && hostSuppressedIds.isEmpty()
+            val mustFinalize = unavailableCallsOnly ||
+                roundLimitReached ||
                 contextNearLimit ||
                 outputBudgetExhausted ||
                 toolCallBudgetExhausted ||
                 (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
-            if (roundLimitReached) {
+            if (unavailableCallsOnly) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                finalResponseRequested = true
+                emit(AgentRunEvent.Notice("Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
+            } else if (roundLimitReached) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
@@ -395,6 +412,7 @@ class AgentRunner(
 
             if (mustFinalize && allResults.isNotEmpty()) {
                 allResults[allResults.lastIndex] = when {
+                    unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
                     roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
                     contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
                     outputBudgetExhausted && toolCallBudgetExhausted ->

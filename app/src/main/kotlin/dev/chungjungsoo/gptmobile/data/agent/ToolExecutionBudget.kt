@@ -28,11 +28,14 @@ class ToolExecutionBudget(
         tool: AgentTool,
         onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
         authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
-    ): AgentTool = object : AgentTool {
+    ): AgentTool = object : PreparableAgentTool, OwnedAgentTool {
         override val definition = tool.definition
         override val managesExecutionBudget = true
+        override val executionOwner = (tool as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
-        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
+
+        override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
             fun failure(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true)
             if (!tryAcquireCall()) {
                 val message = toolCallBudgetMessage()
@@ -41,12 +44,14 @@ class ToolExecutionBudget(
                     "Tool-call limit blocked execution · tool=${tool.definition.name} · call=$callId · used=${calls.get()} · executableLimit=$executionLimit · configured=${limits.maxToolCalls} · reserved=${limits.finalResponseToolCallReserve}",
                     "W"
                 )
-                return withBudgetState(
-                    failure(message).copy(
-                        traceContent = ToolResultContent.Text(message),
-                        toolCallBudgetExhausted = true
+                return {
+                    withBudgetState(
+                        failure(message).copy(
+                            traceContent = ToolResultContent.Text(message),
+                            toolCallBudgetExhausted = true
+                        )
                     )
-                )
+                }
             }
             if (remainingBytes.get() <= 0) {
                 val message = outputBudgetMessage()
@@ -55,62 +60,68 @@ class ToolExecutionBudget(
                     "Tool-result byte budget blocked execution · tool=${tool.definition.name} · call=$callId · configuredBytes=${limits.maxToolOutputBytes}",
                     "W"
                 )
-                return withBudgetState(
-                    failure(message).copy(
-                        traceContent = ToolResultContent.Text(message),
-                        outputBudgetExhausted = true
+                return {
+                    withBudgetState(
+                        failure(message).copy(
+                            traceContent = ToolResultContent.Text(message),
+                            outputBudgetExhausted = true
+                        )
                     )
-                )
-            }
-            if (!authorize(callId, arguments)) return bounded(failure("Tool permission was denied or this action was already dispatched."))
-            var success = false
-            try {
-                val result = if (tool.managesExecutionBudget) {
-                    // Orchestrators own their deadline; their children use this same budget.
-                    // Holding a permit here would deadlock nested calls at concurrency = 1.
-                    tool.execute(callId, arguments)
-                } else {
-                    permits.withPermit {
-                        if (!canExecute() && remainingBytes.get() <= 0) return@withPermit failure(outputBudgetMessage())
-                        withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
-                            withTimeoutOrNull(limits.toolTimeoutMillis) { tool.execute(callId, arguments) }
-                        }
-                            ?: failure("Tool timed out. Its outcome may be unknown; check before repeating a write.")
-                    }
                 }
-                val boundedResult = bounded(
-                    result,
-                    preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME
-                )
-                val normalizedResult = if (
-                    tool.definition.name == DELEGATION_TOOL_NAME &&
-                    boundedResult.isError &&
-                    boundedResult.hasSuccessfulDelegationMarker()
-                ) {
+            }
+            if (!authorize(callId, arguments)) return { bounded(failure("Tool permission was denied or this action was already dispatched.")) }
+            val dispatched = java.util.concurrent.atomic.AtomicBoolean()
+            return execution@{
+                if (!dispatched.compareAndSet(false, true)) return@execution withBudgetState(failure("This prepared tool call was already dispatched."))
+                var success = false
+                try {
+                    val result = if (tool.managesExecutionBudget) {
+                        // Orchestrators own their deadline; their children use this same budget.
+                        // Holding a permit here would deadlock nested calls at concurrency = 1.
+                        tool.execute(callId, arguments)
+                    } else {
+                        permits.withPermit {
+                            if (!canExecute() && remainingBytes.get() <= 0) return@withPermit failure(outputBudgetMessage())
+                            withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
+                                withTimeoutOrNull(limits.toolTimeoutMillis) { tool.execute(callId, arguments) }
+                            }
+                                ?: failure("Tool timed out. Its outcome may be unknown; check before repeating a write.")
+                        }
+                    }
+                    val boundedResult = bounded(
+                        result,
+                        preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME
+                    )
+                    val normalizedResult = if (
+                        tool.definition.name == DELEGATION_TOOL_NAME &&
+                        boundedResult.isError &&
+                        boundedResult.hasSuccessfulDelegationMarker()
+                    ) {
+                        AppLogRecorder.record(
+                            "Delegation",
+                            "Corrected contradictory execution-budget error after successful delegated handoff · call=$callId",
+                            "W"
+                        )
+                        boundedResult.copy(isError = false)
+                    } else {
+                        boundedResult
+                    }
+                    success = !normalizedResult.isError
+                    return@execution normalizedResult
+                } catch (cancellation: CancellationException) {
                     AppLogRecorder.record(
-                        "Delegation",
-                        "Corrected contradictory execution-budget error after successful delegated handoff · call=$callId",
+                        "Tool",
+                        "Canceled by parent run · tool=${tool.definition.name} · call=$callId",
                         "W"
                     )
-                    boundedResult.copy(isError = false)
-                } else {
-                    boundedResult
+                    throw cancellation
+                } catch (error: Exception) {
+                    val boundedResult = bounded(failure(failureMessage(error)))
+                    success = !boundedResult.isError
+                    return@execution boundedResult
+                } finally {
+                    withContext(NonCancellable) { onFinished(callId, success) }
                 }
-                success = !normalizedResult.isError
-                return normalizedResult
-            } catch (cancellation: CancellationException) {
-                AppLogRecorder.record(
-                    "Tool",
-                    "Canceled by parent run · tool=${tool.definition.name} · call=$callId",
-                    "W"
-                )
-                throw cancellation
-            } catch (error: Exception) {
-                val boundedResult = bounded(failure(failureMessage(error)))
-                success = !boundedResult.isError
-                return boundedResult
-            } finally {
-                withContext(NonCancellable) { onFinished(callId, success) }
             }
         }
     }

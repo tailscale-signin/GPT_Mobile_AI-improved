@@ -26,12 +26,19 @@ internal class WebSearchEngineAdapter private constructor(
     val supportsRecency = listOf("recencyDays", "startPublishedDate", "start_date", "tbs").any { it in properties } ||
         (brave && "freshness" in properties)
 
+    fun effectiveCount(requested: Int): Int {
+        val field = countKey?.let { properties[it] as? JsonObject }
+        val minimum = (field?.get("minimum") as? JsonPrimitive)?.intOrNull ?: 1
+        val maximum = (field?.get("maximum") as? JsonPrimitive)?.intOrNull ?: requested
+        return requested.coerceIn(minimum, maximum).coerceAtMost(100)
+    }
+
     /** One extra page can fill duplicate slots; never invent unsupported pagination fields. */
     fun nextPage(request: JsonObject, clock: Clock): JsonObject? {
         val key = listOf("page", "start", "offset").firstOrNull {
             (properties[it] as? JsonObject)?.acceptsType("integer") == true
         } ?: return null
-        val count = (request["maxResults"] as? JsonPrimitive)?.intOrNull ?: 10
+        val count = effectiveCount((request["maxResults"] as? JsonPrimitive)?.intOrNull ?: 10)
         val value = when (key) {
             "page" -> 2
             "offset" -> if (brave) 1 else count
@@ -45,6 +52,8 @@ internal class WebSearchEngineAdapter private constructor(
 
     fun arguments(request: JsonObject, clock: Clock): JsonObject {
         val query = (request.getValue("query") as JsonPrimitive).content.trim()
+        val maxLength = (querySchema["maxLength"] as? JsonPrimitive)?.intOrNull
+        require(maxLength == null || query.length <= maxLength) { "Search query exceeds this provider's $maxLength character limit." }
         fun domains(key: String) = (request[key] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content.trim() }
         val includes = domains("includeDomains")
         val excludes = domains("excludeDomains")
@@ -54,10 +63,7 @@ internal class WebSearchEngineAdapter private constructor(
         val mapped = buildJsonObject {
             put(queryKey, queryValue(searchQuery, querySchema))
             countKey?.let { key ->
-                val field = properties[key] as? JsonObject
-                val minimum = (field?.get("minimum") as? JsonPrimitive)?.intOrNull ?: 1
-                val maximum = (field?.get("maximum") as? JsonPrimitive)?.intOrNull ?: Int.MAX_VALUE
-                put(key, count.coerceIn(minimum, maximum))
+                put(key, effectiveCount(count))
             }
             for ((aliases, values) in listOf(INCLUDE_KEYS to includes, EXCLUDE_KEYS to excludes)) {
                 aliases.firstOrNull { it in properties }?.let { key ->

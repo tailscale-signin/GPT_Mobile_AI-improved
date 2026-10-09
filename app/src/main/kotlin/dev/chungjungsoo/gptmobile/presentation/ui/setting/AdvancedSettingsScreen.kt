@@ -92,8 +92,9 @@ fun AdvancedSettingsScreen(
             item {
                 AdvancedGroupCard("Research & Efficiency", "", Icons.Rounded.Tune) {
                     FeatureSwitch(AppFeature.QUEUED_FOLLOW_UPS, settings.queuedFollowUps, Icons.Rounded.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.PARALLEL_SEARCH, settings.parallelSearch, Icons.Rounded.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.DEDUPLICATE_SEARCH, settings.deduplicateSearch, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.REUSE_SEARCH, settings.reuseSearchRequests, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.DEDUPLICATE_SEARCH_CONTENT, settings.deduplicateSearchContent, Icons.Rounded.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.GITHUB_CONDITIONAL_READS, settings.githubConditionalReads, Icons.Rounded.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.GITHUB_BLOB_CACHE, settings.githubBlobCache, Icons.Rounded.Tune, viewModel::updateFeature)
                 }

@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.sse.SSE
 import io.ktor.serialization.kotlinx.json.json
@@ -28,6 +29,32 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class McpClientManagerTest {
+    @Test fun googleApiKeyIsSentOnlyToItsOfficialHttpsEndpoint() = runBlocking {
+        var requests = 0
+        val client = HttpClient(
+            io.ktor.client.engine.mock.MockEngine { request ->
+                requests++
+                assertEquals("mapstools.googleapis.com", request.url.host)
+                assertEquals("test-google-key", request.headers["X-Goog-Api-Key"])
+                assertEquals(null, request.headers["Authorization"])
+                respond("Not authorized", io.ktor.http.HttpStatusCode.Forbidden)
+            }
+        ) { install(SSE) }
+        val manager = McpClientManager(client)
+        try {
+            assertTrue(runCatching { manager.listTools(McpConnectionConfig("google", "https://mapstools.googleapis.com/mcp", false, googleApiKey = "test-google-key")) }.isFailure)
+            assertTrue(requests > 0)
+            val count = requests
+            for (url in listOf("https://evil.example/mcp", "http://mapstools.googleapis.com/mcp", "https://mapstools.googleapis.com.evil.example/mcp")) {
+                assertTrue(runCatching { manager.listTools(McpConnectionConfig("invalid", url, true, googleApiKey = "test-google-key")) }.exceptionOrNull() is IllegalArgumentException)
+            }
+            assertEquals(count, requests)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
     @Test fun `initialization 404 is a configuration failure until endpoint changes`() = runBlocking {
         val calls = AtomicInteger()
         val missing = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)

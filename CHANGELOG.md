@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Improve multi-web search with deterministic source interleaving, explicit total limits, conservative URL identities, bounded guarded content grouping, deadline-aware refill and expandable source attribution.
+
+- Load Amazon preview and popup photos from provider galleries, retry failed image reads, and retain cached photos while detail metadata is refreshed.
+- Preserve embedded map pan and pinch gestures, use a dark basemap with theme colours, and add place, travel-mode and recenter controls.
+- Combine the latest completed responses from all active profiles, retain helper contributions after retries, and use the originating profile for result-card media permissions.
+- Add a unified News plugin with Google News, Google Trends and Hacker News, including an authenticated bridge for the three requested MCP backends.
+- Add hosted and self-hosted Airbnb presets, deduplicated listing cards, photo galleries, date/guest-aware price and fee summaries, and review evidence.
+- Add Google Places nearby search and details, Maps Grounding MCP API-key authentication, and embedded place markers.
+- Stop repeated calls to unavailable or unconfigured tools and finalize with the findings already collected.
+
 ## [0.9.33.0] - 2026-10-06
 
 - Move Archive after active conversations and use a dismissible half-screen bottom sheet.

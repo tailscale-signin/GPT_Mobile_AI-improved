@@ -8,6 +8,14 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LocationMapDataTest {
+    @Test fun googlePlacesUsesSuppliedNearbyCoordinatesAndDisplayNames() {
+        val event = event("""{"data":{"places":[{"id":"coffee","displayName":{"text":"Coffee shop"},"location":{"latitude":43.001,"longitude":-79.001}}]}}""")
+            .copy(toolName = "nearby", modelToolName = "google_places__nearby", arguments = """{"latitude":43,"longitude":-79}""")
+        val data = locationMapData(listOf(event))
+        assertEquals(MapCoordinate(43.0, -79.0), data?.origin)
+        assertEquals("Coffee shop", data?.places?.single()?.name)
+    }
+
     @Test
     fun nearbyMarkersPreserveTheDeviceOriginAndDiscardInvalidPlaces() {
         val event = event(

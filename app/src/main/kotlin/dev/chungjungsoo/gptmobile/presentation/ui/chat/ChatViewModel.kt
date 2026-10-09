@@ -55,7 +55,6 @@ import dev.chungjungsoo.gptmobile.util.ChatToolUtils
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.determineLocalNetworkAccessRequirement
-import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
 import java.util.UUID
 import javax.inject.Inject
@@ -361,7 +360,7 @@ class ChatViewModel @Inject constructor(
     val disabledPlatformUids = _disabledPlatformUids.asStateFlow()
     private var lastAutoTitleUserTurnCount = 0
     private var autoTitleGenerationInFlight = false
-    private val combinedSynthesisTurns = mutableSetOf<Int>()
+    private val combinedSynthesisMessages = mutableSetOf<Int>()
     private var pendingRunDispatches = 0
     private val platformMembershipMutex = Mutex()
 
@@ -928,7 +927,7 @@ class ChatViewModel @Inject constructor(
                     chatRepository.persistAgentRetry(
                         PersistAgentRetryRequest(
                             userMessage = userMessage,
-                            assistantMessage = currentAssistantMessage,
+                            assistantMessage = currentAssistantMessage.copy(combinedSources = emptyList()),
                             run = AgentRunDraft(
                                 runId = runId,
                                 profileUid = platformWithChatModel.uid,
@@ -1795,56 +1794,27 @@ class ChatViewModel @Inject constructor(
 
         val grouped = _groupedMessages.value
         grouped.userMessages.indices.forEach { turnIndex ->
-            if (turnIndex in combinedSynthesisTurns) return@forEach
+            val userId = grouped.userMessages[turnIndex].id
+            if (userId in combinedSynthesisMessages) return@forEach
             val row = grouped.assistantMessages.getOrNull(turnIndex).orEmpty()
-            val activeRow = activeSlotIndexes.mapNotNull { index ->
-                row.getOrNull(index)?.let { message -> index to message }
-            }
-            if (activeRow.size < 2) return@forEach
-
-            val runIds = activeRow.map { (_, message) -> message.currentRunId }
-            if (runIds.any { it.isNullOrBlank() }) return@forEach
-            if (runIds.any { it?.startsWith(COMBINED_RUN_PREFIX) == true }) {
-                combinedSynthesisTurns += turnIndex
-                return@forEach
-            }
-
-            val statuses = runIds.map { runId -> runsById[runId] ?: return@forEach }
-            if (statuses.any { it.status == AgentRunStatus.QUEUED || it.status == AgentRunStatus.RUNNING }) {
-                return@forEach
-            }
-
-            val sources = activeRow.mapNotNull { (index, message) ->
-                val content = dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.effectiveContent()).trim()
-                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapNotNull null
-                val uid = slotUids.getOrNull(index)
-                    ?: message.platformType
-                    ?: return@mapNotNull null
-                val platform = _platformsInApp.value.firstOrNull { it.uid == uid }
-                CombinedModelResponse(
-                    platformUid = uid,
-                    platformName = platform?.name ?: "AI " + (index + 1),
-                    modelName = _chatPlatformModels.value[uid].orEmpty(),
-                    content = content
-                )
-            }
-            if (sources.isEmpty()) return@forEach
-
-            combinedSynthesisTurns += turnIndex
+            val activeRow = activeSlotIndexes.mapNotNull { row.getOrNull(it) }
+            if (activeRow.size != activeSlotIndexes.size) return@forEach
+            val sources = combinedSynthesisInputs(activeRow, runsById, _platformsInApp.value.associate { it.uid to it.name }, _chatPlatformModels.value)
+                ?: return@forEach
+            combinedSynthesisMessages += userId
             pendingRunDispatches += 1
             viewModelScope.launch {
                 try {
                     startCombinedSynthesis(turnIndex, sources)
                 } catch (error: CancellationException) {
-                    combinedSynthesisTurns -= turnIndex
                     throw error
                 } catch (error: Throwable) {
-                    combinedSynthesisTurns -= turnIndex
                     _attachmentNotice.update {
                         error.message?.takeIf(String::isNotBlank)
                             ?: "Could not combine the model responses."
                     }
                 } finally {
+                    combinedSynthesisMessages -= userId
                     pendingRunDispatches -= 1
                     syncLoadingStates(_agentRunsById.value)
                     drainPromptQueueIfIdle()
@@ -1878,6 +1848,7 @@ class ChatViewModel @Inject constructor(
             createdAt = currentTimeStamp
         )
 
+        val merged = withContext(Dispatchers.Default) { mergeCombinedResponses(sources) }
         val persisted = chatRepository.persistAgentRetry(
             PersistAgentRetryRequest(
                 userMessage = userMessage,
@@ -1898,8 +1869,7 @@ class ChatViewModel @Inject constructor(
 
         // Align matching sections and dated events locally, retaining unique
         // contributions and the untouched originals in their profile tabs.
-        val merged = withContext(Dispatchers.Default) { mergeCombinedResponses(sources) }
-        val completed = persisted.assistantMessage.copy(content = merged, createdAt = currentTimeStamp)
+        val completed = persisted.assistantMessage.copy(content = merged, thoughts = "", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = merged)), activeRevisionIndex = dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST, createdAt = currentTimeStamp)
         chatRepository.updateAgentMessage(completed)
         chatRepository.finishQueuedAgentRun(synthesisRunId, AgentRunStatus.COMPLETED, currentTimeStamp, null)
         _groupedMessages.update { current ->

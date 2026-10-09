@@ -64,6 +64,21 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
 
     suspend fun install(entry: GitHubMarketplacePackage) = change(entry) { it ?: NativePluginInstallation() }
 
+    suspend fun reload(): Map<String, NativePluginInstallation> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loaded = false
+            loadLocked()
+            _state.value
+        }
+    }
+
+    suspend fun backupState(): ByteArray = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadLocked()
+            json.encodeToString(_state.value).encodeToByteArray()
+        }
+    }
+
     suspend fun uninstall(entry: GitHubMarketplacePackage) = withContext(Dispatchers.IO) {
         requireKnown(entry)
         mutex.withLock {

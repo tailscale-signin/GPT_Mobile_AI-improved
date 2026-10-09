@@ -33,6 +33,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -97,6 +98,51 @@ class CompleteBackupManagerTest {
         val plainRestored = manager.restore(Uri.fromFile(plain), selection = selected)
         assertTrue(plainRestored.message, plainRestored.success)
         assertEquals(protection.copy(enabled = false), manager.savedProtection())
+    }
+
+    @Test
+    fun toolsRoundTripPreservesInstalledPackagesAndGlobalAndProfileToggles() = runBlocking {
+        val registryFile = File(context.noBackupFilesDir, "native-marketplace-v1.json")
+        val packageFile = File(context.noBackupFilesDir, "optional_marketplace_v1/optional-refuge.zip").apply { parentFile!!.mkdirs() }
+        val unrelated = File(context.noBackupFilesDir, "unrelated-private-data").apply { writeText("stay local") }
+        val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-refuge"))
+        val registry = dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry(registryFile, vault)
+        val manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, registry)
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS))
+        val pluginKey = androidx.datastore.preferences.core.stringPreferencesKey("advanced_feature_settings_json")
+        val featureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+            .withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.AMAZON_FREE, true)
+            .withProfileToolPluginEnabled("owner", dev.chungjungsoo.gptmobile.data.model.ToolPluginId.AMAZON_FREE, true)
+        registry.install(entry)
+        registry.setEnabled(entry, true)
+        registry.configure(entry, "", "", 4, 100)
+        packageFile.writeBytes(byteArrayOf(1, 2, 3, 4))
+        preferences.edit { it[pluginKey] = kotlinx.serialization.json.Json.encodeToString(featureSettings) }
+        val archive = File(context.cacheDir, "plugin-roundtrip.gptbackup")
+        try {
+            val saved = manager.backup(Uri.fromFile(archive), selected, encrypt = false)
+            assertTrue(saved.message, saved.success)
+            registry.uninstall(entry)
+            packageFile.delete()
+            preferences.edit {
+                it[pluginKey] = kotlinx.serialization.json.Json.encodeToString(featureSettings.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.AMAZON_FREE, false))
+                it[intPreferencesKey("current_ui_preference")] = 77
+            }
+            val restored = manager.restore(Uri.fromFile(archive), selection = selected)
+            assertTrue(restored.message, restored.success)
+            val installation = registry.load().getValue(entry.id)
+            assertTrue(installation.enabled)
+            assertEquals(4, installation.maxResults)
+            assertTrue(packageFile.readBytes().contentEquals(byteArrayOf(1, 2, 3, 4)))
+            val features = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings>(requireNotNull(preferences.data.first()[pluginKey]))
+            assertTrue(features.isToolPluginEnabledForProfile("owner", dev.chungjungsoo.gptmobile.data.model.ToolPluginId.AMAZON_FREE))
+            assertEquals(77, preferences.data.first()[intPreferencesKey("current_ui_preference")])
+            assertEquals("stay local", unrelated.readText())
+        } finally {
+            registryFile.delete()
+            packageFile.delete()
+            unrelated.delete()
+        }
     }
 
     @Test

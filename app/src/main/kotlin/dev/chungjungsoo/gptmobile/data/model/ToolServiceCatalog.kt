@@ -28,7 +28,7 @@ object ToolServiceCatalog {
         ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Product search, deals and price tracking. Connect a search key or an Amazon MCP server.", "amazon", true),
         ToolServiceDefinition(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Preview: Amazon Canada/US search and details, local history and manual targets. No API key; public-page availability varies.", "shopping", true, supportsLocalTools = true),
         ToolServiceDefinition(ToolPluginId.NEWS, "News", "Google News, Google Trends and Hacker News, with optional unified MCP providers.", "news", true),
-        ToolServiceDefinition(ToolPluginId.AIRBNB, "Airbnb", "OpenBnB hosted or self-hosted listing search, photo galleries, price and fee summaries, and review signals.", "airbnb", true),
+        ToolServiceDefinition(ToolPluginId.AIRBNB, "Airbnb", "Public listing search and details directly in the app without sign-up. Optional OpenBnB connections remain available.", "airbnb", true),
         ToolServiceDefinition(ToolPluginId.GOOGLE_PLACES, "Google Places", "Text and nearby place search, place details, and Google Maps Grounding MCP. A Google API key is required.", "google", true),
         ToolServiceDefinition(ToolPluginId.WEB_SEARCH, "Web Search", "Search the web with the app's built-in engines.", "search", true),
         ToolServiceDefinition(ToolPluginId.DEVICE_LOCATION, "Device Location", "Share the phone's location when you allow it.", "location")

@@ -33,6 +33,38 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class NativeMarketplaceTest {
+    @Test fun everyDownloadableNativeAdapterHasExecutableDefinitionsAndARequestBuilder() {
+        val entries = GitHubMarketplaceCatalog.packages.filter { it.runtime == MarketplaceRuntime.NATIVE }
+        assertTrue(entries.isNotEmpty())
+        entries.forEach { entry ->
+            assertTrue(entry.id, NativeMarketplaceCatalog.supports(entry))
+            val definitions = NativeMarketplaceCatalog.definitions(entry)
+            assertTrue(entry.id, definitions.isNotEmpty())
+            definitions.forEach { definition ->
+                val operation = definition.name.substringAfterLast("__")
+                val fields = NativeMarketplaceCatalog.operations.getValue(entry.provider).getValue(operation)
+                val arguments = buildJsonObject {
+                    fields.forEach { field ->
+                        when {
+                            field.endsWith("latitude") -> put(field, 43.0)
+                            field.endsWith("longitude") -> put(field, -79.0)
+                            field == "organization_id" -> put(field, "123")
+                            field == "resource_id" -> put(field, "resource-id")
+                            field == "place_id" -> put(field, "ChIJ_test-123")
+                            else -> put(field, "Toronto")
+                        }
+                    }
+                }
+                NativeMarketplaceCatalog.validate(entry.provider, operation, arguments)
+                val config = NativeProviderConfiguration(NativePluginInstallation(endpoint = "https://managed.example/api", endpoints = mapOf("geocode" to "https://managed.example/geocode", "restrooms" to "https://managed.example/overpass")), "test-key")
+                val request = NativeMarketplaceRequests.build(entry, operation, arguments, config)
+                assertEquals("https", request.url.scheme)
+                assertTrue(request.url.host.isNotBlank())
+                assertFalse(request.url.toString().contains("builtin://"))
+            }
+        }
+    }
+
     @Test fun googlePlacesNearbyAndDetailsUseCorrectHeadersCoordinatesAndSafeIds() = runBlocking {
         val entry = entry("google-places")
         val registry = registry()

@@ -137,6 +137,7 @@ class PublicAirbnbClient internal constructor(private val http: HttpClient) {
         if (handoff != null && handoff.host != source.host) {
             // Request the same public path; never submit handoff payloads or transfer cookies.
             delay(1500)
+            lastRequestAt = System.currentTimeMillis()
             return readPage(source.newBuilder().host(handoff.host).build().toString())
         }
         return html

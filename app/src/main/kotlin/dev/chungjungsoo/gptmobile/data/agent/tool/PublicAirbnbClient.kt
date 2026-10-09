@@ -15,9 +15,11 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -45,7 +47,8 @@ class PublicAirbnbClient internal constructor(private val http: HttpClient) {
     internal suspend fun listings(action: String, arguments: JsonObject): List<AirbnbListing> = mutex.withLock {
         delay((1500 - (System.currentTimeMillis() - lastRequestAt)).coerceIn(0, 1500))
         lastRequestAt = System.currentTimeMillis()
-        parse(read(url(action, arguments)), arguments)
+        val html = read(url(action, arguments))
+        withContext(Dispatchers.Default) { parse(html, arguments) }
     }
 
     internal fun url(action: String, arguments: JsonObject): String {
@@ -123,14 +126,16 @@ class PublicAirbnbClient internal constructor(private val http: HttpClient) {
 
     private suspend fun read(url: String): String {
         val html = readPage(url)
-        val handoff = Jsoup.parse(html).select("form[action]").firstNotNullOfOrNull { form ->
-            form.attr("action").toHttpUrlOrNull()?.takeIf {
-                it.isHttps &&
-                    it.port == 443 &&
-                    it.username.isEmpty() &&
-                    it.password.isEmpty() &&
-                    it.host in setOf("www.airbnb.com", "www.airbnb.ca") &&
-                    it.encodedPath == "/v2/domain_switch/handoff"
+        val handoff = withContext(Dispatchers.Default) {
+            Jsoup.parse(html).select("form[action]").firstNotNullOfOrNull { form ->
+                form.attr("action").toHttpUrlOrNull()?.takeIf {
+                    it.isHttps &&
+                        it.port == 443 &&
+                        it.username.isEmpty() &&
+                        it.password.isEmpty() &&
+                        it.host in setOf("www.airbnb.com", "www.airbnb.ca") &&
+                        it.encodedPath == "/v2/domain_switch/handoff"
+                }
             }
         }
         val source = url.toHttpUrl()

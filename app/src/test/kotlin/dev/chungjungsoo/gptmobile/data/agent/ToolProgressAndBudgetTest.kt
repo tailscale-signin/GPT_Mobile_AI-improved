@@ -29,6 +29,22 @@ class ToolProgressAndBudgetTest {
         assertEquals("observed source", (result.content as ToolResultContent.Text).text)
     }
 
+    @Test fun `a large result cannot consume the whole research turn`() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolOutputBytes = 256 * 1024))
+        val tool = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("web_search", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("source ".repeat(50_000)), false)
+        })
+        val first = tool.execute("first", buildJsonObject {})
+        assertFalse(first.isError)
+        assertFalse(first.outputBudgetExhausted)
+        assertEquals(16 * 1024, first.toolResultBudgetUsedBytes)
+        assertTrue((first.content as ToolResultContent.Text).text.toByteArray().size <= 16 * 1024)
+        assertTrue((first.retainedContent as ToolResultContent.Text).text.length > 256 * 1024)
+        assertFalse(tool.execute("second", buildJsonObject {}).isError)
+    }
+
     @Test fun `search excerpts remain visible when a result is truncated`() = runBlocking {
         val budget = ToolExecutionBudget(AgentRunLimits(maxToolOutputBytes = 48))
         val tool = budget.bind(object : AgentTool {

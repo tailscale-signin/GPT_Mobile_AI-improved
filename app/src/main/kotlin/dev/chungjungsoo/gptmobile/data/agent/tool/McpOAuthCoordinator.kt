@@ -11,6 +11,7 @@ import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
@@ -22,6 +23,7 @@ class McpOAuthCoordinator @Inject constructor(
     private val mcpClientManager: McpClientManager
 ) {
     private val credentialMutex = Mutex()
+    private val rejectedCredentials = mutableMapOf<String, String>()
 
     suspend fun begin(connectionUid: String, redirectUri: String): String {
         val connection = requireOAuthConnection(connectionUid)
@@ -48,6 +50,7 @@ class McpOAuthCoordinator @Inject constructor(
             connection.copy(oauthClientId = credential.clientId),
             credential = NetworkClient.json.encodeToString(credential).encodeToByteArray()
         )
+        credentialMutex.withLock { rejectedCredentials.remove(connectionUid) }
         secretVault.delete(pendingRef)
         mcpClientManager.close(connectionUid)
     }
@@ -63,11 +66,24 @@ class McpOAuthCoordinator @Inject constructor(
             val secretRef = connection.secretRef ?: throw McpOAuthException("MCP OAuth connection is not authorized.")
             var credential = readSecret<McpOAuthCredential>(secretRef)
                 ?: throw McpOAuthException("MCP OAuth credential is missing.")
+            val fingerprint = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(NetworkClient.json.encodeToString(credential))
+            if (rejectedCredentials[connection.connectionUid] == fingerprint) {
+                throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
+            }
+            rejectedCredentials.remove(connection.connectionUid)
             val currentHeader = "${credential.tokenType} ${credential.accessToken}"
             val isExpired = credential.expiresAtEpochSeconds?.let { it <= nowEpochSeconds() + REFRESH_SKEW_SECONDS } == true
             val shouldRefreshRejected = forceRefresh && (rejectedAuthorizationHeader == null || rejectedAuthorizationHeader == currentHeader)
             if (isExpired || shouldRefreshRejected) {
-                credential = oauthClient.refresh(credential)
+                credential = try {
+                    oauthClient.refresh(credential)
+                } catch (error: McpOAuthException) {
+                    if (error.requiresReauthorization) {
+                        if (rejectedCredentials.size >= 64) rejectedCredentials.remove(rejectedCredentials.keys.first())
+                        rejectedCredentials[connection.connectionUid] = fingerprint
+                    }
+                    throw error
+                }
                 connectionRepository.upsertConnection(
                     connection.copy(oauthClientId = credential.clientId),
                     credential = NetworkClient.json.encodeToString(credential).encodeToByteArray()

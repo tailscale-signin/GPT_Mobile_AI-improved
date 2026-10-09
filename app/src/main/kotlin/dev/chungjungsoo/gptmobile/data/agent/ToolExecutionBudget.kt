@@ -153,7 +153,12 @@ class ToolExecutionBudget(
             ""
         }
         val size = (text + checkpoint).toByteArray(Charsets.UTF_8).size
-        val sharedAvailable = remainingBytes.getAndUpdate { (it.toLong() - size).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
+        // Debit the admitted excerpt, rather than allowing a single raw JSON/page
+        // payload to consume the entire turn's research budget. Keep full results
+        // separately for UI and recovery, as before.
+        val resultAllowance = if (preserveSuccessfulHandoff) Int.MAX_VALUE else minOf(16 * 1024, limits.maxToolOutputBytes)
+        val chargedBytes = minOf(size, resultAllowance)
+        val sharedAvailable = remainingBytes.getAndUpdate { (it.toLong() - chargedBytes).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
         val handoffReserve = if (
             preserveSuccessfulHandoff &&
             !result.isError &&
@@ -163,7 +168,7 @@ class ToolExecutionBudget(
         } else {
             0
         }
-        val available = (sharedAvailable.toLong() + handoffReserve).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val available = (minOf(sharedAvailable, resultAllowance).toLong() + handoffReserve).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
         // Delegation is an orchestrator: its nested search/read calls may legitimately
         // consume the shared raw-result budget before the compact final handoff exists.
@@ -227,7 +232,7 @@ class ToolExecutionBudget(
                 content = if (changed) ToolResultContent.Text(safeText) else result.content,
                 retainedContent = result.retainedContent ?: result.content.takeIf { changed },
                 traceContent = trace,
-                outputBudgetExhausted = result.outputBudgetExhausted || size >= sharedAvailable,
+                outputBudgetExhausted = result.outputBudgetExhausted || remainingBytes.get() <= 0,
                 toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
             )
         )

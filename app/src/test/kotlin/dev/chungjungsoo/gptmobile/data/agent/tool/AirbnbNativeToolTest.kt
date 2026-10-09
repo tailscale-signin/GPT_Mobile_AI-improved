@@ -174,6 +174,63 @@ class AirbnbNativeToolTest {
         }
     }
 
+    @Test fun blankOptionalDatesDoNotMasqueradeAsConnectivityFailures() = runBlocking {
+        http(MockEngine { respond(page) }).use { http ->
+            val tool = AirbnbNativeTool(PublicAirbnbClient(http), { true }, { null })
+            val result = tool.execute(
+                "call",
+                buildJsonObject {
+                    put("location", "Toronto")
+                    put("checkin", "")
+                    put("checkout", kotlinx.serialization.json.JsonNull)
+                }
+            )
+            assertFalse(result.isError)
+            assertEquals(null, AirbnbListings.normalize((result.content as ToolResultContent.Json).value).single().checkin)
+        }
+    }
+
+    @Test fun malformedDatesAndDisabledProfilesReturnActionableErrors() = runBlocking {
+        http(MockEngine { error("No network for invalid arguments or a disabled profile") }).use { http ->
+            val client = PublicAirbnbClient(http)
+            val invalid = AirbnbNativeTool(client, { true }, { null }).execute(
+                "call",
+                buildJsonObject {
+                    put("location", "Toronto")
+                    put("checkin", "next Friday")
+                    put("checkout", "2026-11-03")
+                }
+            )
+            assertTrue(invalid.isError)
+            assertTrue((invalid.content as ToolResultContent.Text).text.contains("Invalid Airbnb arguments"))
+            val disabled = AirbnbNativeTool(client, { false }, { null }).execute("call", buildJsonObject { put("location", "Toronto") })
+            assertTrue((disabled.content as ToolResultContent.Text).text.contains("disabled for this profile"))
+        }
+    }
+
+    @Test fun emptyPublicResultsTryTheIndexAndNeverInventAvailability() = runBlocking {
+        http(MockEngine { respond("""<script id="data-deferred-state-0">{"searchResults":[]}</script>""") }).use { http ->
+            val tool = AirbnbNativeTool(PublicAirbnbClient(http), { true }) {
+                buildJsonObject {
+                    put(
+                        "results",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("url", "https://www.airbnb.com/rooms/123")
+                                    put("title", "Indexed listing")
+                                }
+                            )
+                        )
+                    )
+                }
+            }
+            val result = tool.execute("call", buildJsonObject { put("location", "Toronto") })
+            assertFalse(result.isError)
+            assertEquals(JsonPrimitive(true), ((result.content as ToolResultContent.Json).value as JsonObject)["indexedFallback"])
+        }
+    }
+
     @Test fun listingDetailsParseFactsAndUseDateParameterNames() {
         http(MockEngine { error("Parsing requires no network") }).use { http ->
             val client = PublicAirbnbClient(http)

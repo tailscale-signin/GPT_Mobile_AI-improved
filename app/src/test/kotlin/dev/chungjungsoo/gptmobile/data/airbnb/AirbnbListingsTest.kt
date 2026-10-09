@@ -12,6 +12,15 @@ class AirbnbListingsTest {
     private fun parse(value: String) = Json.parseToJsonElement(value)
     private val arguments = parse("""{"checkin":"2026-11-01","checkout":"2026-11-05","adults":2}""") as JsonObject
 
+    @Test fun coordinatesMustComeFromTheSameObject() {
+        val paired = AirbnbListings.normalize(kotlinx.serialization.json.Json.parseToJsonElement("""{"id":"123","title":"Stay","location":{"coordinate":{"latitude":43.1,"longitude":-79.1}}}""")).single()
+        assertEquals(43.1, paired.latitude!!, 0.0)
+        assertEquals(-79.1, paired.longitude!!, 0.0)
+        val unrelated = AirbnbListings.normalize(kotlinx.serialization.json.Json.parseToJsonElement("""{"id":"123","title":"Stay","a":{"latitude":43.1},"b":{"longitude":-79.1}}""")).single()
+        assertEquals(null, unrelated.latitude)
+        assertEquals(null, unrelated.longitude)
+    }
+
     @Test fun openSourceSearchRetainsGalleryDatesAndExplicitFeeLinesWhileDeduplicating() {
         val payload = parse(
             """{"searchResults":[

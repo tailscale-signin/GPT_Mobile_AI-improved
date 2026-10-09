@@ -72,7 +72,7 @@ data class McpOAuthCredential(
     val scope: String? = null
 )
 
-class McpOAuthException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class McpOAuthException(message: String, cause: Throwable? = null, val requiresReauthorization: Boolean = false) : Exception(message, cause)
 
 @Singleton
 class McpOAuthClient internal constructor(
@@ -229,7 +229,7 @@ class McpOAuthClient internal constructor(
 
     suspend fun refresh(credential: McpOAuthCredential): McpOAuthCredential {
         val refreshToken = credential.refreshToken
-            ?: throw McpOAuthException("OAuth credential has no refresh token.")
+            ?: throw McpOAuthException("OAuth credential has no refresh token. Reconnect in Plugins/Tools.", requiresReauthorization = true)
         return requestToken(
             endpoint = credential.tokenEndpoint,
             parameters = Parameters.build {
@@ -329,7 +329,17 @@ class McpOAuthClient internal constructor(
     }
 
     private suspend fun HttpResponse.successfulJson(label: String): JsonObject {
-        if (status.value !in 200..299) throw McpOAuthException("$label failed with HTTP ${status.value}.")
+        if (status.value !in 200..299) {
+            val body = discovering(label) { readBoundedBody() }
+            val errorCode = runCatching {
+                (NetworkClient.json.parseToJsonElement(body.decodeToString()) as? JsonObject)?.string("error")
+            }.getOrNull()
+            if (label == "OAuth token request" && errorCode in setOf("invalid_grant", "invalid_client", "unauthorized_client", "invalid_token")) {
+                // Never expose server descriptions, echoed credentials or response bodies.
+                throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
+            }
+            throw McpOAuthException("$label failed with HTTP ${status.value}.")
+        }
         return try {
             NetworkClient.json.parseToJsonElement(discovering(label) { readBoundedBody() }.decodeToString()) as? JsonObject
                 ?: throw McpOAuthException("$label returned invalid JSON.")

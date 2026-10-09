@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
@@ -29,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -71,6 +76,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -96,7 +102,7 @@ class LocationMapViewModel @Inject constructor(private val client: NearbyPlacesC
     suspend fun route(origin: MapCoordinate, place: NearbyPlace, walking: Boolean) = client.route(origin, MapCoordinate(place.latitude, place.longitude), walking)
 }
 
-internal data class LocationMapData(val origin: MapCoordinate, val places: List<NearbyPlace>, val status: String?)
+internal data class LocationMapData(val origin: MapCoordinate, val places: List<NearbyPlace>, val status: String?, val showOrigin: Boolean = true, val title: String = "Location")
 
 internal fun locationMapData(events: List<ToolEvent>): LocationMapData? = events.asReversed().firstNotNullOfOrNull { event ->
     if (event.status != ToolEventStatus.COMPLETED || event.isError) return@firstNotNullOfOrNull null
@@ -140,6 +146,16 @@ internal fun locationMapData(events: List<ToolEvent>): LocationMapData? = events
 @Composable
 internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier, viewModel: LocationMapViewModel? = null) {
     val data = remember(toolEvents) { locationMapData(toolEvents) } ?: return
+    EmbeddedLocationMap(data, modifier, viewModel)
+}
+
+@Composable
+internal fun EmbeddedLocationMap(
+    data: LocationMapData,
+    modifier: Modifier = Modifier,
+    viewModel: LocationMapViewModel? = null,
+    onOpenPlace: ((NearbyPlace) -> Unit)? = null
+) {
     val mapViewModel = viewModel ?: hiltViewModel<LocationMapViewModel>()
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -152,25 +168,31 @@ internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modif
     var routeError by remember(origin, selectedId) { mutableStateOf<String?>(null) }
     var retry by remember { mutableStateOf(0) }
     val selected = data.places.firstOrNull { it.id == selectedId }
-    val disposed = remember(context, owner, origin) { AtomicBoolean(false) }
-    var map by remember(context, owner, origin) { mutableStateOf<MapLibreMap?>(null) }
-    var ready by remember(context, owner, origin) { mutableStateOf(false) }
+    var mapAttempt by remember(origin) { mutableIntStateOf(0) }
+    var mapError by remember(origin, mapAttempt) { mutableStateOf<String?>(null) }
+    val disposed = remember(context, owner, origin, mapAttempt) { AtomicBoolean(false) }
+    var map by remember(context, owner, origin, mapAttempt) { mutableStateOf<MapLibreMap?>(null) }
+    var ready by remember(context, owner, origin, mapAttempt) { mutableStateOf(false) }
     val accent = MaterialTheme.colorScheme.primary.toArgb()
     val secondary = MaterialTheme.colorScheme.secondary.toArgb()
-    val mapView = remember(context, owner, origin) {
+    val mapView = remember(context, owner, origin, mapAttempt) {
         org.maplibre.android.MapLibre.getInstance(context)
         EmbeddedMapView(context).apply {
             onCreate(null)
+            addOnDidFailLoadingMapListener {
+                post { if (!disposed.get()) mapError = "The embedded map could not load. Listing cards remain available. Retry the map or open your maps app." }
+            }
             getMapAsync { active ->
                 if (!disposed.get()) {
                     active.cameraPosition = CameraPosition.Builder().target(LatLng(origin.latitude, origin.longitude)).zoom(15.0).build()
                     active.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/dark")) { style ->
                         if (!disposed.get()) {
-                            style.addSource(GeoJsonSource("location-origin", Point.fromLngLat(origin.longitude, origin.latitude)))
+                            style.addSource(GeoJsonSource("location-origin", FeatureCollection.fromFeatures(if (data.showOrigin) listOf(Feature.fromGeometry(Point.fromLngLat(origin.longitude, origin.latitude))) else emptyList())))
                             style.addSource(GeoJsonSource("location-places", FeatureCollection.fromFeatures(emptyArray<Feature>())))
                             style.addSource(GeoJsonSource("location-route", FeatureCollection.fromFeatures(emptyArray<Feature>())))
                             style.addLayer(LineLayer("location-route-line", "location-route").withProperties(PropertyFactory.lineColor(accent), PropertyFactory.lineWidth(5f)))
                             style.addLayer(CircleLayer("location-places-pins", "location-places").withProperties(PropertyFactory.circleRadius(9f), PropertyFactory.circleColor(secondary), PropertyFactory.circleStrokeWidth(2f), PropertyFactory.circleStrokeColor("#FFFFFF")))
+                            style.addLayer(SymbolLayer("location-place-labels", "location-places").withProperties(PropertyFactory.textField("{label}"), PropertyFactory.textSize(12f), PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textAllowOverlap(true)))
                             style.addLayer(CircleLayer("location-origin-pin", "location-origin").withProperties(PropertyFactory.circleRadius(8f), PropertyFactory.circleColor(accent), PropertyFactory.circleStrokeWidth(3f), PropertyFactory.circleStrokeColor("#FFFFFF")))
                             active.addOnMapClickListener { point ->
                                 val hit = active.queryRenderedFeatures(active.projection.toScreenLocation(point), "location-places-pins").firstOrNull()
@@ -178,6 +200,7 @@ internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modif
                                 hit != null
                             }
                             map = active
+                            mapError = null
                             ready = true
                         }
                     }
@@ -186,37 +209,77 @@ internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modif
         }
     }
     DisposableEffect(mapView, owner) {
+        var started = false
+        var resumed = false
+        fun start() {
+            if (!started) {
+                mapView.onStart()
+                started = true
+            }
+        }
+        fun resume() {
+            if (!resumed) {
+                start()
+                mapView.onResume()
+                resumed = true
+            }
+        }
+        fun pause() {
+            if (resumed) {
+                mapView.onPause()
+                resumed = false
+            }
+        }
+        fun stop() {
+            pause()
+            if (started) {
+                mapView.onStop()
+                started = false
+            }
+        }
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_START -> mapView.onStart()
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> mapView.onStop()
+                androidx.lifecycle.Lifecycle.Event.ON_START -> start()
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> resume()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> pause()
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> stop()
                 else -> Unit
             }
         }
         owner.lifecycle.addObserver(observer)
+        // Synchronize immediately; guards also cover catch-up events dispatched by Lifecycle.
+        if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) start()
+        if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) resume()
         onDispose {
             disposed.set(true)
             owner.lifecycle.removeObserver(observer)
-            mapView.onPause()
-            mapView.onStop()
+            stop()
             mapView.onDestroy()
         }
     }
-    LaunchedEffect(ready, data.places, accent, secondary) {
+    LaunchedEffect(ready, data.places, data.showOrigin, accent, secondary) {
         val active = map ?: return@LaunchedEffect
         val style = active.style ?: return@LaunchedEffect
-        val features = data.places.map { place ->
-            Feature.fromGeometry(Point.fromLngLat(place.longitude, place.latitude)).apply { addStringProperty("placeId", place.id) }
+        val features = data.places.mapIndexed { index, place ->
+            Feature.fromGeometry(Point.fromLngLat(place.longitude, place.latitude)).apply {
+                addStringProperty("placeId", place.id)
+                addStringProperty("label", (index + 1).toString())
+            }
         }
+        style.getSourceAs<GeoJsonSource>("location-origin")?.setGeoJson(FeatureCollection.fromFeatures(if (data.showOrigin) listOf(Feature.fromGeometry(Point.fromLngLat(origin.longitude, origin.latitude))) else emptyList()))
         style.getSourceAs<GeoJsonSource>("location-places")?.setGeoJson(FeatureCollection.fromFeatures(features))
         style.getLayerAs<CircleLayer>("location-origin-pin")?.setProperties(PropertyFactory.circleColor(accent))
         style.getLayerAs<CircleLayer>("location-places-pins")?.setProperties(PropertyFactory.circleColor(secondary))
         style.getLayerAs<LineLayer>("location-route-line")?.setProperties(PropertyFactory.lineColor(accent))
     }
+    LaunchedEffect(mapView, ready) {
+        if (!ready) {
+            kotlinx.coroutines.delay(20_000)
+            if (!disposed.get()) mapError = "Map loading timed out. Check connectivity and retry; listing cards remain available."
+        }
+    }
     // Fit only when the location results change; theme and route updates preserve the user's camera.
-    LaunchedEffect(ready, origin, data.places.map { it.id }) {
+    LaunchedEffect(ready, origin, data.places.map { Triple(it.id, it.latitude, it.longitude) }) {
         val active = map ?: return@LaunchedEffect
         if (data.places.isNotEmpty()) {
             val bounds = LatLngBounds.Builder().include(LatLng(origin.latitude, origin.longitude))
@@ -224,8 +287,8 @@ internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modif
             active.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 45))
         }
     }
-    LaunchedEffect(origin, selected, retry) {
-        if (selected == null) return@LaunchedEffect
+    LaunchedEffect(origin, selected, retry, data.showOrigin) {
+        if (selected == null || !data.showOrigin) return@LaunchedEffect
         loading = true
         routeError = null
         try {
@@ -258,31 +321,41 @@ internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modif
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Location${if (data.places.isNotEmpty()) " · ${data.places.size} nearby places" else ""}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Text("${data.title}${if (data.places.isNotEmpty()) " · ${data.places.size} places" else ""}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                     IconButton(onClick = { map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(origin.latitude, origin.longitude), 15.0)) }) {
-                        Icon(Icons.Rounded.MyLocation, "Recenter map", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.MyLocation, if (data.showOrigin) "Your location" else "Recenter listing area", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
+                if (!ready && mapError == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                mapError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { mapAttempt++ }) { Text("Retry map") }
+                }
                 data.status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                data.places.forEachIndexed { index, place ->
-                    TextButton(onClick = { selectedId = place.id }) {
-                        Text("${index + 1}. ${place.name} · ${formatMapDistance(place.distanceMeters)} away", color = if (selectedId == place.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    itemsIndexed(data.places, key = { _, place -> place.id }) { index, place ->
+                        TextButton(onClick = { selectedId = place.id }, modifier = Modifier.widthIn(max = 260.dp)) {
+                            Text("${index + 1}. ${place.name}${if (data.showOrigin) " · ${formatMapDistance(place.distanceMeters)} away" else ""}", color = if (selectedId == place.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
                 selected?.let { place ->
                     Text(place.name, style = MaterialTheme.typography.titleMedium)
-                    Text("${formatMapDistance(place.distanceMeters)} straight-line distance", style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        FilterChip(selected = walking, onClick = { walking = true }, label = { Text("Walk") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, null) })
-                        FilterChip(selected = !walking, onClick = { walking = false }, label = { Text("Drive") }, leadingIcon = { Icon(Icons.Rounded.DirectionsCar, null) })
+                    onOpenPlace?.let { openPlace -> TextButton(onClick = { openPlace(place) }) { Text("View listing details") } }
+                    if (data.showOrigin) {
+                        Text("${formatMapDistance(place.distanceMeters)} straight-line distance", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FilterChip(selected = walking, onClick = { walking = true }, label = { Text("Walk") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, null) })
+                            FilterChip(selected = !walking, onClick = { walking = false }, label = { Text("Drive") }, leadingIcon = { Icon(Icons.Rounded.DirectionsCar, null) })
+                        }
+                        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Walk: ${formatMapRoute(walkRoute)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("Drive: ${formatMapRoute(driveRoute)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("Estimated travel times; traffic and current closures are not included.", style = MaterialTheme.typography.bodySmall)
+                        routeError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                        if (routeError != null) TextButton(onClick = { retry++ }, enabled = !loading) { Text("Retry routes") }
+                        TextButton(onClick = { open("https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${place.latitude},${place.longitude}&travelmode=${if (walking) "walking" else "driving"}") }) { Text("Open directions") }
                     }
-                    if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text("Walk: ${formatMapRoute(walkRoute)}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Drive: ${formatMapRoute(driveRoute)}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Estimated travel times; traffic and current closures are not included.", style = MaterialTheme.typography.bodySmall)
-                    routeError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                    if (routeError != null) TextButton(onClick = { retry++ }, enabled = !loading) { Text("Retry routes") }
-                    TextButton(onClick = { open("https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${place.latitude},${place.longitude}&travelmode=${if (walking) "walking" else "driving"}") }) { Text("Open directions") }
                 }
                 Text("© OpenStreetMap contributors · OpenFreeMap · Routes: FOSSGIS / OSRM", style = MaterialTheme.typography.labelSmall)
                 Row {

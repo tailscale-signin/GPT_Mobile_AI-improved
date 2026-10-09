@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -49,13 +53,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
+import dev.chungjungsoo.gptmobile.data.agent.tool.MapCoordinate
+import dev.chungjungsoo.gptmobile.data.agent.tool.NearbyPlace
+import dev.chungjungsoo.gptmobile.data.agent.tool.distanceMeters
 import dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListing
 import dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -76,19 +85,68 @@ internal fun airbnbListingResults(events: List<ToolEvent>): List<AirbnbListing> 
         AirbnbListings.normalize(payload)
     }.groupBy(AirbnbListings::stayKey).values.map { it.reduce(AirbnbListings::merge) }.take(30)
 
+/** Only provider coordinate pairs become pins; a city name is never a listing location. */
+internal fun airbnbMapData(listings: List<AirbnbListing>, position: MapCoordinate?): LocationMapData? {
+    val located = listings.mapNotNull { listing ->
+        val lat = listing.latitude ?: return@mapNotNull null
+        val lon = listing.longitude ?: return@mapNotNull null
+        MapCoordinate(lat, lon).takeIf { it.isValid }?.let { listing to it }
+    }
+    if (located.isEmpty()) return null
+    val userPosition = position?.takeIf { it.isValid }
+    val center = userPosition ?: located.first().second
+    val places = located.map { (listing, coordinate) ->
+        NearbyPlace(listing.id, listing.title, coordinate.latitude, coordinate.longitude, userPosition?.let { distanceMeters(it, coordinate) } ?: 0.0)
+    }.distinctBy { it.id }.let { if (userPosition != null) it.sortedBy { place -> place.distanceMeters } else it }
+    val missing = listings.size - located.size
+    val notice = "Approximate public listing locations; dates and availability must be confirmed on Airbnb." +
+        (if (missing > 0) " $missing listing(s) have no coordinates and remain in the cards below." else "") +
+        (if (userPosition == null) " Your position is unavailable. Enable Device location in this chat and allow Android location access to see distances and routes." else " Numbered pins are sorted by straight-line distance from your current position.")
+    return LocationMapData(center, places, notice, showOrigin = userPosition != null, title = "Airbnb")
+}
+
 @Composable
 internal fun AirbnbListingResults(events: List<ToolEvent>, owner: String?, modifier: Modifier = Modifier, profilesByRun: Map<String, String> = emptyMap()) {
-    val listings = remember(events) { airbnbListingResults(events) }
-    val owners = remember(events, listings, profilesByRun, owner) {
-        listings.map { listing ->
-            toolResultOwner(events, profilesByRun, owner) { event ->
-                airbnbListingResults(listOf(event)).any { AirbnbListings.stayKey(it) == AirbnbListings.stayKey(listing) }
+    val snapshot by produceState(Pair(emptyList<AirbnbListing>(), emptyList<String?>()), events, profilesByRun, owner) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val stored = airbnbListingResults(events)
+            val identities = stored.map { listing ->
+                toolResultOwner(events, profilesByRun, owner) { event ->
+                    airbnbListingResults(listOf(event)).any { AirbnbListings.stayKey(it) == AirbnbListings.stayKey(listing) }
+                }
             }
+            stored to identities
         }
     }
-    if (listings.isEmpty()) return
+    val storedListings = snapshot.first
+    val owners = snapshot.second
+    if (storedListings.isEmpty()) return
     val model: AirbnbListingViewModel = hiltViewModel(key = "airbnb-listings-$owner")
-    var selected by remember(listings) { mutableStateOf<Int?>(null) }
+    val cachedDetails by model.cachedDetails.collectAsStateWithLifecycle()
+    val listings = remember(storedListings, owners, cachedDetails) {
+        storedListings.mapIndexed { index, listing ->
+            cachedDetails[listOf(owners.getOrNull(index)) + AirbnbListings.stayKey(listing)]
+                ?.let { AirbnbListings.merge(listing, it) } ?: listing
+        }
+    }
+    var locationRetry by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { locationRetry++ }
+    var locating by remember { mutableStateOf(false) }
+    val position by produceState<MapCoordinate?>(null, owner, locationRetry) {
+        locating = true
+        try {
+            value = model.currentPosition(owner ?: owners.firstOrNull { it != null })
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            value = null
+        } finally {
+            locating = false
+        }
+    }
+    val mapData = remember(listings, position) { airbnbMapData(listings, position) }
+    var selected by remember(storedListings) { mutableStateOf<Int?>(null) }
     selected?.let { index ->
         AirbnbListingDialog(listings, index, owners.getOrNull(index), model, onSelect = { selected = it }, onDismiss = { selected = null })
     }
@@ -97,6 +155,21 @@ internal fun AirbnbListingResults(events: List<ToolEvent>, owner: String?, modif
             Icon(Icons.Rounded.Home, null, tint = MaterialTheme.colorScheme.primary)
             Text("Airbnb stays · ${listings.size}", style = MaterialTheme.typography.titleSmall)
         }
+        if (locating) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (mapData != null) {
+            EmbeddedLocationMap(mapData, onOpenPlace = { place -> selected = listings.indexOfFirst { it.id == place.id }.takeIf { it >= 0 } })
+        } else {
+            Text("These listings have no provider coordinates. Map pins will appear when coordinates are supplied; open a card to request listing details.", style = MaterialTheme.typography.bodySmall)
+        }
+        TextButton(onClick = {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+            } else {
+                locationRetry++
+            }
+        }, enabled = !locating) { Text("Refresh current position") }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             itemsIndexed(listings, key = { index, listing -> "${listing.id}-$index" }) { index, listing ->
                 Card(

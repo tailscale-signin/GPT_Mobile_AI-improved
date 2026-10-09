@@ -82,6 +82,25 @@ class ModernMcpTransportTest {
         }
     }
 
+    @Test fun unsupportedDiscoveryIsCachedAcrossTurnsAndExplicitRefreshReprobes() = runBlocking {
+        var requests = 0
+        var now = 1_000L
+        HttpClient(
+            MockEngine {
+                requests++
+                respond("""{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+            }
+        ).use { client ->
+            val transport = ModernMcpTransport(client, nowMs = { now })
+            assertFalse(transport.supports(config))
+            now += 90_000
+            assertFalse(transport.supports(config))
+            assertEquals(1, requests)
+            assertFalse(transport.supports(config, refresh = true))
+            assertEquals(2, requests)
+        }
+    }
+
     @Test fun missingDiscoveryVersionsUseStandardInitialization() = runBlocking {
         val methods = mutableListOf<String>()
         HttpClient(

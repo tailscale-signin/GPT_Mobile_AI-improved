@@ -34,7 +34,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /** MCP 2026-07-28: per-request metadata, request-scoped SSE and bounded MRTR. No session replay. */
-internal class ModernMcpTransport(private val http: HttpClient, private val interactions: McpInteractions? = null, private val tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore? = null) {
+internal class ModernMcpTransport(private val http: HttpClient, private val interactions: McpInteractions? = null, private val tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore? = null, private val nowMs: () -> Long = System::currentTimeMillis) {
     private val safeHttp = http.config {
         followRedirects = false
         expectSuccess = false
@@ -54,7 +54,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 put("authorization", config.authorizationHeader)
             }
         )
-        val now = System.currentTimeMillis()
+        val now = nowMs()
         endpoints[config.connectionUid]?.takeIf { endpoint ->
             val ttl = if (endpoint.discovery == null) LEGACY_DECISION_CACHE_MS else DISCOVERY_CACHE_MS
             !refresh && endpoint.identity == identity && now - endpoint.checkedAt < ttl
@@ -366,7 +366,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         const val VERSION = "2026-07-28"
         private val LEGACY_VERSIONS = setOf("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
         private const val DISCOVERY_CACHE_MS = 60 * 60 * 1000L
-        private const val LEGACY_DECISION_CACHE_MS = 60_000L
+
+        // An unsupported discovery method is a capability decision, not a transient outage.
+        // Endpoint/credential changes and explicit reconnect bypass this cache.
+        private const val LEGACY_DECISION_CACHE_MS = DISCOVERY_CACHE_MS
         private const val LOCAL_DISCOVERY_TIMEOUT_MS = 12_000L
         private const val REMOTE_DISCOVERY_TIMEOUT_MS = 5_000L
         private val MODERN_ERRORS = (-32029..-32020).toSet() + -32601

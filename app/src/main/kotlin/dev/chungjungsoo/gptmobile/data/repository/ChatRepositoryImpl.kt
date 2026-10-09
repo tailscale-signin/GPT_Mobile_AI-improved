@@ -717,7 +717,8 @@ class ChatRepositoryImpl(
                 "Use only the supplied task and tool evidence for factual claims; do not rely on memory, prior chat context, or unstated facts. " +
                 "Preserve exact facts and source IDs, disclose uncertainty, and invent no sources. " +
                 "Return a usable final answer immediately; do not spend the response budget on hidden reasoning or a long preamble. " +
-                "Use enabled tools only when they are needed to complete the task. Never delegate to another model."
+                "Use enabled tools only when they are needed to complete the task. Never delegate to another model. " +
+                "Your completion cap is $maxTokens tokens including reasoning. Keep the visible evidence brief below ${maxOf(64, maxTokens / 2)} tokens; prioritize unique facts, source URLs and unresolved requirements rather than writing a full-length essay."
         }
         fun estimatedToolTokens(): Int = childTools.sumOf { tool ->
             dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(
@@ -1654,23 +1655,24 @@ class ChatRepositoryImpl(
                 "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=${effectiveOutputCap ?: -1} · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
             )
         }
-        suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary"): AgentProviderSession {
+        suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
+            val constraints = if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints
             workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan, turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
             val raw = when (platform.compatibleType) {
-                ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, requestConstraints)
+                ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, constraints)
 
                 ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                    openAICompatibleAdapter.openSession(turns, requestPlatform, requestConstraints)
+                    openAICompatibleAdapter.openSession(turns, requestPlatform, constraints)
 
-                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, requestPlatform, requestConstraints)
+                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, requestPlatform, constraints)
 
-                ClientType.GOOGLE -> geminiAdapter.openSession(turns, requestPlatform, requestConstraints)
+                ClientType.GOOGLE -> geminiAdapter.openSession(turns, requestPlatform, constraints)
 
                 ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
                     turns,
                     requestPlatform,
-                    effectiveTools.map { it.tool },
-                    requestConstraints,
+                    if (textOnly) emptyList() else effectiveTools.map { it.tool },
+                    constraints,
                     fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
                 )
             }
@@ -1682,7 +1684,15 @@ class ChatRepositoryImpl(
                 profileUid = platform.uid
             ) ?: guarded
         }
-        val initialSession = openPrimarySession(contextPlan.turns)
+        val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(openPrimarySession(contextPlan.turns)) { draft, exchanges ->
+            val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
+                contextPlan.turns,
+                "\n\nThe previous answer hit its output cap. Finish the remaining requirements concisely, using completed evidence only. Do not repeat text already shown or repeat any tool action. If evidence is missing, say so. End within this request's output budget.",
+                draft,
+                exchanges
+            )
+            openPrimarySession(turns, "output_limit_continuation", textOnly = true)
+        }
         val session = if (followUps != null && latestUser != null) {
             dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(initialSession, followUps) { handoff, draft, exchanges ->
                 // Preserve the entire planned history, original question, attachments and

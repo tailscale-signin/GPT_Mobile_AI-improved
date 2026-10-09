@@ -9,6 +9,7 @@ import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -30,44 +31,63 @@ internal class AirbnbNativeTool(
         Json.parseToJsonElement("""{"type":"object","properties":{"action":{"type":"string","enum":["search","details"],"default":"search"},"location":{"type":"string","maxLength":200},"id":{"type":"string","pattern":"^[0-9]{1,30}$"},"checkin":{"type":"string"},"checkout":{"type":"string"},"adults":{"type":"integer","minimum":1,"maximum":50},"children":{"type":"integer","minimum":0,"maximum":50},"infants":{"type":"integer","minimum":0,"maximum":50},"pets":{"type":"integer","minimum":0,"maximum":20}},"additionalProperties":false}""") as JsonObject
     )
 
-    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = try {
-        validate(arguments)
-        check(allowed()) { "Airbnb is disabled for this profile." }
-        val action = text(arguments, "action") ?: "search"
-        var fallback = false
-        val listings = try {
-            client.listings(action, arguments)
+    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        // Optional blank/null fields are commonly emitted by tool-calling models.
+        // Remove them before date parsing rather than misreporting a network failure.
+        val cleaned = JsonObject(
+            arguments.filterNot { (key, value) ->
+                key in setOf("action", "id", "checkin", "checkout", "adults", "children", "infants", "pets") &&
+                    (value == JsonNull || (value is JsonPrimitive && value.isString && value.content.isBlank()))
+            }
+        )
+        return executeValidated(callId, cleaned)
+    }
+
+    private suspend fun executeValidated(callId: String, arguments: JsonObject): AgentToolResult {
+        return try {
+            try {
+                validate(arguments)
+            } catch (_: Exception) {
+                return AgentToolResult(callId, ToolResultContent.Text("Invalid Airbnb arguments. Search requires a nonempty location; details requires a numeric id. Omit unused dates or supply both checkin and checkout as YYYY-MM-DD with checkout after checkin. Guest counts must be integers. Use only fields in the tool schema."), true)
+            }
+            if (!allowed()) return AgentToolResult(callId, ToolResultContent.Text("Airbnb is disabled for this profile. Enable the installed Airbnb plugin and its AI profile toggle before searching."), true)
+            val action = text(arguments, "action") ?: "search"
+            var fallback = false
+            val listings = try {
+                client.listings(action, arguments).also { check(it.isNotEmpty()) { "No public listing data." } }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (action == "details") throw error
+                check(allowed()) { "Airbnb was disabled." }
+                fallback = true
+                val results = search("site:airbnb.com/rooms/ ${text(arguments, "location")}")?.get("results") as? JsonArray
+                val candidates = results.orEmpty().filterIsInstance<JsonObject>().mapNotNull { result ->
+                    val url = AirbnbListings.listingUrl(text(result, "url")) ?: return@mapNotNull null
+                    buildJsonObject {
+                        put("id", url.substringAfterLast('/'))
+                        put("url", url)
+                        put("title", text(result, "title") ?: "Airbnb listing")
+                        text(result, "snippet")?.let { put("description", it) }
+                    }
+                }
+                AirbnbListings.normalize(JsonObject(mapOf("searchResults" to JsonArray(candidates))), arguments)
+            }
+            check(allowed()) { "Airbnb was disabled." }
+            val payload = JsonObject(
+                AirbnbListings.json(listings.map { it.copy(provider = if (fallback) "Public web index" else "Airbnb public page") }, "Android public browsing") + buildJsonObject {
+                    put("indexedFallback", fallback)
+                    put("notice", if (fallback) "Public indexed listings. Dates, fees, prices and availability are unconfirmed; open listing details or Airbnb to verify." else "Public page observations only. Missing prices, fees and review text remain unknown. Confirm availability and final total on Airbnb.")
+                    if (listings.isEmpty()) put("error", "No public listings were returned. Try another location or open Airbnb.")
+                }
+            )
+            AgentToolResult(callId, ToolResultContent.Json(payload), listings.isEmpty())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            if (action == "details") throw error
-            check(allowed()) { "Airbnb was disabled." }
-            fallback = true
-            val results = search("site:airbnb.com/rooms/ ${text(arguments, "location")}")?.get("results") as? JsonArray
-            val candidates = results.orEmpty().filterIsInstance<JsonObject>().mapNotNull { result ->
-                val url = AirbnbListings.listingUrl(text(result, "url")) ?: return@mapNotNull null
-                buildJsonObject {
-                    put("id", url.substringAfterLast('/'))
-                    put("url", url)
-                    put("title", text(result, "title") ?: "Airbnb listing")
-                    text(result, "snippet")?.let { put("description", it) }
-                }
-            }
-            AirbnbListings.normalize(JsonObject(mapOf("searchResults" to JsonArray(candidates))), arguments)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Airbnb", "Public lookup failed · category=${error.javaClass.simpleName}", "W")
+            AgentToolResult(callId, ToolResultContent.Text("Airbnb public browsing unavailable. Check the profile toggle, location, dates and connectivity. No sign-up or API key is required. A blocked page cannot supply live listing details."), true)
         }
-        check(allowed()) { "Airbnb was disabled." }
-        val payload = JsonObject(
-            AirbnbListings.json(listings.map { it.copy(provider = if (fallback) "Public web index" else "Airbnb public page") }, "Android public browsing") + buildJsonObject {
-                put("indexedFallback", fallback)
-                put("notice", if (fallback) "Public indexed listings. Dates, fees, prices and availability are unconfirmed; open listing details or Airbnb to verify." else "Public page observations only. Missing prices, fees and review text remain unknown. Confirm availability and final total on Airbnb.")
-                if (listings.isEmpty()) put("error", "No public listings were returned. Try another location or open Airbnb.")
-            }
-        )
-        AgentToolResult(callId, ToolResultContent.Json(payload), listings.isEmpty())
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        AgentToolResult(callId, ToolResultContent.Text("Airbnb public browsing unavailable. Check the profile toggle, location, dates and connectivity. No sign-up or API key is required. A blocked page cannot supply live listing details."), true)
     }
 
     internal fun validate(arguments: JsonObject) {

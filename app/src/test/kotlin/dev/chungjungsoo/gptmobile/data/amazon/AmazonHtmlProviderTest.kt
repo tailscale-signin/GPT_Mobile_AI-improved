@@ -139,6 +139,20 @@ class AmazonHtmlProviderTest {
     }
 
     @Test
+    fun ordinaryLargeAmazonPagesFitTheBoundedDownload() = runBlocking {
+        http(
+            MockEngine {
+                clock.advance(6_000)
+                respond("<!--" + "x".repeat(2 * 1024 * 1024 + 1) + "-->" + """<div data-component-type="s-search-result" data-asin="B012345678"><h2><a href="/dp/B012345678"><span>Large-page product</span></a></h2><span class="a-price"><span class="a-offscreen">CDN$ 19.99</span></span></div>""", headers = headersOf("Content-Type", "text/html"))
+            }
+        ).use { client ->
+            val result = AmazonHtmlProvider(client, budget, clock).search(request, context)
+            assertEquals(1, result.pagesFetched)
+            assertEquals("B012345678", result.products.single().asin)
+        }
+    }
+
+    @Test
     fun decodedBodyLimitStopsCompressedOversizedHtml() = runBlocking {
         val bytes = ByteArrayOutputStream().apply { GZIPOutputStream(this).use { it.write("x".repeat(AmazonHtmlProvider.MAX_HTML_BYTES + 1).toByteArray()) } }.toByteArray()
         http(

@@ -137,8 +137,14 @@ object AirbnbListings {
             val checkin = date(text(arguments, "checkin") ?: text(item, "checkin"))
             val checkout = date(text(arguments, "checkout") ?: text(item, "checkout"))
             val nights = runCatching { ChronoUnit.DAYS.between(LocalDate.parse(checkin), LocalDate.parse(checkout)).toInt().takeIf { it in 1..365 } }.getOrNull()
-            val latitude = descendants.firstNotNullOfOrNull { number(it, "latitude", "lat") }?.takeIf { it in -90.0..90.0 }
-            val longitude = descendants.firstNotNullOfOrNull { number(it, "longitude", "lng", "lon") }?.takeIf { it in -180.0..180.0 }
+            // Read a coordinate pair from the same object. Never combine unrelated sections.
+            val coordinate = descendants.firstNotNullOfOrNull { obj ->
+                val lat = number(obj, "latitude", "lat")?.takeIf { it in -90.0..90.0 }
+                val lon = number(obj, "longitude", "lng", "lon")?.takeIf { it in -180.0..180.0 }
+                if (lat != null && lon != null) lat to lon else null
+            }
+            val latitude = coordinate?.first
+            val longitude = coordinate?.second
             val photos = descendants.flatMap { obj ->
                 listOf("picture", "image", "imageUrl", "image_url", "baseUrl", "src").mapNotNull { photoUrl(text(obj, it)) } +
                     listOf("photos", "images", "pictures", "contextualPictures").flatMap { key ->

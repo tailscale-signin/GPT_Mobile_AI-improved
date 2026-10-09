@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.decodeURLPart
 import io.ktor.serialization.kotlinx.json.json
@@ -21,6 +22,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpOAuthClientTest {
+    @Test fun rejectedRefreshRequiresReauthorizationWithoutExposingResponseText() = runBlocking {
+        HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                respond("""{"error":"invalid_grant","error_description":"secret server text"}""", io.ktor.http.HttpStatusCode.BadRequest, io.ktor.http.headersOf("Content-Type", "application/json"))
+            }
+        ).use { http ->
+            val credential = McpOAuthCredential("client", "https://example.com/token", "https://example.com/mcp", "access", "Bearer", "refresh")
+            val failure = runCatching { McpOAuthClient(http).refresh(credential) }.exceptionOrNull() as McpOAuthException
+            assertTrue(failure.requiresReauthorization)
+            assertTrue(failure.message!!.contains("Reconnect"))
+            assertFalse(failure.message!!.contains("secret server text"))
+        }
+    }
+
     @Test
     fun `callback filter accepts only MCP OAuth redirect URIs`() {
         assertTrue(isMcpOAuthCallbackUri("dev.chungjungsoo.gptmobile://oauth/mcp/connection-1?code=code&state=state"))

@@ -102,7 +102,7 @@ class AmazonHtmlProvider internal constructor(
                             while (true) {
                                 val count = channel.readAvailable(buffer)
                                 if (count < 0) break
-                                if (output.size() + count > MAX_HTML_BYTES) throw AmazonReadException(AmazonReadError.RESPONSE_TOO_LARGE, "Amazon's page exceeded the 2 MiB lookup limit.")
+                                if (output.size() + count > MAX_HTML_BYTES) throw AmazonReadException(AmazonReadError.RESPONSE_TOO_LARGE, "Amazon's page exceeded the 8 MiB lookup limit.")
                                 output.write(buffer, 0, count)
                             }
                             val html = output.toByteArray().toString(Charsets.UTF_8)
@@ -139,7 +139,7 @@ class AmazonHtmlProvider internal constructor(
     private data class PageResult(val html: String? = null, val redirect: String? = null)
 
     companion object {
-        const val MAX_HTML_BYTES = 2 * 1024 * 1024
+        const val MAX_HTML_BYTES = 8 * 1024 * 1024
 
         internal fun validPageUrl(raw: String, market: AmazonFreeMarket): Boolean = runCatching {
             val uri = URI(raw)

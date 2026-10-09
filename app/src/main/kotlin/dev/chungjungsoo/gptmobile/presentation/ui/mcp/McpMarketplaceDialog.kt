@@ -111,6 +111,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
@@ -351,6 +352,7 @@ fun McpMarketplaceScreen(
                     val installation = installations[preset.id]
                     val connection = connectionsState.connections.firstOrNull { it.alias == preset.alias }
                     val builtinId = when (preset.id) {
+                        "airbnb-native" -> ToolPluginId.AIRBNB
                         "builtin-memory" -> ToolPluginId.LOCAL_MEMORY
                         "builtin-model-delegation" -> ToolPluginId.MODEL_DELEGATION
                         "builtin-web" -> ToolPluginId.WEB_SEARCH
@@ -377,6 +379,7 @@ fun McpMarketplaceScreen(
                         onEnabledChange = { value ->
                             if (native && entry != null) {
                                 marketplaceViewModel.setEnabled(entry, value)
+                                if (value) connectionsViewModel.setPluginsEnabled(setOf(entry.id, ToolServiceCatalog.forPackage(entry).id), true)
                             } else {
                                 (connection?.let { ToolPluginId.connection(it.connectionUid) } ?: builtinId)?.let { id ->
                                     connectionsViewModel.setPluginsEnabled(if (preset.id == "builtin-web") setOf(id, ToolPluginId.READ_URL) else setOf(id), value)

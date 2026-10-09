@@ -75,13 +75,13 @@ class AmazonBackupTest {
         }
     }
 
-    @Test fun restoreRevokesOnlyAmazonGrantsAndPreservesUnknownSettings() {
+    @Test fun restorePreservesAmazonGrantsAndUnknownSettings() {
         val enabled = AppFeatureSettings().withToolPluginEnabled(ToolPluginId.AMAZON_FREE, true).withProfileToolPluginEnabled("owner", ToolPluginId.AMAZON_FREE, true).withProfileToolPluginEnabled("owner", ToolPluginId.GITHUB, true)
         val raw = Json.encodeToString(enabled).dropLast(1) + ",\"futureSetting\":42}"
-        val restored = AmazonRestorePolicy.disableGrants(mapOf("advanced_feature_settings_json" to BackupValue("string", raw), "unrelated" to BackupValue("string", "kept")))
+        val restored = PluginBackupPreferences.merge(mapOf("advanced_feature_settings_json" to BackupValue("string", raw), "unrelated" to BackupValue("string", "kept")), mapOf("advanced_feature_settings_json" to BackupValue("string", raw), "unrelated" to BackupValue("string", "kept")))
         val decoded = Json { ignoreUnknownKeys = true }.decodeFromString<AppFeatureSettings>(restored.getValue("advanced_feature_settings_json").value)
-        assertFalse(decoded.isToolPluginEnabled(ToolPluginId.AMAZON_FREE))
-        assertFalse(decoded.isToolPluginSelected("owner", ToolPluginId.AMAZON_FREE))
+        assertTrue(decoded.isToolPluginEnabled(ToolPluginId.AMAZON_FREE))
+        assertTrue(decoded.isToolPluginSelected("owner", ToolPluginId.AMAZON_FREE))
         assertTrue(decoded.isToolPluginSelected("owner", ToolPluginId.GITHUB))
         assertTrue(restored.getValue("advanced_feature_settings_json").value.contains("\"futureSetting\":42"))
         assertEquals("kept", restored.getValue("unrelated").value)

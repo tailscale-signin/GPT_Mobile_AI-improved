@@ -57,6 +57,25 @@ class AgentToolResolverTest {
         assertTrue(vault.lastReadBytes!!.all { it == 0.toByte() })
     }
 
+    @Test fun nativeAirbnbNeedsNoRemoteConnectionAndRechecksProfilePermissions() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Research")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { error("Resolution must not perform a network request") })
+        try {
+            val resolver = resolver(settings = settings, airbnb = PublicAirbnbClient(http))
+            assertFalse(resolver.resolve(profile.uid).any { it.modelToolName == "airbnb" })
+            settings.features = settings.features.copy(remoteMcpConnections = false)
+                .withToolPluginEnabled(ToolPluginId.AIRBNB, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.AIRBNB, true)
+            val airbnb = resolver.resolve(profile.uid).single { it.modelToolName == "airbnb" }
+            assertEquals(null, airbnb.connectionUid)
+            assertTrue(requireNotNull(airbnb.canReuseResult).invoke())
+            settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, ToolPluginId.AIRBNB, false)
+            assertFalse(requireNotNull(airbnb.canReuseResult).invoke())
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun newsRequiresGlobalAndProfileGrantsAndCachedResultsRecheckPermissions() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Research")
         val settings = ResolverFakeSettingRepository(listOf(profile))
@@ -940,7 +959,8 @@ class AgentToolResolverTest {
         amazonFree: AmazonHtmlProvider? = null,
         history: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
         access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
-        news: PublicNewsClient? = null
+        news: PublicNewsClient? = null,
+        airbnb: PublicAirbnbClient? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -960,7 +980,8 @@ class AgentToolResolverTest {
             amazonFreeProvider = amazonFree,
             amazonHistory = history,
             amazonAccess = access,
-            publicNews = news
+            publicNews = news,
+            publicAirbnb = airbnb
         )
     }
 

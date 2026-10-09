@@ -7,14 +7,16 @@ import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ThemeAndBackupDefaultsTest {
     @Test fun backupAndRestoreOptionsStartWithLargeOptionalSectionsDisabled() {
         val state = SettingViewModelV2.BackupUiState()
-        listOf(CompleteBackupSection.TOOLS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.LOCAL_MODELS).forEach {
+        listOf(CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.LOCAL_MODELS).forEach {
             assertFalse(state.selection.includes(it))
         }
+        assertTrue(state.selection.includes(CompleteBackupSection.TOOLS))
         assertFalse(state.passwordProtectionEnabled)
     }
 

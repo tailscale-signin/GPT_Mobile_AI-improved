@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.model
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.toolServiceItems
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -11,6 +12,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolServicePolicyTest {
+    @Test
+    fun inAppAirbnbHasNoAccountOrConnectionSetupRequirement() {
+        val service = toolServiceItems(emptyList(), emptyMap()).single { it.id == ToolPluginId.AIRBNB }
+        assertTrue(service.integrated)
+        assertTrue(service.hasPlugin)
+        assertTrue(service.requiredFields(emptyMap()).isEmpty())
+        val preset = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog.findById("airbnb-native"))
+        assertTrue(preset.isPreinstalled)
+        assertEquals("builtin://airbnb", preset.commandOrUrl)
+        assertEquals(null, preset.integratedTool)
+    }
+
     @Test
     fun nativeAmazonIsSeparateFromPaidServiceAndDefaultsOffForOldSettings() {
         val old = Json.decodeFromString<AppFeatureSettings>("{}")

@@ -3,9 +3,19 @@ package dev.chungjungsoo.gptmobile.data.backup
 import java.io.File
 import java.util.UUID
 
-internal class CompleteBackupFiles(roots: Map<String, File>) {
+internal class CompleteBackupFiles(roots: Map<String, File>, private val pluginRoot: File? = null) {
     private val roots = roots.mapValues { it.value.canonicalFile }
     private val excluded = setOf("datastore", "backup", "backups", "diagnostics", "amazon-product-media")
+
+    fun collectPlugins(): Map<String, File> = buildMap {
+        val root = pluginRoot?.canonicalFile ?: return@buildMap
+        val registry = File(root, "native-marketplace-v1.json")
+        val packages = File(root, "optional_marketplace_v1").listFiles().orEmpty()
+        (listOf(registry) + packages.filter { it.name.matches(Regex("[a-z0-9-]{1,64}\\.zip")) }).filter { it.isFile }.forEach { file ->
+            require(file.canonicalFile == file.absoluteFile) { "Cannot back up a symbolic link." }
+            put("internal/plugin-installations/${file.relativeTo(root).invariantSeparatorsPath}", file)
+        }
+    }
 
     fun collect(): MutableMap<String, File> = buildMap {
         roots.entries.distinctBy { it.value }.forEach { (name, root) ->
@@ -36,6 +46,14 @@ internal class CompleteBackupFiles(roots: Map<String, File>) {
         CompleteBackupArchive.validatePath(path)
         require(path != "database.sqlite")
         val relative = path.substringAfter('/')
+        if (isPluginPath(path)) {
+            val root = requireNotNull(pluginRoot) { "Plugin storage is unavailable." }.canonicalFile
+            val suffix = relative.removePrefix("plugin-installations/")
+            require(suffix == "native-marketplace-v1.json" || suffix.matches(Regex("optional_marketplace_v1/[a-z0-9-]{1,64}\\.zip"))) { "Invalid plugin backup file." }
+            return File(root, suffix).also {
+                require(it.canonicalFile == it.absoluteFile && it.toPath().startsWith(root.toPath())) { "Invalid plugin restore destination." }
+            }
+        }
         // Model paths are resolved by the app against its current preferred storage root.
         val root = roots.getValue(if (relative.startsWith("models/")) "external" else path.substringBefore('/'))
         return File(root, relative).also {
@@ -59,7 +77,7 @@ internal class CompleteBackupFiles(roots: Map<String, File>) {
             paths.forEach { path ->
                 val file = target(path)
                 if (file.exists()) {
-                    val root = roots.values.first { file.toPath().startsWith(it.toPath()) }
+                    val root = (roots.values + listOfNotNull(pluginRoot?.canonicalFile)).first { file.toPath().startsWith(it.toPath()) }
                     val previous = File(root, "$id/${file.relativeTo(root)}")
                     check(previous.parentFile!!.mkdirs() || previous.parentFile!!.isDirectory)
                     check(file.renameTo(previous)) { "Could not preserve existing app files." }
@@ -91,7 +109,11 @@ internal class CompleteBackupFiles(roots: Map<String, File>) {
         }
 
         fun cleanup() {
-            roots.values.forEach { File(it, id).deleteRecursively() }
+            (roots.values + listOfNotNull(pluginRoot)).forEach { File(it, id).deleteRecursively() }
         }
+    }
+
+    companion object {
+        fun isPluginPath(path: String): Boolean = path.startsWith("internal/plugin-installations/")
     }
 }

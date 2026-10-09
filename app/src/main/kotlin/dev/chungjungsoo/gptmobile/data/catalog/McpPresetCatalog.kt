@@ -121,6 +121,14 @@ object McpPresetCatalog {
             setupInstructions = "Run mcp/research/bridge.mjs with the news configuration supplied in this repository. It connects jmanek/google-news-trends-mcp, ChanMeng666/server-google-news (optional SERP_API_KEY) and pskill9/hn-server through one authenticated endpoint. Enable the News service globally and for your AI profile. Free built-in Google feeds and Hacker News also work without the bridge."
         ),
         McpPreset(
+            id = "airbnb-native", name = "Airbnb · In-app browsing", description = "Public listing search, details and galleries processed directly on your phone. No sign-up, key or MCP server.",
+            category = McpCategory.SEARCH, commandOrUrl = "builtin://airbnb", alias = "airbnb_native", iconName = "airbnb",
+            author = "GPT Mobile", isPreinstalled = true,
+            toolCapabilities = listOf("Public listing search", "Listing details and photos", "Indexed fallback when public pages are unavailable"),
+            websiteUrl = "https://www.airbnb.com/",
+            setupInstructions = "Enable Airbnb here and for your AI profile. Runs in the app without OpenBnB or a computer. Internet is needed for current listings. Prices and availability remain unknown when Airbnb blocks a page or only indexed results are available."
+        ),
+        McpPreset(
             id = "airbnb-openbnb", name = "Airbnb · OpenBnB", description = "Hosted vacation rental search, details, listing cards and galleries.",
             category = McpCategory.SEARCH, commandOrUrl = "https://mcp.openbnb.ai/mcp", alias = "airbnb", iconName = "airbnb",
             author = "OpenBnB", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,

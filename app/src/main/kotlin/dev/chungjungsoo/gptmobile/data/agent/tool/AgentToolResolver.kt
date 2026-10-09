@@ -71,7 +71,8 @@ class AgentToolResolver @Inject constructor(
     private val amazonHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
     private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
     private val amazonPublicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryProvider? = null,
-    private val publicNews: PublicNewsClient? = null
+    private val publicNews: PublicNewsClient? = null,
+    private val publicAirbnb: PublicAirbnbClient? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -191,6 +192,10 @@ class AgentToolResolver @Inject constructor(
         }
 
         if (!disableRemote) {
+            if (publicAirbnb != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AIRBNB)) {
+                resolved += nativeAirbnb(profileUid).resolved(null, "Airbnb", "airbnb")
+                    .copy(shareableReadOnly = true, canReuseResult = { pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB) })
+            }
             if (publicNews != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.NEWS)) {
                 val config = (featureSettings.pluginExecution[ToolPluginId.NEWS] ?: PluginExecutionSettings()).normalized()
                 resolved += NewsTool(publicNews, { pluginMediaAllowed(profileUid, ToolPluginId.NEWS) }, { config.newsCountry to config.newsLanguage })
@@ -355,6 +360,7 @@ class AgentToolResolver @Inject constructor(
                     "device_location" -> ToolPluginId.DEVICE_LOCATION
                     "web_search" -> ToolPluginId.WEB_SEARCH
                     "news" -> ToolPluginId.NEWS
+                    "airbnb" -> ToolPluginId.AIRBNB
                     "github" -> ToolPluginId.GITHUB
                     else -> ""
                 }
@@ -512,8 +518,38 @@ class AgentToolResolver @Inject constructor(
             settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profile.uid, serviceId)
     }
 
+    private fun nativeAirbnb(profileUid: String): AirbnbNativeTool = AirbnbNativeTool(
+        requireNotNull(publicAirbnb),
+        { pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB) },
+        { query ->
+            val tool = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), networkClient)
+            val arguments = kotlinx.serialization.json.buildJsonObject {
+                put("query", kotlinx.serialization.json.JsonPrimitive(query))
+                put("maxResults", kotlinx.serialization.json.JsonPrimitive(10))
+            }
+            (tool.execute("airbnb-index-${java.util.UUID.randomUUID()}", arguments).content as? ToolResultContent.Json)?.value as? JsonObject
+        }
+    )
+
     suspend fun airbnbListingDetails(profileUid: String, listing: dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListing): dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListing? {
         if (!pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB)) return null
+        if (publicAirbnb != null) {
+            val arguments = kotlinx.serialization.json.buildJsonObject {
+                put("action", kotlinx.serialization.json.JsonPrimitive("details"))
+                put("id", kotlinx.serialization.json.JsonPrimitive(listing.id))
+                listing.checkin?.let { put("checkin", kotlinx.serialization.json.JsonPrimitive(it)) }
+                listing.checkout?.let { put("checkout", kotlinx.serialization.json.JsonPrimitive(it)) }
+                listing.adults?.let { put("adults", kotlinx.serialization.json.JsonPrimitive(it)) }
+                listing.children?.let { put("children", kotlinx.serialization.json.JsonPrimitive(it)) }
+                listing.infants?.let { put("infants", kotlinx.serialization.json.JsonPrimitive(it)) }
+                listing.pets?.let { put("pets", kotlinx.serialization.json.JsonPrimitive(it)) }
+            }
+            val result = nativeAirbnb(profileUid).execute("airbnb-details-${java.util.UUID.randomUUID()}", arguments)
+            val payload = (result.content as? ToolResultContent.Json)?.value
+            if (!result.isError && payload != null && pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB)) {
+                dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.normalize(payload, arguments).firstOrNull { it.id == listing.id }?.let { return it }
+            }
+        }
         val features = settingRepository.getFeatureSettings()
         if (!features.remoteMcpConnections) return null
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)

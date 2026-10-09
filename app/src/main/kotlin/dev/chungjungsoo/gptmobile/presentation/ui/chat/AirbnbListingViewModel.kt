@@ -53,7 +53,7 @@ class AirbnbListingViewModel @Inject constructor(private val tools: AgentToolRes
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                if (version == requestVersion) current.value = AirbnbDetailState(listing, notice = "Could not load additional details. Check the Airbnb connection or open the listing.")
+                if (version == requestVersion) current.value = AirbnbDetailState(listing, notice = "Could not load additional details. Check connectivity and the Airbnb profile toggle, or open the listing.")
             }
         }
     }

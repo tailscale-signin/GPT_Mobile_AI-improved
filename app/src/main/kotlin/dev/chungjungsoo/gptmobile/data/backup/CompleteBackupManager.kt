@@ -45,7 +45,8 @@ class CompleteBackupManager @Inject constructor(
     dataStore: DataStore<Preferences>,
     private val secretVault: SecretVault,
     private val settings: SettingRepository,
-    private val legacy: AppBackupManager
+    private val legacy: AppBackupManager,
+    private val nativePlugins: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null
 ) {
     private val mutex = Mutex()
     private val protectionMutex = Mutex()
@@ -54,7 +55,7 @@ class CompleteBackupManager @Inject constructor(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
-    private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)))
+    private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)), context.noBackupFilesDir)
     fun getBackupStatus() = legacy.getBackupStatus()
 
     fun recentBackups(): List<RecentBackup> {
@@ -131,7 +132,9 @@ class CompleteBackupManager @Inject constructor(
             .getStringSet("sections", null)
             ?: return CompleteBackupSelection()
         val sections = raw.mapNotNull { runCatching { CompleteBackupSection.valueOf(it) }.getOrNull() }.toSet()
-        return CompleteBackupSelection(sections).normalized()
+        // Older defaults saved Settings without Tools even though the UI now
+        // presents them as one group. Include installs in that saved choice.
+        return CompleteBackupSelection(if (CompleteBackupSection.SETTINGS in sections) sections + CompleteBackupSection.TOOLS else sections).normalized()
     }
 
     fun saveSelection(selection: CompleteBackupSelection) {
@@ -233,8 +236,22 @@ class CompleteBackupManager @Inject constructor(
             sources["database.sqlite"] = dbFile
         }
 
+        if (selected.includes(CompleteBackupSection.TOOLS)) {
+            sources.putAll(storage.collectPlugins())
+            nativePlugins?.backupState()?.let { bytes ->
+                val snapshot = File(work, "plugin-registry.json").apply { writeBytes(bytes) }
+                sources["internal/plugin-installations/native-marketplace-v1.json"] = snapshot
+            }
+        }
+
         val manifest = CompleteBackupManifest(
-            preferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.read() else emptyMap(),
+            preferences = if (CompleteBackupSection.SETTINGS in selected.sections) {
+                preferences.read()
+            } else if (selected.includes(CompleteBackupSection.TOOLS)) {
+                PluginBackupPreferences.capture(preferences.read())
+            } else {
+                emptyMap()
+            },
             sharedPreferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.readShared() else emptyMap(),
             secrets = readSecrets(selected),
             files = sources.mapValues { it.value.length() },
@@ -370,7 +387,7 @@ class CompleteBackupManager @Inject constructor(
         }
 
         val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
-        val restorePreferences = restoreSettings || CompleteBackupSection.AMAZON_DATA in effective.sections
+        val restorePreferences = restoreSettings || CompleteBackupSection.TOOLS in effective.sections
         val restoreSecrets = effective.requiresEncryption
         val selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) }
         val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
@@ -390,8 +407,12 @@ class CompleteBackupManager @Inject constructor(
             .asSequence()
             .filterNot { it == "database.sqlite" }
             .filter { path ->
-                (restoreModels && isModelArchivePath(path)) ||
-                    (restoreAttachments && !isModelArchivePath(path))
+                if (CompleteBackupFiles.isPluginPath(path)) {
+                    effective.includes(CompleteBackupSection.TOOLS)
+                } else {
+                    (restoreModels && isModelArchivePath(path)) ||
+                        (restoreAttachments && !isModelArchivePath(path))
+                }
             }
             .toSet()
         require(selectedPaths.map(storage::target).toSet().size == selectedPaths.size) {
@@ -449,8 +470,9 @@ class CompleteBackupManager @Inject constructor(
                     if (selectedPaths.isNotEmpty()) replacement.apply()
                     if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
                     if (restorePreferences) {
-                        preferences.replace(AmazonRestorePolicy.disableGrants(if (restoreSettings) manifest.preferences else oldPreferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
+                        preferences.replace(if (restoreSettings) manifest.preferences else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
                     }
+                    if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
                     manifest.protection?.let { saveProtection(it) }
                 }
             } catch (error: Throwable) {
@@ -458,6 +480,7 @@ class CompleteBackupManager @Inject constructor(
                     if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
                     if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
                     if (restorePreferences) runCatching { preferences.replace(oldPreferences, oldShared) }
+                    if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) runCatching { nativePlugins?.reload() }
                     if (manifest.protection != null) runCatching { saveProtection(oldProtection) }
                 }
                 throw error

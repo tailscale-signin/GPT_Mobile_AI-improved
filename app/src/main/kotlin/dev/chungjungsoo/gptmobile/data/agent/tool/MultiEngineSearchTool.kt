@@ -160,13 +160,16 @@ class MultiEngineSearchTool(
         }
         val target = totalResults ?: (selected.size * maxResults)
         val fetchRequest = JsonObject(arguments - "totalResults" + ("maxResults" to JsonPrimitive(policy.fetchLimitPerEngine)))
-        fun failure(id: String, outcome: String, message: String, budget: Boolean = false) = Response(AgentToolResult(id, ToolResultContent.Text(message), true, outputBudgetExhausted = budget), outcome, 0)
+        fun failure(id: String, outcome: String, message: String, outputBudget: Boolean = false, callBudget: Boolean = false) = Response(AgentToolResult(id, ToolResultContent.Text(message), true, outputBudgetExhausted = outputBudget, toolCallBudgetExhausted = callBudget), outcome, 0)
         suspend fun prepare(index: Int, request: JsonObject, refill: Boolean): Prepared {
             val engine = selected[index]
             val id = "$callId:engine:$index${if (refill) ":unique" else ""}"
             val unavailable = when {
                 (blockedUntil[engine.selectionId()] ?: 0L) > clock.millis() -> failure(id, "cooldown", "Engine cooling down after an authentication/subscription failure.")
-                !canExecute() || remainingBytes() < 1024 -> failure(id, "budget_exhausted", "Search skipped: insufficient remaining run budget.", true)
+                !canExecute() || remainingBytes() < 1024 -> {
+                    val lowBytes = remainingBytes() < 1024
+                    failure(id, "budget_exhausted", "Search skipped: insufficient remaining run budget.", outputBudget = lowBytes, callBudget = !lowBytes)
+                }
                 else -> null
             }
             if (unavailable != null) return Prepared({ unavailable.result }, 0)

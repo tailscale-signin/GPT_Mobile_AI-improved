@@ -753,6 +753,25 @@ class MultiEngineSearchToolTest {
         assertFalse(result.isError)
     }
 
+    @Test fun `preflight call limit preserves the distinct output budget status`() = runBlocking {
+        var dispatched = 0
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1))
+        val engines = (1..2).map { index ->
+            val resolved = engine("limited-$index") { id, _ ->
+                dispatched++
+                AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/evidence\nDescription: Complete"), false)
+            }
+            resolved.copy(tool = budget.bind(resolved.tool))
+        }
+        val result = MultiEngineSearchTool(engines, canExecute = budget::canExecute, remainingBytes = budget::remainingOutputBytes)
+            .execute("limited", buildJsonObject { put("query", "news") })
+        assertEquals(1, dispatched)
+        assertFalse(result.isError)
+        assertTrue(result.toolCallBudgetExhausted)
+        assertFalse(result.outputBudgetExhausted)
+        assertEquals(1, result.toolCallBudgetUsed)
+    }
+
     @Test fun `exhausted byte budget skips all engine executions`() = runBlocking {
         var calls = 0
         val engines = (1..5).map { number ->

@@ -99,6 +99,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.isActive
@@ -1609,7 +1610,7 @@ class ChatRepositoryImpl(
                 toolEventRecorder.cancelRun(runId, currentEpochSeconds())
             }
         }
-    }.catch { error ->
+    }.flowOn(Dispatchers.Default).catch { error ->
         if (error is CancellationException) throw error
         val classified = ErrorClassification.classify(error)
         emit(ApiState.Error(classified.userMessage))

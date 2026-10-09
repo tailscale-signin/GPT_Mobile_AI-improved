@@ -17,6 +17,16 @@ data class ToolServiceDefinition(
 
 /** Shared identities for the service list, profile controls and runtime tool filtering. */
 object ToolServiceCatalog {
+    /** A connection-specific action stays exact; service actions include every matching provider. */
+    fun connectionsForPlugin(pluginId: String, connections: List<ToolConnection>): List<ToolConnection> =
+        connections.filter { connection ->
+            if (pluginId.startsWith("connection:")) {
+                ToolPluginId.connection(connection.connectionUid) == pluginId
+            } else {
+                forConnection(connection).id == pluginId
+            }
+        }
+
     val integrated = listOf(
         ToolServiceDefinition(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Let a configured helper research and process information.", "delegation"),
         ToolServiceDefinition(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recall and capture private memory on your device.", "memory"),

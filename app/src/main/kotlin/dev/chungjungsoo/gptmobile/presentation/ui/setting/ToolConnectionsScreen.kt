@@ -101,6 +101,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -135,6 +136,7 @@ fun ToolConnectionsScreen(
     val installations by marketplaceViewModel.installations.collectAsStateWithLifecycle()
     val marketplaceState by marketplaceViewModel.uiState.collectAsStateWithLifecycle()
     var pluginSettings by remember { mutableStateOf<IntegratedPluginUi?>(null) }
+    var connectionManagerPlugin by remember { mutableStateOf<IntegratedPluginUi?>(null) }
     var amazonMcpSetup by remember { mutableStateOf(false) }
     if (amazonMcpSetup) {
         dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpPresetConfigureDialog(
@@ -386,13 +388,58 @@ fun ToolConnectionsScreen(
             viewModel::updateFeature,
             onSave = { viewModel.configurePlugin(plugin.id, it) },
             onConnection = {
-                val selected = uiState.connections.firstOrNull { ToolPluginId.connection(it.connectionUid) == plugin.id }
-                    ?: uiState.connections.firstOrNull { it.type == if (plugin.id == ToolPluginId.AMAZON_SEARCH) ToolConnectionType.AMAZON_SERPAPI else ToolConnectionType.GITHUB }
-                selected?.let { onEditConnectionClick(it.connectionUid) } ?: onAddConnectionClick()
+                pluginSettings = null
+                connectionManagerPlugin = plugin
             },
             onDismiss = { pluginSettings = null },
             onRevokePermissions = { viewModel.revokePluginGrants(plugin.id) },
             isAmazon = plugin.id == ToolPluginId.AMAZON_SEARCH || uiState.connections.any { ToolPluginId.connection(it.connectionUid) == plugin.id && it.type == ToolConnectionType.AMAZON_SERPAPI }
+        )
+    }
+
+    connectionManagerPlugin?.let { plugin ->
+        val connections = ToolServiceCatalog.connectionsForPlugin(plugin.id, uiState.connections)
+        val packages = services.firstOrNull { it.id == plugin.id }?.packages.orEmpty()
+        AlertDialog(
+            onDismissRequest = { connectionManagerPlugin = null },
+            title = { Text("${plugin.name} connections") },
+            text = {
+                Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (connections.isEmpty() && packages.isEmpty()) {
+                        Text("No connections configured for ${plugin.name}.")
+                    }
+                    if (plugin.id == ToolPluginId.AIRBNB || plugin.id == ToolPluginId.NEWS) {
+                        Text("The built-in plugin works without a connection. Remote MCP providers are optional.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    packages.forEach { entry ->
+                        installations[entry.id]?.let { installation ->
+                            dev.chungjungsoo.gptmobile.presentation.ui.mcp.NativePluginSettings(entry, installation, marketplaceViewModel, busy = entry.id in marketplaceState.removingIds)
+                        }
+                    }
+                    connections.forEach { connection ->
+                        OutlinedButton(onClick = {
+                            connectionManagerPlugin = null
+                            onEditConnectionClick(connection.connectionUid)
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(connection.name)
+                                Text("${connection.alias} · ${if (connection.type == ToolConnectionType.MCP) "Remote MCP" else "In-app provider"}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    TextButton(onClick = {
+                        connectionManagerPlugin = null
+                        onAddConnectionClick()
+                    }) { Text("Add connection") }
+                    TextButton(onClick = {
+                        connectionManagerPlugin = null
+                        onMarketplaceClick()
+                    }) { Text("Find providers in Marketplace") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { connectionManagerPlugin = null }) { Text(stringResource(R.string.close)) }
+            }
         )
     }
 

@@ -30,7 +30,29 @@ data class GatewayCapabilities(
     val supportsResultRecovery: Boolean = false,
     @SerialName("progress_protocol_version")
     val progressProtocolVersion: String? = null,
-    val protocols: List<String> = emptyList()
+    val protocols: List<String> = emptyList(),
+    val gatewayVersion: String? = null,
+    val contractVersion: Int? = null,
+    val auth: GatewayAuthCapabilities? = null,
+    val identityScope: String? = null,
+    val memory: GatewayMemoryCapabilities? = null
+) {
+    val supportsKeyFreeConnection: Boolean
+        get() = contractVersion == 1 && gatewayVersion?.startsWith("14.") == true && auth?.apiKeyRequired == false
+}
+
+@Serializable
+data class GatewayAuthCapabilities(
+    val mode: String,
+    val apiKeyRequired: Boolean = true,
+    val legacyBearerEnabled: Boolean = false
+)
+
+@Serializable
+data class GatewayMemoryCapabilities(
+    val authority: String,
+    val protocolVersion: Int = 0,
+    val workspaceAdapterEnabled: Boolean = false
 )
 
 /**

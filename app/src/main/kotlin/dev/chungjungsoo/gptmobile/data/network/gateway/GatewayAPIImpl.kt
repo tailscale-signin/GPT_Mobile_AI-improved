@@ -37,7 +37,7 @@ class GatewayAPIImpl @Inject constructor(
         val endpoint = config.buildEndpoint("gateway/capabilities")
         return try {
             val responseBody = networkClient().prepareGet(endpoint) {
-                config.token?.let { bearerAuth(it) }
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
                 accept(ContentType.Application.Json)
                 timeout {
@@ -68,7 +68,7 @@ class GatewayAPIImpl @Inject constructor(
             networkClient().prepareGet(endpoint) {
                 applyPlatformStreamingTimeout(timeoutSeconds)
                 accept(ContentType.Text.EventStream)
-                config.token?.let { bearerAuth(it) }
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
             }.execute { response ->
                 if (!response.status.isSuccess()) return@execute
@@ -102,7 +102,7 @@ class GatewayAPIImpl @Inject constructor(
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/result")
         return try {
             networkClient().prepareGet(endpoint) {
-                config.token?.let { bearerAuth(it) }
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
                 accept(ContentType.Application.Json)
                 timeout {
@@ -141,7 +141,7 @@ class GatewayAPIImpl @Inject constructor(
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/cancel")
         return try {
             val responseBody = networkClient().preparePost(endpoint) {
-                config.token?.let { bearerAuth(it) }
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
                 accept(ContentType.Application.Json)
                 timeout {

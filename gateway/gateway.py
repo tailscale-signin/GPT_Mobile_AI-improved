@@ -1,7 +1,10 @@
-"""Stable launch entry point for gateway v13."""
+"""Stable launch entry point; validate every companion before loading v14."""
+from pathlib import Path
+from v14.package import validate_package
+
+validate_package(Path(__file__).parent)
 if __name__ == "__main__":
-    import runpy
-    from pathlib import Path
-    runpy.run_path(str(Path(__file__).with_name("gateway_v13.py")), run_name="__main__")
+    from gateway_v14 import main
+    main()
 else:
-    from gateway_v13 import app
+    from gateway_v14 import app

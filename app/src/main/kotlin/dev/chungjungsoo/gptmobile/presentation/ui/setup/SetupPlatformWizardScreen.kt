@@ -405,7 +405,7 @@ private fun ApiKeyStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        if (clientType == ClientType.OLLAMA) {
+        if (clientType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.CUSTOM)) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.api_key_optional_note),

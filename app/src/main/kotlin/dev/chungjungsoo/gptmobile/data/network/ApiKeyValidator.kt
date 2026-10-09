@@ -21,7 +21,8 @@ object ApiKeyValidator {
 
     suspend fun validate(clientType: ClientType, apiUrl: String, apiKey: String): ValidationResult = withContext(Dispatchers.IO) {
         if (clientType == ClientType.FREE) return@withContext validateFreeProvider(apiUrl)
-        if (apiKey.isBlank()) {
+        val keyFreeGateway = apiKey.isBlank() && clientType in setOf(ClientType.LLAMA, ClientType.CUSTOM) && supportsKeyFreeGateway(apiUrl)
+        if (apiKey.isBlank() && !keyFreeGateway && clientType != ClientType.OLLAMA && clientType != ClientType.LITERT_LM) {
             return@withContext ValidationResult.Error("API key cannot be empty")
         }
 
@@ -60,14 +61,14 @@ object ApiKeyValidator {
                 setRequestProperty("User-Agent", "GPTMobile/1.0")
                 when (clientType) {
                     ClientType.NVIDIA, ClientType.OPENAI, ClientType.GROQ, ClientType.LLAMA, ClientType.CUSTOM -> {
-                        setRequestProperty("Authorization", "Bearer $apiKey")
+                        if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
                     }
                     ClientType.ANTHROPIC -> {
                         setRequestProperty("x-api-key", apiKey)
                         setRequestProperty("anthropic-version", "2023-06-01")
                     }
                     ClientType.OPENROUTER -> {
-                        setRequestProperty("Authorization", "Bearer $apiKey")
+                        if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
                     }
                     ClientType.GOOGLE, ClientType.OLLAMA, ClientType.LITERT_LM, ClientType.FREE -> {}
                 }
@@ -75,7 +76,7 @@ object ApiKeyValidator {
 
             val code = connection.responseCode
             if (code in 200..299) {
-                ValidationResult.Success("API Key is valid and active (HTTP $code)")
+                ValidationResult.Success(if (keyFreeGateway) "Key-free Gateway connection succeeded (HTTP $code)" else "Connection successful (HTTP $code)")
             } else {
                 val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() }
                 when (code) {
@@ -89,6 +90,27 @@ object ApiKeyValidator {
             ValidationResult.Error("Connection error: ${e.localizedMessage ?: "Unable to reach server"}")
         }
     }
+    private fun supportsKeyFreeGateway(apiUrl: String): Boolean {
+        val base = apiUrl.trim().trimEnd('/').removeSuffix("/v1")
+        if (base.isBlank()) return false
+        return runCatching {
+            val connection = (URL("$base/gateway/capabilities").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = false
+                connectTimeout = 8000
+                readTimeout = 8000
+                setRequestProperty("Accept", "application/json")
+            }
+            try {
+                if (connection.responseCode !in 200..299) return@runCatching false
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                NetworkClient.openAIJson.decodeFromString<dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilities>(body).supportsKeyFreeConnection
+            } finally {
+                connection.disconnect()
+            }
+        }.getOrDefault(false)
+    }
+
     private suspend fun validateFreeProvider(apiUrl: String): ValidationResult {
         val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(apiUrl)
             ?: return ValidationResult.Error("Choose a Free provider first.")

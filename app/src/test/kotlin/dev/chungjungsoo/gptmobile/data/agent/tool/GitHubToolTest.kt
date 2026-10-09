@@ -295,6 +295,7 @@ class GitHubToolTest {
             client.close()
         }
     }
+
     @Test
     fun `get_file_contents decodes base64 encoded content`() = runTest {
         val rawContent = "Hello from GitHub agent tool test!"
@@ -373,5 +374,39 @@ class GitHubToolTest {
         assertEquals("Bug in tool execution", json["title"]?.toString()?.replace("\"", ""))
         assertEquals("open", json["state"]?.toString()?.replace("\"", ""))
         assertEquals("octocat", json["user"]?.toString()?.replace("\"", ""))
+    }
+
+    @Test
+    fun `issue search supplies discriminator and rate limited search stops before a second request`() = runTest {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine { request ->
+                requests++
+                assertEquals("repo:owner/repo timeout is:issue", request.url.parameters["q"])
+                respond(
+                    """{"message":"API rate limit exceeded"}""",
+                    HttpStatusCode.Forbidden,
+                    headersOf(
+                        "X-RateLimit-Resource" to listOf("search"),
+                        "X-RateLimit-Remaining" to listOf("0"),
+                        "X-RateLimit-Reset" to listOf((System.currentTimeMillis() / 1000 + 60).toString())
+                    )
+                )
+            }
+        )
+        try {
+            val tool = GitHubTool("token", client)
+            val args = buildJsonObject {
+                put("action", "search_issues")
+                put("query", "repo:owner/repo timeout")
+            }
+            assertTrue(tool.execute("first", args).isError)
+            val second = tool.execute("second", args)
+            assertTrue(second.isError)
+            assertTrue((second.content as ToolResultContent.Text).text.contains("cooling down"))
+            assertEquals(1, requests)
+        } finally {
+            client.close()
+        }
     }
 }

@@ -867,6 +867,7 @@ class GitHubWorkspaceClient(
         // Mutable branch heads and permission checks are always revalidated.
         val freshList = path.startsWith("/user/repos") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
         if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) return cached.value
+        if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
         val response = client.request("https://api.github.com$path") {
             this.method = method
             header(HttpHeaders.Accept, "application/vnd.github+json")

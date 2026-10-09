@@ -23,7 +23,14 @@ object ToolServiceCatalog {
             if (pluginId.startsWith("connection:")) {
                 ToolPluginId.connection(connection.connectionUid) == pluginId
             } else {
-                forConnection(connection).id == pluginId
+                forConnection(connection).id == pluginId ||
+                    (
+                        pluginId == ToolPluginId.WEB_SEARCH &&
+                            (
+                                connection.type in setOf(ToolConnectionType.BRAVE, ToolConnectionType.EXA, ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY) ||
+                                    dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog.findByAlias(connection.alias)?.webSearchToolNames?.isNotEmpty() == true
+                                )
+                        )
             }
         }
 
@@ -88,7 +95,7 @@ object ToolServiceCatalog {
         if (host == "mcp.openbnb.ai" || Regex("\\b(airbnb|openbnb)\\b").containsMatchIn(names)) return "airbnb"
         if (Regex("\\b(news|hacker_news|google_news|news_bundle)\\b").containsMatchIn(names)) return "news"
         if (names.contains("jannafta") || names.contains("jan nafta")) return "amazon"
-        val providers = listOf("github", "amazon", "openstreetmap", "brave", "exa", "firecrawl", "perplexity", "google", "slack", "linear", "sentry", "atlassian", "cloudflare", "stripe", "supabase", "tavily", "context7", "deepwiki", "huggingface", "notion", "mem0", "supermemory", "tomtom", "foursquare", "ticketmaster", "geoapify", "yelp", "mapbox", "airtable", "asana", "vercel", "netlify", "neon", "prisma", "semgrep", "jina", "todoist", "microsoft", "excalidraw", "agentset", "dbhub", "chat2db")
+        val providers = listOf("github", "amazon", "searxng", "youtube", "openstreetmap", "brave", "exa", "firecrawl", "perplexity", "google", "slack", "linear", "sentry", "atlassian", "cloudflare", "stripe", "supabase", "tavily", "context7", "deepwiki", "huggingface", "notion", "mem0", "supermemory", "tomtom", "foursquare", "ticketmaster", "geoapify", "yelp", "mapbox", "airtable", "asana", "vercel", "netlify", "neon", "prisma", "semgrep", "jina", "todoist", "microsoft", "excalidraw", "agentset", "dbhub", "chat2db")
         if (listOf("openstreetmap", "nominatim", "overpass").any { Regex("\\b$it\\b").containsMatchIn(names) || host.contains(it) }) return "openstreetmap"
         return providers.firstOrNull { provider ->
             host == "$provider.com" ||
@@ -122,6 +129,8 @@ object ToolServiceCatalog {
         "huggingface" -> "Hugging Face"
         "context7" -> "Context7"
         "deepwiki" -> "DeepWiki"
+        "searxng" -> "SearXNG"
+        "youtube" -> "YouTube Transcripts"
         "mem0" -> "Mem0"
         "jina" -> "Jina AI"
         "dbhub" -> "DBHub"

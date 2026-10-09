@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 
 data class ThemeSetting(
     val dynamicTheme: DynamicTheme = DynamicTheme.OFF,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DARK,
     val customPrimaryArgb: Long? = null,
     val customPalette: CustomThemePalette? = null,
     val savedProfiles: List<SavedThemeProfile> = emptyList()
@@ -24,7 +24,9 @@ data class CustomThemePalette(
 data class SavedThemeProfile(val name: String, val palette: CustomThemePalette, val mode: ThemeMode = ThemeMode.DARK)
 
 object ThemePresets {
+    val defaultProfile = SavedThemeProfile("Cyan", CustomThemePalette(0xFF00FFDE, 0xFFCC00FF, 0xFF001219, 0xFF0B2028))
     val profiles = listOf(
+        defaultProfile,
         SavedThemeProfile("Arctic", CustomThemePalette(0xFF55DFF2, 0xFF9EDCE5, 0xFF001A1F, 0xFF062329)),
         SavedThemeProfile("Orchid", CustomThemePalette(0xFFD0BCFF, 0xFFE8B9D5, 0xFF191323, 0xFF251D33)),
         SavedThemeProfile("Forest", CustomThemePalette(0xFF8CD9AD, 0xFFC2D69A, 0xFF101C16, 0xFF1B2B22)),

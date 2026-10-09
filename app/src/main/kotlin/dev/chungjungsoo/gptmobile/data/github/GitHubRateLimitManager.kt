@@ -23,9 +23,10 @@ class GitHubRateLimitManager {
 
     @Volatile
     private var latest: Snapshot = Snapshot()
+    private val resources = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
 
     fun record(headers: Headers) {
-        latest = Snapshot(
+        val state = Snapshot(
             resource = headers["X-RateLimit-Resource"],
             limit = headers["X-RateLimit-Limit"]?.toLongOrNull(),
             remaining = headers["X-RateLimit-Remaining"]?.toLongOrNull(),
@@ -33,6 +34,17 @@ class GitHubRateLimitManager {
             resetEpochSeconds = headers["X-RateLimit-Reset"]?.toLongOrNull(),
             retryAfterSeconds = headers["Retry-After"]?.toLongOrNull()
         )
+        latest = state
+        if (state.remaining != null || state.retryAfterSeconds != null) resources[state.resource ?: "core"] = state
+    }
+
+    fun requireAvailable(resource: String = "core", nowEpochSeconds: Long = System.currentTimeMillis() / 1000) {
+        val state = resources[resource] ?: return
+        val delay = maxOf(
+            retryAfterRemaining(state, nowEpochSeconds),
+            if (state.remaining == 0L) ((state.resetEpochSeconds ?: nowEpochSeconds) - nowEpochSeconds).coerceAtLeast(0) else 0
+        )
+        check(delay == 0L) { "GitHub is cooling down for $resource. Retry after $delay seconds; use results already collected." }
     }
 
     fun snapshot(): Snapshot = latest
@@ -50,8 +62,10 @@ class GitHubRateLimitManager {
             .coerceAtLeast(0L) * 1000
     }
 
-    private fun retryAfterRemaining(state: Snapshot, nowEpochSeconds: Long): Long =
-        ((state.observedAtMillis / 1000 + (state.retryAfterSeconds ?: 0)) - nowEpochSeconds).coerceAtLeast(0)
+    private fun retryAfterRemaining(state: Snapshot, nowEpochSeconds: Long): Long {
+        val retryAfter = state.retryAfterSeconds ?: return 0
+        return ((state.observedAtMillis / 1000 + retryAfter) - nowEpochSeconds).coerceAtLeast(0)
+    }
 
     fun toJson(): JsonObject = buildJsonObject {
         val state = latest

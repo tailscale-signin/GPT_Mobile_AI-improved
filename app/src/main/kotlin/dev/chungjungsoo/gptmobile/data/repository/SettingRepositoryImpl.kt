@@ -151,7 +151,7 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(
         dynamicTheme = settingDataSource.getDynamicTheme() ?: DynamicTheme.OFF,
-        themeMode = settingDataSource.getThemeMode() ?: ThemeMode.SYSTEM,
+        themeMode = settingDataSource.getThemeMode() ?: ThemeMode.DARK,
         customPrimaryArgb = settingDataSource.getCustomPrimaryArgb(),
         customPalette = settingDataSource.getCustomPalette(),
         savedProfiles = settingDataSource.getSavedThemeProfiles()

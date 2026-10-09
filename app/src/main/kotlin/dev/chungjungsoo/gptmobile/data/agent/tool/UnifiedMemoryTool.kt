@@ -26,7 +26,13 @@ class UnifiedMemoryTool(
     private val actions: Map<String, AgentTool> = buildMap {
         put("capture", LocalMemoryTool(repository, message, isLocal, true))
         put("recall", LocalMemoryTool(repository, message, isLocal, false))
-        LocalMemoryGraphTool.operations.forEach { put(it, LocalMemoryGraphTool(repository, graph, documents, message, isLocal, it)) }
+        LocalMemoryGraphTool.operations.filter { action ->
+            when (action) {
+                "search_documents", "read_document" -> documents != null
+                "forget" -> true
+                else -> graph != null
+            }
+        }.forEach { put(it, LocalMemoryGraphTool(repository, graph, documents, message, isLocal, it)) }
     }
     override val definition = AgentToolDefinition(
         name = "memory",
@@ -48,7 +54,7 @@ class UnifiedMemoryTool(
                         "input",
                         buildJsonObject {
                             put("type", "object")
-                            put("description", "Arguments for the selected action, as described above")
+                            put("description", "Arguments for the selected action, as described above. Example for recall: {\"query\":\"what to remember\"}")
                         }
                     )
                 }
@@ -60,7 +66,7 @@ class UnifiedMemoryTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val action = (arguments["action"] as? JsonPrimitive)?.contentOrNull
         val tool = actions[action] ?: return AgentToolResult(callId, ToolResultContent.Text("Choose a supported memory action."), true)
-        val input = arguments["input"] as? JsonObject ?: return AgentToolResult(callId, ToolResultContent.Text("Provide the action input as a JSON object."), true)
+        val input = memoryActionInput(arguments, tool.definition.inputSchema) ?: return AgentToolResult(callId, ToolResultContent.Text("Provide input as an object, for example {\"action\":\"recall\",\"input\":{\"query\":\"what to remember\"}}."), true)
         return tool.execute(callId, input)
     }
 }

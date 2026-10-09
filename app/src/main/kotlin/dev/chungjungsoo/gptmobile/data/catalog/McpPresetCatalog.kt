@@ -112,6 +112,26 @@ typealias McpServerPreset = McpPreset
 object McpPresetCatalog {
     val presets = LocalMcpPresets.presets + listOf(
         McpPreset(
+            id = "searxng-mcp", name = "SearXNG · Private Search", description = "Search through your self-hosted SearXNG instance.",
+            category = McpCategory.SEARCH, commandOrUrl = "", alias = "searxng_mcp", iconName = "search",
+            author = "ihor-sokoliuk", suggestedAuthType = "BEARER",
+            requiredFields = listOf("Reachable adapter /mcp endpoint", "Gateway bearer token"),
+            toolCapabilities = listOf("Private multi-engine search", "Provider capability discovery"),
+            webSearchToolNames = listOf("searxng_web_search"),
+            websiteUrl = "https://github.com/ihor-sokoliuk/mcp-searxng",
+            setupInstructions = "Run the SearXNG MCP adapter on your computer. Enter its reachable /mcp URL and locally generated bearer token. The SearXNG /search REST URL is a separate service. Select only search in your profile; enable when setup is verified."
+        ),
+        McpPreset(
+            id = "youtube-transcripts-mcp", name = "YouTube · Transcripts", description = "Read timestamped captions through your computer-hosted transcript server.",
+            category = McpCategory.PRODUCTIVITY, commandOrUrl = "", alias = "youtube_transcripts", iconName = "extension",
+            author = "jkawamoto · GPT Mobile", suggestedAuthType = "BEARER",
+            requiredFields = listOf("Reachable transcript bridge /mcp endpoint", "Gateway bearer token"),
+            toolCapabilities = listOf("Timestamped caption evidence", "Language and track selection"),
+            websiteUrl = "https://github.com/jkawamoto/mcp-youtube-transcript",
+            setupInstructions = "Run a separate authenticated mcp/research bridge with mcp-youtube-transcript on your computer. No vendor key is required for direct captions. Availability varies; blocked or missing captions remain unavailable. Android does not launch Python packages."
+        ),
+
+        McpPreset(
             id = "news-unified-mcp", name = "News · Unified MCP", description = "One News plugin for Google News Trends, Google News SerpApi and Hacker News.",
             category = McpCategory.SEARCH, commandOrUrl = "", alias = "news_bundle", iconName = "news",
             author = "jmanek · ChanMeng666 · pskill9 · GPT Mobile bridge", suggestedAuthType = "BEARER",

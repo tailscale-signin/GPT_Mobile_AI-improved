@@ -442,6 +442,8 @@ class AgentRunner(
 
     private fun recoverableRoundFailure(message: String): Boolean = listOf(
         "Tool arguments were not valid JSON",
+        "reached its output limit",
+        "reached the model output limit",
         "incomplete function call",
         "before completing the tool call",
         "connection abort",

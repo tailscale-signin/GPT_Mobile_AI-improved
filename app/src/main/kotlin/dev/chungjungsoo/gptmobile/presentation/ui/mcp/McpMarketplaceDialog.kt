@@ -185,11 +185,21 @@ fun McpMarketplaceScreen(
     var category by rememberSaveable { mutableStateOf<McpCategory?>(null) }
     var pricing by rememberSaveable { mutableStateOf<McpPricingType?>(null) }
     var configuring by remember { mutableStateOf<McpPreset?>(null) }
+    var editingConnection by remember { mutableStateOf<ToolConnection?>(null) }
     var approving by remember { mutableStateOf<GitHubMarketplacePackage?>(null) }
     var removing by remember { mutableStateOf<GitHubMarketplacePackage?>(null) }
     var removingConnection by remember { mutableStateOf<ToolConnection?>(null) }
     var pendingHostedSetup by rememberSaveable { mutableStateOf<String?>(null) }
     var exportId by rememberSaveable { mutableStateOf<String?>(null) }
+    editingConnection?.let { connection ->
+        dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionEditorScreen(
+            connectionUid = connection.connectionUid,
+            viewModel = connectionsViewModel,
+            onNavigationClick = { editingConnection = null },
+            onSaveComplete = { editingConnection = null }
+        )
+        return
+    }
     val pluginScroll = rememberLazyListState()
     val mcpScroll = rememberLazyListState()
     val presets = remember { GitHubMarketplaceCatalog.allPresets }
@@ -263,9 +273,9 @@ fun McpMarketplaceScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(30.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Build your toolkit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("Your toolkit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            "${GitHubMarketplaceCatalog.packages.size} optional GitHub packages · choose what you use",
+                            "Plugins & MCP tools",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -314,7 +324,7 @@ fun McpMarketplaceScreen(
                 ) { pricing = it }
             }
             Text(
-                "${filtered.size} results · " + if (section == MarketplaceSection.PLUGINS) "Install, configure and enable" else "Hosted and external MCP connections",
+                "${filtered.size} results",
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -365,10 +375,11 @@ fun McpMarketplaceScreen(
                             when {
                                 preset.integratedTool == "delegation" && onOpenDelegation != null -> onOpenDelegation()
                                 preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
+                                connection != null -> editingConnection = connection
                                 else -> configuring = preset
                             }
-                        }, download = entry?.takeUnless { it.runtime == MarketplaceRuntime.GUIDE },
-                        downloaded = if (native) installation != null else preset.id in downloaded,
+                        }, download = entry?.takeIf { it.runtime == MarketplaceRuntime.NATIVE },
+                        downloaded = native && installation != null,
                         downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
                         error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
                         onExport = {
@@ -452,7 +463,21 @@ fun McpMarketplaceScreen(
     }
     configuring?.let { preset ->
         val native = preset.integratedTool
-        if (native != null) {
+        if (preset.id == "airbnb-native") {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.PluginConfigurationDialog(
+                id = ToolPluginId.AIRBNB,
+                name = preset.name,
+                features = features,
+                onFeature = connectionsViewModel::updateFeature,
+                onSave = { connectionsViewModel.configurePlugin(ToolPluginId.AIRBNB, it) },
+                onConnection = {
+                    configuring = null
+                    section = MarketplaceSection.MCP
+                    query = "Airbnb"
+                },
+                onDismiss = { configuring = null }
+            )
+        } else if (native != null) {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalToolConfigurationDialog(native) { configuring = null }
         } else {
             McpPresetConfigureDialog(preset, onDismissRequest = { configuring = null }, onConfirm = { name, alias, endpoint, auth, key, cleartext ->
@@ -570,7 +595,6 @@ private fun MarketplacePackageCard(
                 ServiceIcon(preset.iconName, preset.category)
                 Column(Modifier.weight(1f)) {
                     Text(preset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(preset.author, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -584,12 +608,9 @@ private fun MarketplacePackageCard(
                         "MCP connection"
                     }
                 )
-                if (downloaded) MarketplaceBadge(if (download?.runtime == MarketplaceRuntime.NATIVE) "Installed in app" else "Connection package installed")
-                enabled?.let { MarketplaceBadge(if (it) "Enabled" else "Disabled") }
-                if (isInstalled && !preset.isPreinstalled) MarketplaceBadge("Connection saved")
+                if (downloaded || isInstalled) MarketplaceBadge(if (needsSetup) "Setup required" else "Ready")
             }
             Text(preset.description, style = MaterialTheme.typography.bodyMedium)
-            download?.let { Text(it.serviceNotice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (downloading) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -609,8 +630,8 @@ private fun MarketplacePackageCard(
                         if (download.runtime != MarketplaceRuntime.NATIVE && download.canConnect && !isInstalled) Button(onClick = onAddClick, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Set up connection") }
                         TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
                     }
-                    preset.integratedTool != null -> Button(onClick = onAddClick) { Text("Configure") }
-                    !isInstalled && !preset.documentationOnly -> Button(onClick = onAddClick) { Text("Set up") }
+                    preset.integratedTool != null || preset.isPreinstalled -> Button(onClick = onAddClick) { Text("Configure") }
+                    !preset.documentationOnly -> Button(onClick = onAddClick) { Text(if (isInstalled) "Manage connection" else "Connect") }
                 }
                 enabled?.let { value ->
                     Button(onClick = { onEnabledChange(!value) }, enabled = !removing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
@@ -640,15 +661,11 @@ private fun MarketplacePackageCard(
             if (nativeSettings != null && (needsSetup || expanded)) nativeSettings()
             if (expanded) {
                 HorizontalDivider()
+                download?.let { Text(it.serviceNotice, style = MaterialTheme.typography.bodySmall) }
                 preset.toolCapabilities.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 if (preset.setupInstructions.isNotBlank()) Text(preset.setupInstructions, style = MaterialTheme.typography.bodySmall)
                 if (download != null) {
                     OutlinedButton(onClick = onExport, enabled = downloaded && !removing) { Text("Export package") }
-                    Text(
-                        "Package source: ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}\nPinned commit: ${GitHubMarketplaceCatalog.SOURCE_COMMIT.take(12)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }
@@ -694,7 +711,7 @@ fun McpPresetConfigureDialog(
                     alias,
                     { alias = it },
                     label = { Text("Tool alias") },
-                    readOnly = GitHubMarketplaceCatalog.find(preset.id) != null,
+                    readOnly = GitHubMarketplaceCatalog.find(preset.id) != null || dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog.findById(preset.id) != null,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     isError = !validAlias,

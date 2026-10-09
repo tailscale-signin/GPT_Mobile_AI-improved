@@ -344,7 +344,11 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 }
             }
             val error = envelope?.get("error") as? JsonObject
-            if (response.status.value !in 200..299 || error != null) throw ModernMcpError(response.status.value, (error?.get("code") as? JsonPrimitive)?.intOrNull, "MCP request failed (${response.status.value}, ${error?.get("code") ?: "no protocol error"}).")
+            if (response.status.value !in 200..299 || error != null) {
+                val quota = isMcpQuotaFailure((error?.get("message") as? JsonPrimitive)?.content.orEmpty())
+                val message = if (quota) "MCP provider quota exhausted. Try later or configure provider credentials." else "MCP request failed (${response.status.value}, ${error?.get("code") ?: "no protocol error"})."
+                throw ModernMcpError(response.status.value, (error?.get("code") as? JsonPrimitive)?.intOrNull, message)
+            }
             check(envelope?.get("id") == JsonPrimitive(id)) { "MCP response ID did not match the request." }
             requireNotNull(envelope?.get("result") as? JsonObject) { "MCP result is missing." }
         }

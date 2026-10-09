@@ -8,6 +8,8 @@ internal fun terminalToolFailure(message: String): Boolean =
         "credential is missing",
         "authentication or access failed",
         "calls are used up",
+        "rate limit exceeded",
+        "github is cooling down",
         "daily quota exceeded",
         "quota exhausted",
         "quota exceeded",

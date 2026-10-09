@@ -258,7 +258,7 @@ fun ChatScreen(
     }
     val hiddenTurnCount = firstVisibleTurn
     val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
-    val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0) + (if (hasTargetAssistant) 1 else 0)
+    val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0)
     val listState = rememberChatListState(
         messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
@@ -422,7 +422,7 @@ fun ChatScreen(
         chatViewModel.refreshLocalNetworkRequirement()
     }
 
-    LaunchedEffect(isLoaded, groupedMessages.userMessages.size, historyHeaderCount, pendingPrompts.size, combinedTargetSelected) {
+    LaunchedEffect(isLoaded, groupedMessages.userMessages.size, visibleTurnCount, historyHeaderCount, pendingPrompts.size, combinedTargetSelected) {
         if (!isLoaded || entryPositioned || groupedMessages.userMessages.isEmpty()) return@LaunchedEffect
         if (hasTargetAssistant && !combinedTargetSelected) return@LaunchedEffect
         // The first measured layout can still contain the previous loading state.
@@ -440,8 +440,11 @@ fun ChatScreen(
             val itemIndex = targetTurn - firstVisibleTurn + historyHeaderCount
             listState.scrollToConversationEntry(itemIndex)
             if (targetIndex >= 0) {
-                val responseOffset = snapshotFlow { targetResponseOffset }.filterNotNull().first()
-                listState.scrollToConversationEntry(itemIndex, responseOffset, centerResponse = true)
+                // A missing measurement must never leave the conversation invisible.
+                val responseOffset = kotlinx.coroutines.withTimeoutOrNull(1_000L) {
+                    snapshotFlow { targetResponseOffset }.filterNotNull().first()
+                }
+                if (responseOffset != null) listState.scrollToConversationEntry(itemIndex, responseOffset, centerResponse = true)
             }
         } else {
             // Explicitly override a restored list position on each conversation entry.
@@ -498,28 +501,27 @@ fun ChatScreen(
     val boundaryEnabled = isIdle && entryPositioned && (!hasTargetMessage || navigatedFromTarget) && latestResponseOffset >= 0
     val latestBoundaryEnabled by androidx.compose.runtime.rememberUpdatedState(boundaryEnabled)
     val latestBoundaryItem by androidx.compose.runtime.rememberUpdatedState(latestTurnItem)
-    val boundaryConnection = remember(listState, responseBoundary) {
+    val minimumFlingVelocity = with(LocalDensity.current) { 1000.dp.toPx() }
+    val boundaryConnection = remember(listState, responseBoundary, minimumFlingVelocity) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (!latestBoundaryEnabled) return Offset.Zero
                 val turn = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == latestBoundaryItem } ?: return Offset.Zero
                 val responseTop = turn.offset + latestResponseOffset
-                if (available.y < 0 && responseTop <= 0) responseBoundary.returningToResponse()
                 val consumed = responseBoundary.consume(available.y, -responseTop.toFloat(), android.os.SystemClock.elapsedRealtime(), source == NestedScrollSource.UserInput)
                 return Offset(0f, consumed)
             }
 
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (latestBoundaryEnabled && consumed.y < 0f) {
-                    val turn = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == latestBoundaryItem }
-                    if (turn != null && turn.offset + latestResponseOffset <= 0) responseBoundary.returningToResponse()
-                }
-                return Offset.Zero
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (latestBoundaryEnabled) responseBoundary.beginFling(available.y, minimumFlingVelocity)
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: androidx.compose.ui.unit.Velocity, available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                responseBoundary.endFling()
+                return androidx.compose.ui.unit.Velocity.Zero
             }
         }
-    }
-    LaunchedEffect(boundaryEnabled, listState.canScrollForward) {
-        if (boundaryEnabled && !listState.canScrollForward) responseBoundary.rearm()
     }
 
     ChatBottomAutoScroller(
@@ -584,7 +586,7 @@ fun ChatScreen(
                     .pointerInput(responseBoundary) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                            responseBoundary.beginGesture(android.os.SystemClock.elapsedRealtime())
+                            responseBoundary.beginGesture()
                             do {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                             } while (event.changes.any { it.pressed })
@@ -604,9 +606,6 @@ fun ChatScreen(
                 state = listState,
                 contentPadding = PaddingValues(top = innerPadding.calculateTopPadding(), bottom = composerHeight + 16.dp)
             ) {
-                if (hasTargetAssistant) {
-                    item(key = "response-entry-space") { Spacer(Modifier.fillParentMaxHeight(0.5f)) }
-                }
                 if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier messages") } }
                 if (hiddenTurnCount > 0) {
                     item(key = "archived-history-header") {

@@ -164,7 +164,7 @@ class AgentToolResolver @Inject constructor(
             ) {
                 val memoryAvailable = try {
                     factVault.load()
-                    factVault.state.value.enabled
+                    factVault.state.value.enabled && !factVault.scopeForChat(userMessage.chatId).isTemporary
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Exception) {

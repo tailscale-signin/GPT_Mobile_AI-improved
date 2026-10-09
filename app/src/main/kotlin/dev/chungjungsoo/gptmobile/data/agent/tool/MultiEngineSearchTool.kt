@@ -165,7 +165,7 @@ class MultiEngineSearchTool(
             val engine = selected[index]
             val id = "$callId:engine:$index${if (refill) ":unique" else ""}"
             val unavailable = when {
-                (blockedUntil[engine.selectionId()] ?: 0L) > clock.millis() -> failure(id, "cooldown", "Engine cooling down after an authentication/subscription failure.")
+                (blockedUntil[engine.selectionId()] ?: 0L) > clock.millis() -> failure(id, "cooldown", "Engine cooling down after a provider access or quota failure.")
                 !canExecute() || remainingBytes() < 1024 -> {
                     val lowBytes = remainingBytes() < 1024
                     failure(id, "budget_exhausted", "Search skipped: insufficient remaining run budget.", outputBudget = lowBytes, callBudget = !lowBytes)
@@ -212,13 +212,15 @@ class MultiEngineSearchTool(
                 result.isError && text.contains("permission", true) -> "denied"
                 result.isError && Regex("(?i)cooling down").containsMatchIn(text) -> "cooldown"
                 result.isError && Regex("(?i)invalid|exceeds.*limit").containsMatchIn(text) -> "invalid_request"
+                result.isError && Regex("(?i)429|rate.?limit|quota|calls are used up").containsMatchIn(text) -> "rate_limited"
                 result.isError && Regex("(?i)401|402|403|authenticat|requires an api key|api key required").containsMatchIn(text) -> "authentication_failed"
-                result.isError && Regex("(?i)429|rate.?limit").containsMatchIn(text) -> "rate_limited"
                 result.isError && text.contains("timed out", true) -> "timeout"
                 result.isError -> "failed"
                 else -> searchEvidenceOutcome(result)
             }
-            if (outcome == "authentication_failed") blockedUntil[selected[index].selectionId()] = clock.millis() + 5 * 60_000L
+            if (outcome in setOf("authentication_failed", "rate_limited")) {
+                blockedUntil[selected[index].selectionId()] = clock.millis() + if (outcome == "rate_limited") 60_000L else 5 * 60_000L
+            }
             return Response(if (outcome == "malformed_response") result.copy(isError = true) else result, outcome, ready.effectiveCount)
         }
         val initial = selected.indices.map { index -> async { attempt(index, prepared[index], false) } }.awaitAll()
@@ -286,6 +288,7 @@ class MultiEngineSearchTool(
                         }
                     )
                 }
+                if (recencyDays != null && selected[index].realToolName == "searxng_web_search") put("recencyFilter", "approximate_upstream_range; publication dates may be unknown")
                 put("outputBudgetExhausted", response.result.outputBudgetExhausted)
                 put("toolCallBudgetExhausted", response.result.toolCallBudgetExhausted)
             }

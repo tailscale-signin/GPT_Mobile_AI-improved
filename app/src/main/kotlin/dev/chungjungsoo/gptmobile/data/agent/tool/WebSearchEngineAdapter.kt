@@ -21,10 +21,12 @@ internal class WebSearchEngineAdapter private constructor(
     private val queryKey: String,
     private val querySchema: JsonObject
 ) {
+    private val searxng = name == "searxng_web_search"
     private val brave = name in setOf("brave_web_search", "brave_search")
     private val countKey = COUNT_KEYS.firstOrNull { it in properties }
     val supportsRecency = listOf("recencyDays", "startPublishedDate", "start_date", "tbs").any { it in properties } ||
-        (brave && "freshness" in properties)
+        (brave && "freshness" in properties) ||
+        (searxng && "time_range" in properties)
 
     fun effectiveCount(requested: Int): Int {
         val field = countKey?.let { properties[it] as? JsonObject }
@@ -35,12 +37,12 @@ internal class WebSearchEngineAdapter private constructor(
 
     /** One extra page can fill duplicate slots; never invent unsupported pagination fields. */
     fun nextPage(request: JsonObject, clock: Clock): JsonObject? {
-        val key = listOf("page", "start", "offset").firstOrNull {
-            (properties[it] as? JsonObject)?.acceptsType("integer") == true
+        val key = listOf("pageno", "page", "start", "offset").firstOrNull {
+            (properties[it] as? JsonObject)?.let { field -> field.acceptsType("integer") || (searxng && it == "pageno" && field.acceptsType("number")) } == true
         } ?: return null
         val count = effectiveCount((request["maxResults"] as? JsonPrimitive)?.intOrNull ?: 10)
         val value = when (key) {
-            "page" -> 2
+            "page", "pageno" -> 2
             "offset" -> if (brave) 1 else count
             else -> count
         }
@@ -73,12 +75,29 @@ internal class WebSearchEngineAdapter private constructor(
             if (days != null) {
                 val start = LocalDate.now(clock).minusDays(days.toLong())
                 when {
+                    searxng && "time_range" in properties -> {
+                        val range = when {
+                            days <= 1 -> "day"
+                            days <= 31 -> "month"
+                            else -> "year"
+                        }
+                        val allowed = (properties["time_range"] as? JsonObject)?.get("enum") as? JsonArray
+                        if (allowed == null || JsonPrimitive(range) in allowed) put("time_range", range)
+                    }
                     "recencyDays" in properties -> put("recencyDays", days)
                     brave && "freshness" in properties -> put("freshness", braveSearchFreshness(days, clock))
                     "startPublishedDate" in properties -> put("startPublishedDate", "${start}T00:00:00Z")
                     "start_date" in properties -> put("start_date", start.toString())
                     "tbs" in properties -> put("tbs", "qdr:d${days.coerceAtLeast(1)}")
                 }
+            }
+            if (searxng) {
+                for ((key, value) in listOf("response_format" to "json", "result_detail" to "full")) {
+                    val field = properties[key] as? JsonObject ?: continue
+                    val allowed = field["enum"] as? JsonArray
+                    if (field.acceptsType("string") && (allowed == null || JsonPrimitive(value) in allowed)) put(key, value)
+                }
+                if ((properties["pageno"] as? JsonObject)?.let { it.acceptsType("integer") || it.acceptsType("number") } == true) put("pageno", 1)
             }
             if (brave && "result_filter" in properties) {
                 val field = properties["result_filter"] as? JsonObject ?: JsonObject(emptyMap())

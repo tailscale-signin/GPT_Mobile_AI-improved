@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -79,7 +80,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(text = { Text("Default") }, onClick = {
-                        theme.updateCustomPalette(null)
+                        theme.applyProfile(dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile)
                         menuOpen = false
                     })
                     Text("Presets", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
@@ -106,10 +107,8 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
             }
             Surface(shape = MaterialTheme.shapes.large, color = scheme.surfaceContainerHigh) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("A theme that feels like you", style = MaterialTheme.typography.titleMedium)
-                    Text("Preview your chat colours, cards and accents.", color = scheme.onSurfaceVariant)
                     Surface(color = scheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
-                        Text("Your next idea starts here", Modifier.padding(12.dp), color = scheme.onPrimaryContainer)
+                        Text("Preview", Modifier.padding(12.dp), color = scheme.onPrimaryContainer)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(scheme.primary, scheme.secondary, scheme.background, scheme.surface).forEach { color ->
@@ -124,7 +123,6 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
             TextButton(onClick = { customizing = !customizing }) { Text(if (customizing) "Hide custom colours" else "Create a theme") }
         }
         if (customizing) {
-            Text("Your palette", style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 labels.forEachIndexed { index, label ->
                     FilterChip(selected = selected == index, onClick = { selected = index }, label = { Text(label) }, leadingIcon = {
@@ -132,10 +130,10 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                     })
                 }
             }
-            ColorWheelPicker(color = colors[selected]?.let(::Color) ?: scheme.primary, onColorChange = ::setColor)
             OutlinedTextField(value = values[selected], onValueChange = { value -> values = values.toMutableList().apply { set(selected, value.take(7)) } }, label = { Text("${labels[selected]} HEX") }, singleLine = true, isError = colors[selected] == null, modifier = Modifier.fillMaxWidth())
+            ColorWheelPicker(color = colors[selected]?.let(::Color) ?: scheme.primary, onColorChange = ::setColor)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("Cyan" to 0xFF00BCD4, "Violet" to 0xFFB39DDB, "Coral" to 0xFFFF8A80, "Mint" to 0xFF80CBC4).forEach { (label, value) ->
+                listOf("Cyan" to 0xFF00FFDE, "Violet" to 0xFFCC00FF, "Coral" to 0xFFFF8A80, "Mint" to 0xFF80CBC4).forEach { (label, value) ->
                     TextButton(onClick = { setColor(Color(value)) }) { Text(label) }
                 }
             }
@@ -143,9 +141,8 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                 fun foreground(value: Long) = if (androidx.core.graphics.ColorUtils.calculateLuminance(value.toInt()) > 0.179) Color.Black else Color.White
                 Surface(color = Color(colors[2]!!), shape = MaterialTheme.shapes.large) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Live preview", color = foreground(colors[2]!!), style = MaterialTheme.typography.labelMedium)
                         Surface(color = Color(colors[3]!!), shape = MaterialTheme.shapes.medium) {
-                            Text("Your next conversation", Modifier.padding(12.dp), color = foreground(colors[3]!!))
+                            Text("Preview", Modifier.padding(12.dp), color = foreground(colors[3]!!))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             colors.take(2).forEachIndexed { i, value ->
@@ -155,14 +152,14 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                     }
                 }
             }
-            Button(onClick = { theme.updateCustomPalette(CustomThemePalette(colors[0]!!, colors[1]!!, colors[2]!!, colors[3]!!)) }, enabled = colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text("Apply palette") }
+            Button(onClick = { theme.updateCustomPalette(CustomThemePalette(colors[0]!!, colors[1]!!, colors[2]!!, colors[3]!!)) }, enabled = colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text("Apply") }
             OutlinedTextField(value = profileName, onValueChange = { profileName = it.take(40) }, label = { Text("Theme name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Button(onClick = {
                 theme.saveProfile(profileName, CustomThemePalette(colors[0]!!, colors[1]!!, colors[2]!!, colors[3]!!))
                 profileName = ""
-            }, enabled = profileName.isNotBlank() && colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text("Save and apply theme") }
+            }, enabled = profileName.isNotBlank() && colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text("Save theme") }
         }
-        TextButton(onClick = { theme.updateCustomPalette(null) }, modifier = Modifier.fillMaxWidth()) { Text("Restore default palette") }
+        TextButton(onClick = { theme.applyProfile(dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile) }, modifier = Modifier.fillMaxWidth()) { Text("Restore default") }
     }
 }
 
@@ -173,7 +170,7 @@ private fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
     val change by rememberUpdatedState(onColorChange)
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Canvas(
-            Modifier.size(220.dp).semantics { contentDescription = "Colour wheel. Hue, saturation and brightness can also be adjusted with the sliders below." }
+            Modifier.size(176.dp).semantics { contentDescription = "Colour wheel. Hue, saturation and brightness can also be adjusted with the sliders below." }
                 .pointerInput(Unit) {
                     detectTapGestures { position ->
                         val center = Offset(size.width / 2f, size.height / 2f)
@@ -201,11 +198,13 @@ private fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
             drawCircle(Color.White, 7.dp.toPx(), point, style = Stroke(1.5.dp.toPx()))
         }
         listOf("Hue", "Saturation", "Brightness").forEachIndexed { index, label ->
-            Text(label, modifier = Modifier.align(Alignment.Start), style = MaterialTheme.typography.labelMedium)
-            Slider(value = hsv[index], onValueChange = { value ->
-                val updated = hsv.copyOf().apply { set(index, value) }
-                onColorChange(Color.hsv(updated[0], updated[1], updated[2]))
-            }, valueRange = 0f..(if (index == 0) 360f else 1f), modifier = Modifier.semantics { contentDescription = label })
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(label, modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelMedium)
+                Slider(value = hsv[index], onValueChange = { value ->
+                    val updated = hsv.copyOf().apply { set(index, value) }
+                    onColorChange(Color.hsv(updated[0], updated[1], updated[2]))
+                }, valueRange = 0f..(if (index == 0) 360f else 1f), modifier = Modifier.weight(1f).semantics { contentDescription = label })
+            }
         }
     }
 }

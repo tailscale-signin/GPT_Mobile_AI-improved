@@ -1,24 +1,20 @@
-# GPT Mobile AI 0.9.37.0
+# GPT Mobile AI 0.9.38.0
 
-## Chat navigation
-- Halve the visible bottom arrow to 26 dp while retaining a 48 dp touch target. During AI generation it uses a soft 1.5-second opacity pulse.
-- Pause upward navigation at the newest completed response header. A fresh upward gesture after one second releases the boundary; returning to the response re-arms it. Favourite-response entry remains available.
+## Chat stability
+- Fix the repeatable crash when Amazon cards render alongside tool events without completion timestamps.
+- Keep all result-owner, product and notice timestamp comparisons as Long values. Preserve the latest product price, sequence tie-breaking and the originating profile's permissions.
 
-## Conversation folders
-- Long-press and drag a conversation to the top pin target on the left or new-folder target on the right.
-- Name new folders and move conversations into existing folder chips beside Chats. Hold a folder to rename it, choose its background colour, or remove the folder while keeping conversations.
-- Store folders and memberships in Room, preserve them in conversation backups, and accept older backups without folder data.
+## On-device memory
+- Detect FTS5 through registered SQLite modules instead of an optional compile-option function that is unavailable on some Android builds.
+- Retain cached portable search fallback when FTS5 or module inspection is unavailable.
 
-## Memory v2 development starts
-- Keep existing memories active while conflicting automatic captures await explicit review. Offer Replace existing, Keep both, and Keep existing, with persisted stale-review checks.
-- Preserve assertion history when returning to a previously retired value; allow multiple occupations.
-- Preserve encrypted records when a Keystore key is unavailable. Fact-index maintenance keeps document vectors intact.
-- Default fresh vault cloud recall off; retain settings already saved by existing users.
-- Add Room schema 35 foundation contracts for encrypted memory payloads, fact links, pending operations and cutover state, plus valid-time and authenticated-envelope primitives. Remove destructive database downgrade fallback.
-- This is the safety/foundation slice of the memory-v2 design. Existing encrypted JSON memory remains authoritative. Automatic Room conversion, protected graph migration, new retrieval ranking, proactive suggestions and portable memory-v2 archives are not enabled in this release.
+## Validation
+- PR #626 passed Android unit tests/build/lint, Kotlin formatting, CodeQL and the minified native-memory smoke workflow before merge.
+- Add regression tests for mixed completion timestamps, latest price/notices, profile ownership and memory module/fallback detection.
+- Release publication runs validation again, builds APKs and AAB, and verifies signing-certificate continuity and packaged native libraries.
+- This release does not resolve external VPN/DNS outages or ASUS vendor-framework finalizer errors. Physical-device confirmation of the reported chat crash remains pending.
 
 ## Release identity
 - Package: dev.melo.gptmobile.improved
-- Version: 0.9.37.0
-- Version code: 106
-- Publication must pass the existing signed-release validation and certificate-continuity checks. Physical-device gesture, layout and native-memory checks remain required; local JVM results do not certify phone performance.
+- Version: 0.9.38.0
+- Version code: 107

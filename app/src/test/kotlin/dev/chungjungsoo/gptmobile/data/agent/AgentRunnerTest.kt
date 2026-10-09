@@ -21,6 +21,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun `output limit finalizes from completed evidence without replaying tools`() = kotlinx.coroutines.test.runTest {
+        var rounds = 0
+        var calls = 0
+        val events = AgentRunner().run(
+            session { tools, exchanges ->
+                flow {
+                    when (++rounds) {
+                        1 -> {
+                            emit(toolCall("evidence", "read"))
+                            emit(ProviderEvent.Completed)
+                        }
+                        2 -> emit(ProviderEvent.Failed("Provider reached the model output limit before producing a final answer."))
+                        else -> {
+                            assertTrue(tools.isEmpty())
+                            assertEquals(1, exchanges.size)
+                            emit(ProviderEvent.TextDelta("Answer from the evidence already collected."))
+                            emit(ProviderEvent.Completed)
+                        }
+                    }
+                }
+            },
+            listOf(
+                tool("read") { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("Evidence"), false)
+                }
+            )
+        ).toList()
+        assertEquals(3, rounds)
+        assertEquals(1, calls)
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
+    @Test fun `output limit without evidence fails without a redundant retry`() = kotlinx.coroutines.test.runTest {
+        var rounds = 0
+        val events = AgentRunner().run(
+            session { _, _ ->
+                flow {
+                    rounds++
+                    emit(ProviderEvent.Failed("Provider reached the model output limit before producing a final answer."))
+                }
+            },
+            emptyList()
+        ).toList()
+        assertEquals(1, rounds)
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
     @Test
     fun `exhausted anonymous quota disables only the failing tool after one round`() = kotlinx.coroutines.test.runTest {
         var attempts = 0

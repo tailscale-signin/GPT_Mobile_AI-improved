@@ -463,6 +463,7 @@
     "unsupportedRecency": false
   },
   {
+    "preset": "free-search-mcp",
     "name": "search",
     "schema": {
       "type": "object",
@@ -559,6 +560,7 @@
     "unsupportedRecency": false
   },
   {
+    "preset": "free-search-mcp",
     "name": "free_search__search",
     "schema": {
       "type": "object",

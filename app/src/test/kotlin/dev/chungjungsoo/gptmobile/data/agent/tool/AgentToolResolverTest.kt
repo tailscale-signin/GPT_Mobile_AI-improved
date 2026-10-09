@@ -250,7 +250,7 @@ class AgentToolResolverTest {
         )
         assertTrue(resolved.map { it.modelToolName }.containsAll(listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search")))
         assertEquals(1, resolved.count { it.modelToolName == "memory" })
-        assertTrue(resolved.single { it.modelToolName == "memory" }.tool.definition.description.contains("search_documents"))
+        assertFalse(resolved.single { it.modelToolName == "memory" }.tool.definition.description.contains("search_documents"))
     }
 
     @Test

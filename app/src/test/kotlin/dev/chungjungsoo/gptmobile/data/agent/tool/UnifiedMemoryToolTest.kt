@@ -64,7 +64,12 @@ class UnifiedMemoryToolTest {
         }
         val cloud = UnifiedMemoryTool(vault, null, null, user, false)
         assertFalse((cloud.execute("cloud", recall).content as ToolResultContent.Text).text.contains("Kotlin"))
-        assertTrue((local.execute("local", recall).content as ToolResultContent.Text).text.contains("Kotlin"))
+        assertFalse((local.execute("same-turn", recall).content as ToolResultContent.Text).text.contains("Kotlin"))
+        val laterUser = user.copy(id = 2, content = "What language do I prefer?")
+        val laterLocal = UnifiedMemoryTool(vault, null, null, laterUser, true)
+        val laterCloud = UnifiedMemoryTool(vault, null, null, laterUser, false)
+        assertFalse((laterCloud.execute("later-cloud", recall).content as ToolResultContent.Text).text.contains("Kotlin"))
+        assertTrue((laterLocal.execute("later-local", recall).content as ToolResultContent.Text).text.contains("Kotlin"))
         vault.setEnabled(false)
         assertTrue(local.execute("disabled", capture).isError)
     }

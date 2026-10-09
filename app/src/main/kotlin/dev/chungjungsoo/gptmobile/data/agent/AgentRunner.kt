@@ -182,7 +182,7 @@ class AgentRunner(
             if (roundFailure != null) {
                 // An incomplete tool call is never executed. Recover once from its
                 // existing evidence with tools disabled, without replaying an action.
-                if (!roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure)) {
+                if (!roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, exchanges.isNotEmpty() || round.calls.isNotEmpty())) {
                     roundRecoveryAttempted = true
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
@@ -440,18 +440,23 @@ class AgentRunner(
         val toolDefinitionsRejected: Boolean = false
     )
 
-    private fun recoverableRoundFailure(message: String): Boolean = listOf(
-        "Tool arguments were not valid JSON",
-        "reached its output limit",
-        "reached the model output limit",
-        "incomplete function call",
-        "before completing the tool call",
-        "connection abort",
-        "connection reset",
-        "temporarily overloaded",
-        "timed out",
-        "timeout has expired"
-    ).any { message.contains(it, ignoreCase = true) }
+    private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
+        hasToolContext &&
+            listOf(
+                "reached its output limit",
+                "reached the model output limit"
+            ).any { message.contains(it, ignoreCase = true) }
+        ) ||
+        listOf(
+            "Tool arguments were not valid JSON",
+            "incomplete function call",
+            "before completing the tool call",
+            "connection abort",
+            "connection reset",
+            "temporarily overloaded",
+            "timed out",
+            "timeout has expired"
+        ).any { message.contains(it, ignoreCase = true) }
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.collectRound(
         session: AgentProviderSession,

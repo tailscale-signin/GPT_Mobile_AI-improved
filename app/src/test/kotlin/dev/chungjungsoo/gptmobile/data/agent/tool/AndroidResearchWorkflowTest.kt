@@ -8,7 +8,10 @@ import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.research.ResearchJournal
 import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
@@ -296,5 +299,118 @@ class AndroidResearchWorkflowTest {
         val settings = config().copy(deepResearch = config().deepResearch.copy(concurrency = 2))
         val result = withTimeout(2500) { AndroidResearchWorkflow(settings, listOf(search, read), ::model, journal).run("Research", "parallel") }
         assertEquals(1, result.pagesRead)
+    }
+
+    @Test fun nativePlainTextDoesNotTriggerARemoteFallback() = runBlocking {
+        val journal = Journal()
+        var remoteReads = 0
+        val native = reader { id, _ -> AgentToolResult(id, ToolResultContent.Text(passage), false) }
+        val remote = reader { id, _ ->
+            remoteReads++
+            AgentToolResult(id, ToolResultContent.Text("Unavailable"), true)
+        }.copy(connectionUid = "remote")
+        val settings = config().copy(deepResearch = config().deepResearch.copy(allowRemoteReaders = true))
+        val result = AndroidResearchWorkflow(settings, listOf(search(), native, remote), ::model, journal).run("Research", "plain")
+        assertEquals(1, result.pagesRead)
+        assertEquals(0, remoteReads)
+    }
+
+    @Test fun accessDeniedDoesNotEscalateToAnotherReader() = runBlocking {
+        val journal = Journal()
+        var remoteReads = 0
+        val remote = reader { id, _ ->
+            remoteReads++
+            AgentToolResult(id, ToolResultContent.Text(passage), false)
+        }.copy(connectionUid = "remote")
+        val settings = config().copy(deepResearch = config().deepResearch.copy(allowRemoteReaders = true))
+        AndroidResearchWorkflow(settings, listOf(search(), reader { id, _ -> AgentToolResult(id, ToolResultContent.Text("HTTP 403 access denied"), true) }, remote), ::model, journal).run("Research", "blocked")
+        assertEquals(0, remoteReads)
+        assertEquals("Blocked", journal.snapshot!!.sources.single().status)
+    }
+
+    @Test fun modelCannotExceedTwoReviewedClaimsPerSource() = runBlocking {
+        val journal = Journal()
+        var reviews = 0
+        AndroidResearchWorkflow(config(), listOf(search(), reader()), { prompt, tokens ->
+            when {
+                prompt.startsWith("Extract") -> buildJsonObject {
+                    put(
+                        "claims",
+                        JsonArray(
+                            (1..30).map { number ->
+                                buildJsonObject {
+                                    put("sourceId", "S1")
+                                    put("text", "Claim $number")
+                                    put("quote", passage)
+                                }
+                            }
+                        )
+                    )
+                }.toString()
+                prompt.startsWith("Review") -> {
+                    reviews++
+                    """{"verdict":"Supported"}"""
+                }
+                else -> model(prompt, tokens)
+            }
+        }, journal).run("Research", "claims")
+        assertEquals(2, reviews)
+        assertEquals(2, journal.snapshot!!.claims.size)
+    }
+
+    @Test fun parentCancellationPersistsCompletedSiblingPages() = runBlocking {
+        val journal = Journal()
+        val waiting = CompletableDeferred<Unit>()
+        val read = reader { id, args ->
+            if (args["url"]!!.jsonPrimitive.content.contains("two.org")) {
+                waiting.complete(Unit)
+                delay(5000)
+            }
+            AgentToolResult(id, ToolResultContent.Text(passage), false)
+        }
+        val settings = config().copy(deepResearch = config().deepResearch.copy(concurrency = 2))
+        val job = launch { AndroidResearchWorkflow(settings, listOf(read), ::model, journal).run("Research https://one.org/research https://two.org/research", "cancel") }
+        withTimeout(2500) { waiting.await() }
+        job.cancelAndJoin()
+        assertEquals("Interrupted", journal.snapshot!!.phase)
+        assertFalse(journal.snapshot!!.complete)
+        assertEquals(1, journal.snapshot!!.sources.count { it.readable })
+    }
+
+    @Test fun nonWebTasksCanDeclineResearchWithoutFollowUpModelCalls() = runBlocking {
+        val journal = Journal()
+        var calls = 0
+        val generate: suspend (String, Int) -> String? = { _, _ ->
+            calls++
+            """{"queries":[],"questions":[]}"""
+        }
+        val result = AndroidResearchWorkflow(config(), emptyList(), generate, journal).run("Explain a simple concept", "direct")
+        assertEquals(LocalResearchOutcome.NO_RESEARCH_NEEDED, result.outcome)
+        assertEquals(1, calls)
+        val reused = AndroidResearchWorkflow(config(), emptyList(), generate, journal).run("Explain a simple concept", "direct")
+        assertEquals(LocalResearchOutcome.NO_RESEARCH_NEEDED, reused.outcome)
+        assertEquals(1, calls)
+    }
+
+    @Test fun invalidPlanDoesNotClaimResearchWasUnnecessary() = runBlocking {
+        val result = AndroidResearchWorkflow(config(), emptyList(), { _, _ -> null }).run("Find current research", "invalid")
+        assertEquals(LocalResearchOutcome.NO_USEFUL_OUTPUT, result.outcome)
+    }
+
+    @Test fun readerMetadataCannotBecomePageEvidence() = runBlocking {
+        val journal = Journal()
+        val result = AndroidResearchWorkflow(
+            config(),
+            listOf(
+                search(),
+                reader { id, _ ->
+                    AgentToolResult(id, ToolResultContent.Text("""{"status":"ok","url":"https://example.org/research/1","metadata":"${"Not article text. ".repeat(20)}"}"""), false)
+                }
+            ),
+            ::model,
+            journal
+        ).run("Research", "metadata")
+        assertEquals(0, result.pagesRead)
+        assertTrue(journal.snapshot!!.claims.isEmpty())
     }
 }

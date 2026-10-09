@@ -39,7 +39,7 @@ class WebSearchEngineAdapterTest {
     fun `every marketplace search tool has a tested provider contract`() {
         val expected = McpPresetCatalog.presets.flatMap { preset -> preset.webSearchToolNames.map { preset.id to it } }.toSet()
         assertEquals(
-            setOf("builtin-web", "exa-mcp", "tavily-mcp", "firecrawl-mcp", "jina-mcp", "brave-search", "bright-data", "searxng-mcp"),
+            setOf("builtin-web", "exa-mcp", "tavily-mcp", "firecrawl-mcp", "jina-mcp", "brave-search", "bright-data", "searxng-mcp", "free-search-mcp"),
             expected.map { it.first }.toSet()
         )
         val actual = marketplaceSearchFixtures().map { it.getValue("preset").jsonPrimitive.content to it.getValue("name").jsonPrimitive.content }.toSet()

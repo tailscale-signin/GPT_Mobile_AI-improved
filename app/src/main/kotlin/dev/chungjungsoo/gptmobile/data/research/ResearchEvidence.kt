@@ -92,16 +92,36 @@ data class ResearchSnapshot(
     companion object {
         fun parse(value: JsonObject): ResearchSnapshot? = runCatching {
             require(value["version"]?.jsonPrimitive?.int == 1)
+            val sources = value.rows("sources").take(120).mapNotNull { s ->
+                val id = s.text("id")
+                val url = s.text("url").take(2048)
+                if (!id.matches(Regex("S[1-9][0-9]{0,2}")) ||
+                    !runCatching {
+                        URI(url).let { it.scheme?.lowercase() in setOf("http", "https") && !it.host.isNullOrBlank() && it.rawUserInfo == null }
+                    }.getOrDefault(false)
+                ) {
+                    return@mapNotNull null
+                }
+                val status = s.text("status").takeIf { it in setOf("Discovered", "Read", "Partially read", "Used as evidence", "Blocked", "Failed") } ?: "Failed"
+                ResearchSource(
+                    id, url, s.text("title").take(240), status, s.text("passage").take(6000), s.number("depth").coerceIn(0, 2),
+                    (s["retrievedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, s.text("publishedAt").take(80),
+                    s.strings("engines").take(20).map { it.take(120) }, s.text("fingerprint").take(64), s.text("originId").take(4), s.text("location").take(240)
+                )
+            }.distinctBy { it.id }.distinctBy { it.url }
+            val claimRows = value.rows("claims").take(30)
+            val claims = validatedResearchClaims(claimRows, sources).map { claim ->
+                val verdict = claimRows.firstOrNull { it.text("sourceId") == claim.sourceId && it.text("text").trim().take(600) == claim.text && it.text("quote").trim().take(1200) == claim.quote }
+                    ?.text("verdict")?.takeIf { it in setOf("Supported", "Contradicted", "Insufficient") } ?: "Unreviewed"
+                claim.copy(verdict = verdict)
+            }
             ResearchSnapshot(
-                task = value.text("task").take(8000), phase = value.text("phase"), round = value.number("round"),
-                searches = value.number("searches"), attempts = value.number("attempts"),
-                engineResponses = value.number("engineResponses"), engineFailures = value.number("engineFailures"),
-                sources = value.rows("sources").take(120).map { s ->
-                    ResearchSource(s.text("id"), s.text("url"), s.text("title"), s.text("status"), s.text("passage").take(6000), s.number("depth"), s["retrievedAt"]?.jsonPrimitive?.longOrNull ?: 0, s.text("publishedAt"), s.strings("engines"), s.text("fingerprint"), s.text("originId"), s.text("location"))
-                },
-                claims = value.rows("claims").take(30).map { ResearchClaim(it.text("text"), it.text("sourceId"), it.text("quote"), it.text("verdict")) },
-                questions = value.strings("questions").take(8), queries = value.strings("queries").take(12), notes = value.strings("notes").take(20),
-                updatedAt = value["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0, complete = value["complete"]?.jsonPrimitive?.booleanOrNull == true
+                task = value.text("task").take(8000), phase = value.text("phase").take(40), round = value.number("round").coerceIn(0, 3),
+                searches = value.number("searches").coerceIn(0, 9), attempts = value.number("attempts").coerceIn(0, 60),
+                engineResponses = value.number("engineResponses").coerceAtLeast(0), engineFailures = value.number("engineFailures").coerceAtLeast(0),
+                sources = sources, claims = claims,
+                questions = value.strings("questions").take(8).map { it.take(350) }, queries = value.strings("queries").take(12).map { it.take(500) }, notes = value.strings("notes").take(20).map { it.take(500) },
+                updatedAt = (value["updatedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, complete = (value["complete"] as? JsonPrimitive)?.booleanOrNull == true
             )
         }.getOrNull()
     }

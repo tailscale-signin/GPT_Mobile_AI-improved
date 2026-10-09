@@ -37,8 +37,26 @@ class ResearchEvidenceTest {
     }
 
     @Test fun snapshotRoundTripPreservesEvidenceAndProgress() {
-        val source = ResearchSource("S1", "https://example.org", "Title", "Partially read", "Exact passage", retrievedAt = 1234, engines = listOf("A", "B"))
-        val original = ResearchSnapshot("Task", sources = listOf(source), attempts = 2, queries = listOf("query"), claims = listOf(ResearchClaim("Claim", "S1", "Exact passage", "Insufficient")))
+        val source = ResearchSource("S1", "https://example.org", "Title", "Partially read", "Exact passage with enough context.", retrievedAt = 1234, engines = listOf("A", "B"))
+        val original = ResearchSnapshot("Task", sources = listOf(source), attempts = 2, queries = listOf("query"), claims = listOf(ResearchClaim("Claim", "S1", source.passage, "Insufficient")))
         assertEquals(original, ResearchSnapshot.parse(original.json()))
+    }
+
+    @Test fun restoredHistoryRejectsInvalidCitationsAndDuplicateSources() {
+        val source = ResearchSource("S1", "https://example.org", "Title", "Read", "The documented request limit is two.")
+        val snapshot = ResearchSnapshot(
+            "Task",
+            attempts = -5,
+            sources = listOf(source, source.copy(url = "https://other.org"), source.copy(id = "S2", url = "file:///private/document")),
+            claims = listOf(
+                ResearchClaim("Supported claim", "S1", source.passage, "Supported"),
+                ResearchClaim("Invented", "S1", "This quote never appeared in the source.", "Supported"),
+                ResearchClaim("Missing source", "S9", source.passage, "Supported")
+            )
+        )
+        val restored = ResearchSnapshot.parse(snapshot.json())!!
+        assertEquals(listOf(source), restored.sources)
+        assertEquals(listOf(snapshot.claims.first()), restored.claims)
+        assertEquals(0, restored.attempts)
     }
 }

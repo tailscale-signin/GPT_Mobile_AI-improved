@@ -217,7 +217,9 @@ class ChatViewModel @Inject constructor(
     )
     val chatRoom = _chatRoom.asStateFlow()
     val researchSessions = researchSessionStore?.sessions ?: MutableStateFlow<Map<String, dev.chungjungsoo.gptmobile.data.research.ResearchSession>>(emptyMap()).asStateFlow()
-    fun stopResearch(runId: String) = researchSessionStore?.stop(runId)
+    fun stopResearch(runId: String) {
+        researchSessionStore?.stop(runId)
+    }
     fun loadResearchHistory(chatId: Int) {
         viewModelScope.launch { researchSessionStore?.loadChat(chatId) }
     }

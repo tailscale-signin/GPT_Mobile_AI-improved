@@ -1456,7 +1456,8 @@ class ChatRepositoryImpl(
                 )
             }
             val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
-            val crawlStage = if (behavior.crawlersEnabled && !(delegationConfig.enabled && delegationConfig.researchEnabled && delegationConfig.deepResearch.enabled)) {
+            val delegationConfig = effectiveDelegationSettings()
+            val crawlStage = if (behavior.crawlersEnabled && !(localResearch && delegationConfig.deepResearch.enabled)) {
                 dev.chungjungsoo.gptmobile.data.agent.tool.SearchCrawlStage(
                     selectedCrawlers,
                     behavior.maxCrawlPages
@@ -1518,7 +1519,6 @@ class ChatRepositoryImpl(
                 if (brief.isNotBlank()) appendPreparedEvidence(brief)
             }
             var preparedEvidenceComplete = false
-            val delegationConfig = effectiveDelegationSettings()
             if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && (processingOwnership == 0 || !isGitHubTask(latestUser.content)) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
                 emit(ApiState.Notice("Local model is planning research and preparing evidence…", persistent = false))
                 val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })

@@ -53,6 +53,7 @@ class McpOAuthCoordinator @Inject constructor(
         credentialMutex.withLock { rejectedCredentials.remove(connectionUid) }
         secretVault.delete(pendingRef)
         mcpClientManager.close(connectionUid)
+        mcpClientManager.resetHealth(connectionUid)
     }
 
     suspend fun authorizationHeader(
@@ -89,6 +90,7 @@ class McpOAuthCoordinator @Inject constructor(
                     credential = NetworkClient.json.encodeToString(credential).encodeToByteArray()
                 )
                 mcpClientManager.close(connection.connectionUid)
+                mcpClientManager.resetHealth(connection.connectionUid)
             }
             return "${credential.tokenType} ${credential.accessToken}"
         } finally {

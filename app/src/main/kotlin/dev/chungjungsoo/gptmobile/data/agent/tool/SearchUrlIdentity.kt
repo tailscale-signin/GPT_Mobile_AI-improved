@@ -22,7 +22,7 @@ internal object SearchUrlIdentity {
         require(host.isNotBlank() && parsedPort in -1..65535 && parsedPort != 0)
         val port = parsedPort.takeUnless { it == -1 || (it == 80 && scheme == "http") || (it == 443 && scheme == "https") }
         val query = uri.rawQuery?.split('&')?.filterNot { part ->
-            val name = URLDecoder.decode(part.substringBefore('='), Charsets.UTF_8).lowercase(Locale.ROOT)
+            val name = URLDecoder.decode(part.substringBefore('='), Charsets.UTF_8.name()).lowercase(Locale.ROOT)
             name.startsWith("utm_") || name in setOf("fbclid", "gclid", "msclkid")
         }?.joinToString("&")?.takeIf { it.isNotEmpty() }
         val key = "$scheme://$host${port?.let { ":$it" }.orEmpty()}${uri.rawPath.orEmpty().ifEmpty { "/" }}" +

@@ -89,6 +89,55 @@ class AirbnbNativeToolTest {
         }
     }
 
+    @Test fun regionalHandoffUsesOnlyAPublicGetWithoutSubmittingCookies() = runBlocking {
+        var requests = 0
+        http(
+            MockEngine { request ->
+                requests++
+                assertEquals(io.ktor.http.HttpMethod.Get, request.method)
+                assertEquals("/s/Toronto/homes", request.url.encodedPath)
+                assertEquals("2026-11-01", request.url.parameters["checkin"])
+                assertEquals(null, request.headers["Cookie"])
+                assertEquals(null, request.headers["Authorization"])
+                if (requests == 1) {
+                    assertEquals("www.airbnb.com", request.url.host)
+                    respond("""<form method="POST" action="https://www.airbnb.ca/v2/domain_switch/handoff"><input name="payload" value="must-not-submit"></form>""")
+                } else {
+                    assertEquals("www.airbnb.ca", request.url.host)
+                    respond(page)
+                }
+            }
+        ).use { http ->
+            val tool = AirbnbNativeTool(PublicAirbnbClient(http), { true }, { error("Regional page supplies listings") })
+            val result = tool.execute(
+                "call",
+                buildJsonObject {
+                    put("location", "Toronto")
+                    put("checkin", "2026-11-01")
+                    put("checkout", "2026-11-03")
+                }
+            )
+            assertFalse(result.content.toString(), result.isError)
+            assertEquals(2, requests)
+            assertEquals("123", AirbnbListings.normalize((result.content as ToolResultContent.Json).value).single().id)
+        }
+    }
+
+    @Test fun unapprovedHandoffHostIsNeverRequested() = runBlocking {
+        var requests = 0
+        http(
+            MockEngine { request ->
+                requests++
+                assertEquals("www.airbnb.com", request.url.host)
+                respond("""<form action="https://www.airbnb.ca.evil.example/v2/domain_switch/handoff"></form>""")
+            }
+        ).use { http ->
+            val tool = AirbnbNativeTool(PublicAirbnbClient(http), { true }, { null })
+            assertTrue(tool.execute("call", buildJsonObject { put("location", "Toronto") }).isError)
+            assertEquals(1, requests)
+        }
+    }
+
     @Test fun disabledPluginAndInvalidArgumentsPerformNoNetworkRequests() = runBlocking {
         http(MockEngine { error("Must not request data") }).use { http ->
             val client = PublicAirbnbClient(http)

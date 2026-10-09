@@ -27,6 +27,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.Jsoup
 
 /** Public origins only. No login/session state, remote proxy, or app credential interceptors. */
@@ -120,7 +121,28 @@ class PublicAirbnbClient internal constructor(private val http: HttpClient) {
         return AirbnbListings.normalize(payload, arguments)
     }
 
-    private suspend fun read(url: String): String = http.prepareGet(url) {
+    private suspend fun read(url: String): String {
+        val html = readPage(url)
+        val handoff = Jsoup.parse(html).select("form[action]").firstNotNullOfOrNull { form ->
+            form.attr("action").toHttpUrlOrNull()?.takeIf {
+                it.isHttps &&
+                    it.port == 443 &&
+                    it.username.isEmpty() &&
+                    it.password.isEmpty() &&
+                    it.host in setOf("www.airbnb.com", "www.airbnb.ca") &&
+                    it.encodedPath == "/v2/domain_switch/handoff"
+            }
+        }
+        val source = url.toHttpUrl()
+        if (handoff != null && handoff.host != source.host) {
+            // Request the same public path; never submit handoff payloads or transfer cookies.
+            delay(1500)
+            return readPage(source.newBuilder().host(handoff.host).build().toString())
+        }
+        return html
+    }
+
+    private suspend fun readPage(url: String): String = http.prepareGet(url) {
         header(HttpHeaders.Accept, "text/html")
         header(HttpHeaders.AcceptLanguage, "en-CA,en;q=0.9")
         header(HttpHeaders.UserAgent, "GPTMobile-PublicBrowsing/1.0")

@@ -204,7 +204,7 @@ class AgentRunner(
                     (call.arguments["query"] as? JsonPrimitive)?.isString == true
                 ) {
                     AppLogRecorder.record("Agent", "SEARCH_ROUTED_TO_AGGREGATE · requested=${call.name} · assigned=web_search")
-                    call.copy(name = "web_search")
+                    call.copy(name = "web_search", arguments = dev.chungjungsoo.gptmobile.data.agent.tool.legacySearchArguments(call.arguments))
                 } else {
                     call
                 }
@@ -273,7 +273,7 @@ class AgentRunner(
                 .groupBy(keySelector = { failureScope(it.first) }, valueTransform = { it.second })
                 .forEach { (toolName, roundResults) ->
                     val failures = when {
-                        roundResults.any { result -> result.isError && toolResultText(result).let { text -> listOf("requires an api key", "api key required", "credential is missing", "authentication or access failed").any { text.contains(it, true) } } } -> MAX_CONSECUTIVE_TOOL_FAILURES
+                        roundResults.any { result -> result.isError && terminalToolFailure(toolResultText(result)) } -> MAX_CONSECUTIVE_TOOL_FAILURES
                         roundResults.any { !it.isError } -> 0
                         roundResults.none(::countsTowardToolFailureCircuit) -> consecutiveToolFailures[toolName] ?: 0
                         else -> (consecutiveToolFailures[toolName] ?: 0) + 1

@@ -57,6 +57,9 @@ internal fun PluginConfigurationDialog(
         text = {
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SettingsHero("Plugin controls", name, "")
+                if (id.startsWith("connection:")) {
+                    TextButton(onClick = onConnection) { Text("Manage connection") }
+                }
                 if (isAmazon || nativeAmazon) {
                     SettingsPanel("Amazon products") {
                         Column {

@@ -21,6 +21,85 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test
+    fun `exhausted anonymous quota disables only the failing tool after one round`() = kotlinx.coroutines.test.runTest {
+        var attempts = 0
+        var siblingCalls = 0
+        val events = AgentRunner().run(
+            session { tools, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        emit(toolCall("quota", "ask_pipeworx"))
+                    } else if (exchanges.size == 1) {
+                        assertFalse(tools.any { it.name == "ask_pipeworx" })
+                        assertTrue(tools.any { it.name == "news" })
+                        emit(toolCall("fallback", "news"))
+                    } else {
+                        emit(ProviderEvent.TextDelta("Answer from the available news provider"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(
+                tool("ask_pipeworx") { id, _ ->
+                    attempts++
+                    AgentToolResult(id, ToolResultContent.Text("Today's 50 free anonymous calls are used up. Claim a free key for 4x the calls."), true)
+                },
+                tool("news") { id, _ ->
+                    siblingCalls++
+                    AgentToolResult(id, ToolResultContent.Text("Available headlines"), false)
+                }
+            )
+        ).toList()
+        assertEquals(1, attempts)
+        assertEquals(1, siblingCalls)
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+        assertFalse(terminalToolFailure("HTTP 429: retry after 2 seconds"))
+    }
+
+    @Test
+    fun `legacy MCP search translates nullable filters and larger requested source counts`() = kotlinx.coroutines.test.runTest {
+        var attempts = 0
+        AgentRunner().run(
+            session { _, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        emit(
+                            toolCall(
+                                "legacy",
+                                "mcp__usearch__web_search",
+                                buildJsonObject {
+                                    put("query", "Canadian news")
+                                    put("maxResults", 20)
+                                    put("recencyDays", kotlinx.serialization.json.JsonNull)
+                                    put("includeDomains", kotlinx.serialization.json.JsonNull)
+                                }
+                            )
+                        )
+                    } else {
+                        emit(ProviderEvent.TextDelta("Answer"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(
+                tool("web_search") { id, arguments ->
+                    attempts++
+                    assertEquals(
+                        buildJsonObject {
+                            put("query", "Canadian news")
+                            put("maxResults", 10)
+                            put("totalResults", 20)
+                        },
+                        arguments
+                    )
+                    AgentToolResult(id, ToolResultContent.Text("Search evidence"), false)
+                }
+            )
+        ).toList()
+        assertEquals(1, attempts)
+    }
+
     @Test fun `repeat guard preserves calls admitted earlier in the same batch`() = runBlocking {
         var executed = 0
         var rounds = 0

@@ -13,6 +13,30 @@ import org.junit.Test
 
 class ToolServicePolicyTest {
     @Test
+    fun connectionManagementNeverFallsBackToAnUnrelatedProvider() {
+        val github = connection("github", "GitHub", "https://api.github.com", ToolConnectionType.GITHUB)
+        val airbnb = connection("bnb", "Airbnb", "https://mcp.openbnb.ai/mcp")
+        val news = connection("headlines", "Google News", "https://example.org/news")
+        val google = connection("places", "Google Maps", "https://mapstools.googleapis.com/mcp")
+        val connections = listOf(github, airbnb, news, google)
+        for ((plugin, expected) in listOf(ToolPluginId.GITHUB to github, ToolPluginId.AIRBNB to airbnb, ToolPluginId.NEWS to news, ToolPluginId.GOOGLE_PLACES to google)) {
+            assertEquals(listOf(expected), ToolServiceCatalog.connectionsForPlugin(plugin, connections))
+        }
+        assertTrue(ToolServiceCatalog.connectionsForPlugin(ToolPluginId.AMAZON_SEARCH, connections).isEmpty())
+        assertTrue(ToolServiceCatalog.connectionsForPlugin(ToolPluginId.NEWS, listOf(github)).isEmpty())
+        assertTrue(ToolServiceCatalog.connectionsForPlugin("connection:deleted", connections).isEmpty())
+    }
+
+    @Test
+    fun connectionManagementKeepsMultipleConnectionsAndExactRuntimeSelection() {
+        val native = connection("native", "GitHub API", "https://api.github.com", ToolConnectionType.GITHUB)
+        val remote = connection("remote", "GitHub MCP", "https://api.githubcopilot.com/mcp/")
+        val connections = listOf(native, remote)
+        assertEquals(connections, ToolServiceCatalog.connectionsForPlugin(ToolPluginId.GITHUB, connections))
+        assertEquals(listOf(remote), ToolServiceCatalog.connectionsForPlugin(ToolPluginId.connection(remote.connectionUid), connections))
+    }
+
+    @Test
     fun inAppAirbnbHasNoAccountOrConnectionSetupRequirement() {
         val service = toolServiceItems(emptyList(), emptyMap()).single { it.id == ToolPluginId.AIRBNB }
         assertTrue(service.integrated)

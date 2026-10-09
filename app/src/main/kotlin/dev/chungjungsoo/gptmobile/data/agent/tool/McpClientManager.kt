@@ -327,12 +327,13 @@ class McpClientManager internal constructor(
                 throw error
             } catch (error: Exception) {
                 val staleSession = error.isMcpStaleSession()
+                val interruptedRead = error.isMcpInterruptedRead()
                 invalidate(config.connectionUid, session)
-                if (retryStale && staleSession && staleSessionRetries++ < MAX_STALE_SESSION_RETRIES) {
+                if (retryStale && (staleSession || interruptedRead) && staleSessionRetries++ < MAX_STALE_SESSION_RETRIES) {
                     markRecovering(config.connectionUid)
                     AppLogRecorder.record(
                         "MCP",
-                        "Stale session detected · connection=${config.connectionUid} · retry=$staleSessionRetries/$MAX_STALE_SESSION_RETRIES · reconnecting without provider backoff",
+                        "Read session interrupted · connection=${config.connectionUid} · stale=$staleSession · retry=$staleSessionRetries/$MAX_STALE_SESSION_RETRIES · reconnecting without provider backoff",
                         "W"
                     )
                     continue
@@ -503,6 +504,13 @@ class McpClientManager internal constructor(
 
 private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause }
     .any { error -> error is StreamableHttpError && error.code == 401 }
+
+/** Only replay discovery/resource reads after a dropped connection, never tools/call. */
+internal fun Throwable.isMcpInterruptedRead(): Boolean = generateSequence(this) { it.cause }
+    .any { error ->
+        error is java.io.EOFException ||
+            listOf("unexpected end of stream", "broken pipe", "connection reset").any { error.message.orEmpty().contains(it, ignoreCase = true) }
+    }
 
 private fun Throwable.isMcpStaleSession(): Boolean = generateSequence(this) { it.cause }
     .any { error ->

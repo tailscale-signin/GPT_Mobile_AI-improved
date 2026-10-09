@@ -54,6 +54,7 @@ data class ModelDelegationSettings(
     val evidenceSufficiencyPercent: Int = 79,
     val maxCallsPerTurn: Int = 8,
     val researchEnabled: Boolean = true,
+    val deepResearch: DeepResearchSettings = DeepResearchSettings(),
     val automaticResearch: Boolean = true,
     val compactToolResults: Boolean = true,
     val maxLocalModelCalls: Int = 16,
@@ -178,6 +179,7 @@ data class ModelDelegationSettings(
             // allowed cloud helpers keep working with the newer consent flag.
             allowRemoteWorkers = remoteWorkersAllowed(),
             localPlatformsOnly = !remoteWorkersAllowed(),
+            deepResearch = deepResearch.normalized(),
             strategy = strategy.coerceIn(0, 100),
             processingOwnership = processingOwnership.coerceIn(0, 100),
             automaticResearch = automaticResearch || processingOwnership <= 0,

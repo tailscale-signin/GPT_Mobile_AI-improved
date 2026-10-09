@@ -54,7 +54,8 @@ internal class LocalDelegationCoordinator(
     private val generateReviewerWithProgress: (suspend (PlatformV2, String, Int, Int, (DelegateProgress) -> Unit) -> String)? = null,
     private val useWorkloadRuntimeLimit: Boolean = true,
     private val onRecoveryRequired: (suspend (PlatformV2, List<PlatformV2>, String) -> DelegationRecoveryDecision)? = null,
-    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 }
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val researchJournal: dev.chungjungsoo.gptmobile.data.research.ResearchJournal? = null
 ) {
     private companion object {
         // Absolute emergency ceiling in addition to the user-configurable token budget.
@@ -119,6 +120,7 @@ internal class LocalDelegationCoordinator(
     }
     fun failureReason(): String? = lastFailure.get()
     fun primaryOnlyRequested(): Boolean = delegationCanceledByUser.get()
+    fun researchStopped(): Boolean = researchJournal?.stopRequested() == true
     internal fun reviewerScoresSnapshot(): List<Int> = reviewerScores.toList()
     internal fun latestReviewerScore(): Int? = reviewerScores.toList().lastOrNull()
 
@@ -1335,15 +1337,25 @@ internal class LocalDelegationCoordinator(
                     "Delegation",
                     "Research settings pinned · call=$callId · request=$requestIndex · target=${target.uid} · ownership=${researchConfig.processingOwnership}"
                 )
-                LocalResearchWorkflow(
-                    researchConfig,
-                    tools,
-                    generate = { prompt, tokens ->
-                        workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true)
-                    },
-                    // Authorization is pinned above; live settings only apply to the next research run.
-                    stillEnabled = { !delegationCanceledByUser.get() }
-                ).run(task, "$callId:$requestIndex", automatic)
+                if (researchConfig.deepResearch.enabled) {
+                    AndroidResearchWorkflow(
+                        researchConfig,
+                        tools,
+                        generate = { prompt, tokens -> workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true) },
+                        journal = researchJournal,
+                        stillEnabled = { !delegationCanceledByUser.get() }
+                    ).run(task, "$callId:$requestIndex")
+                } else {
+                    LocalResearchWorkflow(
+                        researchConfig,
+                        tools,
+                        generate = { prompt, tokens ->
+                            workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true)
+                        },
+                        // Authorization is pinned above; live settings only apply to the next research run.
+                        stillEnabled = { !delegationCanceledByUser.get() }
+                    ).run(task, "$callId:$requestIndex", automatic)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -1376,7 +1388,7 @@ internal class LocalDelegationCoordinator(
         }
         retain(result)
         if (delegationCanceledByUser.get()) return result.copy(handoff = primaryOnlyHandoff(), outcome = LocalResearchOutcome.NO_USEFUL_OUTPUT)
-        val reviewedResult = if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) {
+        val reviewedResult = if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank() && researchJournal?.stopRequested() != true) {
             val handoff = runReviewer(userSelectedRecoveryProfile.get() ?: target, task, result.handoff, config)
             result.copy(
                 handoff = handoff,

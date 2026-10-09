@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Improve multi-web search with deterministic source interleaving, explicit total limits, conservative URL identities, bounded guarded content grouping, deadline-aware refill and expandable source attribution.
+
 - Load Amazon preview and popup photos from provider galleries, retry failed image reads, and retain cached photos while detail metadata is refreshed.
 - Preserve embedded map pan and pinch gestures, use a dark basemap with theme colours, and add place, travel-mode and recenter controls.
 - Combine the latest completed responses from all active profiles, retain helper contributions after retries, and use the originating profile for result-card media permissions.

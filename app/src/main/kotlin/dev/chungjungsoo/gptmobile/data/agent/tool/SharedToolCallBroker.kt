@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -42,8 +44,10 @@ class SharedToolCallBroker(
     ): AgentTool {
         if (scopeId.isNullOrBlank() || !shareableReadOnly) return tool
 
-        return object : AgentTool {
+        return object : OwnedAgentTool {
             override val definition = tool.definition
+            override val managesExecutionBudget = tool.managesExecutionBudget
+            override val executionOwner = (tool as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
                 executeShared(

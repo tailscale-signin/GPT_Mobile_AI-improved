@@ -109,8 +109,10 @@ internal fun PluginConfigurationDialog(
                 if (id == ToolPluginId.WEB_SEARCH) {
                     SettingsPanel("Search") {
                         PluginSlider("Results per engine", config.searchResults, 1..10) { config = config.copy(searchResults = it) }
-                        PluginSwitch("Parallel engines", options.parallelSearch) { options = options.copy(parallelSearch = it) }
+                        Text("Selected engines search concurrently. Returned sources alternate between engines.", style = MaterialTheme.typography.bodySmall)
                         PluginSwitch("Combine duplicate URLs", options.deduplicateSearch) { options = options.copy(deduplicateSearch = it) }
+                        PluginSwitch("Reuse identical searches", options.reuseSearchRequests) { options = options.copy(reuseSearchRequests = it) }
+                        PluginSwitch("Group similar coverage (trial)", options.deduplicateSearchContent) { options = options.copy(deduplicateSearchContent = it) }
                         Text("Choose engines and crawlers in each model profile.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -158,7 +160,8 @@ internal fun PluginConfigurationDialog(
                     onFeature(AppFeature.GITHUB_BLOB_CACHE, options.githubBlobCache)
                 }
                 if (id == ToolPluginId.WEB_SEARCH) {
-                    onFeature(AppFeature.PARALLEL_SEARCH, options.parallelSearch)
+                    onFeature(AppFeature.REUSE_SEARCH, options.reuseSearchRequests)
+                    onFeature(AppFeature.DEDUPLICATE_SEARCH_CONTENT, options.deduplicateSearchContent)
                     onFeature(AppFeature.DEDUPLICATE_SEARCH, options.deduplicateSearch)
                 }
                 onSave(config)

@@ -12,6 +12,8 @@ data class AppFeatureSettings(
     val queuedFollowUps: Boolean = true,
     val parallelSearch: Boolean = true,
     val deduplicateSearch: Boolean = true,
+    val reuseSearchRequests: Boolean = true,
+    val deduplicateSearchContent: Boolean = false,
     val githubConditionalReads: Boolean = true,
     val githubBlobCache: Boolean = true,
     val backgroundGeneration: Boolean = true,
@@ -60,8 +62,10 @@ data class AppFeatureSettings(
         AppFeature.EDGE_FADES -> copy(edgeFades = enabled)
         AppFeature.MESSAGE_TIMESTAMPS -> copy(messageTimestamps = enabled)
         AppFeature.QUEUED_FOLLOW_UPS -> copy(queuedFollowUps = enabled)
-        AppFeature.PARALLEL_SEARCH -> copy(parallelSearch = enabled)
+        AppFeature.PARALLEL_SEARCH -> copy(parallelSearch = true)
         AppFeature.DEDUPLICATE_SEARCH -> copy(deduplicateSearch = enabled)
+        AppFeature.REUSE_SEARCH -> copy(reuseSearchRequests = enabled)
+        AppFeature.DEDUPLICATE_SEARCH_CONTENT -> copy(deduplicateSearchContent = enabled)
         AppFeature.GITHUB_CONDITIONAL_READS -> copy(githubConditionalReads = enabled)
         AppFeature.GITHUB_BLOB_CACHE -> copy(githubBlobCache = enabled)
         AppFeature.LOCAL_MODEL_CACHE -> copy(localModelCache = enabled)
@@ -146,6 +150,8 @@ enum class AppFeature(
     QUEUED_FOLLOW_UPS("Live Follow-Up Messages", "Add queued text to a delegated turn at its next safe model boundary."),
     PARALLEL_SEARCH("Parallel Search Engines", "Query selected engines concurrently."),
     DEDUPLICATE_SEARCH("Deduplicate Search Results", "Combine matching URLs across engines."),
+    REUSE_SEARCH("Reuse Identical Searches", "Reuse authorized successful evidence for up to 30 seconds."),
+    DEDUPLICATE_SEARCH_CONTENT("Group Similar Coverage (Trial)", "Group long matching excerpts with corroborating titles. Expand sources to see alternate links."),
     GITHUB_CONDITIONAL_READS("GitHub Conditional Requests", "Reuse unchanged responses with ETag validation."),
     GITHUB_BLOB_CACHE("GitHub Immutable File Cache", "Reuse source files by their content hash."),
     LOCAL_MODEL_CACHE("Local Compiled-Model Cache", "Reuse compiled model resources between loads."),

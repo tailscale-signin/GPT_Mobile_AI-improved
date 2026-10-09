@@ -93,6 +93,11 @@ interface AgentTool {
     suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult
 }
 
+/** Resolve consent serially before a search wave starts its provider deadlines. */
+interface PreparableAgentTool : AgentTool {
+    suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult
+}
+
 enum class AgentToolExecutionOwner {
     CLIENT,
     GATEWAY

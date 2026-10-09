@@ -19,6 +19,10 @@ Embedded maps keep the pointer sequence inside MapLibre, use texture rendering i
 
 Combined synthesis waits for each active profile's latest run to finish, reads its latest response rather than a historical revision selected for inspection, and retains all distinct contributions. Retrying a helper can regenerate the combined result. Combined sources and the completed text timeline stay available for profile tabs and conversation history.
 
+## Multi-web search
+
+The existing `web_search` now interleaves selected engines deterministically, separates fetch/per-engine/final quotas, preserves source aliases locally, and isolates first-page/refill failures under one search deadline. Content matching starts in shadow mode and has an independent trial switch. See [the implementation notes](multi-web-search.md) for compatibility, settings, rollout and measurement limits.
+
 ## Regression checks
 
 Tests cover Amazon gallery fallback and cache replacement, current Combined inputs and helper retries, News source interleaving and partial feed failures, Airbnb normalization/deduplication and review evidence, Google Places request headers/coordinates, and tool finalization after a missing credential. Bridge contracts run in Marketplace CI alongside builds of pinned Airbnb and Hacker News sources. Hosted OAuth, live searches, photo availability and map gestures also need a configured account/network and device checks.

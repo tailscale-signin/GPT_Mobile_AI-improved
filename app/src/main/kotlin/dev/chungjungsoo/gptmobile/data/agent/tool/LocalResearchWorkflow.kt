@@ -139,6 +139,7 @@ internal class LocalResearchWorkflow(
                         buildJsonObject {
                             put("query", query)
                             put("maxResults", config.searchResultsPerEngine.coerceIn(1, 10))
+                            if (searchTool.tool.definition.inputSchema["properties"]?.let { it as? JsonObject }?.containsKey("totalResults") == true) put("totalResults", 20)
                         }
                     )
                     if (candidate != null && !candidate.isError) {

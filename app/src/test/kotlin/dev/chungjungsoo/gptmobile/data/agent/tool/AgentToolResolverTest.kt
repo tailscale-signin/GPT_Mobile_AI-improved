@@ -123,10 +123,13 @@ class AgentToolResolverTest {
             .associate { it.id to NativePluginInstallation(enabled = true, endpoint = "https://managed.example/search", credentialRef = "saved", endpoints = mapOf("geocode" to "https://managed.example/search", "restrooms" to "https://managed.example/interpreter")) }
         coEvery { registry.load() } returns records
         val client = mockk<NativeMarketplaceClient>()
-        val resolver = resolver(nativeRegistry = registry, nativeClient = client)
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings().withToolPluginEnabled(ToolPluginId.GOOGLE_PLACES, true).withProfileToolPluginEnabled("profile", ToolPluginId.GOOGLE_PLACES, true)
+        val resolver = resolver(settings = ResolverFakeSettingRepository(features = features), nativeRegistry = registry, nativeClient = client)
         val tools = resolver.resolve("profile").filter { it.connectionUid in records.keys }
-        assertEquals(13, tools.size)
-        assertEquals(13, tools.map { it.modelToolName }.toSet().size)
+        assertEquals(15, tools.size)
+        assertEquals(15, tools.map { it.modelToolName }.toSet().size)
+        assertEquals(3, tools.count { it.connectionUid == "optional-google-places" })
+        assertFalse(resolver(nativeRegistry = registry, nativeClient = client).resolve("profile").any { it.connectionUid == "optional-google-places" })
         assertTrue(tools.all { it.shareableReadOnly })
         assertFalse(resolver.resolve("profile", ChatMcpToolConfig(allowAllByDefault = true).withToolDisabled("optional-refuge")).any { it.connectionUid == "optional-refuge" })
         coEvery { registry.load() } returns records.mapValues { (_, record) -> record.copy(enabled = false) }

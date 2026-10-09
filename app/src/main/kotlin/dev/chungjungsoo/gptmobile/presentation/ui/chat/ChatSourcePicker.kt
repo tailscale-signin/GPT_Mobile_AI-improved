@@ -42,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -253,6 +254,24 @@ private fun SourceListDialog(sources: ChatSources, origin: Offset, onDismiss: ()
 
 @Composable
 private fun SourceListRow(source: ChatSource) {
+    var expanded by remember(source.url) { mutableStateOf(false) }
+    Column {
+        SourceLinkRow(source)
+        if (source.similarSources.isNotEmpty()) {
+            TextButton(onClick = { expanded = !expanded }, modifier = Modifier.padding(start = 58.dp)) {
+                Text(if (expanded) "Hide similar coverage" else "Similar coverage · ${source.similarSources.size}")
+            }
+            if (expanded) {
+                Column(Modifier.padding(start = 20.dp)) {
+                    source.similarSources.forEach { alias -> key(alias.url) { SourceLinkRow(alias) } }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceLinkRow(source: ChatSource) {
     val handler = LocalUriHandler.current
     val context = LocalContext.current
     val error = stringResource(R.string.chat_sources_link_error)
@@ -270,6 +289,7 @@ private fun SourceListRow(source: ChatSource) {
         Column(Modifier.weight(1f)) {
             Text(source.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(source.compactLink, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (source.engines.isNotEmpty()) Text("Found by ${source.engines.joinToString()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
     }

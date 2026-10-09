@@ -46,7 +46,8 @@ class AmazonProductMediaRepository @Inject constructor(
     suspend fun details(owner: String?, chatId: Int?, product: JsonObject, refreshImage: Boolean = false): JsonObject = detailLocks[slot(owner, chatId, product)].withLock {
         if (owner == null || !allowed(owner, chatId)) return@withLock product
         val retained = cache.load(chatId, product)
-        if (retained?.detailed == true && (!refreshImage || retained.image != null)) return@withLock retained.product
+        val untriedGallery = retained?.let { saved -> AmazonProducts.productImageUrls(saved.product).any { it !in AmazonProducts.productImageUrls(product) } } == true
+        if (retained?.detailed == true && (!refreshImage || retained.image != null || untriedGallery)) return@withLock retained.product
         if (!refreshImage && AmazonProducts.text(product, "sourceType") == "product_page") return@withLock product
         val domain = AmazonProducts.text(product, "marketplace") ?: return@withLock product
         val asin = AmazonProducts.text(product, "asin") ?: return@withLock product

@@ -337,7 +337,7 @@ class AgentRunner(
             ).toLong()
             val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
                 limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
-            val unavailableCallsOnly = executableCalls.isEmpty() && calls.isNotEmpty()
+            val unavailableCallsOnly = executableCalls.isEmpty() && calls.isNotEmpty() && hostSuppressedIds.isEmpty()
             val mustFinalize = unavailableCallsOnly ||
                 roundLimitReached ||
                 contextNearLimit ||

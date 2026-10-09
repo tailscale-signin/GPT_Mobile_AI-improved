@@ -89,7 +89,9 @@ class AmazonProductDetailViewModelTest {
         model.open("owner", product)
         runCurrent()
         assertEquals(history, model.state.value.publicHistory)
-        assertEquals(product, model.state.value.product)
+        val retained = requireNotNull(model.state.value.product)
+        product.forEach { (field, value) -> assertEquals(field, value, retained[field]) }
+        assertEquals(dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts.productImageUrls(product), dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts.productImageUrls(retained))
         assertFalse(model.state.value.loading)
     }
 

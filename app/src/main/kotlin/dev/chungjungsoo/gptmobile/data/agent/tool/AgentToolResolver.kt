@@ -367,6 +367,27 @@ class AgentToolResolver @Inject constructor(
                 (featureSettings.pluginExecution[id] ?: featureSettings.pluginExecution[fallback])?.let { config -> resolved.copy(tool = ConfiguredPluginTool(resolved.tool, config)) } ?: resolved
             }
             .map { resolved ->
+                if (resolved.isWebSearchEngine()) {
+                    val snapshot = bindings.filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }
+                    return@map resolved.copy(canReuseResult = {
+                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                        val features = settingRepository.getFeatureSettings()
+                        current == platform &&
+                            current?.enabled == true &&
+                            !current.disableAllTools &&
+                            !current.disableRemoteTools &&
+                            features == featureSettings &&
+                            features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) &&
+                            (
+                                resolved.connectionUid == null ||
+                                    (
+                                        snapshot.isNotEmpty() &&
+                                            toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName } == snapshot &&
+                                            snapshot.all { it.connection?.type != ToolConnectionType.MCP || resolved.realToolName in it.connection?.approvedReadTools.orEmpty().lines().map(String::trim) }
+                                        )
+                                )
+                    })
+                }
                 if (!resolved.isAmazonProductTool()) return@map resolved
                 val plugin = if (resolved.modelToolName in AmazonNativeTool.names) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH
                 resolved.copy(canReuseResult = {

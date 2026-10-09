@@ -256,12 +256,21 @@ class MemoryGraphRepository @Inject constructor(
     private fun ensureFtsLocked(): Boolean {
         ftsAvailable?.let { return it }
         val readable = database.openHelper.readableDatabase
-        val compiledWithFts5 = runCatching {
-            readable.query("SELECT sqlite_compileoption_used('ENABLE_FTS5')").use { cursor ->
-                cursor.moveToFirst() && cursor.getInt(0) == 1
+        // Android vendors can omit compile-option diagnostics while still shipping
+        // FTS5. Inspect registered modules without calling an optional SQL function.
+        val hasFts5Module = runCatching {
+            readable.query("PRAGMA module_list").use { cursor ->
+                var available = false
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(0).equals("fts5", ignoreCase = true)) {
+                        available = true
+                        break
+                    }
+                }
+                available
             }
         }.getOrDefault(false)
-        if (!compiledWithFts5) {
+        if (!hasFts5Module) {
             ftsAvailable = false
             AppLogRecorder.record("Memory", "SQLite FTS5 is unavailable on this Android build; memory graph search is using the portable LIKE fallback.", "W")
             return false

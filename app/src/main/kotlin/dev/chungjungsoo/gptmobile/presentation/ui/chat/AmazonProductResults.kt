@@ -49,7 +49,7 @@ import kotlinx.serialization.json.booleanOrNull
 
 internal fun amazonProductResults(events: List<ToolEvent>): List<JsonObject> = events
     .filter { it.status == ToolEventStatus.COMPLETED && !it.isError }
-    .sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0 }.thenByDescending { it.sequence })
+    .sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0L }.thenByDescending { it.sequence })
     .flatMap { event ->
         val payload = amazonResultPayload(event) ?: return@flatMap emptyList()
         ((payload["products"] as? JsonArray).orEmpty() + (payload["unverifiedProducts"] as? JsonArray).orEmpty())
@@ -73,7 +73,7 @@ private fun amazonResultPayload(event: ToolEvent): JsonObject? {
 
 internal fun amazonResultNotice(events: List<ToolEvent>): String? {
     val payload = events.filter { it.status in setOf(ToolEventStatus.COMPLETED, ToolEventStatus.FAILED) }
-        .sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0 }.thenByDescending { it.sequence })
+        .sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0L }.thenByDescending { it.sequence })
         .firstNotNullOfOrNull(::amazonResultPayload) ?: return null
     if (((payload["products"] as? JsonArray).orEmpty() + (payload["unverifiedProducts"] as? JsonArray).orEmpty()).filterIsInstance<JsonObject>().any(AmazonProducts::hasPrice)) return null
     val code = (payload["errors"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().firstNotNullOfOrNull { AmazonProducts.text(it, "code") }

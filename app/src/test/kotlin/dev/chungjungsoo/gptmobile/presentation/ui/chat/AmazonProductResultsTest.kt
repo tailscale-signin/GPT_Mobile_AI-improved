@@ -30,6 +30,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AmazonProductResultsTest {
+    @Test
+    fun `mixed restored timestamps keep the latest product price`() {
+        val undated = event(99, "Blue", "$59.99").copy(completedAt = null)
+        val dated = event(1, "Blue", "$39.99")
+        for (events in listOf(listOf(undated, dated), listOf(dated, undated))) {
+            assertEquals("$39.99", AmazonProducts.text(amazonProductResults(events).single(), "price"))
+        }
+    }
+
+    @Test
+    fun `mixed restored timestamps select the latest failure notice`() {
+        val blocked = AmazonFetchResult(emptyList(), listOf(AmazonItemFailure(AmazonReadError.CHALLENGE_REQUIRED, "Blocked"))).toJson("blocked", AmazonFreeMarket.CANADA)
+        val empty = AmazonFetchResult(emptyList()).toJson("empty", AmazonFreeMarket.CANADA)
+        val undated = event(99, "Blue", "$49.99").copy(completedAt = null, result = empty.toString(), resultType = ToolEventResultType.JSON)
+        val dated = event(1, "Blue", "$49.99").copy(result = blocked.toString(), resultType = ToolEventResultType.JSON, status = ToolEventStatus.FAILED, isError = true)
+        for (events in listOf(listOf(undated, dated), listOf(dated, undated))) {
+            assertTrue(amazonResultNotice(events).orEmpty().startsWith("Amazon blocked"))
+        }
+    }
+
     @Test fun restoredUnpricedProductsCannotBecomeBubbles() {
         for (price in listOf("Price unavailable", "", "Unavailable (2 offers)")) {
             assertTrue(amazonProductResults(listOf(event(1, "Blue", price))).isEmpty())

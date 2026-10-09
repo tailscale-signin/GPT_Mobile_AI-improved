@@ -132,7 +132,9 @@ class CompleteBackupManager @Inject constructor(
             .getStringSet("sections", null)
             ?: return CompleteBackupSelection()
         val sections = raw.mapNotNull { runCatching { CompleteBackupSection.valueOf(it) }.getOrNull() }.toSet()
-        return CompleteBackupSelection(sections).normalized()
+        // Older defaults saved Settings without Tools even though the UI now
+        // presents them as one group. Include installs in that saved choice.
+        return CompleteBackupSelection(if (CompleteBackupSection.SETTINGS in sections) sections + CompleteBackupSection.TOOLS else sections).normalized()
     }
 
     fun saveSelection(selection: CompleteBackupSelection) {

@@ -72,6 +72,9 @@ internal class AirbnbNativeTool(
 
     internal fun validate(arguments: JsonObject) {
         require(arguments.keys.all { it in setOf("action", "location", "id", "checkin", "checkout", "adults", "children", "infants", "pets") })
+        for (key in listOf("action", "location", "id", "checkin", "checkout")) {
+            arguments[key]?.let { require(it is JsonPrimitive && it.isString) }
+        }
         val action = text(arguments, "action") ?: "search"
         require(action in setOf("search", "details"))
         if (action == "search") require(text(arguments, "location")?.let { it.isNotBlank() && it.length <= 200 && it.none { char -> char.code < 32 } } == true)

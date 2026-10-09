@@ -93,9 +93,9 @@ internal fun PluginConfigurationDialog(
                     }
                 }
                 if (id == ToolPluginId.AIRBNB || id == ToolPluginId.GOOGLE_PLACES) {
-                    SettingsPanel("Connections") {
-                        Text(if (id == ToolPluginId.AIRBNB) "Choose Airbnb · OpenBnB from Marketplace and sign in, or connect your own Airbnb MCP host. Prices and fees depend on dates and guests; missing data stays unknown." else "Install Google Places from Marketplace and enter a Places API key, or connect Google Maps Grounding MCP with its API key. Google account billing and API restrictions apply.", style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = onConnection) { Text("Manage connections") }
+                    SettingsPanel(if (id == ToolPluginId.AIRBNB) "Public browsing" else "Connections") {
+                        Text(if (id == ToolPluginId.AIRBNB) "Search and listing details run directly on your phone without an account, key or MCP server. Enable Airbnb globally and for your AI profile. Internet is needed; blocked pages or indexed results cannot confirm dates, availability or prices. OpenBnB and self-hosted connections are optional." else "Install Google Places from Marketplace and enter a Places API key, or connect Google Maps Grounding MCP with its API key. Google account billing and API restrictions apply.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = onConnection) { Text(if (id == ToolPluginId.AIRBNB) "Optional MCP connections" else "Manage connections") }
                     }
                 }
                 if (id == ToolPluginId.GITHUB) {

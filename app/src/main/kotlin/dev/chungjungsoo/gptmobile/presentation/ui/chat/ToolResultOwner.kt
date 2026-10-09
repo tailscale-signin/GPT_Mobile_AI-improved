@@ -8,5 +8,5 @@ internal fun toolResultOwner(
     profilesByRun: Map<String, String>,
     fallback: String?,
     matches: (ToolEvent) -> Boolean
-): String? = events.sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0 }.thenByDescending { it.sequence })
+): String? = events.sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: 0L }.thenByDescending { it.sequence })
     .firstOrNull(matches)?.let { if (profilesByRun.isEmpty()) fallback else profilesByRun[it.runId] }

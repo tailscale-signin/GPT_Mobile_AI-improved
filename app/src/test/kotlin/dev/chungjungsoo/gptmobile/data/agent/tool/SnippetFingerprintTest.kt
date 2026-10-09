@@ -44,6 +44,14 @@ class SnippetFingerprintTest {
         assertNull(fingerprint(words).match(fingerprint(words), policy))
     }
 
+    @Test fun matchingIncludesTheThresholdAndRejectsTheValueBelowIt() {
+        val first = fingerprint().copy(shingles = (1..17).map(Int::toString).toSet())
+        val boundary = fingerprint().copy(shingles = (1..14).map(Int::toString).toSet() + (18..20).map(Int::toString))
+        val below = fingerprint().copy(shingles = (1..13).map(Int::toString).toSet() + (18..21).map(Int::toString))
+        assertEquals(0.70, first.match(boundary, policy)!!, 0.0)
+        assertNull(first.match(below, policy))
+    }
+
     @Test fun thresholdIsInclusiveAndFingerprintWorkIsBounded() {
         assertEquals(0.70, SnippetFingerprint.jaccard((1..7).map { it.toString() }.toSet(), (1..10).map { it.toString() }.toSet()), 0.0)
         val bounded = fingerprint("word ".repeat(1000))

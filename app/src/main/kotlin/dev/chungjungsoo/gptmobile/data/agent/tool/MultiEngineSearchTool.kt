@@ -213,11 +213,10 @@ class MultiEngineSearchTool(
                 result.isError && Regex("(?i)429|rate.?limit").containsMatchIn(text) -> "rate_limited"
                 result.isError && text.contains("timed out", true) -> "timeout"
                 result.isError -> "failed"
-                resultSources(result).isEmpty() -> "empty"
-                else -> "success"
+                else -> searchEvidenceOutcome(result)
             }
             if (outcome == "authentication_failed") blockedUntil[selected[index].selectionId()] = clock.millis() + 5 * 60_000L
-            return Response(result, outcome, ready.effectiveCount)
+            return Response(if (outcome == "malformed_response") result.copy(isError = true) else result, outcome, ready.effectiveCount)
         }
         val initial = selected.indices.map { index -> async { attempt(index, prepared[index], false) } }.awaitAll()
         val allAttempts = initial.toMutableList()
@@ -371,6 +370,23 @@ class MultiEngineSearchTool(
         )
     }
     private fun resultSources(result: AgentToolResult) = extractSearchSources(resultPayload(result))
+
+    private fun searchEvidenceOutcome(result: AgentToolResult): String {
+        val sources = resultSources(result)
+        if (sources.isNotEmpty()) return if (sources.any { SearchUrlIdentity.parse((it["url"] as? JsonPrimitive)?.contentOrNull.orEmpty()) != null }) "success" else "malformed_response"
+        val text = (result.content as? ToolResultContent.Text)?.text?.trim()
+        if (text != null && (text.isEmpty() || (text.first() in setOf('{', '[') && runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) }.isFailure && (resultPayload(result) as? JsonArray)?.isEmpty() == true))) return "malformed_response"
+        if (text != null && text.firstOrNull() !in setOf('{', '[')) return "unstructured"
+        fun emptyEnvelope(value: JsonElement?, depth: Int = 0): Boolean {
+            if (depth > 8) return false
+            return when (value) {
+                is JsonArray -> value.isEmpty() || value.any { emptyEnvelope(it, depth + 1) }
+                is JsonObject -> listOf("results", "sources", "web", "data", "organic", "organic_results", "search_results", "items", "result", "structuredContent").any { emptyEnvelope(value[it], depth + 1) }
+                else -> false
+            }
+        }
+        return if (emptyEnvelope(resultPayload(result))) "empty" else "unstructured"
+    }
 }
 
 private fun AgentTool.executionOwner() = (this as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT

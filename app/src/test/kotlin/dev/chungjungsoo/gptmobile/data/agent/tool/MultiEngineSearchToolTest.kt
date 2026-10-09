@@ -563,6 +563,32 @@ class MultiEngineSearchToolTest {
         assertTrue(remote in exposed)
     }
 
+    @Test fun `valid empty searches malformed JSON and useful prose have distinct outcomes`() = runBlocking {
+        val empty = engine("empty") { id, _ -> AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(emptyList())) }), false) }
+        val malformed = engine("malformed") { id, _ -> AgentToolResult(id, ToolResultContent.Text("{invalid JSON"), false) }
+        val prose = engine("prose") { id, _ -> AgentToolResult(id, ToolResultContent.Text("The provider supplied useful context without clickable references."), false) }
+        val result = MultiEngineSearchTool(listOf(empty, malformed, prose)).execute("outcomes", buildJsonObject { put("query", "test") })
+        assertFalse(result.isError)
+        val states = ((result.content as ToolResultContent.Json).value.jsonObject["engines"] as JsonArray).map { it.jsonObject }
+        assertEquals(listOf("empty", "malformed_response", "unstructured"), states.map { it["outcome"]!!.jsonPrimitive.content })
+        assertEquals(listOf("completed", "unavailable", "completed"), states.map { it["status"]!!.jsonPrimitive.content })
+        assertTrue(MultiEngineSearchTool(listOf(malformed)).execute("bad", buildJsonObject { put("query", "test") }).isError)
+    }
+
+    @Test fun `invalid clickable sources are malformed and partial failures are not cached`() = runBlocking {
+        var calls = 0
+        val bad = engine("bad") { id, _ -> AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(listOf(buildJsonObject { put("url", "https://user:password@example.org/a") }))) }), false) }
+        val good = engine("good") { id, _ ->
+            calls++
+            AgentToolResult(id, ToolResultContent.Text("Title: Source\nURL: https://example.org/a"), false)
+        }
+        val tool = MultiEngineSearchTool(listOf(bad, good))
+        val args = buildJsonObject { put("query", "test") }
+        assertFalse(tool.execute("first", args).isError)
+        assertFalse(tool.execute("again", args).sharedResult)
+        assertEquals(2, calls)
+    }
+
     private fun engine(
         name: String,
         realToolName: String = "web_search",

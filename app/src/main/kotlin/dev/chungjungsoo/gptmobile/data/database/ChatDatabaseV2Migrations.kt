@@ -377,6 +377,31 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    /** Backfill only exact legacy Marketplace MCP identities; names and host guesses are unsafe. */
+    val MIGRATION_36_37 = object : Migration(36, 37) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            val exactLegacyPresets = listOf(
+                "airbnb-openbnb" to ("airbnb" to "https://mcp.openbnb.ai/mcp"),
+                "google-places-mcp" to ("google_places" to "https://mapstools.googleapis.com/mcp")
+            )
+            exactLegacyPresets.forEach { (providerId, identity) ->
+                val (alias, endpoint) = identity
+                db.execSQL(
+                    """UPDATE tool_connections
+                       SET marketplace_origin = 'MARKETPLACE',
+                           marketplace_provider_id = ?,
+                           marketplace_installation_id = COALESCE(NULLIF(marketplace_installation_id, ''), 'legacy-' || lower(hex(randomblob(16))))
+                       WHERE type = 'MCP'
+                         AND marketplace_origin = 'MANUAL'
+                         AND marketplace_provider_id IS NULL
+                         AND alias = ?
+                         AND lower(trim(endpoint_url)) = ?""".trimIndent(),
+                    arrayOf(providerId, alias, endpoint)
+                )
+            }
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -403,7 +428,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_32_33,
         MIGRATION_33_34,
         MIGRATION_34_35,
-        MIGRATION_35_36
+        MIGRATION_35_36,
+        MIGRATION_36_37
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

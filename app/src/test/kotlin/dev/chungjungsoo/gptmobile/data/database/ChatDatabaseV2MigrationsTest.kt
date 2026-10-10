@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.database
 
+import androidx.sqlite.db.SupportSQLiteDatabase
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevisionListConverter
@@ -10,6 +11,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.slot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -89,7 +93,7 @@ class ChatDatabaseV2MigrationsTest {
         }
 
         assertEquals(10, ChatDatabaseV2Migrations.ALL_MIGRATIONS.first().startVersion)
-        assertEquals(36, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
+        assertEquals(37, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
 
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
@@ -247,5 +251,37 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(35, migration.startVersion)
         assertEquals(36, migration.endVersion)
+    }
+
+    @Test
+    fun `legacy marketplace identity backfill only targets exact known MCP endpoints`() {
+        val migration = ChatDatabaseV2Migrations.MIGRATION_36_37
+        val database = mockk<SupportSQLiteDatabase>()
+        val sql = slot<String>()
+        val arguments = slot<Array<out Any?>>()
+        val statements = mutableListOf<Pair<String, List<Any?>>>()
+        every { database.execSQL(capture(sql), capture(arguments)) } answers {
+            statements += sql.captured to arguments.captured.toList()
+        }
+
+        assertEquals(36, migration.startVersion)
+        assertEquals(37, migration.endVersion)
+        migration.migrate(database)
+
+        assertEquals(2, statements.size)
+        assertEquals(
+            listOf(
+                listOf("airbnb-openbnb", "airbnb", "https://mcp.openbnb.ai/mcp"),
+                listOf("google-places-mcp", "google_places", "https://mapstools.googleapis.com/mcp")
+            ),
+            statements.map { it.second }
+        )
+        assertTrue(statements.all { (statement, _) ->
+            statement.contains("type = 'MCP'") &&
+                statement.contains("marketplace_origin = 'MANUAL'") &&
+                statement.contains("marketplace_provider_id IS NULL") &&
+                statement.contains("alias = ?") &&
+                statement.contains("lower(trim(endpoint_url)) = ?")
+        })
     }
 }

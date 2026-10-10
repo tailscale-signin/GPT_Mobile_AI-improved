@@ -541,14 +541,10 @@ fun NavGraphBuilder.settingNavigation(
             val profiles by settings.platformState.collectAsStateWithLifecycle()
             var installedName by remember { mutableStateOf<String?>(null) }
             val uiState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
-            val installedAliases = remember(uiState.connections) {
-                uiState.connections.map { it.alias }.toSet()
-            }
             val mcpProvider = remember {
                 ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP }
             }
             McpMarketplaceScreen(
-                installedAliases = installedAliases,
                 onOpenDelegation = null,
                 onNavigationClick = { navController.navigateUp() },
                 onInstallPresetWithConfig = { preset, name, alias, endpoint, authType, credential, allowCleartext ->

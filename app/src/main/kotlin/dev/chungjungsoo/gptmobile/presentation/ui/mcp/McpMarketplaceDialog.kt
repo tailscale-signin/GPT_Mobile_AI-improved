@@ -157,7 +157,6 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun McpMarketplaceScreen(
-    installedAliases: Set<String>,
     onNavigationClick: () -> Unit,
     onInstallPresetWithConfig: (
         preset: McpPreset,
@@ -214,8 +213,6 @@ fun McpMarketplaceScreen(
     val mcpScroll = rememberLazyListState()
     val presets = remember { GitHubMarketplaceCatalog.allPresets }
     fun added(preset: McpPreset) = preset.isPreinstalled ||
-        preset.alias in installedAliases ||
-        ToolConnectionsViewModel.normalizeAlias(preset.alias) in installedAliases ||
         resolveMarketplaceConnections(preset, connectionsState.connections).isNotEmpty()
     val addedIds = presets.filter(::added).map { it.id }.toSet() + downloaded + installations.keys
     val filtered = remember(presets, section, query, category, pricing, sort, addedIds, statusFilter, installations, packageState, connectionsState.connections) {
@@ -676,8 +673,15 @@ internal fun resolveMarketplaceConnections(
     if (owned.isNotEmpty()) {
         return owned.sortedBy { it.marketplaceInstallationId ?: it.connectionUid }
     }
+    val legacyEndpoint = when (preset.id) {
+        "airbnb-openbnb" -> "https://mcp.openbnb.ai/mcp"
+        "google-places-mcp" -> "https://mapstools.googleapis.com/mcp"
+        else -> return emptyList()
+    }
     val legacy = connections.filter {
-        it.marketplaceOrigin != "MARKETPLACE" && it.marketplaceProviderId == null && it.alias == preset.alias
+        it.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.MCP &&
+            it.marketplaceOrigin == "MANUAL" && it.marketplaceProviderId == null &&
+            it.alias == preset.alias && it.endpointUrl == legacyEndpoint
     }
     return legacy.singleOrNull()?.let(::listOf).orEmpty()
 }

@@ -291,4 +291,17 @@ class MarketplaceViewModelTest {
             resolveMarketplaceConnections(preset, listOf(second, renamed))
         )
     }
+
+    @Test
+    fun legacyMarketplaceLookupRequiresExactHistoricalProviderEndpoint() {
+        val preset = requireNotNull(McpPresetCatalog.findById("airbnb-openbnb"))
+        val legacy = ToolConnection(
+            connectionUid = "legacy", name = "Airbnb", alias = preset.alias, type = ToolConnectionType.MCP,
+            endpointUrl = "https://mcp.openbnb.ai/mcp", authType = "NONE", secretRef = null, oauthClientId = null
+        )
+        val unrelatedManual = legacy.copy(endpointUrl = "https://example.test/mcp")
+
+        assertEquals(listOf(legacy), resolveMarketplaceConnections(preset, listOf(legacy)))
+        assertTrue(resolveMarketplaceConnections(preset, listOf(unrelatedManual)).isEmpty())
+    }
 }

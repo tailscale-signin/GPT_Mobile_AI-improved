@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -25,7 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 @HiltViewModel
 class BenchmarkExecutionStatusViewModel @Inject constructor(
-    coordinator: BenchmarkExecutionCoordinator
+    private val coordinator: BenchmarkExecutionCoordinator
 ) : ViewModel() {
     val progress: StateFlow<BenchmarkProgress?> = coordinator.progressMutable
     fun cancel() = coordinator.cancel()

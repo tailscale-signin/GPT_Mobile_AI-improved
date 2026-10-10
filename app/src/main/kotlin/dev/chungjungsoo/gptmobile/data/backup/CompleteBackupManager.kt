@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 10810)
+Total output lines: 875
+
 package dev.chungjungsoo.gptmobile.data.backup
 
 import android.content.Context
@@ -404,75 +407,7 @@ class CompleteBackupManager @Inject constructor(
         }
 
         val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
-        val restorePreferences = restoreSettings || CompleteBackupSection.TOOLS in effective.sections
-        val restoreSecrets = effective.requiresEncryption
-        val selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) }
-        val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
-        val restoreModels = CompleteBackupSection.LOCAL_MODELS in effective.sections
-        val restoreDatabase = effective.sections.any(::isDatabaseSection) &&
-            "database.sqlite" in manifest.files
-
-        if (restoreSettings) {
-            preferences.validate(manifest.preferences, manifest.sharedPreferences)
-        }
-        if (restoreSecrets) {
-            validateSecrets(selectedSecrets)
-        }
-
-        val storage = files()
-        val selectedPaths = manifest.files.keys
-            .asSequence()
-            .filterNot { it == "database.sqlite" }
-            .filter { path ->
-                if (path.startsWith("internal/research-history/")) {
-                    effective.includes(CompleteBackupSection.CONVERSATIONS)
-                } else if (path == "internal/benchmark-results/benchmark-results.json") {
-                    CompleteBackupSection.STATISTICS in effective.sections
-                } else if (CompleteBackupFiles.isPluginPath(path)) {
-                    effective.includes(CompleteBackupSection.TOOLS)
-                } else {
-                    (restoreModels && isModelArchivePath(path)) ||
-                        (restoreAttachments && !isModelArchivePath(path))
-                }
-            }
-            .toSet()
-        val benchmarkImportJson = selectedPaths
-            .firstOrNull { it == "internal/benchmark-results/benchmark-results.json" }
-            ?.let { path -> File(staging, path).readText().also(benchmarkStore::validateBackupJson) }
-        require(selectedPaths.map(storage::target).toSet().size == selectedPaths.size) {
-            "Conflicting backup file locations."
-        }
-
-        val snapshot = if (restoreDatabase) {
-            prepareSnapshot(File(staging, "database.sqlite"))
-        } else {
-            null
-        }
-
-        try {
-            val source = snapshot?.openHelper?.writableDatabase
-            if (source != null) {
-                CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
-
-                if (CompleteBackupSection.CONVERSATIONS in effective.sections) {
-                    if (restoreAttachments) {
-                        rewriteAttachments(source) { path ->
-                            if (path.isBlank()) {
-                                path
-                            } else {
-                                require(path in selectedPaths) { "The backup is missing a selected attachment." }
-                                storage.target(path).absolutePath
-                            }
-                        }
-                    } else {
-                        source.execSQL("UPDATE messages_v2 SET attachments = '[]'")
-                        source.execSQL("UPDATE chats_v2 SET draft_attachments = '[]'")
-                    }
-                }
-
-                if (restoreModels) {
-                    validateModels(source, selectedPaths)
-                }
+        val resto…810 tokens truncated…     }
             }
 
             val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
@@ -518,7 +453,7 @@ class CompleteBackupManager @Inject constructor(
             }
 
             if (selectedPaths.isNotEmpty()) replacement.cleanup()
-            benchmarkImportJson?.let(benchmarkStore::importBackupJson)
+            if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
             clearRestoreMarker()
             settings.invalidatePlatformCache()
         } finally {

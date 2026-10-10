@@ -59,7 +59,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         }
         errorMutable.value = null
         val job = scope.launch {
-            preferences.edit().putBoolean(KEY_RUNNING, true).putLong(KEY_STARTED, System.currentTimeMillis()).apply()
+            preferences.edit().putBoolean(KEY_RUNNING, true).apply()
             try {
                 block()
             } finally {

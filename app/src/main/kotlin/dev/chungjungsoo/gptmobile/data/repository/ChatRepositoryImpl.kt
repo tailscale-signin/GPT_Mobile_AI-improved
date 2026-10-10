@@ -262,7 +262,11 @@ class ChatRepositoryImpl(
                 ""
             } else {
                 val events = agentPersistenceDao.getToolEvents(runIds).filter {
-                    it.modelToolName in enabled && it.status == "COMPLETED" && !it.isError && it.result != null
+                    it.modelToolName in enabled &&
+                        it.status == "COMPLETED" &&
+                        !it.isError &&
+                        it.result != null &&
+                        (it.modelToolName != "device_location" || androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED || androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED)
                 }.takeLast(6)
                 kotlinx.serialization.json.JsonArray(
                     events.map { event ->
@@ -271,6 +275,9 @@ class ChatRepositoryImpl(
                             put("callId", kotlinx.serialization.json.JsonPrimitive(event.callId))
                             put("observedAtEpochSeconds", kotlinx.serialization.json.JsonPrimitive(event.completedAt ?: 0))
                             put("historical", kotlinx.serialization.json.JsonPrimitive(true))
+                            put("status", kotlinx.serialization.json.JsonPrimitive("success"))
+                            put("arguments", runCatching { kotlinx.serialization.json.Json.parseToJsonElement(event.arguments) }.getOrElse { kotlinx.serialization.json.JsonNull })
+                            put("source", kotlinx.serialization.json.JsonPrimitive("persisted dispatcher result; not assistant prose"))
                             val raw = dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.read(event, "payload").orEmpty()
                             val content = dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text(raw)
                             put("data", dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(content, maxOf(128, tokens * 2 / maxOf(1, events.size)))))

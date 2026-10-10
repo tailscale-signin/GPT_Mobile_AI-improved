@@ -37,6 +37,7 @@ internal object InferenceAdmission {
                     val wait = mutex.withLock {
                         if (!writer && waitingWriters == 0) {
                             readers++
+                            acquired = true
                             null
                         } else {
                             changed

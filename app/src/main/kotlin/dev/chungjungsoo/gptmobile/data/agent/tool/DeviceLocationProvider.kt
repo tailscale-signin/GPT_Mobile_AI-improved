@@ -26,7 +26,8 @@ data class DeviceLocation(
     val accuracy: Float?,
     val altitude: Double?,
     val timestamp: Long,
-    val provider: String?
+    val provider: String?,
+    val acquisition: String = "unspecified"
 )
 
 @Singleton
@@ -50,7 +51,7 @@ class DeviceLocationProvider @Inject constructor(
         val precise = hasFinePermission()
         sharedFix.get(SystemClock.elapsedRealtime(), precise)?.let {
             AppLogRecorder.record("Location", "Reused device fix · sharedAcrossModels=true · expiresAfterMs=$LOCATION_RETENTION_MILLIS")
-            return@withLock it
+            return@withLock it.copy(acquisition = "shared_recent_fix")
         }
         acquireLocation(timeoutMillis)?.also { sharedFix.save(it, SystemClock.elapsedRealtime(), precise) }
     }
@@ -74,7 +75,7 @@ class DeviceLocationProvider @Inject constructor(
         }.maxByOrNull { it.time }
         if (cached != null) {
             AppLogRecorder.record("Location", "Using recent Android fix · provider=${cached.provider} · accuracy=${cached.accuracy}")
-            return cached.toDeviceLocation()
+            return cached.toDeviceLocation().copy(acquisition = "last_known_recent_fix")
         }
         if (enabled.isEmpty()) return null
         val timeout = timeoutMillis.coerceIn(1L, 30_000L)
@@ -116,7 +117,7 @@ class DeviceLocationProvider @Inject constructor(
             }.firstOrNull()
         }
         AppLogRecorder.record("Location", if (location == null) "Fresh fix deadline reached; no location returned" else "Fresh Android fix · provider=${location.provider} · accuracy=${location.accuracy}", if (location == null) "W" else "I")
-        return location?.toDeviceLocation()
+        return location?.toDeviceLocation()?.copy(acquisition = "active_fix")
     }
 
     private fun isFresh(location: Location): Boolean {

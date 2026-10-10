@@ -113,22 +113,24 @@ class ModelCatalogRepositoryImpl(
     private suspend fun fetchParsableCatalog(
         source: suspend () -> String?,
         onParsed: (String) -> Unit = {}
-    ): ModelCatalog? = try {
-        val rawJson = source() ?: return null
-        require(rawJson.length <= 2_000_000) { "Model catalog exceeds its size limit." }
-        val catalog = ModelCatalogParser.parse(rawJson)
-        require(catalog.models.map { it.id }.distinct().size == catalog.models.size) { "Duplicate model identities in catalog." }
-        if (catalog.schemaVersion != ModelCatalogParser.SUPPORTED_SCHEMA_VERSION) {
-            // An unsupported schema is not a usable source: fall through to the next
-            // fallback instead of surfacing an empty catalog, and never cache it.
-            return null
+    ): ModelCatalog? {
+        return try {
+            val rawJson = source() ?: return null
+            require(rawJson.length <= 2_000_000) { "Model catalog exceeds its size limit." }
+            val catalog = ModelCatalogParser.parse(rawJson)
+            require(catalog.models.map { it.id }.distinct().size == catalog.models.size) { "Duplicate model identities in catalog." }
+            if (catalog.schemaVersion != ModelCatalogParser.SUPPORTED_SCHEMA_VERSION) {
+                // An unsupported schema is not a usable source: fall through to the next
+                // fallback instead of surfacing an empty catalog, and never cache it.
+                return null
+            }
+            onParsed(rawJson)
+            catalog
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
         }
-        onParsed(rawJson)
-        catalog
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        null
     }
 
     companion object {

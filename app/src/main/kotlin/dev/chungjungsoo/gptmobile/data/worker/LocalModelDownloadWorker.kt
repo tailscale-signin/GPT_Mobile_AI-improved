@@ -290,6 +290,8 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                 outputTmpFile.delete()
                 throw error
             }
+            currentCoroutineContext().ensureActive()
+            if (isStopped) throw CancellationException("Model activation cancelled")
             val originalFile = File(outputDir, fileName)
             // Atomic replacement preserves the previous usable file until admission succeeds.
             java.nio.file.Files.move(outputTmpFile.toPath(), originalFile.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)

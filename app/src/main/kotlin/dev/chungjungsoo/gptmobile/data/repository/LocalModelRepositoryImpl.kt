@@ -136,9 +136,9 @@ class LocalModelRepositoryImpl(
 
     override suspend fun cancelDownload(catalogEntryId: String) {
         withContext(ioDispatcher) {
+            workManager.cancelUniqueWork(LocalModelDownloadPaths.uniqueWorkName(catalogEntryId))
             LocalModelTransferGuard.mutex(catalogEntryId).withLock {
                 LocalModelTransferGuard.begin(context.noBackupFilesDir, catalogEntryId)
-                workManager.cancelUniqueWork(LocalModelDownloadPaths.uniqueWorkName(catalogEntryId))
                 val row = localModelDao.getById(catalogEntryId) ?: return@withLock
                 val plan = LocalModelReconciler.planUserCancel()
                 if (plan.deleteFiles) {
@@ -160,9 +160,9 @@ class LocalModelRepositoryImpl(
     override suspend fun deleteModel(catalogEntryId: String) {
         withContext(ioDispatcher) {
             LocalModelDownloadPaths.requireValidPathSegments(catalogEntryId)
+            workManager.cancelUniqueWork(LocalModelDownloadPaths.uniqueWorkName(catalogEntryId))
             LocalModelTransferGuard.mutex(catalogEntryId).withLock {
                 LocalModelTransferGuard.begin(context.noBackupFilesDir, catalogEntryId)
-                workManager.cancelUniqueWork(LocalModelDownloadPaths.uniqueWorkName(catalogEntryId))
                 roots().forEach { root ->
                     val directory = File(File(root, LocalModelDownloadPaths.MODELS_DIR), catalogEntryId)
                     check(directory.deleteRecursively()) { "Model files could not be deleted. Retry cleanup." }

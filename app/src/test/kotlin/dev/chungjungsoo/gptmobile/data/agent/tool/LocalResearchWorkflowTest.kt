@@ -20,6 +20,64 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalResearchWorkflowTest {
+    @Test fun `retrieved passages survive a failed summarizer independently of its handoff`() = runTest {
+        var saved: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
+        val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {
+            override suspend fun load() = saved
+            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) { saved = snapshot }
+            override fun stopRequested() = false
+        }
+        val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"Chronology","url":"https://example.org/history","snippet":"French history"}]}""") }
+        val reader = tool("read_url") { id, _ -> response(id, """{"content":"The French Revolution began in 1789.","links":[]}""") }
+        val failure = runCatching {
+            LocalResearchWorkflow(config, listOf(search, reader), { prompt, _ ->
+                when {
+                    prompt.startsWith("Plan") -> """{"queries":["French history"],"urls":[]}"""
+                    prompt.startsWith("Choose") -> """{"ids":["S1"]}"""
+                    else -> error("injected summarizer failure")
+                }
+            }, journal = journal).run("French history", "evidence")
+        }
+        assertTrue(failure.isFailure)
+        assertEquals("French history", saved?.task)
+        assertTrue(saved?.sources?.single()?.passage.orEmpty().contains("1789"))
+        assertEquals("https://example.org/history", saved?.sources?.single()?.url)
+        assertFalse(saved?.complete == true)
+    }
+
+    @Test fun `collection leaves deadline headroom and marks incomplete coverage`() = runTest {
+        var searches = 0
+        val search = tool("web_search") { id, _ ->
+            searches++
+            delay(21_000)
+            response(id, """{"results":[{"title":"Evidence","url":"https://example.org/history","snippet":"Retained evidence"}]}""")
+        }
+        val result = LocalResearchWorkflow(
+            config.copy(preparationTimeoutSeconds = 30, maxPages = 0, maxSearchQueries = 3),
+            listOf(search),
+            { prompt, _ -> if (prompt.startsWith("Plan")) """{"queries":["one","two","three"],"urls":[]}""" else "Retained evidence [S1]." },
+            nowMs = { testScheduler.currentTime }
+        ).run("Research history", "headroom")
+        assertEquals(1, searches)
+        assertEquals(21_000L, testScheduler.currentTime)
+        assertTrue(result.handoff.contains("reserve time"))
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+    }
+
+    @Test fun `empty relevance selection does not crawl unrelated results`() = runTest {
+        var reads = 0
+        val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"Unrelated","url":"https://example.org/other","snippet":"Unrelated lead"}]}""") }
+        val reader = tool("read_url") { id, _ -> reads++; response(id, "{}") }
+        LocalResearchWorkflow(config, listOf(search, reader), { prompt, _ ->
+            when {
+                prompt.startsWith("Plan") -> """{"queries":["history"],"urls":[]}"""
+                prompt.startsWith("Choose") -> """{"ids":[]}"""
+                else -> "No relevant page evidence."
+            }
+        }).run("French history", "relevance")
+        assertEquals(0, reads)
+    }
+
     private val config = ModelDelegationSettings(enabled = true, maxPages = 2, crawlDepth = 1, maxSearchQueries = 1)
     private fun tool(name: String, action: suspend (String, JsonObject) -> AgentToolResult): ResolvedAgentTool {
         val tool = object : AgentTool {

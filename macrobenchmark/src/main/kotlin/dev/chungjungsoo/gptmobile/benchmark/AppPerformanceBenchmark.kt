@@ -36,6 +36,24 @@ class AppPerformanceBenchmark {
         }
     }
 
+    @Test fun keyboardDuringStreaming() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { startActivityAndWait(fixture(true)) }) {
+        check(device.wait(Until.hasObject(By.res("benchmark_input")), 10000))
+        repeat(4) {
+            device.findObject(By.res("benchmark_input")).click()
+            device.findObject(By.res("benchmark_input")).text = "Continue the saved task"
+            device.pressBack()
+            device.waitForIdle()
+        }
+    }
+
+    @Test fun foregroundServiceStartupRace() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.None(), iterations = 5, setupBlock = { pressHome() }) {
+        startActivityAndWait(fixture().putExtra("serviceRace", true))
+        check(device.wait(Until.hasObject(By.res("benchmark_service_done")), 15000)) { "Service start/cancel/restart fixture did not finish; inspect process crash logs." }
+        pressHome()
+        startActivityAndWait(fixture())
+        check(device.wait(Until.hasObject(By.res("benchmark_chat")), 10000))
+    }
+
     @Test fun streamedResponse() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { pressHome() }) {
         startActivityAndWait(fixture(true))
         // Deliberate device benchmark sampling interval, never an application delay.

@@ -43,6 +43,7 @@ enum class McpConnectionHealthState {
     CONNECTED,
     DEGRADED,
     UNREACHABLE,
+    AUTHENTICATION_REQUIRED,
     RECOVERING
 }
 
@@ -98,11 +99,31 @@ class McpClientManager internal constructor(
             configurationFailures.remove(config.connectionUid, failedKey)
             resetHealth(config.connectionUid)
         }
+        providerCooldowns[config.connectionUid]?.let { (blockedKey, until) ->
+            if (blockedKey != key || refresh) {
+                providerCooldowns.remove(config.connectionUid)
+                resetHealth(config.connectionUid)
+            } else if (until == Long.MAX_VALUE) {
+                throw McpAuthenticationRequiredException()
+            }
+        }
         val transport = modern ?: return null
         return transport.takeIf { it.supports(config, refresh) }
     }
 
-    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
+    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> = try {
+        listToolsUnchecked(config, forceRefresh)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        if (error.isMcpUnauthorized()) {
+            providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
+            recordFailure(config.connectionUid, error)
+        }
+        throw error
+    }
+
+    private suspend fun listToolsUnchecked(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
         modernTransport(config, forceRefresh)?.let { transport ->
             return transport.listTools(config).also {
                 recordSuccess(config.connectionUid, availableToolCount = it.size)
@@ -150,8 +171,10 @@ class McpClientManager internal constructor(
     ): CallToolResult {
         val key = config.validatedKey()
         providerCooldowns[config.connectionUid]?.let { (blockedKey, until) ->
+            if (blockedKey == key && until == Long.MAX_VALUE) throw McpAuthenticationRequiredException()
             if (blockedKey == key && until > nowMs()) throw McpBackoffException(config.connectionUid, until)
             providerCooldowns.remove(config.connectionUid)
+            resetHealth(config.connectionUid)
         }
         fun recordQuota(message: String) {
             if (isMcpQuotaFailure(message)) {
@@ -169,7 +192,8 @@ class McpClientManager internal constructor(
         } catch (error: Exception) {
             if (error.isMcpUnauthorized()) {
                 val message = "MCP authentication or access failed. Open Manage connection for this provider and update its credentials."
-                recordFailure(config.connectionUid, IllegalStateException(message))
+                providerCooldowns[config.connectionUid] = key to Long.MAX_VALUE
+                recordFailure(config.connectionUid, IllegalStateException(message, error))
                 throw IllegalStateException(message, error)
             }
             recordQuota(error.message.orEmpty())
@@ -286,11 +310,16 @@ class McpClientManager internal constructor(
             val previous = current[connectionUid] ?: McpConnectionHealth()
             val failures = previous.consecutiveFailures + 1
             val delay = retryDelayMs(failures)
+            val authenticationRequired = error.isMcpUnauthorized()
             updated = previous.copy(
-                state = if (error is McpEndpointConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES) McpConnectionHealthState.UNREACHABLE else McpConnectionHealthState.DEGRADED,
+                state = when {
+                    authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
+                    error is McpEndpointConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
+                    else -> McpConnectionHealthState.DEGRADED
+                },
                 lastFailureAtMs = now,
                 consecutiveFailures = failures,
-                nextRetryAtMs = if (error is McpEndpointConfigurationException) Long.MAX_VALUE else retryAtMs ?: (now + delay),
+                nextRetryAtMs = if (error is McpEndpointConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
                 lastError = error.message ?: error.javaClass.simpleName
             )
             current + (connectionUid to updated)
@@ -528,8 +557,10 @@ class McpClientManager internal constructor(
     }
 }
 
-private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause }
-    .any { error -> (error is StreamableHttpError && error.code == 401) || (error is ModernMcpError && error.status == 401) }
+internal class McpAuthenticationRequiredException : IllegalStateException("MCP authentication is required. Open Manage connection and reconnect or update the credential.")
+
+private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
+    .any { error -> error is McpAuthenticationRequiredException || (error is StreamableHttpError && error.code in setOf(401, 403)) || (error is ModernMcpError && error.status in setOf(401, 403)) }
 
 /** Only replay discovery/resource reads after a dropped connection, never tools/call. */
 internal fun Throwable.isMcpInterruptedRead(): Boolean = generateSequence(this) { it.cause }

@@ -51,6 +51,10 @@ data class ChatCompletionRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val reasoningEffort: String? = null,
 
+    @SerialName("chat_template_kwargs")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val chatTemplateKwargs: JsonObject? = null,
+
     @SerialName("presence_penalty")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val presencePenalty: Float? = null,

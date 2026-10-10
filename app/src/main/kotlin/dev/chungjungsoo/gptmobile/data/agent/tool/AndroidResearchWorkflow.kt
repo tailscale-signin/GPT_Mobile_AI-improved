@@ -39,11 +39,14 @@ internal class AndroidResearchWorkflow(
     private val generate: suspend (String, Int) -> String?,
     private val journal: ResearchJournal? = null,
     private val stillEnabled: suspend () -> Boolean = { true },
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
     private val options = config.deepResearch.normalized()
     private var state = ResearchSnapshot("")
     private var exhausted = false
+    private var collectionDeadlineMs = Long.MAX_VALUE
+    private fun collecting(): Boolean = monotonicMs() < collectionDeadlineMs
     private var rawBytes = 0
     private val maxAttempts = options.maxPages * 2
     private val maxQueries = minOf(config.maxSearchQueries, 9)
@@ -91,6 +94,7 @@ internal class AndroidResearchWorkflow(
     }
 
     suspend fun run(task: String, callId: String): LocalResearchResult {
+        collectionDeadlineMs = monotonicMs() + config.preparationTimeoutSeconds.coerceAtLeast(1) * 1000L * 2 / 3
         val policy = researchHash(options.toString() + tools.joinToString { it.selectionId() })
         val saved = journal?.load()?.takeIf { it.task == task.take(8000) && now() - it.updatedAt in 0..900_000 && it.sources.filter { source -> source.readable }.all { source -> now() - source.retrievedAt in 0..900_000 } && "Policy:$policy" in it.notes }
         state = saved ?: ResearchSnapshot(task.take(8000), notes = listOf("Policy:$policy"))
@@ -123,12 +127,12 @@ internal class AndroidResearchWorkflow(
                     state = state.copy(notes = state.notes + "Resumed saved research within its 15-minute freshness window.")
                 }
                 for (round in (if (saved?.complete == true) options.maxRounds else state.round.coerceAtLeast(0)) until options.maxRounds) {
-                    if (stopped()) break
+                    if (stopped() || !collecting()) break
                     state = state.copy(round = round)
                     val before = sources.values.count { it.readable }
                     checkpoint("Searching")
                     for (query in nextQueries.map(String::trim).filter { it.length in 3..500 }.distinct()) {
-                        if (stopped() || queries.size >= maxQueries) break
+                        if (stopped() || !collecting() || queries.size >= maxQueries) break
                         if (!queries.add(query)) continue
                         checkpoint()
                         search(query, "$callId:r$round:q${queries.size}")
@@ -138,7 +142,7 @@ internal class AndroidResearchWorkflow(
                     readPages(callId)
                     if (options.reviewEvidence && !stopped()) review()
                     val read = sources.values.count { it.readable }
-                    if (stopped() || read >= options.maxPages || round == options.maxRounds - 1) break
+                    if (stopped() || !collecting() || read >= options.maxPages || round == options.maxRounds - 1) break
                     if (round > 0 && read == before) {
                         state = state.copy(notes = state.notes + "Stopped after a round added no readable evidence.")
                         break
@@ -157,6 +161,7 @@ internal class AndroidResearchWorkflow(
                 true
             }
             if (completed == null) state = state.copy(notes = state.notes + "Research deadline reached; completed passages retained.")
+            if (!collecting()) state = state.copy(notes = state.notes + "Collection stopped to preserve synthesis and review time; coverage may be incomplete.")
             if (journal?.stopRequested() == true) state = state.copy(notes = state.notes + "Stopped by user; coverage may be incomplete.")
             if (exhausted) state = state.copy(notes = state.notes + "Shared execution or evidence budget reached.")
             checkpoint(
@@ -164,10 +169,12 @@ internal class AndroidResearchWorkflow(
                     "Stopped"
                 } else if (noResearchNeeded) {
                     "Not needed"
+                } else if (completed == null || !collecting()) {
+                    "Partial"
                 } else {
                     "Complete"
                 },
-                complete = true
+                complete = completed != null && collecting() && journal?.stopRequested() != true
             )
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) { checkpoint("Interrupted") }
@@ -269,7 +276,7 @@ internal class AndroidResearchWorkflow(
         }.sortedBy { it.connectionUid != null }
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
-        while (!stopped() && state.attempts < maxAttempts && sources.values.count { it.readable } < options.maxPages) {
+        while (!stopped() && collecting() && state.attempts < maxAttempts && sources.values.count { it.readable } < options.maxPages) {
             val remaining = options.maxPages - sources.values.count { it.readable }
             val batch = sources.values.filter { it.status == "Discovered" }.sortedByDescending { source ->
                 researchTerms(source.title + " " + source.url).count { it in questionTerms }

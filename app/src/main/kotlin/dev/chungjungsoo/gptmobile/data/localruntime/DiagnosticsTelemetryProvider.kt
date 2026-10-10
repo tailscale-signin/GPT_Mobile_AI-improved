@@ -27,7 +27,8 @@ object DiagnosticsTelemetryProvider {
         val skelExists: Boolean,
         val processMemoryMb: Long = 0,
         val javaHeapMb: Long = 0,
-        val network: String = "Unknown"
+        val network: String = "Unknown",
+        val nativeHeapMb: Long = 0
     )
 
     fun getSnapshot(context: Context, backendName: String, accelerator: String): DiagnosticsSnapshot {
@@ -75,6 +76,7 @@ object DiagnosticsTelemetryProvider {
             skelExists = qnnProbe.skelFileExists,
             processMemoryMb = android.os.Debug.getPss() / 1024,
             javaHeapMb = Runtime.getRuntime().let { (it.totalMemory() - it.freeMemory()) / (1024 * 1024) },
+            nativeHeapMb = android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024),
             network = runCatching {
                 val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                 val capabilities = manager?.getNetworkCapabilities(manager.activeNetwork)
@@ -97,6 +99,7 @@ object DiagnosticsTelemetryProvider {
         appendLine("SoC / Processor: ${snapshot.socModel}")
         appendLine("System RAM: Available ${snapshot.availableRamMb} MB / Total ${snapshot.totalRamGb} GB")
         appendLine("App memory: ${snapshot.processMemoryMb} MB PSS / ${snapshot.javaHeapMb} MB Java heap")
+        appendLine("Native heap allocated: ${snapshot.nativeHeapMb} MB (separate from Java heap; not additive to PSS)")
         appendLine("Network: ${snapshot.network}")
         appendLine("Thermal State: ${snapshot.thermalStatus}")
         appendLine("Battery: ${if (snapshot.batteryPct >= 0) "${snapshot.batteryPct}%" else "N/A"}${if (snapshot.isCharging) " (Charging)" else ""}")

@@ -5,6 +5,7 @@ internal fun isProviderOutputLimitFailure(message: String): Boolean {
     val normalized = message.lowercase()
     return listOf(
         "reached its output limit",
+        "output_limit:",
         "maximum output tokens",
         "maximum completion tokens",
         "finish_reason=length",

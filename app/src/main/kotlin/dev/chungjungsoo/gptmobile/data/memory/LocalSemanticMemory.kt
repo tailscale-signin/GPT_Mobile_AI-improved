@@ -35,6 +35,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     private val mutex = Mutex()
     private var store: BoxStore? = null
     private var embedder: TextEmbedder? = null
+    private var embedderGeneration = 0
     private var lastUsed = 0L
     private var retryAfter = 0L
     private val _status = MutableStateFlow(SemanticMemoryStatus())
@@ -67,8 +68,9 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             TextEmbedder.TextEmbedderOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("memory/universal_sentence_encoder.tflite").build())
                 .build()
-        ).also {
-            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_CREATED · instance=${System.identityHashCode(this)} · lazy=true · singleton=true")
+        ).also { engine ->
+            embedderGeneration++
+            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_CREATED · owner=${System.identityHashCode(this)} · engine=${System.identityHashCode(engine)} · generation=$embedderGeneration · nativeAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()} · lazy=true")
         }
     }
 

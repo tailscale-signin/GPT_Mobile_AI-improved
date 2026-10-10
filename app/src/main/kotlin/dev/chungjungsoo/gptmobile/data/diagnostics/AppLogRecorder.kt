@@ -166,17 +166,17 @@ object AppLogRecorder {
                 mutableEntries.value = emptyList()
                 runCatching {
                     directory()?.listFiles()?.forEach { it.delete() }
-                    app?.let { File(it.cacheDir, "diagnostics/app-diagnostics.log").delete() }
+                    app?.let { File(it.cacheDir, "diagnostics").listFiles()?.forEach { file -> file.delete() } }
                 }
             }
         }
     }
 
     /** Call from an IO dispatcher. The exported snapshot is already redacted. */
-    fun export(): File? = synchronized(fileLock) {
+    fun export(structured: Boolean = false): File? = synchronized(fileLock) {
         val context = app ?: return@synchronized null
         val folder = directory() ?: return@synchronized null
-        val target = File(context.cacheDir, "diagnostics/app-diagnostics.log").also { it.parentFile?.mkdirs() }
+        val target = File(context.cacheDir, "diagnostics/app-diagnostics.${if (structured) "jsonl" else "log"}").also { it.parentFile?.mkdirs() }
         var drained = 0
         while (drained < QUEUE_CAPACITY) {
             val entry = queue.tryReceive().getOrNull() ?: break
@@ -184,8 +184,9 @@ object AppLogRecorder {
             drained++
         }
         target.bufferedWriter().use { output ->
+            if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · process=${Process.myPid()}"))
             listOf("previous.log", "current.log").map { File(folder, it) }.filter { it.exists() }.forEach { file ->
-                file.bufferedReader().useLines { lines -> lines.forEach { output.appendLine(it) } }
+                file.bufferedReader().useLines { lines -> lines.forEach { output.appendLine(if (structured) structuredDiagnosticLine(it) else it) } }
             }
         }
         target

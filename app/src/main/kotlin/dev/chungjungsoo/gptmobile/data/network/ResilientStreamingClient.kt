@@ -61,7 +61,8 @@ object ResilientStreamingClient {
      * Determine if an exception represents a transient network or server fault suitable for automatic retry.
      */
     fun isRetryable(throwable: Throwable): Boolean {
-        if (throwable is CancellationException) return false
+        val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        if (causes.any { it is CancellationException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
         var current: Throwable? = throwable
         repeat(8) {
             val value = current ?: return false

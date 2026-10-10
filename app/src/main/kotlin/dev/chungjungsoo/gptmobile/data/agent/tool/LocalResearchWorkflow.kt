@@ -35,7 +35,9 @@ internal class LocalResearchWorkflow(
     private val config: ModelDelegationSettings,
     private val tools: List<ResolvedAgentTool>,
     private val generate: suspend (String, Int) -> String?,
-    private val stillEnabled: suspend () -> Boolean = { true }
+    private val stillEnabled: suspend () -> Boolean = { true },
+    private val journal: dev.chungjungsoo.gptmobile.data.research.ResearchJournal? = null,
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
     suspend fun run(task: String, callId: String, automatic: Boolean = false): LocalResearchResult {
         val sources = linkedMapOf<String, DelegationSource>()
@@ -48,6 +50,32 @@ internal class LocalResearchWorkflow(
         var noResearchNeeded = false
         var toolsExhausted = false
         var toolUnavailable = false
+        val startedAt = nowMs()
+        val collectionDeadline = startedAt + (config.preparationTimeoutSeconds * 1000L * 2 / 3)
+        fun collecting(): Boolean = nowMs() < collectionDeadline && journal?.stopRequested() != true
+        suspend fun checkpoint(phase: String, complete: Boolean = false) {
+            journal?.save(
+                dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(
+                    task = task,
+                    phase = phase,
+                    searches = searches,
+                    attempts = pageAttempts.size,
+                    sources = sources.values.take(48).map { source ->
+                        dev.chungjungsoo.gptmobile.data.research.ResearchSource(
+                            source.id,
+                            source.url,
+                            source.title,
+                            status = if (source.pageRead) "Partially read" else "Discovered",
+                            passage = relevantEvidence(source.text.ifBlank { source.snippet }, task, 6000),
+                            depth = source.depth,
+                            retrievedAt = System.currentTimeMillis()
+                        )
+                    },
+                    notes = notes.toList(),
+                    complete = complete
+                )
+            )
+        }
         fun budgetLimitNote(result: AgentToolResult): String = when {
             result.toolCallBudgetExhausted -> {
                 val usage = if (result.toolCallBudgetUsed != null && result.toolCallBudgetLimit != null) {
@@ -129,7 +157,7 @@ internal class LocalResearchWorkflow(
                 notes += "Web search is not enabled for this profile; live research is unavailable and no research was completed."
             }
             for ((index, query) in queries.withIndex()) {
-                if (searchTools.isEmpty() || toolsExhausted) break
+                if (searchTools.isEmpty() || toolsExhausted || !collecting()) break
                 var result: AgentToolResult? = null
                 var selectedSearch: ResolvedAgentTool? = null
                 for ((providerIndex, searchTool) in searchTools.withIndex()) {
@@ -192,6 +220,7 @@ internal class LocalResearchWorkflow(
                 if (sources.size == sourcesBeforeSearch && extractedSources.isEmpty()) {
                     notes += "Search ${index + 1} returned no new public sources; remaining planned queries were still attempted."
                 }
+                checkpoint("Searching")
                 AppLogRecorder.record(
                     "Delegation",
                     "Research search parsed · queryIndex=${index + 1} · provider=${selectedSearch?.modelToolName ?: selectedSearch?.realToolName ?: "<unknown>"} · structured=${extractedSources.size} · totalSources=${sources.size} · toolsExhausted=$toolsExhausted"
@@ -204,7 +233,7 @@ internal class LocalResearchWorkflow(
             }
             if (readers.isNotEmpty() && config.maxPages > 0 && sources.isNotEmpty()) {
                 val candidates = sources.values.filterNot { it.pageRead }
-                val choice = generate(
+                val selection = generate(
                     delegationPrompt(
                         "Choose up to ${config.maxPages} source IDs most useful for the task. Prefer primary sources and diverse relevant evidence. Return only JSON {\"ids\":[\"S1\"]}. Use only IDs present in the evidence.",
                         task,
@@ -212,10 +241,14 @@ internal class LocalResearchWorkflow(
                         config.maxInputCharacters
                     ),
                     minOf(config.maxOutputTokens, 128)
-                )?.let(::parseDelegationObject).stringList("ids")
-                val ranked = choice.distinct().mapNotNull { id -> candidates.firstOrNull { it.id == id } }
-                    .plus(candidates)
-                    .distinctBy { it.id }
+                )?.let(::parseDelegationObject)
+                val ranked = if (selection?.get("ids") is JsonArray) {
+                    val selected = selection.stringList("ids").distinct().mapNotNull { id -> candidates.firstOrNull { it.id == id } }
+                    if (selected.isEmpty()) emptyList() else (selected + candidates).distinctBy { it.id }
+                } else {
+                    notes += "Relevance selection was unavailable; only a small initial sample was read."
+                    candidates.take(3)
+                }
                 val seedCount = if (config.crawlDepth > 0) maxOf(1, config.maxPages / (config.crawlDepth + 1)) else config.maxPages
                 val queue = ArrayDeque(ranked.take(seedCount))
                 val standby = ArrayDeque(ranked.drop(seedCount))
@@ -226,7 +259,7 @@ internal class LocalResearchWorkflow(
                 while (
                     successfulReads < config.maxPages &&
                     fetchAttempts < maxFetchAttempts &&
-                    !toolsExhausted &&
+                    !toolsExhausted && collecting() &&
                     (queue.isNotEmpty() || standby.isNotEmpty())
                 ) {
                     if (queue.isEmpty() && standby.isNotEmpty()) queue += standby.removeFirst()
@@ -293,9 +326,10 @@ internal class LocalResearchWorkflow(
                         val shortened = excerpt != pageText || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true)
                         sources[canonicalSearchUrl(source.url)] = source.copy(text = excerpt, pageRead = true, excerpted = shortened)
                         successfulReads++
+                        checkpoint("Reading")
                         AppLogRecorder.record(
                             "Delegation",
-                            "Research page read · source=${source.id} · reader=${attempt.reader?.realToolName} · verified=$successfulReads/${config.maxPages}"
+                            "Research page read · source=${source.id} · reader=${attempt.reader?.realToolName} · readable=$successfulReads/${config.maxPages}"
                         )
                         if (source.depth < config.crawlDepth && successfulReads < config.maxPages) {
                             val links = (payload as? JsonObject)?.stringList("links").orEmpty() + researchLinks(pageText)
@@ -309,9 +343,10 @@ internal class LocalResearchWorkflow(
                         }
                     }
                 }
-                val requestedVerifiedPages = minOf(config.maxPages, sources.size)
-                if (successfulReads < requestedVerifiedPages) {
-                    notes += "Only $successfulReads of $requestedVerifiedPages requested pages could be verified; remaining evidence is search snippets."
+                checkpoint("Reading")
+                val requestedReadablePages = minOf(config.maxPages, sources.size)
+                if (successfulReads < requestedReadablePages) {
+                    notes += "Only $successfulReads of $requestedReadablePages requested pages were readable; remaining evidence is search snippets."
                 }
             }
             if (toolsExhausted && notes.none { it.startsWith("The shared tool-") }) {
@@ -321,6 +356,8 @@ internal class LocalResearchWorkflow(
                 brief = ""
                 notes += "Live research could not be verified. Do not answer as if sourced web research succeeded."
             }
+            if (!collecting()) notes += "Collection stopped to reserve time for synthesis and review; coverage may be incomplete."
+            checkpoint("Summarizing")
             val evidence = sources.values.filter { it.pageRead }.ifEmpty { sources.values.take(config.maxSearchQueries * config.searchResultsPerEngine) }
             if (evidence.size < sources.size) notes += "The brief prioritizes read pages or the highest-ranked snippets; remaining sources were not summarized."
             val summaries = if (toolUnavailable && sources.isEmpty()) {
@@ -369,8 +406,9 @@ internal class LocalResearchWorkflow(
         }
         if (brief.isBlank()) brief = sources.values.joinToString("\n") { "[${it.id}] ${relevantEvidence(it.text.ifBlank { it.snippet }, task, 600)}" }
         val hasUsefulOutput = brief.isNotBlank() || sources.values.any { it.pageRead }
-        if (!hasUsefulOutput) notes += "No verified evidence was retrieved."
+        if (!hasUsefulOutput) notes += "No readable evidence was retrieved."
         val outcome = if (hasUsefulOutput) LocalResearchOutcome.SUCCESS else LocalResearchOutcome.NO_USEFUL_OUTPUT
+        checkpoint(if (completed == null || !collecting()) "Partial" else "Complete", complete = completed != null && collecting())
         return LocalResearchResult(
             delegationHandoff(brief, sources.values.toList(), notes, config.handoffTokens),
             rawBytes,

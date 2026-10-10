@@ -82,6 +82,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                     accessToken = accessToken
                 )
                 markStatus(catalogEntryId, LocalModelStatus.READY)
+                dev.chungjungsoo.gptmobile.data.agent.tool.LocalDelegationCoordinator.onLocalModelInstalled()
                 runCatching { pendingLocalPlatformActivator.onModelsBecameReady(setOf(catalogEntryId)) }
                 Result.success()
             } catch (cancelled: CancellationException) {

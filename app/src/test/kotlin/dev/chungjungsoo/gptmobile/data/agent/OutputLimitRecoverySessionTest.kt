@@ -86,6 +86,74 @@ class OutputLimitRecoverySessionTest {
         assertFalse(usage.cumulative)
     }
 
+    @Test fun threeThousandWordsCanSpanManySmallRequestsWithoutRestartingHistory() = runTest {
+        fun part(number: Int) = "Era$number " + "detail$number ".repeat(299)
+        var attempts = 0
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta(part(0)))
+                emit(ProviderEvent.Failed("The response reached its output limit."))
+            },
+            maxContinuations = LongResponsePolicy.continuationLimit(3000, 512),
+            targetWords = 3000
+        ) { draft, _ ->
+            attempts++
+            assertTrue(draft.startsWith("Era0 "))
+            assertEquals(attempts * 300, LongResponsePolicy.countWords(draft))
+            session {
+                emit(ProviderEvent.TextDelta(part(attempts)))
+                if (attempts < 9) emit(ProviderEvent.Failed("finish_reason=length")) else emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+        assertEquals(9, attempts)
+        assertEquals(3000, LongResponsePolicy.countWords(text))
+        assertTrue(text.indexOf("Era0 ") < text.indexOf("Era9 "))
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+    }
+
+    @Test fun earlyStopBelowWordGoalContinuesButRepeatedOutputStopsWithoutDuplicatingIt() = runTest {
+        val text = "A useful but incomplete historical overview."
+        var attempts = 0
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta(text))
+                emit(ProviderEvent.Completed)
+            },
+            maxContinuations = 8,
+            targetWords = 3000
+        ) { _, _ ->
+            attempts++
+            session {
+                emit(ProviderEvent.TextDelta(text))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, attempts)
+        assertEquals(text, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun noFurtherContinuationAfterCancellationOrUnrelatedFailure() = runTest {
+        var attempts = 0
+        val wrapper = OutputLimitRecoverySession(session { emit(ProviderEvent.Failed("finish_reason=length")) }, maxContinuations = 8) { _, _ ->
+            attempts++
+            session { throw CancellationException("User stopped") }
+        }
+        assertTrue(runCatching { wrapper.streamRound(emptyList(), emptyList()).toList() }.exceptionOrNull() is CancellationException)
+        assertEquals(1, attempts)
+    }
+
+    @Test fun literalOverlapIsRemovedWhileDistinctDatesArePreserved() {
+        val overlap = "The Revolution began in 1789. "
+        assertEquals("Napoleon took power in 1799.", continuationSuffix("Earlier eras. $overlap", overlap + "Napoleon took power in 1799."))
+        assertEquals("A conflicting date is 1788.", continuationSuffix(overlap, "A conflicting date is 1788."))
+    }
+
     private fun session(events: suspend kotlinx.coroutines.flow.FlowCollector<ProviderEvent>.() -> Unit) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow(events)
     }

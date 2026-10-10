@@ -126,7 +126,7 @@ class WebSearchTool(
                     WebSearchProvider.BRAVE -> "Brave Search"
                     WebSearchProvider.AUTO -> "Web search"
                 }
-                return error(callId, "Add a $provider API key in Settings → Tool Connections before using this search provider.")
+                return error(callId, "Add a $provider API key in Settings → Plugins/Tools before using this search provider.")
             }
             if (clock.millis() < authenticationBlockedUntilMs.get()) {
                 return error(callId, "${config.provider} web search is disabled after an authentication, billing, or access failure. Check this search connection and provider account.")
@@ -187,7 +187,7 @@ class WebSearchTool(
             WebSearchProvider.AUTO -> "Web search"
         }
         return when (status) {
-            401 -> "$provider web search authentication failed (HTTP 401). Update this connection's $provider API key in Settings → Tool Connections. AI platform keys are configured separately."
+            401 -> "$provider web search authentication failed (HTTP 401). Update this connection's $provider API key in Settings → Plugins/Tools. AI platform keys are configured separately."
             403 -> "$provider web search access was denied (HTTP 403). Check this search connection's API key permissions and provider account."
             429 -> "$provider web search rate limit reached (HTTP 429). Wait before retrying or check your search plan allowance."
             else -> "Web search failed: HTTP $status."

@@ -21,6 +21,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadUrlToolTest {
+    @Test
+    fun `rate limit cooldown is shared across reader instances`() = runBlocking {
+        var requests = 0
+        val page = server { exchange ->
+            requests++
+            exchange.responseHeaders.add("Retry-After", "120")
+            exchange.respond(429, "text/plain", "wait")
+        }
+        val arguments = args(page.url("fixture.test", "/limited"))
+        assertTrue(tool(allowTestLoopback = true).execute("first", arguments).isError)
+        val second = tool(allowTestLoopback = true).execute("second", arguments)
+        assertTrue(second.isError)
+        assertTrue(second.text().contains("rate-limited"))
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun `relative redirects encode spaces and strip browser fragments`() = runBlocking {
+        val page = server { exchange ->
+            if (exchange.requestURI.path == "/start") {
+                exchange.responseHeaders.add("Location", "/French history#ancient")
+                exchange.respond(302, "text/plain", "")
+            } else {
+                assertEquals("/French%20history", exchange.requestURI.rawPath)
+                exchange.respond(200, "text/plain", "A readable source.")
+            }
+        }
+        val result = tool(allowTestLoopback = true).execute("relative", args(page.url("fixture.test", "/start")))
+        assertFalse(result.isError)
+        assertEquals("A readable source.", result.text())
+    }
+
+    @Test
+    fun `DNS errors remain DNS errors and do not start a request`() = runBlocking {
+        val reader = tool(dns = Dns { throw java.net.UnknownHostException("fixture") })
+        val result = reader.execute("dns", args("https://missing.test/"))
+        assertTrue(result.isError)
+        assertTrue(result.text().contains("DNS", ignoreCase = true))
+    }
 
     private val servers = mutableListOf<HttpServer>()
 
@@ -306,8 +345,9 @@ class ReadUrlToolTest {
 
         val text = result.text()
         assertEquals(false, result.isError)
-        assertEquals(65524 + 4 * 3, text.toByteArray(Charsets.UTF_8).size)
-        assertEquals("a".repeat(65524) + "😀".repeat(3), text)
+        assertTrue(text.toByteArray(Charsets.UTF_8).size <= 65536)
+        assertFalse(text.contains('�'))
+        assertTrue(text.contains("Source excerpt truncated"))
     }
 
     @Test

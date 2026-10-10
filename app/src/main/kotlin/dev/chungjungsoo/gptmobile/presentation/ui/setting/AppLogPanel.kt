@@ -44,6 +44,7 @@ internal fun AppLogPanel() {
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf("") }
     var errorsOnly by rememberSaveable { mutableStateOf(false) }
+    var structuredExport by rememberSaveable { mutableStateOf(true) }
     var frozen by remember { mutableStateOf<List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
@@ -53,7 +54,7 @@ internal fun AppLogPanel() {
                     Switch(enabled, AppLogRecorder::setEnabled)
                 }
                 Text("Capture app events, errors, model requests, tools, network headers and Android logs for this app.", style = MaterialTheme.typography.bodyMedium)
-                Text("Logs stay on this device until you share them. Credentials are redacted and HTTP bodies are excluded. Other app logs may include content; review before sharing. The latest 2 MB is retained.", style = MaterialTheme.typography.bodySmall)
+                Text("Logs stay on this device until you share them. Credentials are redacted. Provider error details may be included; successful HTTP bodies are excluded. Other app logs may include content; review before sharing. The latest 2 MB is retained.", style = MaterialTheme.typography.bodySmall)
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -62,17 +63,18 @@ internal fun AppLogPanel() {
             FilterChip(!errorsOnly, { errorsOnly = false }, label = { Text("All levels") })
             FilterChip(errorsOnly, { errorsOnly = true }, label = { Text("Warnings & errors") })
         }
+        FilterChip(structuredExport, { structuredExport = !structuredExport }, label = { Text("Structured export (JSONL)") })
         Row {
             TextButton(onClick = { frozen = if (frozen == null) entries else null }) { Text(if (frozen == null) "Pause view" else "Resume") }
             TextButton(onClick = {
                 scope.launch {
                     try {
-                        val file = withContext(Dispatchers.IO) { AppLogRecorder.export() } ?: return@launch
+                        val file = withContext(Dispatchers.IO) { AppLogRecorder.export(structured = structuredExport) } ?: return@launch
                         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                         context.startActivity(
                             Intent.createChooser(
                                 Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
+                                    type = if (structuredExport) "application/x-ndjson" else "text/plain"
                                     putExtra(Intent.EXTRA_STREAM, uri)
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 },

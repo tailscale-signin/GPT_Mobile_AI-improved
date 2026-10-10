@@ -1864,7 +1864,6 @@ class ChatViewModel @Inject constructor(
             createdAt = currentTimeStamp
         )
 
-        val merged = withContext(Dispatchers.Default) { mergeCombinedResponses(sources) }
         val persisted = chatRepository.persistAgentRetry(
             PersistAgentRetryRequest(
                 userMessage = userMessage,
@@ -1883,17 +1882,28 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        // Align matching sections and dated events locally, retaining unique
-        // contributions and the untouched originals in their profile tabs.
-        val completed = persisted.assistantMessage.copy(content = merged, thoughts = "", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = merged)), activeRevisionIndex = dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST, createdAt = currentTimeStamp)
-        chatRepository.updateAgentMessage(completed)
-        chatRepository.finishQueuedAgentRun(synthesisRunId, AgentRunStatus.COMPLETED, currentTimeStamp, null)
-        _groupedMessages.update { current ->
-            updateAssistantSlot(current, turnIndex, leadIndex) { completed }
-        }
-        _agentRunsById.update { current ->
-            current + (synthesisRunId to persisted.run.copy(status = AgentRunStatus.COMPLETED, completedAt = currentTimeStamp))
-        }
+        // The primary edits all original contributions in one pass. The normal run
+        // coordinator owns streaming, cancellation, usage, persistence and continuation.
+        agentRunCoordinator.start(
+            listOf(
+                AgentRunRequest(
+                    runId = synthesisRunId,
+                    chatId = persisted.assistantMessage.chatId,
+                    assistantMessage = persisted.assistantMessage,
+                    platform = leadPlatform.copy(
+                        systemPrompt = leadPlatform.systemPrompt.orEmpty() + "\n" + COMBINED_SYNTHESIS_INSTRUCTION,
+                        disableAllTools = true,
+                        disableLocalTools = true
+                    ),
+                    userMessages = listOf(userMessage.copy(content = combinedSynthesisPrompt(userMessage.content, sources), attachments = emptyList())),
+                    assistantMessages = emptyList(),
+                    chatToolConfig = _chatToolConfig.value.copy(
+                        allToolsDisabled = true,
+                        delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false)
+                    )
+                )
+            )
+        )
     }
 
     private fun checkAndGenerateAiTitle(runsById: Map<String, AgentRun>) {

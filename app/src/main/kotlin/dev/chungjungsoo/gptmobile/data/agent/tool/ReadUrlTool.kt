@@ -37,16 +37,19 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class ReadUrlTool(
     private val dns: Dns = Dns.SYSTEM,
     private val allowAddress: (InetAddress) -> Boolean = { false },
     private val htmlToText: (String) -> String = ::androidHtmlToText,
     private val outputLimitBytes: Int = MAX_OUTPUT_BYTES,
-    private val deniedHosts: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val deniedHosts: MutableSet<String> = ConcurrentHashMap.newKeySet(),
+    private val documentContext: android.content.Context? = null,
+    private val unavailableUrls: MutableSet<String> = ConcurrentHashMap.newKeySet()
 ) : AgentTool {
 
-    fun withOutputLimit(bytes: Int): ReadUrlTool = ReadUrlTool(dns, allowAddress, htmlToText, bytes.coerceIn(0, MAX_OUTPUT_BYTES), deniedHosts)
+    fun withOutputLimit(bytes: Int): ReadUrlTool = ReadUrlTool(dns, allowAddress, htmlToText, bytes.coerceIn(0, MAX_OUTPUT_BYTES), deniedHosts, documentContext, unavailableUrls)
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = "read_url",
@@ -83,22 +86,26 @@ class ReadUrlTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val start = parseUrl(arguments) ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
+        if (start.toASCIIString() in unavailableUrls) return error(callId, "Read URL failed: this source was already unavailable in this turn. Choose another source.")
         return try {
-            read(
-                callId,
-                start,
-                (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true,
-                (arguments["includeDomains"] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content.lowercase() },
-                (arguments["excludeDomains"] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content.lowercase() }
-            )
+            kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                read(
+                    callId,
+                    start,
+                    (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true,
+                    (arguments["includeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
+                    (arguments["excludeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() }
+                )
+            } ?: error(callId, "Read URL failed: page deadline reached. Choose another source.")
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: ReadUrlException) {
+            if (exception.message.orEmpty().let { it.contains("redirect") || it.contains("binary") || it.contains("HTTP 404") || it.contains("HTTP 405") }) unavailableUrls += start.toASCIIString()
             recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
             error(callId, "Read URL failed: ${exception.message}.")
         } catch (exception: UnknownHostException) {
             recordFailure(start, "dns", exception.javaClass.simpleName, null)
-            error(callId, "Read URL failed: hostname could not be resolved. Check the URL and network connection.")
+            error(callId, "Read URL failed: DNS lookup could not resolve the hostname. Check the URL and network connection.")
         } catch (exception: java.net.SocketTimeoutException) {
             recordFailure(start, "timeout", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: the website timed out. Try another source.")
@@ -117,6 +124,11 @@ class ReadUrlTool(
             if (!dev.chungjungsoo.gptmobile.data.research.researchDomainAllowed(current.toString(), includeDomains, excludeDomains)) throw ReadUrlException("redirect or source outside allowed domain scope")
             val authority = current.host.lowercase(Locale.ROOT).removePrefix("www.") + ":" + current.port
             if (authority in deniedHosts) return error(callId, "Read URL failed: this host denied access earlier in this turn. Choose another source.")
+            val now = System.currentTimeMillis()
+            rateLimitUntil[authority]?.let { until ->
+                if (until > now) return error(callId, "Read URL failed: this host is rate-limited for another ${(until - now + 999) / 1000} seconds. Choose another source.")
+                rateLimitUntil.remove(authority, until)
+            }
             val request = request(current)
             try {
                 val response = request.response
@@ -131,13 +143,39 @@ class ReadUrlTool(
                     redirects += 1
                     continue
                 }
-                if (status == 401 || status == 403 || status == 429) deniedHosts += authority
+                if (status == 401 || status == 403) deniedHosts += authority
+                if (status == 429) {
+                    val retryAfter = response.headers[HttpHeaders.RetryAfter]
+                    val seconds = retryAfter?.toLongOrNull()?.coerceIn(1, 86400)
+                    val date = runCatching { java.time.ZonedDateTime.parse(retryAfter, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
+                    if (rateLimitUntil.size >= 128) rateLimitUntil.entries.removeAll { it.value <= now }
+                    if (rateLimitUntil.size < 128) rateLimitUntil[authority] = date?.coerceIn(now + 1000, now + 86_400_000) ?: (now + (seconds ?: 60) * 1000)
+                }
                 if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status")
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
-                if (!isTextContent(contentType)) throw ReadUrlException("binary content rejected")
+                val documentExtension = when (contentType.substringBefore(';').trim().lowercase()) {
+                    "application/pdf" -> "pdf"
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "xlsx"
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
+                    else -> null
+                }
+                if (!isTextContent(contentType) && (documentExtension == null || documentContext == null)) throw ReadUrlException("unsupported binary content ($contentType); use an enabled document reader or attach the document")
                 val boundedBody = readBounded(response, current.host.orEmpty(), MAX_BODY_BYTES)
-                val rawText = boundedBody.bytes.toString(contentType.charsetOrUtf8())
-                val text = if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
+                val rawText = if (documentExtension == null) boundedBody.bytes.toString(contentType.charsetOrUtf8()) else ""
+                val document = if (documentExtension != null && documentContext != null) {
+                    if (boundedBody.truncated) throw ReadUrlException("document exceeds the 1 MiB mobile reader limit; attach it for bounded document extraction")
+                    kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                        val file = java.io.File.createTempFile("research-", ".$documentExtension", documentContext.cacheDir)
+                        try {
+                            file.writeBytes(boundedBody.bytes)
+                            dev.chungjungsoo.gptmobile.util.DocumentTextExtractor.extract(documentContext, file, contentType.substringBefore(';'))
+                        } finally {
+                            file.delete()
+                        }
+                    }
+                } else null
+                val text = document?.text ?: if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
                 val normalizedText = normalizeWhitespace(text)
                 val plainText = truncateUtf8(normalizedText, outputCap)
                 val content = if (includeLinks) {
@@ -150,12 +188,14 @@ class ReadUrlTool(
                         buildJsonObject {
                             put("url", current.toString())
                             put("content", plainText)
-                            put("truncated", boundedBody.truncated || plainText.toByteArray().size < normalizedText.toByteArray().size)
+                            put("truncated", document?.note != null || boundedBody.truncated || plainText.toByteArray().size < normalizedText.toByteArray().size)
                             put("links", JsonArray(researchLinks(linkText, current.toString()).filter { it.length <= 2048 }.take(32).map(::JsonPrimitive)))
                         }
                     )
                 } else {
-                    ToolResultContent.Text(plainText)
+                    val partial = boundedBody.truncated || document?.note != null || plainText != normalizedText
+                    val note = "\n[Source excerpt truncated; the full document was not examined.]"
+                    ToolResultContent.Text(if (partial) truncateUtf8(plainText, (outputCap - note.toByteArray().size).coerceAtLeast(0)) + note.takeIf { outputCap >= it.toByteArray().size }.orEmpty() else plainText)
                 }
                 return AgentToolResult(
                     callId = callId,
@@ -163,6 +203,7 @@ class ReadUrlTool(
                     isError = false
                 )
             } finally {
+                request.response.bodyAsChannel().cancel(null)
                 request.client.close()
             }
         }
@@ -177,6 +218,11 @@ class ReadUrlTool(
         // ponytail: per-call client isolates DNS pins; pool per agent run only if profiling shows setup cost matters.
         val client = HttpClient(OkHttp) {
             followRedirects = false
+            install(io.ktor.client.plugins.HttpTimeout) {
+                connectTimeoutMillis = 8_000
+                socketTimeoutMillis = 12_000
+                requestTimeoutMillis = 20_000
+            }
             engine {
                 dns = pinnedDns
                 clientCacheSize = 0
@@ -199,9 +245,9 @@ class ReadUrlTool(
         val addresses = try {
             dns.lookup(host)
         } catch (exception: UnknownHostException) {
-            throw ReadUrlException("DNS lookup failed")
+            throw UnknownHostException("DNS lookup failed")
         }
-        if (addresses.isEmpty()) throw ReadUrlException("DNS lookup failed")
+        if (addresses.isEmpty()) throw UnknownHostException("DNS lookup failed")
         if (addresses.any { !allowAddress(it) && SpecialUseAddress.isSpecialUse(it) }) {
             throw ReadUrlException("unsafe DNS address rejected")
         }
@@ -252,11 +298,8 @@ class ReadUrlTool(
         ?: StandardCharsets.UTF_8
 
     private fun parseResolvedRedirect(base: URI, location: String): URI {
-        val next = try {
-            base.resolve(URI(location))
-        } catch (ignored: Exception) {
-            throw ReadUrlException("malformed redirect URL")
-        }
+        val next = base.toString().toHttpUrlOrNull()?.resolve(location)?.newBuilder()?.fragment(null)?.build()?.toUri()
+            ?: throw ReadUrlException("malformed redirect URL")
         if (!next.isAllowedUrl()) throw ReadUrlException("malformed redirect URL")
         return next
     }
@@ -290,6 +333,7 @@ class ReadUrlTool(
     )
 
     private companion object {
+        val rateLimitUntil = ConcurrentHashMap<String, Long>()
         const val MAX_BODY_BYTES = 1024 * 1024 // 1 MB bounded buffer to prevent OOM
         const val MAX_OUTPUT_BYTES = 64 * 1024 // 64 KB output limit aligned with tests
         const val ERROR_BYTES = 2000

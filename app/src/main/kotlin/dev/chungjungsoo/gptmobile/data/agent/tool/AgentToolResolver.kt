@@ -72,7 +72,8 @@ class AgentToolResolver @Inject constructor(
     private val amazonAccess: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
     private val amazonPublicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryProvider? = null,
     private val publicNews: PublicNewsClient? = null,
-    private val publicAirbnb: PublicAirbnbClient? = null
+    private val publicAirbnb: PublicAirbnbClient? = null,
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val documentContext: android.content.Context? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -239,7 +240,7 @@ class AgentToolResolver @Inject constructor(
                     .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_URL)) {
-                resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
+                resolved += ReadUrlTool(documentContext = documentContext).resolved(null, null, BuiltInAgentTool.READ_URL)
             }
             // Native GitHub is an integrated plugin. If an authenticated native
             // connection exists but is disabled, do not silently replace it with
@@ -444,7 +445,7 @@ class AgentToolResolver @Inject constructor(
         WEB_SEARCH_TOOL -> resolveWebSearch(binding.connection)
 
         BuiltInAgentTool.READ_URL -> if (binding.binding.connectionUid == null) {
-            ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
+            ReadUrlTool(documentContext = documentContext).resolved(null, null, BuiltInAgentTool.READ_URL)
         } else {
             null
         }

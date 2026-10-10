@@ -160,21 +160,20 @@ class MarketplaceViewModel @Inject constructor(
                 initialization.join()
                 if (removing) {
                     setOperation(entry.id, dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.REMOVING)
-                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    val removedConnectionUids = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                         store.beginRemoval(entry)
                         if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
                         toolTrust?.revoke(entry.id)
                         freeConsent?.revokeConnection(entry.id)
                         // A marketplace-created MCP registration is owned by its persisted provider identity;
                         // similarly named user-created connections are never removed as a side effect.
-                        connections.listConnections()
+                        val ownedConnections = connections.listConnections()
                             .filter { it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == entry.id }
-                            .forEach { owned ->
-                                mcpClientManager?.close(owned.connectionUid)
-                                toolTrust?.revoke(owned.connectionUid)
-                                freeConsent?.revokeConnection(owned.connectionUid)
-                                connections.deleteConnection(owned.connectionUid)
-                            }
+                        ownedConnections.forEach { owned ->
+                            toolTrust?.revoke(owned.connectionUid)
+                            freeConsent?.revokeConnection(owned.connectionUid)
+                            connections.deleteConnection(owned.connectionUid)
+                        }
                         store.remove(entry)
                         if (entry.provider == "openstreetmap") {
                             dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
@@ -184,7 +183,9 @@ class MarketplaceViewModel @Inject constructor(
                             }
                         }
                         store.finishRemoval(entry)
+                        ownedConnections.map { it.connectionUid }
                     }
+                    removedConnectionUids.forEach { uid -> runCatching { mcpClientManager?.close(uid) } }
                 } else {
                     // Downloading and digest verification can take seconds; do not block unrelated settings mutations.
                     store.download(entry) { phase -> setOperation(entry.id, phase) }

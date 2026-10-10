@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.research.strings
 import dev.chungjungsoo.gptmobile.data.research.text
 import dev.chungjungsoo.gptmobile.data.research.validatedResearchClaims
 import java.net.URI
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -63,11 +64,12 @@ internal class AndroidResearchWorkflow(
     private val excluded = researchDomains(options.excludeDomains)
     private val sources = linkedMapOf<String, ResearchSource>()
     private val queries = linkedSetOf<String>()
+    private val readAttempts = AtomicInteger()
 
     private fun normalizedTask(value: String) = value.trim().replace(Regex("\\s+"), " ").take(8_000)
 
     private suspend fun checkpoint(phase: String = state.phase, complete: Boolean = false) {
-        state = state.copy(phase = phase, complete = complete, sources = sources.values.toList(), queries = queries.toList(), updatedAt = now())
+        state = state.copy(phase = phase, complete = complete, attempts = readAttempts.get(), sources = sources.values.toList(), queries = queries.toList(), updatedAt = now())
         journal?.save(state)
     }
 
@@ -140,6 +142,7 @@ internal class AndroidResearchWorkflow(
         val policy = researchHash(options.toString() + tools.joinToString { it.selectionId() })
         val saved = journal?.load(task)?.takeIf { normalizedTask(it.task).equals(normalizedTask(task), ignoreCase = true) && now() - it.updatedAt in 0..900_000 && it.sources.filter { source -> source.readable }.all { source -> now() - source.retrievedAt in 0..900_000 } && "Policy:$policy" in it.notes }
         state = saved ?: ResearchSnapshot(task.take(8000), notes = listOf("Policy:$policy"))
+        readAttempts.set(state.attempts.coerceIn(0, maxAttempts))
         var noResearchNeeded = saved?.phase == "Not needed"
         state.sources.filter { researchDomainAllowed(it.url, included, excluded) }.forEach {
             sources[it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }] = it
@@ -375,13 +378,12 @@ internal class AndroidResearchWorkflow(
         }.sortedBy { it.connectionUid != null }
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
-        while (!stopped() && collecting() && state.attempts < maxAttempts && sources.values.count { it.readable } < options.maxPages) {
+        while (!stopped() && collecting() && readAttempts.get() < maxAttempts && sources.values.count { it.readable } < options.maxPages) {
             val remaining = options.maxPages - sources.values.count { it.readable }
             val batch = sources.values.filter { it.status == "Discovered" }.sortedByDescending { source ->
                 researchTerms(source.title + " " + source.url).count { it in questionTerms }
-            }.distinctBy { runCatching { URI(it.url).host }.getOrNull() }.take(minOf(options.concurrency, remaining, maxAttempts - state.attempts))
+            }.distinctBy { runCatching { URI(it.url).host }.getOrNull() }.take(minOf(options.concurrency, remaining, maxAttempts - readAttempts.get()))
             if (batch.isEmpty()) break
-            state = state.copy(attempts = state.attempts + batch.size)
             checkpoint("Reading")
             val completedReads = java.util.concurrent.ConcurrentLinkedQueue<Pair<ResearchSource, AgentToolResult?>>()
             val completedAttempts = java.util.concurrent.ConcurrentLinkedQueue<AgentToolResult>()
@@ -393,8 +395,9 @@ internal class AndroidResearchWorkflow(
                             async {
                                 var last: AgentToolResult? = null
                                 for (reader in readers.take(2)) {
-                                    if (!charge(ResearchBudget.Phase.DISCOVERY)) break
                                     val args = crawlerArguments(reader.tool.definition, source.url)?.toMutableMap() ?: continue
+                                    if (!charge(ResearchBudget.Phase.DISCOVERY)) break
+                                    if (!startReadAttempt()) break
                                     val properties = reader.tool.definition.inputSchema["properties"] as? JsonObject
                                     if (properties?.containsKey("includeLinks") == true) args["includeLinks"] = JsonPrimitive(true)
                                     if (properties?.containsKey("includeDomains") == true && included.isNotEmpty()) args["includeDomains"] = JsonArray(included.map(::JsonPrimitive))
@@ -494,6 +497,13 @@ internal class AndroidResearchWorkflow(
     private fun AgentToolResult.pageEvidenceText(): String = when (val body = content) {
         is ToolResultContent.Text -> runCatching { Json.parseToJsonElement(body.text) }.getOrNull()?.let(::pageText) ?: body.text
         else -> pageText(body.researchPayload())
+    }
+
+    @Synchronized
+    private fun startReadAttempt(): Boolean {
+        if (readAttempts.get() >= maxAttempts) return false
+        readAttempts.incrementAndGet()
+        return true
     }
 
     private fun AgentToolResult.blockedPage(): Boolean = isError &&

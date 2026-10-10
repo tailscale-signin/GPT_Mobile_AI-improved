@@ -281,15 +281,10 @@ class ToolConnectionsViewModel @Inject constructor(
                         clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
                     )
                     if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
-                        pluginMutex.lock()
-                        try {
-                            val latest = settingRepository.getFeatureSettings()
-                            val updated = latest.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
-                            settingRepository.updateFeatureSettings(updated)
-                            _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
-                        } finally {
-                            pluginMutex.unlock()
-                        }
+                        val latest = settingRepository.getFeatureSettings()
+                        val updated = latest.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
+                        settingRepository.updateFeatureSettings(updated)
+                        _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
                     }
                 }
             }.onSuccess {

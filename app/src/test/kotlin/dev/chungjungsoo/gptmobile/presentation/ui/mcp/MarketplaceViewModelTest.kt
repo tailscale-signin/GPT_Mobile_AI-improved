@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.mcp
 import androidx.lifecycle.ViewModelStore
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
+import dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
@@ -71,6 +72,27 @@ class MarketplaceViewModelTest {
         coVerify(exactly = 1) { registry.uninstall(entry) }
         coVerify(exactly = 1) { store.remove(entry) }
         assertTrue(model.uiState.value.downloadedIds.isEmpty())
+    }
+
+    @Test
+    fun uninstallRemovesOnlyConnectionsOwnedByMarketplaceProviderIdentity() = runTest(dispatcher) {
+        val owned = ToolConnection(
+            connectionUid = "owned", name = "Renamed provider", alias = "renamed_provider", type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.test/mcp", authType = "NONE", secretRef = null, oauthClientId = null,
+            marketplaceOrigin = "MARKETPLACE", marketplaceProviderId = entry.id, marketplaceInstallationId = "install-1"
+        )
+        val manualWithSameAlias = owned.copy(
+            connectionUid = "manual", marketplaceOrigin = "MANUAL", marketplaceProviderId = null,
+            marketplaceInstallationId = null
+        )
+        coEvery { connections.listConnections() } returns listOf(owned, manualWithSameAlias)
+
+        val model = model()
+        model.remove(entry)
+        runCurrent()
+
+        coVerify(exactly = 1) { connections.deleteConnection("owned") }
+        coVerify(exactly = 0) { connections.deleteConnection("manual") }
     }
 
     @Test
@@ -250,5 +272,23 @@ class MarketplaceViewModelTest {
         assertFalse(result.connected)
         assertFalse(result.message.contains("bearer-secret-123"))
         assertTrue(result.correlationId.isNotBlank())
+    }
+
+    @Test
+    fun marketplaceConnectionLookupSurvivesRenameUsingPersistedIdentity() {
+        val preset = requireNotNull(McpPresetCatalog.findById("airbnb-openbnb"))
+        val renamed = ToolConnection(
+            connectionUid = "conn-renamed", name = "Vacation Search", alias = "vacation_search", type = ToolConnectionType.MCP,
+            endpointUrl = "https://mcp.openbnb.ai/mcp", authType = "OAUTH", secretRef = "vault-ref", oauthClientId = null,
+            marketplaceOrigin = "MARKETPLACE", marketplaceProviderId = preset.id, marketplaceInstallationId = "install-1"
+        )
+
+        assertEquals(renamed, resolveMarketplaceConnections(preset, listOf(renamed)).single())
+
+        val second = renamed.copy(connectionUid = "conn-second", name = "Vacation Search 2", marketplaceInstallationId = "install-2")
+        assertEquals(
+            listOf(renamed, second),
+            resolveMarketplaceConnections(preset, listOf(second, renamed))
+        )
     }
 }

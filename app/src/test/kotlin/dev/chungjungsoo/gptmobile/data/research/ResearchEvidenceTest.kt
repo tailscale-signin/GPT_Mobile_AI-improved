@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.research
 
 import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -58,5 +60,29 @@ class ResearchEvidenceTest {
         assertEquals(listOf(source), restored.sources)
         assertEquals(listOf(snapshot.claims.first()), restored.claims)
         assertEquals(0, restored.attempts)
+    }
+
+    @Test fun versionOneSnapshotsMigrateToVersionTwoWithoutLosingReadableEvidence() {
+        val passage = "A stable passage retained from the old snapshot format."
+        val legacy = buildJsonObject {
+            put("version", 1)
+            put("task", "legacy task")
+            put("sources", kotlinx.serialization.json.buildJsonArray {
+                add(buildJsonObject {
+                    put("id", "S1")
+                    put("url", "https://WWW.Example.org/page?utm_source=search")
+                    put("title", "Legacy page")
+                    put("status", "Read")
+                    put("passage", passage)
+                })
+            })
+        }
+
+        val restored = ResearchSnapshot.parse(legacy)!!
+
+        assertTrue(restored.sources.single().readable)
+        assertEquals("example.org", restored.sources.single().host)
+        assertEquals("https://example.org/page", restored.sources.single().canonicalUrl)
+        assertEquals(2, restored.json()["version"]?.jsonPrimitive?.int)
     }
 }

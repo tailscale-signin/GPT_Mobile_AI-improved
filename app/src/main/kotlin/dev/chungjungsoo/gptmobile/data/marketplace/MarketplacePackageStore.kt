@@ -83,10 +83,14 @@ class MarketplacePackageStore @Inject constructor(@ApplicationContext context: C
         }.map { it.id }.toSet()
     }
 
-    suspend fun download(entry: GitHubMarketplacePackage) = withContext(Dispatchers.IO) {
+    suspend fun download(
+        entry: GitHubMarketplacePackage,
+        onPhase: suspend (MarketplaceOperationPhase) -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
         requireKnown(entry)
         locks.getValue(entry.id).withLock {
             if (readVerified(entry) != null) return@withLock
+            onPhase(MarketplaceOperationPhase.DOWNLOADING)
             val files = linkedMapOf("setup.json" to descriptor(entry))
             files["README.md"] = fetchAsset("README.md", GitHubMarketplaceCatalog.GUIDE_SHA256)
             if (entry.runtime == MarketplaceRuntime.COMPANION) {
@@ -103,6 +107,7 @@ class MarketplacePackageStore @Inject constructor(@ApplicationContext context: C
                 }
                 buffer.toByteArray()
             }
+            onPhase(MarketplaceOperationPhase.VERIFYING)
             check(verifyPackage(entry, bytes)) { "Package validation failed." }
             ensureActive()
             check(directory.isDirectory || directory.mkdirs() || directory.isDirectory) { "Unable to create package storage." }

@@ -1,6 +1,7 @@
 """Exact catalog-bound dispatch; display labels and alias prefixes are not owners."""
 import collections
 import re
+from v14.contracts import SchemaValidationError, validate_arguments, validate_schema
 
 
 class CatalogBindingError(ValueError):
@@ -28,9 +29,11 @@ def install_exact_routing(runtime):
             if meta.get('server') not in servers or not isinstance(meta.get('tool'), str) or name != meta['server'] + '_' + meta['tool']:
                 continue
             schema = fn.get('parameters', {})
-            if not isinstance(schema, dict) or schema.get('type', 'object') != 'object' or not isinstance(schema.get('properties', {}), dict) or not isinstance(schema.get('required', []), list):
+            if not isinstance(schema, dict):
                 continue
-            if not all(isinstance(field, str) for field in schema.get('required', [])) or not set(schema.get('required', [])) <= schema.get('properties', {}).keys():
+            try:
+                validate_schema(schema)
+            except SchemaValidationError:
                 continue
             valid.append(dict(item, function=dict(fn, parameters=schema)))
         with runtime.mcp_cache_lock:
@@ -45,8 +48,10 @@ def install_exact_routing(runtime):
         if meta['server'] not in runtime.load_mcp_config():
             raise CatalogBindingError('Connection no longer enabled')
         schema = definitions[name]['function']['parameters']
-        if not isinstance(arguments, dict) or any(field not in arguments for field in schema.get('required', [])):
-            raise CatalogBindingError('Required tool arguments missing')
+        try:
+            validate_arguments(schema, arguments)
+        except SchemaValidationError as exc:
+            raise CatalogBindingError('Tool arguments did not satisfy the admitted schema') from exc
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError('Tool canceled before dispatch')
         return runtime.mcp_call(meta['server'], 'tools/call', {'name': meta['tool'], 'arguments': arguments},

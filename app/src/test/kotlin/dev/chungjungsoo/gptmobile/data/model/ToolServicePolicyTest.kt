@@ -119,6 +119,17 @@ class ToolServicePolicyTest {
         assertFalse(ToolServiceCatalog.forConnection(first).id == ToolServiceCatalog.forConnection(second).id)
     }
 
+    @Test
+    fun marketplaceConnectionGroupingUsesStableProviderIdAfterDisplayEdits() {
+        val savedFromMarketplace = connection("marketplace-install", "Renamed integration", "https://private-host.example/mcp")
+            .copy(marketplaceOrigin = "MARKETPLACE", marketplaceProviderId = "searxng", marketplaceInstallationId = "install-1")
+        val renamed = savedFromMarketplace.copy(name = "My research server", alias = "my_research", endpointUrl = "https://another-host.example/mcp")
+
+        assertEquals("service:searxng", ToolServiceCatalog.forConnection(savedFromMarketplace).id)
+        assertEquals(ToolServiceCatalog.forConnection(savedFromMarketplace).id, ToolServiceCatalog.forConnection(renamed).id)
+        assertEquals("install-1", renamed.marketplaceInstallationId)
+    }
+
     private fun connection(uid: String, name: String, endpoint: String, type: String = ToolConnectionType.MCP) = ToolConnection(
         connectionUid = uid,
         name = name,

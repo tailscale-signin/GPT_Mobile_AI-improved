@@ -1,6 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.research.ResearchClaim
+import dev.chungjungsoo.gptmobile.data.research.ResearchCorpus
+import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
+import dev.chungjungsoo.gptmobile.data.research.ResearchSource
+import dev.chungjungsoo.gptmobile.data.research.ResearchToolEvent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -29,5 +34,27 @@ class CombinedSynthesisPromptTest {
     @Test fun excludesTransportErrorsFromUsablePartialContributions() {
         val prompt = combinedSynthesisPrompt("History", listOf(CombinedModelResponse("a", "A", content = "Useful history.\n\n[Response stopped: Connection lost]")))
         assertFalse(prompt.contains("Connection lost"))
+    }
+
+    @Test fun frozenSharedEvidenceIsAttachedAlongsideUntrustedContributions() {
+        val passage = "The documented limit is five requests per minute."
+        val source = ResearchSource("S1", "https://example.org/limits", "API guide", "Read", passage)
+        val corpus = ResearchCorpus.freeze(
+            ResearchSnapshot(
+                task = "Check API limits",
+                sources = listOf(source),
+                claims = listOf(ResearchClaim("The API permits five requests per minute.", "S1", passage, "Supported")),
+                toolEvents = listOf(ResearchToolEvent("API request limits", "search", outcome = "SUCCESS", sourceIds = listOf("S1")))
+            )
+        )
+
+        val prompt = Json.parseToJsonElement(
+            combinedSynthesisPrompt("Check API limits", listOf(CombinedModelResponse("p", "Research", content = "Five per minute.")), corpus)
+        ).jsonObject
+
+        val evidence = prompt.getValue("shared_evidence").jsonObject
+        assertEquals("S1", evidence.getValue("sources").jsonArray.single().jsonObject.getValue("id").jsonPrimitive.content)
+        assertEquals("Supported", evidence.getValue("claims").jsonArray.single().jsonObject.getValue("verdict").jsonPrimitive.content)
+        assertEquals("SUCCESS", evidence.getValue("toolEvents").jsonArray.single().jsonObject.getValue("outcome").jsonPrimitive.content)
     }
 }

@@ -213,7 +213,8 @@ class ToolConnectionsViewModel @Inject constructor(
         oauthClientId: String,
         allowCleartext: Boolean,
         clearCredential: Boolean,
-        onSuccess: () -> Unit = {}
+        onSuccess: () -> Unit = {},
+        marketplaceProviderId: String? = null
     ) {
         val normalizedAlias = normalizeAlias(alias)
         if (!isValidAlias(normalizedAlias)) {
@@ -233,6 +234,8 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             val now = System.currentTimeMillis() / 1000
             val clientId = oauthClientId.trim().takeIf { actualAuthType == ToolConnectionAuthType.OAUTH && it.isNotEmpty() }
+            val marketplaceOrigin = existing?.marketplaceOrigin
+                ?: if (marketplaceProviderId != null) "MARKETPLACE" else "MANUAL"
             val connection = ToolConnection(
                 connectionUid = existing?.connectionUid ?: UUID.randomUUID().toString(),
                 name = name.trim(),
@@ -244,7 +247,10 @@ class ToolConnectionsViewModel @Inject constructor(
                 oauthClientId = clientId,
                 allowCleartext = provider.type == ToolConnectionType.MCP && actualEndpoint.startsWith("http://", ignoreCase = true) && allowCleartext,
                 createdAt = existing?.createdAt ?: now,
-                updatedAt = now
+                updatedAt = now,
+                marketplaceOrigin = marketplaceOrigin,
+                marketplaceProviderId = existing?.marketplaceProviderId ?: marketplaceProviderId,
+                marketplaceInstallationId = existing?.marketplaceInstallationId ?: if (marketplaceOrigin == "MARKETPLACE") UUID.randomUUID().toString() else null
             ).preservingPolicyFrom(existing)
             val metadataChanged = existing?.let {
                 it.type != connection.type ||

@@ -221,7 +221,15 @@ fun McpMarketplaceScreen(
             val entry = GitHubMarketplaceCatalog.find(preset.id)
             when (statusFilter) {
                 "Installed" -> preset.id in addedIds
-                "Needs attention" -> preset.id in packageState.errors || (entry != null && installations[preset.id]?.ready(entry) == false)
+                "Needs attention" -> preset.id in packageState.errors || packageState.operations[preset.id]?.phase == dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED ||
+                    (entry != null && NativeMarketplaceCatalog.supports(entry) &&
+                        dev.chungjungsoo.gptmobile.data.marketplace.resolveNativeMarketplaceAvailability(entry, installations[preset.id], features).code in setOf(
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.NEEDS_SETUP,
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DISABLED,
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.PACKAGE_ACCESS_DISABLED,
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.SERVICE_ACCESS_DISABLED,
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DAILY_LIMIT_REACHED
+                        ))
                 "Downloading" -> preset.id in packageState.downloadingIds
                 else -> true
             }
@@ -388,6 +396,19 @@ fun McpMarketplaceScreen(
                     val installation = installations[preset.id]
                     val connection = connectionsState.connections.firstOrNull { it.alias == preset.alias }
                     val connectionHealth = connection?.let { connectionsState.connectionHealth[it.connectionUid] }
+                    val operation = packageState.operations[preset.id]
+                    val operationLabel = operation?.let {
+                        when (it.phase) {
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.QUEUED -> "Queued"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.DOWNLOADING -> "Downloading"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.VERIFYING -> "Verifying package"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.INSTALLING -> "Installing"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.SAVING -> "Saving settings"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.REMOVING -> "Removing"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.REPAIRING -> "Repairing"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED -> "Failed"
+                        }
+                    }
                     val builtinId = when (preset.id) {
                         "airbnb-native" -> ToolPluginId.AIRBNB
                         "builtin-memory" -> ToolPluginId.LOCAL_MEMORY
@@ -409,7 +430,7 @@ fun McpMarketplaceScreen(
                         downloaded = native && installation != null,
                         downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
                         changing = preset.id in packageState.changingIds,
-                        connectionStatus = if (native && entry != null) dev.chungjungsoo.gptmobile.data.marketplace.nativeMarketplaceAvailability(entry, installation, features, now) else connectionHealth?.let(::marketplaceConnectionStatus),
+                        connectionStatus = operationLabel ?: if (native && entry != null) dev.chungjungsoo.gptmobile.data.marketplace.nativeMarketplaceAvailability(entry, installation, features, now) else connectionHealth?.let(::marketplaceConnectionStatus),
                         error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
                         onExport = {
                             exportId = preset.id

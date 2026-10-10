@@ -1909,6 +1909,14 @@ class ChatViewModel @Inject constructor(
             }
         }
 
+        val normalizedResearchTask = userMessage.content.trim().replace(Regex("\\s+"), " ").take(8_000)
+        val sharedEvidence = researchSessionStore?.exportChat(persisted.assistantMessage.chatId)
+            ?.lastOrNull { session ->
+                session.snapshot.task.trim().replace(Regex("\\s+"), " ").take(8_000).equals(normalizedResearchTask, ignoreCase = true)
+            }
+            ?.snapshot
+            ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)
+
         // The primary edits all original contributions in one pass. The normal run
         // coordinator owns streaming, cancellation, usage, persistence and continuation.
         agentRunCoordinator.start(
@@ -1922,7 +1930,7 @@ class ChatViewModel @Inject constructor(
                         disableAllTools = true,
                         disableLocalTools = true
                     ),
-                    userMessages = listOf(userMessage.copy(content = combinedSynthesisPrompt(userMessage.content, sources), attachments = emptyList())),
+                    userMessages = listOf(userMessage.copy(content = combinedSynthesisPrompt(userMessage.content, sources, sharedEvidence), attachments = emptyList())),
                     assistantMessages = emptyList(),
                     chatToolConfig = _chatToolConfig.value.copy(
                         allToolsDisabled = true,

@@ -563,6 +563,7 @@ fun NavGraphBuilder.settingNavigation(
                         oauthClientId = "",
                         allowCleartext = allowCleartext,
                         clearCredential = false,
+                        marketplaceProviderId = preset.id,
                         onSuccess = {
                             if (authType == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType.OAUTH) {
                                 navController.navigateUp()

@@ -25,7 +25,8 @@ data class MarketplaceUiState(
     val errors: Map<String, String> = emptyMap(),
     val registryNeedsRepair: Boolean = false,
     val changingIds: Set<String> = emptySet(),
-    val message: String? = null
+    val message: String? = null,
+    val operations: Map<String, dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationState> = emptyMap()
 )
 
 /** Own downloads outside composition so rotation cannot cancel or duplicate them. */
@@ -155,39 +156,69 @@ class MarketplaceViewModel @Inject constructor(
             try {
                 // Do not let an older startup scan overwrite a new download/removal.
                 initialization.join()
-                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
-                    if (removing) {
+                if (removing) {
+                    setOperation(entry.id, dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.REMOVING)
+                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                         store.beginRemoval(entry)
                         if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
-                        toolTrust?.revoke(entry.id)
-                        freeConsent?.revokeConnection(entry.id)
-                        // Native registrations do not own similarly named MCP connections. Remove a
-                        // connection only from its own editor until an origin UID is available.
-                        store.remove(entry)
-                        if (entry.provider == "openstreetmap") {
-                            dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
-                                store.remove(legacy)
-                                toolTrust?.revoke(legacy.id)
-                                freeConsent?.revokeConnection(legacy.id)
-                            }
+                    }
+                    toolTrust?.revoke(entry.id)
+                    freeConsent?.revokeConnection(entry.id)
+                    // A marketplace-created MCP registration is owned by its persisted provider identity;
+                    // similarly named user-created connections are never removed as a side effect.
+                    connections.listConnections()
+                        .filter { it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == entry.id }
+                        .forEach { owned ->
+                            mcpClientManager?.close(owned.connectionUid)
+                            toolTrust?.revoke(owned.connectionUid)
+                            freeConsent?.revokeConnection(owned.connectionUid)
+                            connections.deleteConnection(owned.connectionUid)
                         }
-                    } else {
-                        store.download(entry)
+                    // Package disk work is protected by its package lock and does not hold the global settings lock.
+                    store.remove(entry)
+                    if (entry.provider == "openstreetmap") {
+                        dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
+                            store.remove(legacy)
+                            toolTrust?.revoke(legacy.id)
+                            freeConsent?.revokeConnection(legacy.id)
+                        }
+                    }
+                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                        store.finishRemoval(entry)
+                    }
+                } else {
+                    // Downloading and digest verification can take seconds; do not block unrelated settings mutations.
+                    store.download(entry) { phase -> setOperation(entry.id, phase) }
+                    setOperation(entry.id, dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.INSTALLING)
+                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                         if (NativeMarketplaceCatalog.supports(entry)) registry.install(entry)
                     }
-                    if (removing) store.finishRemoval(entry)
                 }
                 _uiState.update {
-                    it.copy(downloadedIds = if (removing) it.downloadedIds - entry.id else it.downloadedIds + entry.id)
+                    it.copy(
+                        downloadedIds = if (removing) it.downloadedIds - entry.id else it.downloadedIds + entry.id,
+                        operations = it.operations - entry.id
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 if (!removing) {
                     _uiState.update { it.copy(errors = it.errors + (entry.id to "Download cancelled. Retry when ready.")) }
                 }
+                _uiState.update { it.copy(operations = it.operations - entry.id) }
                 throw cancelled
             } catch (error: Exception) {
                 val message = dev.chungjungsoo.gptmobile.data.marketplace.marketplaceFailureMessage(error, removing)
-                _uiState.update { it.copy(errors = it.errors + (entry.id to message)) }
+                _uiState.update { state ->
+                    val previous = state.operations[entry.id]
+                    state.copy(
+                        errors = state.errors + (entry.id to message),
+                        operations = if (previous == null) state.operations else state.operations + (entry.id to previous.copy(
+                            phase = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED,
+                            updatedAt = System.currentTimeMillis(),
+                            failureCode = error::class.simpleName?.take(80) ?: "operation_failed"
+                        ))
+                    )
+                }
             }
         }
         jobs[entry.id] = job
@@ -195,7 +226,13 @@ class MarketplaceViewModel @Inject constructor(
             it.copy(
                 downloadingIds = if (removing) it.downloadingIds else it.downloadingIds + entry.id,
                 removingIds = if (removing) it.removingIds + entry.id else it.removingIds,
-                errors = it.errors - entry.id
+                errors = it.errors - entry.id,
+                operations = it.operations + (entry.id to dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationState(
+                    operationId = java.util.UUID.randomUUID().toString(),
+                    packageId = entry.id,
+                    phase = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.QUEUED,
+                    startedAt = System.currentTimeMillis()
+                ))
             )
         }
         // Also runs if cancellation happens before the coroutine body starts.
@@ -204,5 +241,12 @@ class MarketplaceViewModel @Inject constructor(
             _uiState.update { it.copy(downloadingIds = it.downloadingIds - entry.id, removingIds = it.removingIds - entry.id) }
         }
         job.start()
+    }
+
+    private fun setOperation(id: String, phase: dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase) {
+        _uiState.update { state ->
+            val current = state.operations[id] ?: return@update state
+            state.copy(operations = state.operations + (id to current.copy(phase = phase, updatedAt = System.currentTimeMillis())))
+        }
     }
 }

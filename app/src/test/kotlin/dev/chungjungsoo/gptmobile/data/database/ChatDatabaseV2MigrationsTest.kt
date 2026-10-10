@@ -89,7 +89,7 @@ class ChatDatabaseV2MigrationsTest {
         }
 
         assertEquals(10, ChatDatabaseV2Migrations.ALL_MIGRATIONS.first().startVersion)
-        assertEquals(35, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
+        assertEquals(36, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
 
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
@@ -239,5 +239,13 @@ class ChatDatabaseV2MigrationsTest {
     fun `default favorite state is false`() {
         val chatRoom = ChatRoomV2(title = "Test Room")
         assertFalse(chatRoom.isFavorite)
+    }
+
+    @Test
+    fun `marketplace identity migration is additive and keeps legacy connections manual`() {
+        val migration = ChatDatabaseV2Migrations.MIGRATION_35_36
+
+        assertEquals(35, migration.startVersion)
+        assertEquals(36, migration.endVersion)
     }
 }

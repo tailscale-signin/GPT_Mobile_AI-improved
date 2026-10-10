@@ -1158,7 +1158,7 @@ class LocalDelegationCoordinatorTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(preparationTimeoutSeconds = 30) },
+            { config.copy(researchEnabled = true, preparationTimeoutSeconds = 30) },
             { listOf(target) },
             { _, _, _ ->
                 calls++

@@ -102,6 +102,7 @@ internal class LocalDelegationCoordinator(
     private val failuresByWorker = ConcurrentHashMap<String, AtomicInteger>()
     private val timeoutsByWorker = ConcurrentHashMap<String, AtomicInteger>()
     private val emptyResponsesByWorker = ConcurrentHashMap<String, AtomicInteger>()
+    private val reasoningOnlyFailuresByWorker = ConcurrentHashMap<String, AtomicInteger>()
     private val quarantinedWorkerUids = ConcurrentHashMap.newKeySet<String>()
     private val observedRequestOverheadTokens = ConcurrentHashMap<String, AtomicLong>()
     private val delegationCanceledByUser = AtomicBoolean(false)
@@ -642,6 +643,7 @@ internal class LocalDelegationCoordinator(
         response.takeIf { it.isNotBlank() }?.let { usable ->
             timeoutsByWorker[profile.uid]?.set(0)
             emptyResponsesByWorker[profile.uid]?.set(0)
+            reasoningOnlyFailuresByWorker[profile.uid]?.set(0)
             failuresByWorker[profile.uid]?.set(0)
             failureFingerprints.keys.removeAll { it.startsWith("${profile.uid}|") }
             quarantinedWorkerUids.remove(profile.uid)
@@ -681,7 +683,8 @@ internal class LocalDelegationCoordinator(
         dispatchedAtMs: Long?,
         latest: ModelDelegationSettings,
         interactiveRecovery: Boolean,
-        allowFailover: Boolean
+        allowFailover: Boolean,
+        requestedOutputCap: Int
     ): WorkerResolution {
         val budgetExhausted = failure.message.orEmpty().contains("DELEGATE_WASTE_BUDGET_EXHAUSTED")
         // REPAIR_WASTE already charged the complete provider usage before stopping.
@@ -700,9 +703,17 @@ internal class LocalDelegationCoordinator(
         val counter = emptyResponsesByWorker.getOrPut(failedUid, ::AtomicInteger)
         val emptyCount = if (classified.softEmpty) counter.incrementAndGet() else counter.get()
         val failures = failuresByWorker.getOrPut(failedUid, ::AtomicInteger).incrementAndGet()
-        val fingerprint = "$failedUid|${latest.maxOutputTokens}|${prompt.hashCode()}|${typed?.kind ?: failure.javaClass.simpleName}|${classified.message.take(240).hashCode()}"
+        val fingerprint = "$failedUid|$requestedOutputCap|${prompt.hashCode()}|${typed?.kind ?: failure.javaClass.simpleName}|${classified.message.take(240).hashCode()}"
         val repeatedFailure = failureFingerprints.getOrPut(fingerprint, ::AtomicInteger).incrementAndGet() >= 2
-        val nonRecoverable = classified.reasoningOnly || (classified.softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES) || repeatedFailure
+        val reasoningOnlyCount = if (classified.reasoningOnly) {
+            reasoningOnlyFailuresByWorker.getOrPut(failedUid, ::AtomicInteger).incrementAndGet()
+        } else {
+            reasoningOnlyFailuresByWorker[failedUid]?.get() ?: 0
+        }
+        val nonRecoverable =
+            (classified.reasoningOnly && reasoningOnlyCount >= 2) ||
+                (classified.softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES) ||
+                repeatedFailure
         val shouldQuarantine =
             classified.authBlocked ||
                 classified.permanentlyUnavailable ||
@@ -981,10 +992,11 @@ internal class LocalDelegationCoordinator(
         }
 
         val priorSoftFailures = emptyResponsesByWorker[profile.uid]?.get() ?: 0
+        val priorReasoningOnlyFailures = reasoningOnlyFailuresByWorker[profile.uid]?.get() ?: 0
         val requestedOutputCap = delegationOutputBudget(
             profile,
             minOf(tokens, latest.maxOutputTokens).let { requested ->
-                if (estimatedDelegateTokens(prompt) >= 3_000 || priorSoftFailures > 0) {
+                if (estimatedDelegateTokens(prompt) >= 3_000 || priorSoftFailures > 0 || priorReasoningOnlyFailures > 0) {
                     maxOf(requested, minOf(768, latest.maxOutputTokens))
                 } else {
                     requested
@@ -1142,6 +1154,7 @@ internal class LocalDelegationCoordinator(
         var recoveryReason: String? = null
         var retrySameTarget = true
         var dispatchedAtMs: Long? = null
+        var requestedOutputCapForFailure = tokens
         val result = worker.withPermit {
             val latest = (pinnedConfig ?: settings()).normalized()
             awaitWorkerSlot(latest.maxConcurrentDelegates)
@@ -1171,6 +1184,7 @@ internal class LocalDelegationCoordinator(
                 val estimatedInput = plan.estimatedInput
                 val estimatedEffectiveInput = plan.estimatedEffectiveInput
                 val requestedOutputCap = plan.requestedOutputCap
+                requestedOutputCapForFailure = requestedOutputCap
                 val runtimeSeconds = plan.runtimeSeconds
                 val hardRuntimeSeconds = plan.hardRuntimeSeconds
                 val firstProgressSeconds = plan.firstProgressSeconds
@@ -1246,7 +1260,8 @@ internal class LocalDelegationCoordinator(
                     dispatchedAtMs = dispatchedAtMs,
                     latest = latestAfterFailure,
                     interactiveRecovery = interactiveRecovery,
-                    allowFailover = sameTargetRetryAttempt >= latestAfterFailure.localRetryLimit
+                    allowFailover = sameTargetRetryAttempt >= latestAfterFailure.localRetryLimit,
+                    requestedOutputCap = requestedOutputCapForFailure
                 )
                 recoveryReason = resolution.recoveryReason
                 failoverTarget = resolution.failoverTarget

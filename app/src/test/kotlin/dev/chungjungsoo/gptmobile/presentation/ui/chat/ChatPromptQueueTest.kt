@@ -68,6 +68,7 @@ class ChatPromptQueueTest {
     private val starts = mutableListOf<List<AgentRunRequest>>()
     private val synthesisGate = CompletableDeferred<Unit>()
     private val synthesisMerged = CompletableDeferred<Unit>()
+    private val combinedSynthesisStarted = CompletableDeferred<Unit>()
     private val queuedTurnStarted = CompletableDeferred<Unit>()
     private var synthesisCompletionGate: CompletableDeferred<Unit>? = null
     private var membershipGate: CompletableDeferred<Unit>? = null
@@ -143,16 +144,20 @@ class ChatPromptQueueTest {
 
         synthesisGate.complete(Unit)
         synthesisMerged.await()
+        combinedSynthesisStarted.await()
         runCurrent()
         assertTrue(submissions.isEmpty())
-        assertTrue(starts.isEmpty())
+        assertTrue(starts.single().any { it.runId.startsWith("combined-") })
 
         synthesisCompletionGate!!.complete(Unit)
+        runs.value = runs.value.map { if (it.runId.startsWith("combined-")) it.copy(status = AgentRunStatus.COMPLETED) else it }
+        activeRuns.value = emptyMap()
+        runCurrent()
         queuedTurnStarted.await()
         runCurrent()
-        assertEquals(1, starts.size)
-        assertTrue(starts.single().isNotEmpty())
-        assertFalse(starts.single().any { it.runId.startsWith("combined-") })
+        assertEquals(2, starts.size)
+        assertTrue(starts.first().any { it.runId.startsWith("combined-") })
+        assertFalse(starts.last().any { it.runId.startsWith("combined-") })
         assertEquals(listOf("Follow up"), submissions.map { it.userMessage.content })
         assertTrue(runs.value.any { it.runId.startsWith("combined-") && it.status == AgentRunStatus.COMPLETED })
     }
@@ -375,7 +380,11 @@ class ChatPromptQueueTest {
             val requests = firstArg<List<AgentRunRequest>>()
             starts += requests
             activeRuns.value = activeRuns.value + requests.associate { it.runId to ActiveAgentRun(it.runId, 7, it.platform.uid) }
-            queuedTurnStarted.complete(Unit)
+            if (requests.any { it.runId.startsWith("combined-") }) {
+                combinedSynthesisStarted.complete(Unit)
+            } else {
+                queuedTurnStarted.complete(Unit)
+            }
         }
         val localModels = mockk<LocalModelRepository>(relaxed = true)
         every { localModels.observeAll() } returns flowOf(emptyList())

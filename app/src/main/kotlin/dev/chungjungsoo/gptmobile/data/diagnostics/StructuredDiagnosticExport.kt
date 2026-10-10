@@ -21,8 +21,14 @@ internal fun structuredDiagnosticLine(line: String): String {
             put(
                 "fields",
                 buildJsonObject {
-                    Regex("(?:^| · )([A-Za-z][A-Za-z0-9_]*)=([^·]*)").findAll(message).forEach { field ->
-                        put(field.groupValues[1], field.groupValues[2].trim())
+                    message.split(" · ").drop(1).forEach { field ->
+                        val separator = field.indexOf('=')
+                        if (separator > 0) {
+                            val key = field.substring(0, separator).trim()
+                            if (key.matches(Regex("[A-Za-z][A-Za-z0-9_]*"))) {
+                                put(key, field.substring(separator + 1).trim())
+                            }
+                        }
                     }
                 }
             )

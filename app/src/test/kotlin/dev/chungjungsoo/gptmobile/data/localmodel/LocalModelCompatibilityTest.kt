@@ -19,5 +19,10 @@ class LocalModelCompatibilityTest {
                 "gemma-4-E2B-it.litertlm"
             )
         )
+        assertTrue(
+            "Imported packages without catalog metadata must retain the safety block",
+            LocalModelCompatibility.installedPackageIssue("", "/models/gemma-4-E2B-it_qualcomm_sm8750.litertlm")
+                ?.contains("crash the Android process") == true
+        )
     }
 }

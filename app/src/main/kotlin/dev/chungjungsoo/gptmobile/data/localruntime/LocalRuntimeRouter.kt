@@ -59,7 +59,7 @@ class LocalRuntimeRouter(
                 activate(runtime, if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.GENIEX_QAIRT) LocalRuntimeBackend.GENIEX_QAIRT else LocalRuntimeBackend.GENIEX_LLAMA_CPP, requested, spec, preferred)
                 return
             }
-            if (preferred == LocalRuntimeBackend.QUALCOMM_QNN && LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
+            if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
                 try {
                     qnnRuntime.loadEngine(spec)
                     activate(qnnRuntime, LocalRuntimeBackend.QUALCOMM_QNN, requested, spec, preferred)
@@ -68,44 +68,20 @@ class LocalRuntimeRouter(
                     throw cancelled
                 } catch (error: Throwable) {
                     if (error !is Exception && error !is LinkageError) throw error
-                    // Failed initialization can own native resources, even before a spec is cached.
                     qnnRuntime.unloadEngine()
-                    if (!settingRepository.getFeatureSettings().qnnAutomaticFallback) {
-                        throw LocalRuntimeFallbackDisabledException(error)
-                    }
                     if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) {
                         throw LocalNpuPackageException(error)
                     }
-                    Log.w(TAG, "QNN failed; trying LiteRT-LM", error)
-                    // Retrying NPU with the same Qualcomm dispatch is not a fallback.
-                    val fallback = if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
-                        spec.copy(accelerator = LocalAccelerators.GPU, litertDispatchLibDir = null)
-                    } else {
-                        spec.copy(litertDispatchLibDir = null)
+                    if (!settingRepository.getFeatureSettings().qnnAutomaticFallback) {
+                        throw LocalRuntimeFallbackDisabledException(error)
                     }
-                    val actual = loadLiteRt(fallback)
-                    activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, requested, actual, preferred, error.message)
-                    return
-                }
-            }
-            // Both UI routes use the same admission, environment and native-init guard.
-            if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
-                try {
-                    qnnRuntime.loadEngine(spec)
-                    activate(qnnRuntime, LocalRuntimeBackend.QUALCOMM_QNN, requested, spec, preferred)
-                    return
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    qnnRuntime.unloadEngine()
-                    if (!settingRepository.getFeatureSettings().qnnAutomaticFallback) throw LocalRuntimeFallbackDisabledException(error)
-                    if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) throw LocalNpuPackageException(error)
+                    Log.w(TAG, "QNN initialization failed; trying a compatible LiteRT-LM accelerator", error)
                     val fallback = loadLiteRt(spec.copy(accelerator = LocalAccelerators.GPU, litertDispatchLibDir = null))
-                    activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, requested, fallback, preferred, "NPU initialization unavailable")
+                    activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, requested, fallback, preferred, error.message)
                     return
                 }
             }
-            val actual = loadLiteRt(spec)
+            val actual = loadLiteRt(spec.copy(litertDispatchLibDir = null))
             activate(
                 liteRtRuntime,
                 LocalRuntimeBackend.LITERT_LM,

@@ -65,8 +65,11 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             try {
                 val probe = withContext(Dispatchers.IO) { QnnEnvironment.initialize(context) }
                 _qnnAvailable.value = probe.isReady
-                if (!probe.isReady && repository.getLocalRuntimeBackend() == LocalRuntimeBackend.QUALCOMM_QNN) repository.updateLocalRuntimeBackend(LocalRuntimeBackend.LITERT_LM)
-                _npuStatus.value = if (probe.isReady) "Qualcomm NPU prerequisites ready; use a matching model" else probe.errorMessage ?: "NPU unavailable for this device or build"
+                _npuStatus.value = if (probe.isReady) {
+                    "Prerequisites present · ${probe.processAbi} · QNN is not yet verified on this phone"
+                } else {
+                    probe.errorMessage ?: "NPU unavailable for this device or build"
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

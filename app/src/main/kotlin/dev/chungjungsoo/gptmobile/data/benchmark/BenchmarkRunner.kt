@@ -74,7 +74,11 @@ class BenchmarkRunner(
 
     private suspend fun runOnce(test: BenchmarkCase, supportsTools: Boolean, limitMs: Long): BenchmarkSample {
         if (test.category == "tools" && !supportsTools) {
-            return BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.UNSUPPORTED, error = "This model does not advertise tool support; excluded from the rating.")
+            return BenchmarkSample(
+                test.id, test.label, test.category, BenchmarkOutcome.UNSUPPORTED,
+                error = "This model does not advertise tool support; excluded from the rating.",
+                failureCategory = "UNSUPPORTED"
+            )
         }
         val started = now()
         val text = StringBuilder()
@@ -190,7 +194,10 @@ class BenchmarkRunner(
                 check(text.isNotBlank()) { "Provider returned no answer" }
                 true
             }
-            if (finished != true) return sample(BenchmarkOutcome.TIMED_OUT, "Exceeded ${limitMs / 1000}s remaining per-test limit")
+            if (finished != true) return sample(
+                BenchmarkOutcome.TIMED_OUT,
+                "Exceeded ${limitMs / 1000}s remaining per-test limit"
+            ).copy(failureCategory = "TIMEOUT")
             val answer = text.toString().trim()
             val passed = when (test.category) {
                 "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || ReferenceTextTokenizer.starts(answer).size >= 128)
@@ -205,11 +212,31 @@ class BenchmarkRunner(
                     }
                     )
             }
-            return sample(if (passed) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED, if (passed) null else "Response did not meet the fixture's expected result.")
+            val result = sample(
+                if (passed) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED,
+                if (passed) null else "Response did not meet the fixture's expected result."
+            )
+            return if (passed) result else result.copy(failureCategory = "MODEL_QUALITY")
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Exception) {
-            return sample(BenchmarkOutcome.ERROR, DiagnosticRedactor.redact(error.message ?: "Benchmark request failed").take(500))
+            val qnn = generateSequence(error) { it.cause }
+                .filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>()
+                .firstOrNull()
+            val detail = error.message.orEmpty()
+            val reportedQnnStage = Regex("QNN ([A-Z_]+) failed \\[").find(detail)?.groupValues?.getOrNull(1)
+            val category = when {
+                qnn != null || reportedQnnStage != null -> "INIT"
+                detail.contains("context", ignoreCase = true) && detail.contains("token", ignoreCase = true) -> "CONTEXT"
+                detail.contains("timeout", ignoreCase = true) -> "TIMEOUT"
+                detail.contains("provider", ignoreCase = true) || detail.contains("http", ignoreCase = true) -> "PROVIDER"
+                detail.contains("disabled", ignoreCase = true) || detail.contains("unsupported", ignoreCase = true) -> "UNSUPPORTED"
+                else -> "UNKNOWN"
+            }
+            return sample(BenchmarkOutcome.ERROR, DiagnosticRedactor.redact(detail.ifBlank { "Benchmark request failed" }).take(500)).copy(
+                failureCategory = category,
+                runtimeStage = qnn?.stage?.name ?: reportedQnnStage
+            )
         }
     }
 }

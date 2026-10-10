@@ -11,6 +11,7 @@ import androidx.room.Room
 import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2Migrations
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
@@ -46,7 +47,8 @@ class CompleteBackupManager @Inject constructor(
     private val secretVault: SecretVault,
     private val settings: SettingRepository,
     private val legacy: AppBackupManager,
-    private val nativePlugins: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null
+    private val nativePlugins: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
+    private val benchmarkStore: BenchmarkStore
 ) {
     private val mutex = Mutex()
     private val protectionMutex = Mutex()
@@ -245,6 +247,12 @@ class CompleteBackupManager @Inject constructor(
                 .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.json")) && it.length() <= 512 * 1024 }
                 .forEach { sources["internal/research-history/${it.name}"] = it }
         }
+        if (CompleteBackupSection.STATISTICS in selected.sections) {
+            val benchmarkFile = File(work, "benchmark-results.json").apply {
+                writeText(benchmarkStore.exportJson())
+            }
+            sources["internal/benchmark-results/benchmark-results.json"] = benchmarkFile
+        }
         if (selected.includes(CompleteBackupSection.TOOLS)) {
             sources.putAll(storage.collectPlugins())
             nativePlugins?.backupState()?.let { bytes ->
@@ -418,6 +426,8 @@ class CompleteBackupManager @Inject constructor(
             .filter { path ->
                 if (path.startsWith("internal/research-history/")) {
                     effective.includes(CompleteBackupSection.CONVERSATIONS)
+                } else if (path == "internal/benchmark-results/benchmark-results.json") {
+                    CompleteBackupSection.STATISTICS in effective.sections
                 } else if (CompleteBackupFiles.isPluginPath(path)) {
                     effective.includes(CompleteBackupSection.TOOLS)
                 } else {
@@ -426,6 +436,9 @@ class CompleteBackupManager @Inject constructor(
                 }
             }
             .toSet()
+        val benchmarkImportJson = selectedPaths
+            .firstOrNull { it == "internal/benchmark-results/benchmark-results.json" }
+            ?.let { path -> File(staging, path).readText().also(benchmarkStore::validateBackupJson) }
         require(selectedPaths.map(storage::target).toSet().size == selectedPaths.size) {
             "Conflicting backup file locations."
         }
@@ -505,6 +518,7 @@ class CompleteBackupManager @Inject constructor(
             }
 
             if (selectedPaths.isNotEmpty()) replacement.cleanup()
+            benchmarkImportJson?.let(benchmarkStore::importBackupJson)
             clearRestoreMarker()
             settings.invalidatePlatformCache()
         } finally {

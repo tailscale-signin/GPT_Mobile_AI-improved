@@ -51,7 +51,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LocalRuntimeBackend.entries.filter { it == LocalRuntimeBackend.LITERT_LM || (it == LocalRuntimeBackend.QUALCOMM_QNN && qnnAvailable && !dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) }.forEach { option -> FilterChip(selected = backend == option, onClick = { viewModel.selectBackend(option) }, label = { Text(option.displayName) }, enabled = !busy) }
             }
-            if (qnnAvailable) Text(npuStatus, style = MaterialTheme.typography.bodySmall)
+            Text(npuStatus, style = MaterialTheme.typography.bodySmall)
             if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) Text("GenieX preview · Import a validated .localmodel bundle. Chat only; device qualification pending.", style = MaterialTheme.typography.bodySmall)
             Text("LiteRT-LM ${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION} · QAIRT ${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}", style = MaterialTheme.typography.labelSmall)
             Text("CPU/GPU use compatible LiteRT-LM packages. NPU requires the exact SoC model build. Choose the accelerator and context in each AI profile.", style = MaterialTheme.typography.bodySmall)

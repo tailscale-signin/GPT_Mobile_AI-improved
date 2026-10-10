@@ -14,6 +14,8 @@ enum class BenchmarkMode(val label: String) { QUICK("Quick Check"), FULL("Core T
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED }
 
+data class BenchmarkProgress(val profileName: String, val testName: String, val completed: Int, val total: Int)
+
 @Serializable
 data class DelegationBenchmarkEvent(
     val elapsedMs: Long,
@@ -90,7 +92,9 @@ data class BenchmarkSample(
     val tokenBasis: String = "legacy-provider-or-estimated",
     val warmup: Boolean = false,
     val workload: String = "legacy",
-    val firstChunkCharacters: Int = 0
+    val firstChunkCharacters: Int = 0,
+    val failureCategory: String? = null,
+    val runtimeStage: String? = null
 ) {
     val referenceSpeed: Double? get() = firstTextMs?.let { first ->
         val last = lastTextMs ?: return@let null

@@ -20,6 +20,7 @@ object QnnEnvironment {
     data class QnnProbeStatus(
         val isQualcommDevice: Boolean,
         val socModel: String,
+        val processAbi: String,
         val nativeLibDir: String,
         val dispatchDir: String,
         val adspPath: String,
@@ -30,7 +31,10 @@ object QnnEnvironment {
         // Prerequisites only; successful native initialization is the execution check.
         val isReady: Boolean,
         val errorMessage: String? = null
-    )
+    ) {
+        /** Static package prerequisites only; this does not claim QNN has been verified. */
+        val prerequisitesReady: Boolean get() = isReady
+    }
 
     @Synchronized
     fun initialize(context: Context, forceRefresh: Boolean = false): QnnProbeStatus {
@@ -43,8 +47,9 @@ object QnnEnvironment {
         val nativeDir = File(app.applicationInfo.nativeLibraryDir)
         val required = QualcommSocSupport.requiredLibraries(soc)
         val qualcomm = isQualcommPlatform()
-        val arm64 = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
-        val dispatch = if (qualcomm && arm64 && required.isNotEmpty()) {
+        val processIsArm64 = android.os.Process.is64Bit() && Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+        val processAbi = if (android.os.Process.is64Bit()) "arm64-v8a" else Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+        val dispatch = if (qualcomm && processIsArm64 && required.isNotEmpty()) {
             ensurePhysicalLibraries(app, required)
         } else {
             nativeDir
@@ -65,7 +70,7 @@ object QnnEnvironment {
             .plus(runCatching { Os.getenv("LD_LIBRARY_PATH") }.getOrNull().orEmpty().split(':'))
             .filter(String::isNotBlank).distinct().joinToString(":")
         var environmentError: String? = null
-        if (qualcomm && arm64 && required.isNotEmpty()) {
+        if (qualcomm && processIsArm64 && required.isNotEmpty()) {
             try {
                 Os.setenv("ADSP_LIBRARY_PATH", adsp, true)
                 Os.setenv("LD_LIBRARY_PATH", ld, true)
@@ -75,7 +80,7 @@ object QnnEnvironment {
         }
         val reason = when {
             !qualcomm -> "This device is not a Qualcomm platform"
-            !arm64 -> "Qualcomm NPU requires an arm64 process"
+            !processIsArm64 -> "Qualcomm NPU requires an arm64 process"
             required.isEmpty() -> "No packaged Qualcomm NPU support for SoC $soc"
             missing.isNotEmpty() -> "Missing Qualcomm libraries: ${missing.joinToString()}"
             environmentError != null -> environmentError
@@ -83,6 +88,7 @@ object QnnEnvironment {
         }
         return QnnProbeStatus(
             isQualcommDevice = qualcomm, socModel = soc, nativeLibDir = nativeDir.path,
+            processAbi = processAbi,
             dispatchDir = dispatch.path, adspPath = adsp, ldPath = ld, missingLibraries = missing,
             skelFileExists = skel?.isUsableLibrary() == true,
             skelFilePath = skel?.takeIf { it.isUsableLibrary() }?.path.orEmpty(),

@@ -99,7 +99,10 @@ class LocalRuntimeImpl(
             }
             // Pre-flight model integrity verification to avoid native hard crashes (SIGSEGV)
             if (LocalAccelerators.normalize(spec.accelerator) != LocalAccelerators.NPU) {
-                dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalled(java.io.File(spec.modelPath))
+                dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalledCached(
+                    java.io.File(spec.modelPath),
+                    java.io.File(context.noBackupFilesDir, "model-identity-cache")
+                )
             }
             when (val validation = LocalModelValidator.validate(spec.modelPath)) {
                 is ModelValidationResult.Invalid -> {

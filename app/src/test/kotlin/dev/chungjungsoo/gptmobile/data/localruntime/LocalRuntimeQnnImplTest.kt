@@ -10,7 +10,7 @@ import org.junit.Test
 class LocalRuntimeQnnImplTest {
     private val spec = LocalEngineSpec("model.litertlm", "npu", 1280)
     private val ready = QnnEnvironment.QnnProbeStatus(
-        true, "SM8750", "/native", "/dispatch", "/dispatch", "/dispatch", emptyList(), true,
+        true, "SM8750", "arm64-v8a", "/native", "/dispatch", "/dispatch", "/dispatch", emptyList(), true,
         "/dispatch/libQnnHtpV79Skel.so", true
     )
     private val noOpGuard = object : QnnLoadGuard {

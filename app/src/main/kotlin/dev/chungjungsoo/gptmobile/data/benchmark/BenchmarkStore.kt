@@ -17,10 +17,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
+
+@Serializable
+internal data class BenchmarkBackupPayload(
+    val schemaVersion: Int = 1,
+    val exportedAt: Long = System.currentTimeMillis(),
+    val runs: List<BenchmarkRun> = emptyList(),
+    val scoreTable: BenchmarkScoreSnapshot? = null
+)
 
 @Singleton
 class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Context) {
@@ -125,6 +134,20 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         }
     }
 
+    internal suspend fun markInterruptedRuns() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadLocked()
+            val recovered = mutableHistory.value.map { run ->
+                if (run.finished) run else run.copy(
+                    finished = true,
+                    canceled = true,
+                    stoppedReason = run.stoppedReason ?: "Benchmark interrupted when Android stopped the app."
+                )
+            }
+            if (recovered != mutableHistory.value) persist(recovered)
+        }
+    }
+
     private suspend fun publish(runs: List<BenchmarkRun>) {
         val previous = dao.current()?.generation ?: 0L
         val next = DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis(), activeRevisions)
@@ -141,8 +164,44 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     suspend fun exportJson(): String = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadLocked()
-            json.encodeToString(mutableHistory.value)
+            json.encodeToString(
+                BenchmarkBackupPayload(
+                    runs = mutableHistory.value,
+                    scoreTable = mutableSnapshot.value
+                )
+            )
         }
+    }
+
+    /** Restore benchmark history and rebuild the dynamic score tables from their source runs. */
+    suspend fun importBackupJson(payload: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val runs = decodeBackupRuns(payload)
+            loadLocked()
+            persist(
+                runs.distinctBy { it.id }.map { run ->
+                    if (run.finished) run else run.copy(
+                        finished = true,
+                        canceled = true,
+                        stoppedReason = run.stoppedReason ?: "Benchmark was in progress when the backup was created."
+                    )
+                }.sortedByDescending { it.startedAt }
+            )
+        }
+    }
+
+    fun validateBackupJson(payload: String) {
+        decodeBackupRuns(payload)
+    }
+
+    private fun decodeBackupRuns(payload: String): List<BenchmarkRun> {
+        val decoded = json.parseToJsonElement(payload)
+        val bundle = runCatching { json.decodeFromJsonElement<BenchmarkBackupPayload>(decoded) }.getOrNull()
+        if (bundle != null) require(bundle.schemaVersion == 1) { "This benchmark backup requires a newer app version." }
+        val runs = bundle?.runs ?: json.decodeFromJsonElement<List<BenchmarkRun>>(decoded)
+        require(runs.size <= MAX_BACKUP_RUNS) { "Benchmark backup contains too many runs." }
+        require(runs.all { it.id.isNotBlank() && it.profileUid.isNotBlank() }) { "Benchmark backup contains invalid records." }
+        return runs
     }
 
     private suspend fun persist(runs: List<BenchmarkRun>) {
@@ -154,5 +213,9 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             writingMirror = false
         }
         mutableHistory.value = runs
+    }
+
+    private companion object {
+        const val MAX_BACKUP_RUNS = 10_000
     }
 }

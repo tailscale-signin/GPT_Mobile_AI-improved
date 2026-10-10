@@ -15,7 +15,7 @@ manifest = validate_package(Path(__file__).parent)
 
 import gateway_v13 as runtime
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from v14.identity import Admission
 from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
@@ -55,7 +55,21 @@ async def chat(request: Request):
         payload = await request.json()
         runtime.validate_chat_request(payload)
         request._json = apply_client_recall(payload, runtime.LLAMA_BASE)
-        return await runtime.chat_completions(request)
+        response = await runtime.chat_completions(request)
+        if isinstance(response, StreamingResponse):
+            # Registration happens before the first keepalive. Prime it here,
+            # while a failed journal commit can still return an HTTP 503.
+            iterator = response.body_iterator
+            first = await anext(iterator)
+            async def admitted_stream():
+                try:
+                    yield first
+                    async for chunk in iterator:
+                        yield chunk
+                finally:
+                    await iterator.aclose()
+            response.body_iterator = admitted_stream()
+        return response
     except DurableCommitError:
         return JSONResponse({"error": {"code": "durable_commit_failed"}}, status_code=503)
     except PermissionError:

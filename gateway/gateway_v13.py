@@ -18877,33 +18877,18 @@ async def stream_chat_with_keepalive(
             done_task,
         ):
             try:
-                status_code, result = (
-                    done_task.result()
-                )
-
-                finish_gateway_job(
-                    gateway_job_id,
-                    status_code,
-                    result,
-                )
-
-            except asyncio.CancelledError:
-                finish_gateway_job(
-                    gateway_job_id,
-                    499,
-                    None,
-                    error=
-                        "Worker task cancelled",
-                )
-
+                try:
+                    status_code, result = done_task.result()
+                except asyncio.CancelledError:
+                    finish_gateway_job(gateway_job_id, 499, None, error="Worker task cancelled")
+                except Exception as e:
+                    finish_gateway_job(gateway_job_id, 500, None, error=e)
+                else:
+                    finish_gateway_job(gateway_job_id, status_code, result)
             except Exception as e:
-                finish_gateway_job(
-                    gateway_job_id,
-                    500,
-                    None,
-                    error=e,
-                )
-
+                # A failed commit is not a model failure to overwrite or a
+                # successful answer to stream. Share the failure with followers.
+                worker_entry["persistence_error"] = e
             finally:
                 mark_singleflight_worker_finished(
                     gateway_job_id,
@@ -18964,13 +18949,12 @@ async def stream_chat_with_keepalive(
         else 0
     )
 
-    yield make_keepalive_sse(
-        model,
-        keepalive_id,
-        created,
-    )
-
     try:
+        yield make_keepalive_sse(
+            model,
+            keepalive_id,
+            created,
+        )
         while True:
             if v12_delegate_stream and time.monotonic() - v12_stream_started >= V13_DELEGATE_DEADLINE_SECONDS + LLAMA_MODEL_QUEUE_TIMEOUT_SECONDS + 5:
                 cancel_event.set()
@@ -19066,6 +19050,8 @@ async def stream_chat_with_keepalive(
                     )
                 )
 
+                if worker_entry.get("persistence_error") is not None:
+                    raise worker_entry["persistence_error"]
                 break
 
             except asyncio.TimeoutError:
@@ -19349,6 +19335,12 @@ async def chat_completions(
                     ]
                 )
 
+                if worker.get("persistence_error") is not None:
+                    return JSONResponse(
+                        status_code=503,
+                        content={"error": {"code": "durable_commit_failed"}},
+                        headers=response_headers,
+                    )
                 if status_code != 200:
                     return JSONResponse(
                         status_code=

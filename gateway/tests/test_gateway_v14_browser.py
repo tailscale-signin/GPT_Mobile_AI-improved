@@ -61,6 +61,16 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         proxy.assert_not_called()
 
+    def test_upstream_tools_not_found_is_preserved_after_admission(self):
+        token = self.client.get('/gateway/session').json()['csrfToken']
+        upstream = Mock(status_code=404, content=b'{"error":"Unknown tool"}', headers={'content-type':'application/json'})
+        with patch.object(self.gateway.runtime, 'http_request', return_value=upstream) as proxy:
+            response = self.client.post('/tools', headers={'Origin':'http://127.0.0.1:8090','X-Gateway-CSRF':token}, json={})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {'error':'Unknown tool'})
+        self.assertEqual(proxy.call_args.args, ('POST', self.gateway.runtime.LLAMA_BASE + '/tools'))
+        self.assertNotIn('x-gateway-admission-error', response.headers)
+
     def test_non_html_and_duplicate_injection_do_not_change_content(self):
         response=Response(b'{"data":1}',media_type='application/json')
         self.assertIs(inject_bootstrap(response),response)

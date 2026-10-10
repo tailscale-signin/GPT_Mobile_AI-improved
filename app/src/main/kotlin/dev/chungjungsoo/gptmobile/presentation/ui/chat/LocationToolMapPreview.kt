@@ -192,7 +192,7 @@ internal fun EmbeddedLocationMap(
                             style.addSource(GeoJsonSource("location-route", FeatureCollection.fromFeatures(emptyArray<Feature>())))
                             style.addLayer(LineLayer("location-route-line", "location-route").withProperties(PropertyFactory.lineColor(accent), PropertyFactory.lineWidth(5f)))
                             style.addLayer(CircleLayer("location-places-pins", "location-places").withProperties(PropertyFactory.circleRadius(9f), PropertyFactory.circleColor(secondary), PropertyFactory.circleStrokeWidth(2f), PropertyFactory.circleStrokeColor("#FFFFFF")))
-                            style.addLayer(SymbolLayer("location-place-labels", "location-places").withProperties(PropertyFactory.textField("{label}"), PropertyFactory.textSize(12f), PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textAllowOverlap(true)))
+                            style.addLayer(SymbolLayer("location-place-labels", "location-places").withProperties(PropertyFactory.textField("{label}"), PropertyFactory.textFont(arrayOf("Noto Sans Regular")), PropertyFactory.textSize(12f), PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textAllowOverlap(true)))
                             style.addLayer(CircleLayer("location-origin-pin", "location-origin").withProperties(PropertyFactory.circleRadius(8f), PropertyFactory.circleColor(accent), PropertyFactory.circleStrokeWidth(3f), PropertyFactory.circleStrokeColor("#FFFFFF")))
                             active.addOnMapClickListener { point ->
                                 val hit = active.queryRenderedFeatures(active.projection.toScreenLocation(point), "location-places-pins").firstOrNull()

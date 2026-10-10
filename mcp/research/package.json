@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node bridge.mjs",
-    "test": "node --test *.test.mjs",
+    "test": "node --test *.test.mjs youtube/*.test.mjs",
     "prepare-airbnb": "node prepare-airbnb.mjs airbnb",
     "prepare-upstreams": "node prepare-airbnb.mjs"
   },

@@ -1,0 +1,11 @@
+{
+  "sources": [
+    {
+      "prefix": "free_search",
+      "command": "uvx",
+      "args": ["free-search-mcp==0.13.0"],
+      "envKeys": ["SEARCH_MCP_CACHE_DIR", "SEARCH_MCP_PROXY"],
+      "tools": ["search", "fetch", "read_doc", "cache_search"]
+    }
+  ]
+}

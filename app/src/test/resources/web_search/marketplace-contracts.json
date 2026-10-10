@@ -403,5 +403,257 @@
     "response": "[\n  {\n    \"query\": \"local model speed\",\n    \"engine\": \"google\",\n    \"result\": {\n      \"organic\": [\n        {\n          \"title\": \"Bright batch\",\n          \"link\": \"https://example.org/search_engine_batch\",\n          \"description\": \"Bright batch snippet\"\n        }\n      ]\n    }\n  }\n]",
     "url": "https://example.org/search_engine_batch",
     "unsupportedRecency": true
+  },
+  {
+    "preset": "searxng-mcp",
+    "name": "searxng_web_search",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "num_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "pageno": {
+          "type": "number",
+          "minimum": 1
+        },
+        "time_range": {
+          "type": "string",
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "year"
+          ]
+        },
+        "response_format": {
+          "type": "string",
+          "enum": [
+            "text",
+            "json"
+          ]
+        },
+        "result_detail": {
+          "type": "string",
+          "enum": [
+            "compact",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "expectedArguments": {
+      "query": "local model speed",
+      "num_results": 2,
+      "pageno": 1,
+      "time_range": "month",
+      "response_format": "json",
+      "result_detail": "full"
+    },
+    "response": "{\"results\": [{\"title\": \"SearXNG\", \"url\": \"https://example.org/searxng\", \"content\": \"SearXNG snippet\", \"engines\": [\"google\", \"duckduckgo\"], \"publishedDate\": \"2026-07-31\"}]}",
+    "url": "https://example.org/searxng",
+    "unsupportedRecency": false
+  },
+  {
+    "preset": "free-search-mcp",
+    "name": "search",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "engines": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "use_cache": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_age_hours": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "day",
+                "week",
+                "month",
+                "year"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "json"
+          ],
+          "default": "markdown"
+        },
+        "include_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "expectedArguments": {
+      "query": "local model speed",
+      "max_results": 2,
+      "include_domains": [
+        "example.org"
+      ],
+      "freshness": "week",
+      "format": "json",
+      "use_cache": true,
+      "max_age_hours": 0.25
+    },
+    "response": "{\"results\": [{\"title\": \"Free search result\", \"url\": \"https://example.org/free-search\", \"snippet\": \"Free Search snippet\", \"engines\": [\"duckduckgo\", \"bing\"], \"date_source\": \"none\"}], \"cached\": true, \"retrieved_at\": \"2026-08-01T11:59:00Z\", \"errors\": {\"mojeek\": \"captcha\"}}",
+    "url": "https://example.org/free-search",
+    "unsupportedRecency": false
+  },
+  {
+    "preset": "free-search-mcp",
+    "name": "free_search__search",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "engines": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "use_cache": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_age_hours": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "day",
+                "week",
+                "month",
+                "year"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "json"
+          ],
+          "default": "markdown"
+        },
+        "include_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "expectedArguments": {
+      "query": "local model speed",
+      "max_results": 2,
+      "include_domains": [
+        "example.org"
+      ],
+      "freshness": "week",
+      "format": "json",
+      "use_cache": true,
+      "max_age_hours": 0.25
+    },
+    "response": "{\"results\": [{\"title\": \"Free search result\", \"url\": \"https://example.org/free-search\", \"snippet\": \"Free Search snippet\", \"engines\": [\"duckduckgo\", \"bing\"], \"date_source\": \"none\"}], \"cached\": true, \"retrieved_at\": \"2026-08-01T11:59:00Z\", \"errors\": {\"mojeek\": \"captcha\"}}",
+    "url": "https://example.org/free-search",
+    "unsupportedRecency": false
   }
 ]

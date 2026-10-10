@@ -55,14 +55,14 @@ private val lightScheme = lightColorScheme(
 // Deliberately cyan-black rather than neutral/absolute black. Keeping every surface
 // in the same hue family also prevents cards and system bars from looking green.
 private val darkScheme = darkColorScheme(
-    primary = Color(0xFF55DFF2),
+    primary = Color(0xFF00FFDE),
     onPrimary = Color(0xFF002A31),
     primaryContainer = Color(0xFF004E5B),
     onPrimaryContainer = Color(0xFFB8F4FF),
-    secondary = Color(0xFF9EDCE5),
-    onSecondary = Color(0xFF082F35),
-    secondaryContainer = Color(0xFF123F47),
-    onSecondaryContainer = Color(0xFFC5F0F6),
+    secondary = Color(0xFFCC00FF),
+    onSecondary = Color.Black,
+    secondaryContainer = Color(0xFF300040),
+    onSecondaryContainer = Color(0xFFF3BDFF),
     tertiary = Color(0xFF8CDCE8),
     onTertiary = Color(0xFF00343C),
     tertiaryContainer = Color(0xFF07505B),
@@ -71,9 +71,9 @@ private val darkScheme = darkColorScheme(
     onError = onErrorDark,
     errorContainer = errorContainerDark,
     onErrorContainer = onErrorContainerDark,
-    background = Color(0xFF001A1F),
+    background = Color(0xFF001219),
     onBackground = Color(0xFFE0F4F7),
-    surface = Color(0xFF001A1F),
+    surface = Color(0xFF001219),
     onSurface = Color(0xFFE0F4F7),
     surfaceVariant = Color(0xFF12383F),
     onSurfaceVariant = Color(0xFFB8DDE2),
@@ -83,10 +83,10 @@ private val darkScheme = darkColorScheme(
     inverseSurface = Color(0xFFD7F2F5),
     inverseOnSurface = Color(0xFF123338),
     inversePrimary = Color(0xFF006878),
-    surfaceDim = Color(0xFF001A1F),
+    surfaceDim = Color(0xFF001219),
     surfaceBright = Color(0xFF173C43),
     surfaceContainerLowest = Color(0xFF001419),
-    surfaceContainerLow = Color(0xFF062329),
+    surfaceContainerLow = Color(0xFF0B2028),
     surfaceContainer = Color(0xFF0A292F),
     surfaceContainerHigh = Color(0xFF103239),
     surfaceContainerHighest = Color(0xFF173C43)
@@ -141,7 +141,7 @@ val unspecified_scheme = ColorFamily(Color.Unspecified, Color.Unspecified, Color
 @Composable
 fun GPTMobileTheme(
     dynamicTheme: DynamicTheme = DynamicTheme.OFF,
-    themeMode: ThemeMode = ThemeMode.LIGHT,
+    themeMode: ThemeMode = ThemeMode.DARK,
     customPrimaryArgb: Long? = null,
     customPalette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette? = null,
     content: @Composable () -> Unit

@@ -37,6 +37,17 @@ class ToolServicePolicyTest {
     }
 
     @Test
+    fun gitMcpUsesGitHubControlsAndFreeSearchUsesWebSearchConnections() {
+        val native = connection("native", "GitHub", "https://api.github.com", ToolConnectionType.GITHUB)
+        val docs = connection("docs", "Public Docs", "https://private-host.example/mcp").copy(alias = "gitmcp_docs")
+        val search = connection("search", "Private Search", "https://private-host.example/search/mcp").copy(alias = "free_search_mcp")
+        assertEquals(listOf(native, docs), ToolServiceCatalog.connectionsForPlugin(ToolPluginId.GITHUB, listOf(native, docs, search)))
+        assertEquals(listOf(search), ToolServiceCatalog.connectionsForPlugin(ToolPluginId.WEB_SEARCH, listOf(native, docs, search)))
+        assertEquals(ToolPluginId.GITHUB, ToolServiceCatalog.forConnection(connection("public", "Public Docs", "https://gitmcp.io/docs")).id)
+        assertFalse(ToolServiceCatalog.forConnection(connection("fake", "Public Docs", "https://gitmcp.io.evil.test/docs")).id == ToolPluginId.GITHUB)
+    }
+
+    @Test
     fun inAppAirbnbHasNoAccountOrConnectionSetupRequirement() {
         val service = toolServiceItems(emptyList(), emptyMap()).single { it.id == ToolPluginId.AIRBNB }
         assertTrue(service.integrated)

@@ -203,7 +203,10 @@ class MultiEngineSearchToolTest {
         assertTrue(responses.none { it.isError })
         assertEquals(fixtures.size, queried.size)
         val payloads = responses.map { (it.content as ToolResultContent.Json).value.jsonObject }
-        assertEquals(fixtures.size, payloads.sumOf { (it["results"] as JsonArray).size })
+        val sources = payloads.flatMap { (it["results"] as JsonArray).map { source -> source.jsonObject } }
+        val expectedUrls = fixtures.map { it.getValue("url") }.toSet()
+        assertEquals(expectedUrls.size, sources.size)
+        assertEquals(expectedUrls, sources.map { it.getValue("url") }.toSet())
         val statuses = payloads.flatMap { (it["engines"] as JsonArray).map { status -> status.jsonObject } }
         assertTrue(statuses.all { it.getValue("status") == JsonPrimitive("completed") })
         assertEquals(4, statuses.count { "unsupportedFilters" in it })

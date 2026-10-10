@@ -116,6 +116,7 @@ internal fun PluginConfigurationDialog(
                         PluginSwitch("Combine duplicate URLs", options.deduplicateSearch) { options = options.copy(deduplicateSearch = it) }
                         PluginSwitch("Reuse identical searches", options.reuseSearchRequests) { options = options.copy(reuseSearchRequests = it) }
                         PluginSwitch("Group similar coverage (trial)", options.deduplicateSearchContent) { options = options.copy(deduplicateSearchContent = it) }
+                        TextButton(onClick = onConnection) { Text("Manage connections") }
                         Text("Choose engines and crawlers in each model profile.", style = MaterialTheme.typography.bodySmall)
                     }
                 }

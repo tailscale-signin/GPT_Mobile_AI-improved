@@ -21,10 +21,17 @@ internal class WebSearchEngineAdapter private constructor(
     private val queryKey: String,
     private val querySchema: JsonObject
 ) {
+    private val searxng = name == "searxng_web_search"
+    private val freeSearch = name in setOf("search", "free_search__search") && listOf("engines", "freshness", "use_cache", "max_age_hours").all { it in properties }
+    val approximateRecency: Boolean get() = searxng || freeSearch
     private val brave = name in setOf("brave_web_search", "brave_search")
     private val countKey = COUNT_KEYS.firstOrNull { it in properties }
     val supportsRecency = listOf("recencyDays", "startPublishedDate", "start_date", "tbs").any { it in properties } ||
-        (brave && "freshness" in properties)
+        (brave && "freshness" in properties) ||
+        (searxng && "time_range" in properties) ||
+        freeSearch
+
+    fun supportsRecencyFor(days: Int): Boolean = supportsRecency && (!freeSearch || days <= 365)
 
     fun effectiveCount(requested: Int): Int {
         val field = countKey?.let { properties[it] as? JsonObject }
@@ -35,12 +42,12 @@ internal class WebSearchEngineAdapter private constructor(
 
     /** One extra page can fill duplicate slots; never invent unsupported pagination fields. */
     fun nextPage(request: JsonObject, clock: Clock): JsonObject? {
-        val key = listOf("page", "start", "offset").firstOrNull {
-            (properties[it] as? JsonObject)?.acceptsType("integer") == true
+        val key = listOf("pageno", "page", "start", "offset").firstOrNull {
+            (properties[it] as? JsonObject)?.let { field -> field.acceptsType("integer") || (searxng && it == "pageno" && field.acceptsType("number")) } == true
         } ?: return null
         val count = effectiveCount((request["maxResults"] as? JsonPrimitive)?.intOrNull ?: 10)
         val value = when (key) {
-            "page" -> 2
+            "page", "pageno" -> 2
             "offset" -> if (brave) 1 else count
             else -> count
         }
@@ -73,12 +80,44 @@ internal class WebSearchEngineAdapter private constructor(
             if (days != null) {
                 val start = LocalDate.now(clock).minusDays(days.toLong())
                 when {
+                    searxng && "time_range" in properties -> {
+                        val range = when {
+                            days <= 1 -> "day"
+                            days <= 31 -> "month"
+                            else -> "year"
+                        }
+                        val allowed = (properties["time_range"] as? JsonObject)?.get("enum") as? JsonArray
+                        if (allowed == null || JsonPrimitive(range) in allowed) put("time_range", range)
+                    }
+                    freeSearch && days <= 365 -> put(
+                        "freshness",
+                        when {
+                            days <= 1 -> "day"
+                            days <= 7 -> "week"
+                            days <= 31 -> "month"
+                            else -> "year"
+                        }
+                    )
                     "recencyDays" in properties -> put("recencyDays", days)
                     brave && "freshness" in properties -> put("freshness", braveSearchFreshness(days, clock))
                     "startPublishedDate" in properties -> put("startPublishedDate", "${start}T00:00:00Z")
                     "start_date" in properties -> put("start_date", start.toString())
                     "tbs" in properties -> put("tbs", "qdr:d${days.coerceAtLeast(1)}")
                 }
+            }
+            if (searxng) {
+                for ((key, value) in listOf("response_format" to "json", "result_detail" to "full")) {
+                    val field = properties[key] as? JsonObject ?: continue
+                    val allowed = field["enum"] as? JsonArray
+                    if (field.acceptsType("string") && (allowed == null || JsonPrimitive(value) in allowed)) put(key, value)
+                }
+                if ((properties["pageno"] as? JsonObject)?.let { it.acceptsType("integer") || it.acceptsType("number") } == true) put("pageno", 1)
+            }
+            if (freeSearch) {
+                // Preserve the health-aware keyless pool; do not force browser engines.
+                put("format", "json")
+                put("use_cache", true)
+                put("max_age_hours", 0.25)
             }
             if (brave && "result_filter" in properties) {
                 val field = properties["result_filter"] as? JsonObject ?: JsonObject(emptyMap())
@@ -108,6 +147,12 @@ internal class WebSearchEngineAdapter private constructor(
 
         fun forTool(realToolName: String, definition: AgentToolDefinition): WebSearchEngineAdapter? {
             val name = realToolName.lowercase()
+            if (name == "search" &&
+                !isNamedWebSearch(name, definition.description) &&
+                listOf("engines", "freshness", "use_cache", "max_age_hours").any { it !in (definition.inputSchema["properties"] as? JsonObject).orEmpty() }
+            ) {
+                return null
+            }
             if (name.startsWith("amazon_") || name.startsWith("web_data_amazon_")) return null
             if (isCrawlerTool(name)) return null
             if (name in setOf("multi_search", "search_engine_batch") &&

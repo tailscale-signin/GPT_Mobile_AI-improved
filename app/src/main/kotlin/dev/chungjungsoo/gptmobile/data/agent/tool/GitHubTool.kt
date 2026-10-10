@@ -55,7 +55,8 @@ class GitHubTool(
     private val featureSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
 ) : AgentTool {
 
-    private val workspaceClient by lazy { GitHubWorkspaceClient(apiToken, httpClient, responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(), conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache, freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15) }
+    private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
+    private val workspaceClient by lazy { GitHubWorkspaceClient(apiToken, httpClient, rateLimits = rateLimits, responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(), conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache, freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15) }
 
     companion object {
         private const val BASE_URL = "https://api.github.com"
@@ -88,7 +89,7 @@ class GitHubTool(
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = modelToolName,
-        description = "Work with GitHub repositories through one native integration. Prefer compact high-level actions: repo_status for an overview, repo_map before code reads, find_symbol/find_references/find_tests for discovery, pr_context for PR inspection, changed_since for compact diffs, release_status before releases, publish_release for end-to-end publication, and plan_change before multi-step writes. publish_release prefers an active repository release workflow and falls back to the GitHub Releases API when appropriate. Use write_capabilities to inspect repository write access when a write is denied. HTTP 403 alone does not prove a read-only token. Do not tell the user to use local gh or the GitHub Web UI while this action is available. Never fall back to shell, terminal, git CLI, gh CLI, or POSIX execution for a GitHub task while this integration is available. Use read_code line ranges instead of full files." + (accountName?.let { " Authenticated connection: $it. Use this tool for repositories available to this account." } ?: " Public read access; configure a GitHub API connection for private repositories and writes.") + (repositoryContext?.let { " Selected repository: ${it.fullName}, branch: ${it.ref}. Omitted owner/repo/ref use this selection. Read code in line ranges and include source paths. Read get_branch_head before commit_files; supply expected_head_sha. Commit only to a working branch and create a draft PR for review." } ?: ""),
+        description = "Work with GitHub repositories through one native integration. Prefer compact high-level actions: repo_status for an overview, repo_docs to discover llms.txt, README and docs at a pinned commit, repo_map before code reads, find_symbol/find_references/find_tests for discovery, pr_context for PR inspection, changed_since for compact diffs, release_status before releases, publish_release for end-to-end publication, and plan_change before multi-step writes. publish_release prefers an active repository release workflow and falls back to the GitHub Releases API when appropriate. Use write_capabilities to inspect repository write access when a write is denied. HTTP 403 alone does not prove a read-only token. Do not tell the user to use local gh or the GitHub Web UI while this action is available. Never fall back to shell, terminal, git CLI, gh CLI, or POSIX execution for a GitHub task while this integration is available. Use read_code line ranges instead of full files. Optional GitMCP tools provide public documentation/code search only; their results are not evidence of the selected branch. Verify relevant paths with repo_docs and read_code at its commit_sha. Private repositories, issues, PRs and writes stay in this native integration." + (accountName?.let { " Authenticated connection: $it. Use this tool for repositories available to this account." } ?: " Public read access; configure a GitHub API connection for private repositories and writes.") + (repositoryContext?.let { " Selected repository: ${it.fullName}, branch: ${it.ref}. Omitted owner/repo/ref use this selection. Read code in line ranges and include source paths. Read get_branch_head before commit_files; supply expected_head_sha. Commit only to a working branch and create a draft PR for review." } ?: ""),
         inputSchema = buildJsonObject {
             put("type", "object")
             put(
@@ -388,18 +389,31 @@ class GitHubTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        val effectiveArguments = buildJsonObject {
+        val repository = try {
+            dev.chungjungsoo.gptmobile.data.github.normalizeGitHubRepository(
+                (arguments["owner"] as? JsonPrimitive)?.content,
+                (arguments["repo"] as? JsonPrimitive)?.content
+            )
+        } catch (invalid: IllegalArgumentException) {
+            return errorResult(callId, invalid.message ?: "Invalid repository reference.")
+        }
+        val normalizedArguments = buildJsonObject {
             arguments.forEach { (key, value) -> put(key, value) }
+            repository.first?.let { put("owner", it) }
+            repository.second?.let { put("repo", it) }
+        }
+        val effectiveArguments = buildJsonObject {
+            normalizedArguments.forEach { (key, value) -> put(key, value) }
             repositoryContext?.let { selected ->
                 // Fill repository context field-by-field. A model may provide only owner or only repo;
                 // requiring both to be absent left the complementary field missing and caused fast
                 // validation failures even though a selected repository was available.
-                if (arguments["owner"] == null) put("owner", selected.owner)
-                if (arguments["repo"] == null) put("repo", selected.repo)
-                val effectiveOwner = arguments["owner"]?.jsonPrimitive?.content ?: selected.owner
-                val effectiveRepo = arguments["repo"]?.jsonPrimitive?.content ?: selected.repo
+                if (normalizedArguments["owner"] == null) put("owner", selected.owner)
+                if (normalizedArguments["repo"] == null) put("repo", selected.repo)
+                val effectiveOwner = normalizedArguments["owner"]?.jsonPrimitive?.content ?: selected.owner
+                val effectiveRepo = normalizedArguments["repo"]?.jsonPrimitive?.content ?: selected.repo
                 val sameRepo = effectiveOwner == selected.owner && effectiveRepo == selected.repo
-                if (sameRepo && arguments["ref"] == null) put("ref", selected.ref)
+                if (sameRepo && normalizedArguments["ref"] == null) put("ref", selected.ref)
             }
         }
         return executeEffective(callId, effectiveArguments)
@@ -480,7 +494,7 @@ class GitHubTool(
         if (query.isNullOrEmpty()) {
             return errorResult(callId, "Parameter 'query' is required for action 'search_issues'.")
         }
-        val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+        val encodedQuery = URLEncoder.encode(dev.chungjungsoo.gptmobile.data.github.normalizeGitHubIssueQuery(query), StandardCharsets.UTF_8.name())
         val url = "$BASE_URL/search/issues?q=$encodedQuery&per_page=10"
         val response = getGitHubApi(url)
         val text = response.bodyAsText()
@@ -1066,8 +1080,9 @@ class GitHubTool(
         require(apiToken.isNotBlank()) { "A GitHub token is required for repository write actions." }
     }
 
-    private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse =
-        httpClient.request(url) {
+    private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse {
+        rateLimits.requireAvailable("core")
+        return httpClient.request(url) {
             this.method = method
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -1075,15 +1090,17 @@ class GitHubTool(
             header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
             header(HttpHeaders.Authorization, "Bearer $apiToken")
             setBody(body.toString())
-        }
+        }.also { rateLimits.record(it.headers) }
+    }
 
-    private suspend fun getGitHubApi(url: String): HttpResponse = httpClient.get(url) {
-        header(HttpHeaders.Accept, "application/vnd.github.v3+json")
-        header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-        header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
-        if (apiToken.isNotBlank()) {
-            header(HttpHeaders.Authorization, "Bearer $apiToken")
-        }
+    private suspend fun getGitHubApi(url: String): HttpResponse {
+        rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
+        return httpClient.get(url) {
+            header(HttpHeaders.Accept, "application/vnd.github+json")
+            header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+            header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+            if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
+        }.also { rateLimits.record(it.headers) }
     }
 
     private fun truncate(text: String, maxLength: Int): String = if (text.length <= maxLength) text else text.take(maxLength) + "\n...[truncated]"

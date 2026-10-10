@@ -4,10 +4,13 @@ import { dirname, resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+
+import { validateResearchSource } from './research-source.mjs';
 
 /** Each upstream retains its own schema; prefixes prevent cross-provider tool collisions. */
 export async function createResearchBridge({
@@ -22,7 +25,7 @@ export async function createResearchBridge({
   const definitions = [];
   try {
     for (const source of sources) {
-      if (!/^[a-z][a-z0-9_]{0,25}$/.test(source.prefix) || !source.command || !Array.isArray(source.args)) throw new Error('Invalid upstream configuration.');
+      validateResearchSource(source);
       if (source.requiresEnv && !process.env[source.requiresEnv]) {
         if (source.optional) continue;
         throw new Error('Required upstream credential is missing.');
@@ -30,9 +33,17 @@ export async function createResearchBridge({
       const upstream = new Client({ name: 'gpt-mobile-research-bridge', version: '1.0.0' });
       const env = Object.fromEntries(['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', ...(source.envKeys ?? [])]
         .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
-      const child = new StdioClientTransport({ command: source.command, args: source.args, cwd: source.cwd, stderr: 'ignore', env });
+      const child = source.url
+        ? new SSEClientTransport(new URL(source.url))
+        : new StdioClientTransport({ command: source.command, args: source.args, cwd: source.cwd, stderr: 'ignore', env });
       try {
-        await upstream.connect(child);
+        let connectTimer;
+        try {
+          await Promise.race([
+            upstream.connect(child),
+            new Promise((_, reject) => { connectTimer = setTimeout(() => reject(new Error('Upstream initialization timed out.')), 15_000); })
+          ]);
+        } finally { clearTimeout(connectTimer); }
         const tools = (await upstream.listTools()).tools.filter(tool => (source.tools ?? []).includes(tool.name));
         if (!tools.length) throw new Error('No supported upstream tools discovered.');
         upstreams.push(upstream);

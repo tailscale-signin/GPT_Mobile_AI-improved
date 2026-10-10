@@ -17,7 +17,9 @@ private fun continuationOnly(task: String): Boolean =
     Regex("^(?:please\\s+)?(?:continue|retry|try again|finish(?: it| that| this)?|fix(?: it| that| this)?|go ahead|do it|proceed|yes|push|merge|publish|check again)[.!?\\s]*$", RegexOption.IGNORE_CASE).matches(task.trim())
 
 internal fun ResolvedAgentTool.isGitHubTool(): Boolean =
-    realToolName.contains("github", ignoreCase = true) ||
+    realToolName.startsWith("gitmcp__") ||
+        realToolName in setOf("fetch_generic_documentation", "search_generic_documentation", "search_generic_code") ||
+        realToolName.contains("github", ignoreCase = true) ||
         modelToolName.contains("github", ignoreCase = true) ||
         connectionName.orEmpty().contains("github", ignoreCase = true)
 

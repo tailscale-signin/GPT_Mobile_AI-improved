@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -269,6 +270,17 @@ class ToolConnectionsViewModel @Inject constructor(
                     credential = credentialBytes,
                     clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
                 )
+                if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
+                    pluginMutex.lock()
+                    try {
+                        val latest = settingRepository.getFeatureSettings()
+                        val updated = latest.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
+                        settingRepository.updateFeatureSettings(updated)
+                        _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
+                    } finally {
+                        pluginMutex.unlock()
+                    }
+                }
             }.onSuccess {
                 runCatching { mcpClientManager.close(connection.connectionUid) }
                 refresh()

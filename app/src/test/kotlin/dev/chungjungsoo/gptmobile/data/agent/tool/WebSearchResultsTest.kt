@@ -34,6 +34,15 @@ class WebSearchResultsTest {
     }
 
     @Test
+    fun `free search MCP envelope retains cache errors and date provenance`() {
+        val result = Json.parseToJsonElement("""{"structuredContent":{"result":{"results":[{"url":"https://example.org/a","title":"Article","snippet":"Evidence","date_source":"none","engines":["bing"]}],"cached":true,"errors":{"mojeek":"captcha"},"retrieved_at":"2026-10-09T12:00:00Z"}}}""")
+        val payload = requireNotNull(searchProviderPayload(result))
+        assertEquals("true", payload["cached"]!!.jsonPrimitive.content)
+        assertEquals("2026-10-09T12:00:00Z", payload["retrieved_at"]!!.jsonPrimitive.content)
+        assertEquals("none", extractSearchSources(result).single()["date_source"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `aggregate engine prose is parsed without recovering provider metadata URLs`() {
         val result = Json.parseToJsonElement("""{"query":"test","engines":[{"status":"completed","detail":"Title: Article\nURL: https://example.org/article\nDescription: Verified snippet"}],"results":[]}""")
         assertEquals("https://example.org/article", extractSearchSources(result).single().getValue("url").jsonPrimitive.content)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
@@ -44,7 +45,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                TopAppBar(title = { Text("Themes & appearance") }, navigationIcon = {
+                TopAppBar(title = { Text("Appearance") }, navigationIcon = {
                     IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 })
             }
@@ -53,8 +54,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit) {
                 Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                SettingsHero("Appearance studio", "Set the mood", "")
-                SettingsTabs(listOf("Gallery", "Create", "Display"), tab) { tab = it }
+                SettingsTabs(listOf("Presets", "Custom", "Display"), tab) { tab = it }
                 if (tab == 0) {
                     val profiles = dev.chungjungsoo.gptmobile.data.dto.ThemePresets.profiles + settings.savedProfiles
                     profiles.chunked(2).forEach { pair ->
@@ -75,7 +75,13 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit) {
                                             }
                                         }
                                         val foreground = if (androidx.core.graphics.ColorUtils.calculateLuminance(profile.palette.background.toInt()) > 0.179) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White
-                                        Text(profile.name, color = foreground, style = MaterialTheme.typography.titleSmall)
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(profile.name, color = foreground, style = MaterialTheme.typography.titleSmall)
+                                            val selected = settings.dynamicTheme == DynamicTheme.OFF &&
+                                                settings.themeMode == profile.mode &&
+                                                (settings.customPalette == profile.palette || (profile == dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile && settings.customPalette == null && settings.customPrimaryArgb == null))
+                                            if (selected) Icon(androidx.compose.material.icons.Icons.Rounded.Check, "Selected", tint = foreground)
+                                        }
                                         if (profile in settings.savedProfiles) {
                                             androidx.compose.material3.TextButton(onClick = { viewModel.deleteProfile(profile.name) }) {
                                                 Text("Delete", color = foreground)
@@ -86,11 +92,10 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit) {
                             }
                         }
                     }
-                    androidx.compose.material3.TextButton(onClick = { viewModel.updateCustomPalette(null) }) { Text("System palette") }
+                    androidx.compose.material3.TextButton(onClick = { viewModel.applyProfile(dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile) }) { Text("Restore default") }
                 }
                 if (tab == 1) CustomPaletteEditor(customizeOnly = true)
                 if (tab == 2) {
-                    Text("Appearance", style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ThemeMode.entries.forEach { mode ->
                             FilterChip(selected = settings.themeMode == mode, onClick = { viewModel.updateThemeMode(mode) }, label = { Text(getThemeModeTitle(mode)) })

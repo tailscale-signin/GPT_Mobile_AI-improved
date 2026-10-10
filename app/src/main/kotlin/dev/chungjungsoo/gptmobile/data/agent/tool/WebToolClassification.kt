@@ -7,7 +7,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 internal fun isCrawlerTool(name: String, description: String = ""): Boolean =
-    Regex("(?i)(?:^|[ _-])(?:crawl(?:er|ing)?|scrape|scraper|scraping|read_url|fetch_url|read_web_page)(?:$|[ _-])").containsMatchIn(name) ||
+    name.lowercase() in setOf("free_search__fetch", "free_search__read_doc") ||
+        Regex("(?i)(?:^|[ _-])(?:crawl(?:er|ing)?|scrape|scraper|scraping|read_url|fetch_url|read_web_page)(?:$|[ _-])").containsMatchIn(name) ||
         (
             Regex("(?i)\\b(?:crawl|scrape|fetch|read)\\b.*\\b(?:pages?|urls?|websites?)\\b").containsMatchIn(description) &&
                 !Regex("(?i)\\bweb[ _-]*search\\b").containsMatchIn(name)

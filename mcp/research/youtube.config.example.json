@@ -1,0 +1,10 @@
+{
+  "sources": [
+    {
+      "prefix": "youtube",
+      "command": "uvx",
+      "args": ["mcp-youtube-transcript@0.8.0"],
+      "tools": ["get_timed_transcript", "get_available_languages"]
+    }
+  ]
+}

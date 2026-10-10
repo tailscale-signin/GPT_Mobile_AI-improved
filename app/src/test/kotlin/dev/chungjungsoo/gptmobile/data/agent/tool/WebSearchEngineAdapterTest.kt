@@ -39,7 +39,7 @@ class WebSearchEngineAdapterTest {
     fun `every marketplace search tool has a tested provider contract`() {
         val expected = McpPresetCatalog.presets.flatMap { preset -> preset.webSearchToolNames.map { preset.id to it } }.toSet()
         assertEquals(
-            setOf("builtin-web", "exa-mcp", "tavily-mcp", "firecrawl-mcp", "jina-mcp", "brave-search", "bright-data"),
+            setOf("builtin-web", "exa-mcp", "tavily-mcp", "firecrawl-mcp", "jina-mcp", "brave-search", "bright-data", "searxng-mcp", "free-search-mcp"),
             expected.map { it.first }.toSet()
         )
         val actual = marketplaceSearchFixtures().map { it.getValue("preset").jsonPrimitive.content to it.getValue("name").jsonPrimitive.content }.toSet()
@@ -85,6 +85,37 @@ class WebSearchEngineAdapterTest {
     }
 
     @Test
+    fun `free search uses structured output a fresh cache window and honest time range bounds`() {
+        val fixture = marketplaceSearchFixtures().first { it["name"] == JsonPrimitive("free_search__search") }
+        val adapter = requireNotNull(WebSearchEngineAdapter.forTool("free_search__search", AgentToolDefinition("free_search__search", "Web search", fixture["schema"]!!.jsonObject)))
+        for ((days, expected) in listOf(1 to "day", 2 to "week", 7 to "week", 14 to "month", 60 to "year", 365 to "year")) {
+            val args = adapter.arguments(
+                buildJsonObject {
+                    put("query", "test")
+                    put("recencyDays", days)
+                },
+                Clock.systemUTC()
+            )
+            assertEquals(JsonPrimitive(expected), args["freshness"])
+            assertEquals(JsonPrimitive("json"), args["format"])
+            assertEquals(JsonPrimitive(0.25), args["max_age_hours"])
+            assertFalse(args.containsKey("engines"))
+        }
+        assertFalse(adapter.supportsRecencyFor(400))
+        assertNull(
+            adapter.arguments(
+                buildJsonObject {
+                    put("query", "test")
+                    put("recencyDays", 400)
+                },
+                Clock.systemUTC()
+            )["freshness"]
+        )
+        val privateSearch = AgentToolDefinition("search", "Search private records", Json.parseToJsonElement("""{"properties":{"query":{"type":"string"}},"required":["query"]}""").jsonObject)
+        assertNull(WebSearchEngineAdapter.forTool("search", privateSearch))
+    }
+
+    @Test
     fun `string arrays q aliases and older Firecrawl source objects are supported`() {
         val request = buildJsonObject { put("query", "Compose") }
         for ((name, schema, expected) in listOf(
@@ -117,5 +148,20 @@ class WebSearchEngineAdapterTest {
         assertFalse(matchesSearchDomains("https://example.org.attacker.test/page", listOf("example.org"), emptyList()))
         assertFalse(matchesSearchDomains("javascript:alert(1)", emptyList(), emptyList()))
         assertTrue(matchesSearchDomains("https://docs.example.org/page", listOf("example.org"), emptyList()))
+    }
+
+    @Test
+    fun `SearXNG refill advances pageno without inventing week support`() {
+        val fixture = marketplaceSearchFixtures().single { it["name"] == JsonPrimitive("searxng_web_search") }
+        val definition = AgentToolDefinition("searxng_web_search", "Web search", fixture.getValue("schema").jsonObject)
+        val adapter = requireNotNull(WebSearchEngineAdapter.forTool("searxng_web_search", definition))
+        val request = buildJsonObject {
+            put("query", "captions")
+            put("recencyDays", 7)
+        }
+        val args = adapter.arguments(request, Clock.systemUTC())
+        assertEquals(JsonPrimitive("month"), args["time_range"])
+        assertEquals(JsonPrimitive(1), args["pageno"])
+        assertEquals(JsonPrimitive(2), adapter.nextPage(request, Clock.systemUTC())?.get("pageno"))
     }
 }

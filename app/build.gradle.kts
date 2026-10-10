@@ -127,8 +127,8 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())
         minSdk = 31
         targetSdk = 37
-        versionCode = 109
-        versionName = "0.9.40.0"
+        versionCode = 110
+        versionName = "0.9.41.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

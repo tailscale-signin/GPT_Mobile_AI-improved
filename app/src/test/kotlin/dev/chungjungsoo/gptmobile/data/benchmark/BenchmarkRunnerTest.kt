@@ -31,6 +31,13 @@ class BenchmarkRunnerTest {
     private val toolTest = benchmarkSuite(BenchmarkMode.QUICK).first { it.id == "tool" }
 
     @Test
+    fun `standard delivery cannot pass with an undersized response`() = runTest {
+        val runner = BenchmarkRunner({ _, _ -> session(flowOf(ProviderEvent.TextDelta("rain ".repeat(30)), ProviderEvent.Completed)) })
+        val test = benchmarkSuite(BenchmarkMode.FULL).first { it.id == "speed-short-1" }
+        assertEquals(BenchmarkOutcome.FAILED, runner.run(test, false).outcome)
+    }
+
+    @Test
     fun `infrastructure outage stops remaining cases even when quality failures should continue`() = kotlinx.coroutines.runBlocking {
         var calls = 0
         val saved = mutableListOf<BenchmarkSample>()

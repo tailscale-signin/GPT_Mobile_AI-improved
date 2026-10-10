@@ -292,10 +292,11 @@ class ChatRepositoryImpl(
         }
     )
 
-    private fun runtimeEligibleForAssist(target: PlatformV2): Boolean {
+    private suspend fun runtimeEligibleForAssist(target: PlatformV2): Boolean {
         val state = localRuntime.state.value
         val record = state.engineSpec ?: return false
-        return record.modelPath.contains(target.model.substringAfterLast('/').substringBeforeLast('.')) &&
+        val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull() ?: return false
+        return record.modelPath == selection.path &&
             !localRuntime.hasOpenConversation() &&
             !localRuntime.getHardwareState().isThrottlingRequired
     }
@@ -1732,7 +1733,7 @@ class ChatRepositoryImpl(
         emit(ApiState.Error(classified.userMessage))
     }.onCompletion {
         emit(ApiState.Done)
-    }
+    }.let { dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.sharedFlow(it) }
 
     private fun streamPrimaryAnswer(
         platform: PlatformV2,
@@ -1871,7 +1872,7 @@ class ChatRepositoryImpl(
             )
         ).run(groundedSession, runnerTools)
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace).collect { send(it) }
-    }.let { dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.sharedFlow(it) }
+    }
 
     private suspend fun followUpInbox(
         scope: kotlinx.coroutines.CoroutineScope,

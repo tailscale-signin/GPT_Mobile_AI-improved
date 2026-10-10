@@ -32,19 +32,23 @@ internal object InferenceAdmission {
         if (coroutineContext[Owner] != null) return block()
         var acquired = false
         try {
-            withTimeout(60_000) {
-                while (true) {
-                    val wait = mutex.withLock {
-                        if (!writer && waitingWriters == 0) {
-                            readers++
-                            acquired = true
-                            null
-                        } else {
-                            changed
-                        }
-                    } ?: break
-                    wait.await()
+            try {
+                withTimeout(60_000) {
+                    while (true) {
+                        val wait = mutex.withLock {
+                            if (!writer && waitingWriters == 0) {
+                                readers++
+                                acquired = true
+                                null
+                            } else {
+                                changed
+                            }
+                        } ?: break
+                        wait.await()
+                    }
                 }
+            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                throw IllegalStateException("Inference resources are held by a benchmark. This request was not dispatched; try again after the benchmark finishes.", timeout)
             }
             return withContext(Owner()) { block() }
         } finally {

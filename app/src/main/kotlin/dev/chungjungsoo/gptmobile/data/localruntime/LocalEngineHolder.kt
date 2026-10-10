@@ -91,7 +91,7 @@ class LocalEngineHolder(
         delegate.closeConversation()
     }
 
-    override suspend fun unloadEngine() {
+    override suspend fun unloadEngine() = InferenceAdmission.shared {
         delegate.cancelActive()
         withGenerationLock {
             delegate.closeConversation()
@@ -107,11 +107,11 @@ class LocalEngineHolder(
      * Returns true if the engine was unloaded due to inactivity, or false if it is still
      * active, already unloaded, or has not exceeded the idle threshold.
      */
-    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
+    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean = InferenceAdmission.tryShared {
         // Never cancel a running generation to enforce an idle timeout. Check the
         // timestamp and unload under the same lock as generation/model switching.
-        if (!mutex.tryLock()) return false
-        return try {
+        if (!mutex.tryLock()) return@tryShared false
+        try {
             val idleMs = timeProvider() - lastAccessedElapsedRealtimeMs
             if (loadedSpec == null || idleMs < idleThresholdMs) {
                 false
@@ -124,7 +124,7 @@ class LocalEngineHolder(
         } finally {
             mutex.unlock()
         }
-    }
+    } ?: false
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec && delegate.isEngineLoaded(spec)
 

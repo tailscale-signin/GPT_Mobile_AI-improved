@@ -17,13 +17,14 @@ import kotlinx.serialization.json.intOrNull
 /** Subordinate evidence worker. The parent remains the sole tool/consent and answer authority. */
 internal class AssistCoordinator(
     private val goal: String,
-    private val warmEligible: () -> Boolean,
+    private val warmEligible: suspend () -> Boolean,
     private val selectEvidence: suspend (String) -> String,
     private val notice: suspend (String) -> Unit
 ) {
     private val attempts = AtomicInteger()
 
-    fun bind(authorized: AgentTool): AgentTool = object : PreparableAgentTool {
+    fun bind(authorized: AgentTool): AgentTool = object : PreparableAgentTool, dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool {
+        override val executionOwner = (authorized as? dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool)?.executionOwner ?: dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner.CLIENT
         override val definition = authorized.definition
         override val managesExecutionBudget = true
         override suspend fun execute(callId: String, arguments: JsonObject) = prepareExecution(callId, arguments).invoke()

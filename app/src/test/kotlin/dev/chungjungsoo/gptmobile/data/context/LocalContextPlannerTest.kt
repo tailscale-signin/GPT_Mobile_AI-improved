@@ -71,6 +71,15 @@ class LocalContextPlannerTest {
     }
 
     @Test
+    fun unrelatedSchemasCannotEvictDocumentHistory() {
+        val anchor = turn("Retained document observations " + "important ".repeat(12))
+        val tools = (1..30).map { AgentToolDefinition("unrelated$it", "Management ".repeat(20), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(listOf(anchor), "Summarize the document", "", tools, 1024, null)
+        assertEquals(listOf(anchor), plan.priorTurns)
+        assertTrue(plan.omittedTools > 0)
+    }
+
+    @Test
     fun largerContextAllowsMoreThanTwoKilobytesOfEvidence() {
         val tool = AgentToolDefinition("web_search", "Search", buildJsonObject {})
         assertTrue(LocalContextPlanner.plan(emptyList(), "Search", "", listOf(tool), 8192, null).toolResultBytes > 2048)

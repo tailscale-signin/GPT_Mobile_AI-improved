@@ -8,7 +8,7 @@ internal object BenchmarkSuiteRegistry {
     fun standard(agent: Boolean): List<BenchmarkCase> = if (agent) agentSuite else textSuite
     private fun createStandard(agent: Boolean): List<BenchmarkCase> = buildList {
         for ((band, target) in listOf("short" to 512, "medium" to 2048, "long" to 4096)) {
-            val suffix = "\nExplain how rain forms in 128 to 256 words. No heading. Ignore the irrelevant record padding above."
+            val suffix = "\nExplain how rain forms in about 100 plain English words. No heading. Ignore the irrelevant record padding above."
             var padding = "Synthetic weather record. "
             while (ReferenceTextTokenizer.starts(padding + suffix).size < target) padding += "Synthetic weather record. "
             repeat(6) { trial ->

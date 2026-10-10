@@ -193,7 +193,7 @@ class BenchmarkRunner(
             if (finished != true) return sample(BenchmarkOutcome.TIMED_OUT, "Exceeded ${limitMs / 1000}s remaining per-test limit")
             val answer = text.toString().trim()
             val passed = when (test.category) {
-                "speed" -> answer.length >= 100 && calls.isEmpty()
+                "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || ReferenceTextTokenizer.starts(answer).size >= 128)
                 "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
                 "tools" -> calls.isNotEmpty() && successful.size == calls.size && answer == code
                 else -> answer == (

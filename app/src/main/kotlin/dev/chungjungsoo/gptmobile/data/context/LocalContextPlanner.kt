@@ -48,7 +48,7 @@ internal object LocalContextPlanner {
 
         val requiredNames = requiredToolNames(currentUserPrompt, tools)
         val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
-        val selectedTools = rankedTools.filter { tool ->
+        val selectedTools = rankedTools.filter { it.name in requiredNames }.filter { tool ->
             val cost = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
             (used + cost < promptLimit).also { fits -> if (fits) used += cost }
         }
@@ -68,14 +68,18 @@ internal object LocalContextPlanner {
             used += tokens
             recent += turn
         }
+        val optionalTools = rankedTools.filterNot { it.name in requiredNames }.filter { tool ->
+            val tokens = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
+            (used + tokens < promptLimit).also { fits -> if (fits) used += tokens }
+        }
         val retained = listOfNotNull(anchor) + recent.asReversed()
         return LocalContextPlan(
             retained,
-            selectedTools,
+            selectedTools + optionalTools,
             toolResultReserve * 2,
             used,
             priorTurns.size - retained.size,
-            tools.size - selectedTools.size
+            tools.size - selectedTools.size - optionalTools.size
         )
     }
 

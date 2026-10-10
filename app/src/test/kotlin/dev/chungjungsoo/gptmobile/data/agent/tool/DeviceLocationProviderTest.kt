@@ -87,10 +87,11 @@ class DeviceLocationProviderTest {
         runCurrent()
         listeners.getValue("gps").onLocationChanged(fix("gps"))
         runCurrent()
-        val location = firstModel.await()
-        assertEquals("active_fix", location?.acquisition)
-        assertEquals(location?.copy(acquisition = "shared_recent_fix"), secondModel.await())
-        assertEquals(location?.copy(acquisition = "shared_recent_fix"), provider.getCurrentLocation())
+        val location = firstModel.await()!!
+        assertEquals("active_fix", location.acquisition)
+        val sharedLocation = location.copy(acquisition = "shared_recent_fix")
+        assertEquals(sharedLocation, secondModel.await())
+        assertEquals(sharedLocation, provider.getCurrentLocation())
         verify(exactly = 3) { manager.requestLocationUpdates(any<String>(), any<LocationRequest>(), any<Executor>(), any<LocationListener>()) }
         assertEquals(listeners.values.toSet(), removed)
     }

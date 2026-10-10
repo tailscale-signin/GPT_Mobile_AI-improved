@@ -87,7 +87,14 @@ class ProviderAdaptersTest {
             )
         )
         val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
-            .openSession(turns(), platform(ClientType.OPENROUTER).copy(model = "mimo-cap-test", maxTokens = 256000))
+            .openSession(
+                turns(),
+                platform(ClientType.OPENROUTER).copy(
+                    model = "mimo-cap-test",
+                    maxTokens = 256000,
+                    openRouterRouting = """{"max_tokens":256000}"""
+                )
+            )
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(listOf(256000, 131072), api.chatRequests.map { it.maxTokens })
         assertTrue(events.none { it is ProviderEvent.Failed })

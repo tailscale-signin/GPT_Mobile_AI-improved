@@ -48,38 +48,47 @@ internal object LocalContextPlanner {
 
         val requiredNames = requiredToolNames(currentUserPrompt, tools)
         val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
-        val selectedTools = rankedTools.filter { it.name in requiredNames }.filter { tool ->
-            val cost = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
-            (used + cost < promptLimit).also { fits -> if (fits) used += cost }
+        val selectedTools = mutableListOf<AgentToolDefinition>()
+        fun admitTool(tool: AgentToolDefinition) {
+            val tokens = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
+            if (used + tokens < promptLimit) {
+                used += tokens
+                selectedTools += tool
+            }
         }
+        rankedTools.filter { it.name in requiredNames }.forEach(::admitTool)
         require(selectedTools.map { it.name }.containsAll(requiredNames)) { "Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them." }
         fun cost(turn: ConversationTurn): Long = estimate(turn.userMessage.effectiveContent()) +
             estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
             historyImageCount(turn).toLong() * IMAGE_TOKEN_ESTIMATE
 
-        // Preserve the initial goal when it fits, but never keep an oversized anchor.
-        val anchor = priorTurns.firstOrNull()?.takeIf { used + cost(it) < promptLimit }
-        if (anchor != null) used += cost(anchor)
-        val recent = mutableListOf<ConversationTurn>()
-        val candidates = if (anchor != null) priorTurns.drop(1) else priorTurns
-        for (turn in candidates.asReversed()) {
-            val tokens = cost(turn)
-            if (used + tokens >= promptLimit) break
-            used += tokens
-            recent += turn
+        // Required capabilities take precedence, but optional schemas must not starve
+        // the original goal or the most recent exchange (including extracted documents).
+        val retainedIndices = mutableSetOf<Int>()
+        fun admitTurn(index: Int) {
+            if (index !in priorTurns.indices || index in retainedIndices) return
+            val tokens = cost(priorTurns[index])
+            if (used + tokens < promptLimit) {
+                used += tokens
+                retainedIndices += index
+            }
         }
-        val optionalTools = rankedTools.filterNot { it.name in requiredNames }.filter { tool ->
-            val tokens = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
-            (used + tokens < promptLimit).also { fits -> if (fits) used += tokens }
+        admitTurn(0)
+        admitTurn(priorTurns.lastIndex)
+        rankedTools.filterNot { it.name in requiredNames }.forEach(::admitTool)
+        for (index in priorTurns.indices.reversed()) {
+            if (index in retainedIndices) continue
+            if (used + cost(priorTurns[index]) >= promptLimit) break
+            admitTurn(index)
         }
-        val retained = listOfNotNull(anchor) + recent.asReversed()
+        val retained = retainedIndices.sorted().map { priorTurns[it] }
         return LocalContextPlan(
             retained,
-            selectedTools + optionalTools,
+            selectedTools,
             toolResultReserve * 2,
             used,
             priorTurns.size - retained.size,
-            tools.size - selectedTools.size - optionalTools.size
+            tools.size - selectedTools.size
         )
     }
 

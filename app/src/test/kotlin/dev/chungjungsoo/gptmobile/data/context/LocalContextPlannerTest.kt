@@ -84,5 +84,25 @@ class LocalContextPlannerTest {
         val tool = AgentToolDefinition("web_search", "Search", buildJsonObject {})
         assertTrue(LocalContextPlanner.plan(emptyList(), "Search", "", listOf(tool), 8192, null).toolResultBytes > 2048)
     }
+
+    @Test
+    fun optionalSchemasCannotStarveDocumentHistory() {
+        val anchor = turn("Attachment: first.pdf\nOriginal document")
+        val recent = turn("Attachment: recent.pdf\nRecent document")
+        val tools = (1..40).map { AgentToolDefinition("tool$it", "Optional description ".repeat(20), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(listOf(anchor, recent), "Summarize", "", tools, 1024, null)
+        assertEquals(listOf(anchor, recent), plan.priorTurns)
+        assertTrue(plan.omittedTools > 0)
+        assertTrue(plan.estimatedPromptTokens < 384)
+    }
+
+    @Test
+    fun requiredSchemasTakePrecedenceOverHistory() {
+        val search = AgentToolDefinition("web_search", "Search ".repeat(20), buildJsonObject {})
+        val plan = LocalContextPlanner.plan(listOf(turn("x".repeat(600))), "Search", "", listOf(search), 1024, null)
+        assertEquals(listOf(search), plan.tools)
+        assertTrue(plan.priorTurns.isEmpty())
+    }
+
     private fun turn(text: String) = ConversationTurn(MessageV2(content = text, platformType = null), null, false)
 }

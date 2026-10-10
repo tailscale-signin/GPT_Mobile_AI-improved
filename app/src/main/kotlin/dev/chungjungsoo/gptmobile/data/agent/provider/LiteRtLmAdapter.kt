@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
@@ -118,7 +119,13 @@ class LiteRtLmAdapter(
                     return@channelFlow
                 }
                 val metadata = try {
-                    localRuntime.inspectModel(modelPath)
+                    // Inspection also takes the native engine lock. Surface contention here,
+                    // before planning, so queued requests remain visibly cancellable.
+                    localRuntime.runExclusiveFlow(
+                        onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
+                    ) {
+                        flow { emit(inspectModel(modelPath)) }
+                    }.single()
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
                     send(ProviderEvent.Failed("Could not inspect this model export: ${failure.message}"))

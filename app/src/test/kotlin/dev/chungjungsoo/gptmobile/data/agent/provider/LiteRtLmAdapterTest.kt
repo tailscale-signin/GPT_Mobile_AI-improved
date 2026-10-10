@@ -919,7 +919,7 @@ class LiteRtLmAdapterTest {
             }
         }
         withTimeout(5_000) {
-            while (secondEvents.none { it is ProviderEvent.Notice }) {
+            while (secondEvents.none { it is ProviderEvent.Notice && it.message == LiteRtLmAdapter.DEFAULT_WAITING_FOR_ENGINE }) {
                 yield()
             }
         }
@@ -1385,14 +1385,16 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `unset output limit leaves generation uncapped without shrinking context`() = runBlocking {
+    fun `unset output limit uses a bounded reply without shrinking context`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
-        adapter(runtime).openSession(turns("hello"), localPlatform().copy(maxTokens = null))
+        val events = adapter(runtime).openSession(turns("hello"), localPlatform().copy(maxTokens = null))
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(4096, runtime.loadEngineCalls.single().maxTokens)
-        assertEquals(null, runtime.createConversationCalls.single().maxOutputTokens)
+        assertEquals(512, runtime.createConversationCalls.single().maxOutputTokens)
+        assertTrue(events.any { it is ProviderEvent.Notice && it.message.contains("Local reply budget: 512 tokens") })
+        assertEquals(ProviderEvent.Completed, events.last())
     }
 
     @Test
@@ -1412,7 +1414,7 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `NPU engine spec clamps max tokens to the matching SOC variant context`() = runBlocking {
+    fun `NPU context and reply budget respect the matching SOC variant`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
@@ -1438,7 +1440,7 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(1280, runtime.loadEngineCalls.single().maxTokens)
-        assertEquals(4096, runtime.createConversationCalls.single().maxOutputTokens)
+        assertEquals(320, runtime.createConversationCalls.single().maxOutputTokens)
         assertEquals(LocalAccelerators.NPU, runtime.loadEngineCalls.single().accelerator)
     }
 
@@ -1598,7 +1600,7 @@ class LiteRtLmAdapterTest {
 
         val events = adapter.openSession(turns("hi"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
 
-        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull()
+        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull { it.message.startsWith("Local:") }
         assertTrue(notice != null)
         assertTrue(notice!!.message.contains("Local: ~22.0 tok/s end-to-end · First callback 120ms · ~11 tokens"))
         assertTrue(events.last() is ProviderEvent.Completed)
@@ -1633,7 +1635,7 @@ class LiteRtLmAdapterTest {
 
         val events = adapter.openSession(turns("hi"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
 
-        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull()
+        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull { it.message.startsWith("Local:") }
         assertTrue(notice != null)
         assertTrue(notice!!.message.contains("Local: ~8.0 tok/s end-to-end · First callback 250ms · ~8 tokens · ⚡ Throttled"))
     }
@@ -1763,7 +1765,7 @@ class LiteRtLmAdapterTest {
             }
         }
         withTimeout(5_000) {
-            while (events.none { it is ProviderEvent.Notice }) {
+            while (events.none { it is ProviderEvent.Notice && it.message == LiteRtLmAdapter.DEFAULT_WAITING_FOR_ENGINE }) {
                 yield()
             }
         }
@@ -1798,7 +1800,7 @@ class LiteRtLmAdapterTest {
         val queued = launch {
             adapter.openSession(turns("second"), localPlatform(uid = "queued")).streamRound(emptyList(), emptyList()).collect { queuedEvents += it }
         }
-        withTimeout(5000) { while (queuedEvents.none { it is ProviderEvent.Notice }) yield() }
+        withTimeout(5000) { while (queuedEvents.none { it is ProviderEvent.Notice && it.message == LiteRtLmAdapter.DEFAULT_WAITING_FOR_ENGINE }) yield() }
         queued.cancelAndJoin()
         assertEquals(0, native.cancelActiveCalls)
         pause.complete(Unit)
@@ -1932,7 +1934,9 @@ class LiteRtLmAdapterTest {
         temperature = 0.8f,
         topP = 0.9f,
         topK = 32,
-        maxTokens = 2048,
+        // Keep the ordinary fixture within the 4096-token model's reply reserve;
+        // tests above exercise unset, excessive and request-constrained budgets.
+        maxTokens = 1024,
         accelerator = "gpu",
         systemPrompt = "Be concise"
     )

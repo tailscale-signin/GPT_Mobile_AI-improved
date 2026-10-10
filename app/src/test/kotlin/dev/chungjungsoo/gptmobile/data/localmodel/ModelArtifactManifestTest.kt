@@ -71,6 +71,28 @@ class ModelArtifactManifestTest {
         assertTrue(runCatching { manifest.copy(supportedBackends = setOf("npu"), soc = "SM8850").validate(root, "npu", "SM8750") }.isFailure)
     }
 
+    @Test fun declaredTraversalCannotWriteOutsideStaging() {
+        val source = temporary.newFolder()
+        val valid = artifact(source)
+        val storage = temporary.newFolder()
+        val escaped = File(storage, "models/escape.gguf")
+        for (path in listOf("../escape.gguf", "nested/../../escape.gguf", escaped.absolutePath)) {
+            val manifest = valid.copy(entryFile = path, files = listOf(valid.files.single().copy(path = path)))
+            val bytes = ByteArrayOutputStream()
+            ZipOutputStream(bytes).use { out ->
+                out.putNextEntry(ZipEntry("manifest.json"))
+                out.write(Json.encodeToString(manifest).toByteArray())
+                out.closeEntry()
+                out.putNextEntry(ZipEntry(path))
+                out.write(File(source, "weights.gguf").readBytes())
+                out.closeEntry()
+            }
+            assertTrue(path, ModelBundleInstaller.install(ByteArrayInputStream(bytes.toByteArray()), storage) is LocalModelImportResult.Failure)
+            assertFalse(path, escaped.exists())
+            assertTrue(File(storage, "models").listFiles().orEmpty().isEmpty())
+        }
+    }
+
     @Test fun qairtConfigurationCannotEscapeDeclaredBundleOrInventContext() {
         val root = temporary.newFolder()
         File(root, "shard.bin").writeText("context binary fixture")

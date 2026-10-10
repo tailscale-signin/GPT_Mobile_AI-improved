@@ -30,6 +30,10 @@ internal object ModelBundleInstaller {
                     require(!entry.isDirectory && extracted.add(entry.name)) { "Duplicate or undeclared archive entry" }
                     val asset = declared[entry.name] ?: error("Undeclared archive asset: ${entry.name}")
                     val target = ModelArtifactManifest.safeFile(staging, entry.name)
+                    // Keep the extraction boundary explicit before either filesystem write.
+                    if (!target.canonicalPath.startsWith(staging.canonicalPath + File.separator)) {
+                        throw IllegalArgumentException("Archive entry escapes installation")
+                    }
                     check(target.parentFile?.mkdirs() == true || target.parentFile?.isDirectory == true)
                     copyBounded(archive, target, asset.sizeBytes, exact = true)
                 }

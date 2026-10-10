@@ -504,7 +504,7 @@ class ChatRepositoryImplTest {
         val states = repository.completeChat(
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
-            platform = localPlatform().copy(maxTokens = 16384),
+            platform = localPlatform().copy(maxTokens = 2048),
             runId = "run-local-tool"
         ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
@@ -529,6 +529,7 @@ class ChatRepositoryImplTest {
             runtime.createConversationCalls.single().tools.map { it.name }.sorted()
         )
         assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
+        assertEquals(2048, runtime.createConversationCalls.single().maxOutputTokens)
         val event = traceDao.events.single()
         assertEquals("run-local-tool", event.runId)
         assertEquals("current_date", event.toolName)

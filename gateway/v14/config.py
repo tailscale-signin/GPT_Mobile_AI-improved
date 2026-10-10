@@ -15,8 +15,17 @@ class Config:
     allowed_origins: tuple = ("http://127.0.0.1:8090", "http://localhost:8090", "http://[::1]:8090")
     trusted_users: dict = field(default_factory=dict)
     legacy_bearer: bool = False
+    max_active_chats: int = 8
+    max_workers: int = 2
+    max_body_bytes: int = 16 * 1024 * 1024
+    body_timeout: float = 30
+    shutdown_grace: float = 10
 
     def validate(self):
+        if not 1 <= self.max_workers <= self.max_active_chats <= 64:
+            raise ValueError('Require 1 <= GATEWAY_MAX_WORKERS <= GATEWAY_MAX_ACTIVE_CHATS <= 64')
+        if not 1024 <= self.max_body_bytes <= 64 * 1024 * 1024 or not 1 <= self.body_timeout <= 120 or not 1 <= self.shutdown_grace <= 120:
+            raise ValueError('Invalid body size, body timeout or shutdown grace')
         if self.mode not in {"loopback", "trusted_proxy"}:
             raise ValueError("GATEWAY_AUTH_MODE must be loopback or trusted_proxy")
         try:
@@ -51,4 +60,9 @@ class Config:
         return cls(mode=os.getenv("GATEWAY_AUTH_MODE", "loopback"), host=os.getenv("GATEWAY_HOST", "127.0.0.1"), port=port,
                    allowed_hosts=hosts, allowed_origins=origins,
                    trusted_users=json.loads(os.getenv("GATEWAY_TRUSTED_USERS", "{}")),
-                   legacy_bearer=os.getenv("GATEWAY_LEGACY_BEARER", "false").lower() == "true").validate()
+                   legacy_bearer=os.getenv("GATEWAY_LEGACY_BEARER", "false").lower() == "true",
+                   max_active_chats=int(os.getenv('GATEWAY_MAX_ACTIVE_CHATS', '8')),
+                   max_workers=int(os.getenv('GATEWAY_MAX_WORKERS', '2')),
+                   max_body_bytes=int(os.getenv('GATEWAY_MAX_BODY_BYTES', str(16 * 1024 * 1024))),
+                   body_timeout=float(os.getenv('GATEWAY_BODY_TIMEOUT', '30')),
+                   shutdown_grace=float(os.getenv('GATEWAY_SHUTDOWN_GRACE', '10'))).validate()

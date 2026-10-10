@@ -7,7 +7,7 @@ from pathlib import Path
 
 class GeneralToolRoutingTests(unittest.TestCase):
     def setUp(self):
-        tree = ast.parse((Path(__file__).resolve().parents[1] / "gateway_v13.py").read_text())
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "gateway_v13.py").read_text(encoding="utf-8"))
         names = {"apply_workflow_tool_profile", "is_repository_tool_name", "get_tool_name", "get_workflow_context_text", "get_latest_user_text", "get_effective_user_text", "task_text_without_saved_work", "has_repository_context", "classify_request_domain", "classify_workflow_profile"}
         module = ast.Module(body=[node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[])
         self.scope = {"re": re, "WORKFLOW_TOOL_PROFILES_ENABLED": True, "github_full_access_workflow": lambda profile: False,

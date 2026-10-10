@@ -10,7 +10,7 @@ from contextvars import ContextVar
 SOURCE = Path(__file__).resolve().parents[1] / "gateway_v12.py"
 scope = {"copy": copy, "hashlib": hashlib, "json": json,
          "current_device": ContextVar("device", default="test-device")}
-tree = ast.parse(SOURCE.read_text())
+tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 exec(compile(ast.Module(body=[node for node in tree.body
                              if isinstance(node, ast.FunctionDef)
                              and node.name == "canonical_chat_request_fingerprint"],

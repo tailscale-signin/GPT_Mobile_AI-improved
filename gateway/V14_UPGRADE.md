@@ -1,5 +1,7 @@
 # Gateway v14 implementation and upgrade
 
+The current package is **14.1.0**. See [V14_1_ARCHITECTURE.md](V14_1_ARCHITECTURE.md) for the researched architecture, implemented stability changes, configuration, failure tests and proposed next phases. This release adds bounded admission/workers, journal schema revision and pre-upgrade snapshots, FULL synchronization, supervised MCP deadlines/circuits, lifecycle drain and journal-aware readiness. Modern MCP remains disabled.
+
 This is a reviewable development implementation, not a certified Windows/phone release. It retains the v13.1 inference, delegation, recovery, output-budget and MCP runtime. Do not replace a PC installation with only gateway.py: every file in manifest-v14.json is required.
 
 The archive also includes `android/Gateway_v14_Android_Compatibility.patch`, based on reviewed main commit a66155df. Apply it on an isolated app review branch with `git apply`, then build and test using the repository's JDK/SDK before installing on the phone.

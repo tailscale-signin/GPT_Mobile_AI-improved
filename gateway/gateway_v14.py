@@ -22,6 +22,10 @@ from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, Dur
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
+from v14.service import ServiceState, LoadGuard
+from v14.mcp import install_mcp_resilience
+from v14.health import readiness, diagnostics
+from v14.journal import backup_database
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -42,9 +46,13 @@ def approved_mcp_config():
 
 runtime.load_mcp_config = approved_mcp_config
 install_exact_routing(runtime)
+install_mcp_resilience(runtime)
 install_browser_proxy(runtime, config)
-app = FastAPI(title="Private Gateway v14", version=VERSION, lifespan=runtime.gateway_lifespan,
+service = ServiceState(config.max_workers)
+service.install(runtime)
+app = FastAPI(title="Private Gateway v14", version=VERSION, lifespan=service.lifespan(runtime, config.shutdown_grace),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
+app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(Admission, config=config)
 
 
@@ -100,7 +108,8 @@ def capabilities():
                    "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
-                                    loopbackBrowserCsrf=config.mode == "loopback")})
+                                    loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
+                                    versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True)})
     return result
 
 
@@ -119,8 +128,19 @@ def v14_contract():
 @app.get("/gateway/ready")
 @app.get("/v1/gateway/ready")
 async def ready():
-    # Blocking legacy HTTP probe stays off the ASGI event loop.
-    return await asyncio.to_thread(runtime.v13_ready)
+    result = await asyncio.to_thread(readiness, runtime, service)
+    return JSONResponse(result, status_code=200 if result['ready'] else 503)
+
+
+@app.get('/gateway/live')
+@app.get('/v1/gateway/live')
+def live():
+    return {'live': True, 'version': VERSION, 'draining': service.snapshot()['draining']}
+
+
+@app.get('/gateway/admin/status')
+async def admin_status():
+    return await asyncio.to_thread(diagnostics, runtime, service)
 
 
 @app.get("/gateway/connections")
@@ -170,15 +190,28 @@ def doctor():
             "mcpFacade": "disabled", "modernMcp": "not-certified", "backend": backend,
             "loadedModules": {"launcher": str(Path(__file__).with_name("gateway.py")), "composition": __file__, "runtime": runtime.__file__},
             "dependencies": {name: importlib.metadata.version(name) for name in ("fastapi", "uvicorn", "requests", "httpx")},
+            "stability": diagnostics(runtime, service),
             "remainingGates": ["Windows install/rollback", "Tailscale identity", "Android build", "physical phone"]}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", nargs="?", choices=["serve", "doctor", "validate-config", "migrate-owner"], default="serve")
+    parser.add_argument("command", nargs="?", choices=["serve", "doctor", "validate-config", "migrate-owner", "backup-journal"], default="serve")
     parser.add_argument("--legacy-device")
     parser.add_argument("--principal")
+    parser.add_argument('--output', help='New local SQLite snapshot path for backup-journal')
     args = parser.parse_args()
+    if args.command == 'backup-journal':
+        if not args.output:
+            parser.error('backup-journal requires --output')
+        # Read-only source: a backup command never initializes, migrates or prunes.
+        import sqlite3
+        conn = sqlite3.connect(runtime.GATEWAY_JOB_DB_PATH.resolve().as_uri() + '?mode=ro', uri=True)
+        try:
+            print(json.dumps({'snapshot': str(backup_database(conn, args.output))}))
+        finally:
+            conn.close()
+        return
     if args.command == "migrate-owner":
         print(json.dumps({"ownershipRecordsMigrated": migrate_legacy_owner(runtime.device_store, args.legacy_device or "", args.principal or "")}))
         return
@@ -190,7 +223,8 @@ def main():
     # Forwarded headers cannot rewrite the socket identity used for admission.
     runtime.logger.info("Gateway %s: mode=%s, key-free access, source=%s, browser bridge=%s",
                         VERSION, config.mode, manifest["sourceCommit"][:12], config.mode == "loopback")
-    uvicorn.run(app, host=config.host, port=config.port, proxy_headers=False)
+    uvicorn.run(app, host=config.host, port=config.port, proxy_headers=False,
+                timeout_graceful_shutdown=config.shutdown_grace + 5)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ internal fun answerWithoutSourceLists(answer: String): String {
     val hasReferences = sourceUrl.containsMatchIn(answer) || lines.any(sourceHeading::matches)
     val output = mutableListOf<String>()
     var fence: String? = null
+    var inReferenceList = false
     var index = 0
     while (index < lines.size) {
         val line = lines[index]
@@ -54,14 +55,24 @@ internal fun answerWithoutSourceLists(answer: String): String {
             continue
         }
         if (sourceHeading.matches(line)) {
-            val end = ((index + 1) until lines.size).firstOrNull {
-                lines[it].trimStart().startsWith('#') && !sourceHeading.matches(lines[it])
-            } ?: lines.size
-            val references = lines.subList(index + 1, end)
-            if (references.all { it.isBlank() } || references.any { it.contains("https://") || it.contains("http://") || citationMarker.containsMatchIn(it) }) {
-                index = end
+            val firstContent = (index + 1 until lines.size).firstOrNull { lines[it].isNotBlank() }
+            val nextIsHeading = firstContent?.let { lines[it].trimStart().startsWith('#') } == true
+            val nextLooksLikeReference = firstContent?.let {
+                lines[it].contains("https://") || lines[it].contains("http://") || citationMarker.containsMatchIn(lines[it])
+            } == true
+            if (firstContent == null || nextIsHeading || nextLooksLikeReference) {
+                inReferenceList = true
+                index++
                 continue
             }
+        }
+        if (inReferenceList) {
+            val referenceLine = line.contains("https://") || line.contains("http://") || citationMarker.containsMatchIn(line)
+            if (line.isBlank() || referenceLine) {
+                index++
+                continue
+            }
+            inReferenceList = false
         }
         if (sourceLabel.containsMatchIn(line) && (line.contains("https://") || line.contains("http://"))) {
             index++

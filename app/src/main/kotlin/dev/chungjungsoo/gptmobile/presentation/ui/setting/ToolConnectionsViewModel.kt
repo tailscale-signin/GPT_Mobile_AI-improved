@@ -245,7 +245,7 @@ class ToolConnectionsViewModel @Inject constructor(
                 allowCleartext = provider.type == ToolConnectionType.MCP && actualEndpoint.startsWith("http://", ignoreCase = true) && allowCleartext,
                 createdAt = existing?.createdAt ?: now,
                 updatedAt = now
-            )
+            ).preservingPolicyFrom(existing)
             val metadataChanged = existing?.let {
                 it.type != connection.type ||
                     it.endpointUrl != connection.endpointUrl ||
@@ -497,6 +497,11 @@ class ToolConnectionsViewModel @Inject constructor(
         }.getOrDefault(false)
     }
 }
+
+internal fun ToolConnection.preservingPolicyFrom(existing: ToolConnection?): ToolConnection = copy(
+    toolPolicy = existing?.toolPolicy ?: toolPolicy,
+    approvedReadTools = existing?.approvedReadTools ?: approvedReadTools
+)
 
 data class ToolConnectionProvider(
     val label: String,

@@ -493,8 +493,16 @@ class ChatViewModel @Inject constructor(
     fun removeQueuedPrompt(id: String) {
         viewModelScope.launch { durablePromptQueue?.remove(id) }
     }
-    fun editQueuedPrompt(id: String, text: String) {
-        viewModelScope.launch { durablePromptQueue?.edit(id, text) }
+    fun editQueuedPrompt(id: String, text: String, hasAttachments: Boolean) {
+        viewModelScope.launch {
+            try {
+                durablePromptQueue?.edit(id, text, hasAttachments)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _attachmentNotice.value = error.message ?: "Could not update the queued message."
+            }
+        }
     }
     fun pauseQueuedPrompt(id: String, paused: Boolean) {
         viewModelScope.launch { durablePromptQueue?.pause(id, paused) }

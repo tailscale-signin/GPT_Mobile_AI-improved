@@ -523,7 +523,13 @@ class SettingViewModelV2 @Inject constructor(
 
     private fun runBackupOperation(restoring: Boolean = false, operation: suspend () -> BackupRestoreResult) {
         if (_backupUi.value.isWorking) return
-        _backupUi.update { it.copy(isBusy = true, isWorking = true) }
+        _backupUi.update {
+            it.copy(
+                isBusy = true,
+                isWorking = true,
+                workingMessage = if (restoring) "Restoring your selected sections…" else "Preparing your backup…"
+            )
+        }
         viewModelScope.launch {
             try {
                 val result = operation()
@@ -558,6 +564,7 @@ class SettingViewModelV2 @Inject constructor(
         val requiresLegacyPassword: Boolean = false,
         val isBusy: Boolean = false,
         val isWorking: Boolean = false,
+        val workingMessage: String = "Working…",
         val restoreUri: Uri? = null,
         val backupUri: Uri? = null,
         val recoveryKeyUri: Uri? = null,

@@ -1,9 +1,18 @@
 package dev.chungjungsoo.gptmobile.data.backup
 
+import android.util.AtomicFile
 import java.io.File
 import java.util.UUID
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
-internal class CompleteBackupFiles(roots: Map<String, File>, private val pluginRoot: File? = null) {
+internal class CompleteBackupFiles(
+    roots: Map<String, File>,
+    private val pluginRoot: File? = null,
+    private val transactionJournal: File? = null
+) {
     private val roots = roots.mapValues { it.value.canonicalFile }
     private val excluded = setOf("datastore", "backup", "backups", "diagnostics", "amazon-product-media")
 
@@ -61,24 +70,49 @@ internal class CompleteBackupFiles(roots: Map<String, File>, private val pluginR
         }
     }
 
-    fun replacement(staging: File, paths: Set<String>): Replacement = Replacement(staging, paths)
+    fun replacement(staging: File, paths: Set<String>, transactionId: String = UUID.randomUUID().toString()): Replacement = Replacement(staging, paths, transactionId)
 
-    inner class Replacement(private val staging: File, private val paths: Set<String>) {
-        private val id = ".full-restore-${UUID.randomUUID()}"
+    fun recoverInterruptedRestore(committedTransactionId: String?) {
+        val file = transactionJournal ?: return
+        if (!file.isFile) return
+        val atomic = AtomicFile(file)
+        val journal = atomic.openRead().bufferedReader().use { Json.decodeFromString<RestoreJournal>(it.readText()) }
+        if (committedTransactionId != journal.id) {
+            journal.entries.asReversed().forEach { entry ->
+                val target = target(entry.path)
+                val previous = previousFile(journal.id, entry.path)
+                when {
+                    previous.exists() -> {
+                        check(!target.exists() || target.deleteRecursively()) { "Could not remove an interrupted restore file." }
+                        check(target.parentFile!!.mkdirs() || target.parentFile!!.isDirectory)
+                        check(previous.renameTo(target)) { "Could not recover a file interrupted during restore." }
+                    }
+                    !entry.existedBefore && entry.started -> check(!target.exists() || target.deleteRecursively()) { "Could not remove an interrupted restore file." }
+                }
+            }
+        }
+        removeTransactionCopies(journal.id)
+        atomic.delete()
+    }
+
+    inner class Replacement(private val staging: File, private val paths: Set<String>, private val id: String) {
         private val originals = mutableMapOf<File, File>()
         private val installed = mutableListOf<File>()
         private val createdDirectories = mutableListOf<File>()
+        private val entries = paths.map { path -> RestoreJournalEntry(path, target(path).exists(), false) }.toMutableList()
 
         fun apply() {
             require(paths.map(::target).toSet().size == paths.size) { "Conflicting backup file locations." }
+            persistJournal()
 
             // Restore only files explicitly selected from the archive so a partial
             // restore never deletes unrelated models, attachments or app files.
-            paths.forEach { path ->
+            paths.forEachIndexed { index, path ->
                 val file = target(path)
+                entries[index] = entries[index].copy(started = true)
+                persistJournal()
                 if (file.exists()) {
-                    val root = (roots.values + listOfNotNull(pluginRoot?.canonicalFile)).first { file.toPath().startsWith(it.toPath()) }
-                    val previous = File(root, "$id/${file.relativeTo(root)}")
+                    val previous = previousFile(id, path)
                     check(previous.parentFile!!.mkdirs() || previous.parentFile!!.isDirectory)
                     check(file.renameTo(previous)) { "Could not preserve existing app files." }
                     originals[file] = previous
@@ -92,7 +126,7 @@ internal class CompleteBackupFiles(roots: Map<String, File>, private val pluginR
         }
 
         fun rollback() {
-            installed.asReversed().forEach { check(!it.exists() || it.delete()) }
+            installed.asReversed().forEach { check(!it.exists() || it.deleteRecursively()) }
             createdDirectories.asReversed().forEach { check(!it.exists() || it.delete()) }
             originals.forEach { (target, previous) ->
                 check(target.parentFile!!.mkdirs() || target.parentFile!!.isDirectory)
@@ -109,9 +143,39 @@ internal class CompleteBackupFiles(roots: Map<String, File>, private val pluginR
         }
 
         fun cleanup() {
-            (roots.values + listOfNotNull(pluginRoot)).forEach { File(it, id).deleteRecursively() }
+            removeTransactionCopies(id)
+            transactionJournal?.let { AtomicFile(it).delete() }
+        }
+
+        private fun persistJournal() {
+            val file = transactionJournal ?: return
+            val atomic = AtomicFile(file)
+            val output = atomic.startWrite()
+            try {
+                output.write(Json.encodeToString(RestoreJournal(id, entries)).encodeToByteArray())
+                atomic.finishWrite(output)
+            } catch (error: Exception) {
+                atomic.failWrite(output)
+                throw error
+            }
         }
     }
+
+    private fun previousFile(id: String, path: String): File {
+        val destination = target(path)
+        val root = (roots.values + listOfNotNull(pluginRoot?.canonicalFile)).first { destination.toPath().startsWith(it.toPath()) }
+        return File(root, ".full-restore-$id/${destination.relativeTo(root)}")
+    }
+
+    private fun removeTransactionCopies(id: String) {
+        (roots.values + listOfNotNull(pluginRoot?.canonicalFile)).distinct().forEach { File(it, ".full-restore-$id").deleteRecursively() }
+    }
+
+    @Serializable
+    private data class RestoreJournal(val id: String, val entries: List<RestoreJournalEntry>)
+
+    @Serializable
+    private data class RestoreJournalEntry(val path: String, val existedBefore: Boolean, val started: Boolean)
 
     companion object {
         fun isPluginPath(path: String): Boolean = path.startsWith("internal/plugin-installations/")

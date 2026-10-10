@@ -38,6 +38,16 @@ class AnswerSourcePresentationTest {
         assertEquals(answer, answerWithoutSourceLists(answer))
     }
 
+    @Test fun nextStepsAfterReferenceListRemainVisibleWithoutAnotherHeading() {
+        val answer = "A grounded result.\n\n## Sources\n- [Documentation](https://example.org/doc)\n\n**Next steps:**\nKeep working on the implementation."
+
+        val display = answerWithoutSourceLists(answer)
+
+        assertTrue(display.contains("**Next steps:**"))
+        assertTrue(display.contains("Keep working on the implementation."))
+        assertFalse(display.contains("https://"))
+    }
+
     @Test fun unknownSitesShareOtherAndDistinctPagesRemainVisible() {
         val sources = listOf(ChatSource("https://example.org/a", "A", "example.org"), ChatSource("https://example.org/b", "B", "example.org"), ChatSource("https://github.com/repo", "Repo", "github.com"))
         assertEquals(2, filterChatSources(sources, "other").size)

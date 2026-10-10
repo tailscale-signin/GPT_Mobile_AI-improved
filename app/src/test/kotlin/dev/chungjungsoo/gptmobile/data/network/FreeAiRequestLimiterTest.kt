@@ -31,9 +31,11 @@ class FreeAiRequestLimiterTest {
         var now = 100_000L
         val limiter = FreeAiRequestLimiter { now }
         repeat(2) { limiter.reserve(FreeAiProvider.OVHCLOUD) }
+        assertEquals(now + 60_000L, limiter.cooldownUntilMillis(FreeAiProvider.OVHCLOUD))
         assertThrows(FreeAiRateLimitException::class.java) { limiter.reserve(FreeAiProvider.OVHCLOUD) }
         limiter.reserve(FreeAiProvider.KILO)
         now += 60_000
+        assertEquals(null, limiter.cooldownUntilMillis(FreeAiProvider.OVHCLOUD))
         limiter.reserve(FreeAiProvider.OVHCLOUD)
     }
 

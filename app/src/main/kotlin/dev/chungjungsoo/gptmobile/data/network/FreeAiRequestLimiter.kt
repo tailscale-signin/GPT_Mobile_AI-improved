@@ -66,6 +66,26 @@ class FreeAiRequestLimiter(
         return (bucket.retryAt - now + 999) / 1000
     }
 
+    /** Return the known provider/local quota cooldown without reserving a request. */
+    @Synchronized
+    fun cooldownUntilMillis(provider: FreeAiProvider): Long? {
+        val now = nowMillis()
+        val bucket = buckets.getValue(provider)
+        while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
+        val minuteRequests = bucket.requests.filter { it > now - MINUTE_MS }
+        var retryAt = bucket.retryAt
+        if (provider == FreeAiProvider.LLM7 && bucket.requests.isNotEmpty()) {
+            retryAt = maxOf(retryAt, bucket.requests.last + 1000)
+        }
+        if (provider.requestsPerMinute > 0 && minuteRequests.size >= provider.requestsPerMinute) {
+            retryAt = maxOf(retryAt, minuteRequests.first() + MINUTE_MS)
+        }
+        if (provider.requestsPerHour > 0 && bucket.requests.size >= provider.requestsPerHour) {
+            retryAt = maxOf(retryAt, bucket.requests.first + HOUR_MS)
+        }
+        return retryAt.takeIf { it > now }
+    }
+
     companion object {
         val shared = FreeAiRequestLimiter()
         private const val MINUTE_MS = 60_000L

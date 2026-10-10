@@ -9,6 +9,17 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+internal fun combinedSourcesWithEvidence(
+    sources: List<CombinedModelResponse>,
+    sharedEvidence: ResearchCorpus?
+): List<CombinedModelResponse> = sources.map { source ->
+    val cited = sharedEvidence?.citedSources(source.content).orEmpty()
+    source.copy(
+        sourceIds = (source.sourceIds + cited.map { it.id }).distinct().take(120),
+        evidenceRefs = (source.evidenceRefs + cited.map { it.canonicalUrl }).distinct().take(120)
+    )
+}
+
 /** Every contributor is supplied in full. Context overflow must be visible, never silent source loss. */
 internal fun combinedSynthesisPrompt(
     request: String,

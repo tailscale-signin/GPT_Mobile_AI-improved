@@ -57,4 +57,26 @@ class CombinedSynthesisPromptTest {
         assertEquals("Supported", evidence.getValue("claims").jsonArray.single().jsonObject.getValue("verdict").jsonPrimitive.content)
         assertEquals("SUCCESS", evidence.getValue("toolEvents").jsonArray.single().jsonObject.getValue("outcome").jsonPrimitive.content)
     }
+
+    @Test fun contributionAttributionResolvesOnlyExplicitCorpusUrls() {
+        val source = ResearchSource("S7", "https://example.org/limits?utm_source=search", "API guide")
+        val corpus = ResearchCorpus.freeze(ResearchSnapshot(task = "limits", sources = listOf(source)))
+        val attributed = combinedSourcesWithEvidence(
+            listOf(CombinedModelResponse("p", "Research", content = "The guide says five. https://www.example.org/limits?utm_source=search.")),
+            corpus
+        )
+        assertEquals(listOf("S7"), attributed.single().sourceIds)
+        assertEquals(listOf("https://example.org/limits"), attributed.single().evidenceRefs)
+        val prompt = Json.parseToJsonElement(
+            combinedSynthesisPrompt(
+                "Check limits",
+                attributed,
+                corpus
+            )
+        ).jsonObject
+        val contribution = prompt.getValue("contributions").jsonArray.single().jsonObject
+
+        assertEquals("S7", contribution.getValue("source_ids").jsonArray.single().jsonPrimitive.content)
+        assertEquals("https://example.org/limits", contribution.getValue("evidence_refs").jsonArray.single().jsonPrimitive.content)
+    }
 }

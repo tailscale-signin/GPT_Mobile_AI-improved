@@ -18,6 +18,19 @@ data class ResearchCorpus(
         put("toolEvents", JsonArray(toolEvents.takeLast(MAX_EVENTS).map { it.json() }))
     }
 
+    /** Resolve only URLs explicitly present in a contribution; never guess from local S1 labels. */
+    fun citedSources(text: String): List<ResearchSource> {
+        val citedUrls = Regex("https?://[^\\s<>\\[\\]{}]+", RegexOption.IGNORE_CASE)
+            .findAll(text)
+            .map { it.value.trimEnd('.', ',', ';', ':', ')') }
+            .mapNotNull { url -> runCatching { SourceIdentity.canonicalResearchUrl(url) }.getOrNull()?.takeIf(String::isNotBlank) }
+            .toSet()
+        if (citedUrls.isEmpty()) return emptyList()
+        return sources.filter { source ->
+            runCatching { SourceIdentity.canonicalResearchUrl(source.canonicalUrl.ifBlank { source.url }) }.getOrNull() in citedUrls
+        }.distinctBy { it.id }.take(MAX_SOURCES)
+    }
+
     companion object {
         private const val MAX_SOURCES = 120
         private const val MAX_CLAIMS = 30

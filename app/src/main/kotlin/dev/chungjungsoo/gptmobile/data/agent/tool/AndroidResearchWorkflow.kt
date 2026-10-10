@@ -210,7 +210,7 @@ internal class AndroidResearchWorkflow(
             if (completed == null) state = state.copy(notes = state.notes + "Research deadline reached; completed passages retained.")
             if (!collecting()) state = state.copy(notes = state.notes + "Collection stopped to preserve synthesis and review time; coverage may be incomplete.")
             if (journal?.stopRequested() == true) state = state.copy(notes = state.notes + "Stopped by user; coverage may be incomplete.")
-            if (exhausted) state = state.copy(notes = state.notes + "Shared ${budget.snapshot().usedLogical}-call research budget reached; remaining phases retain reserved capacity.")
+            if (exhausted) state = state.copy(notes = state.notes + "Shared research execution budget reached; completed evidence was retained and downstream reservations were preserved.")
             checkpoint(
                 if (journal?.stopRequested() == true) {
                     "Stopped"

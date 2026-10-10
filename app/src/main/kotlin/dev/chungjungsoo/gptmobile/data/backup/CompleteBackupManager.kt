@@ -197,6 +197,8 @@ class CompleteBackupManager @Inject constructor(
         val storage = files()
         val sources = linkedMapOf<String, File>()
         val lockToolState = selected.includes(CompleteBackupSection.TOOLS)
+        var toolPreferencesSnapshot: Map<String, String>? = null
+        var toolSecretsSnapshot: Map<String, String>? = null
         if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
         try {
         val databaseSelected = selected.sections.any(::isDatabaseSection)
@@ -249,11 +251,18 @@ class CompleteBackupManager @Inject constructor(
                 .forEach { sources["internal/research-history/${it.name}"] = it }
         }
         if (selected.includes(CompleteBackupSection.TOOLS)) {
-            sources.putAll(storage.collectPlugins())
+            val pluginSnapshotDirectory = File(work, "plugin-snapshot").apply { check(mkdirs() || isDirectory) }
+            storage.collectPlugins().forEach { (archivePath, source) ->
+                val snapshot = File(pluginSnapshotDirectory, source.name)
+                source.copyTo(snapshot, overwrite = true)
+                sources[archivePath] = snapshot
+            }
             nativePlugins?.backupState()?.let { bytes ->
                 val snapshot = File(work, "plugin-registry.json").apply { writeBytes(bytes) }
                 sources["internal/plugin-installations/native-marketplace-v1.json"] = snapshot
             }
+            toolPreferencesSnapshot = preferences.read()
+            toolSecretsSnapshot = readSecrets(selected)
         }
         } finally {
             if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
@@ -261,14 +270,14 @@ class CompleteBackupManager @Inject constructor(
 
         val manifest = CompleteBackupManifest(
             preferences = if (CompleteBackupSection.SETTINGS in selected.sections) {
-                preferences.read()
+                toolPreferencesSnapshot ?: preferences.read()
             } else if (selected.includes(CompleteBackupSection.TOOLS)) {
-                PluginBackupPreferences.capture(preferences.read())
+                PluginBackupPreferences.capture(toolPreferencesSnapshot ?: preferences.read())
             } else {
                 emptyMap()
             },
             sharedPreferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.readShared() else emptyMap(),
-            secrets = readSecrets(selected),
+            secrets = toolSecretsSnapshot ?: readSecrets(selected),
             files = sources.mapValues { it.value.length() },
             sections = selected.sections.mapTo(linkedSetOf()) { it.name },
             protection = if (selected.includes(CompleteBackupSection.SETTINGS)) savedProtection().copy(password = "") else null

@@ -26,6 +26,9 @@ import io.mockk.mockk
 import io.mockk.verify
 import java.io.File
 import java.util.UUID
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -111,6 +114,10 @@ class CompleteBackupManagerTest {
         val packageFile = File(context.noBackupFilesDir, "optional_marketplace_v1/optional-refuge.zip").apply { parentFile!!.mkdirs() }
         val unrelated = File(context.noBackupFilesDir, "unrelated-private-data").apply { writeText("stay local") }
         val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-refuge"))
+        val packageBytes = zipOf(
+            "manifest.json" to dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceDownloadPolicy.manifest(entry),
+            "README.md" to File("mcp/marketplace/README.md").readBytes()
+        )
         val registry = dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry(registryFile, vault)
         val manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, registry)
         val selected = CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS))
@@ -121,7 +128,7 @@ class CompleteBackupManagerTest {
         registry.install(entry)
         registry.setEnabled(entry, true)
         registry.configure(entry, "", "", 4, 100)
-        packageFile.writeBytes(byteArrayOf(1, 2, 3, 4))
+        packageFile.writeBytes(packageBytes)
         preferences.edit { it[pluginKey] = kotlinx.serialization.json.Json.encodeToString(featureSettings) }
         val archive = File(context.cacheDir, "plugin-roundtrip.gptbackup")
         try {
@@ -138,7 +145,7 @@ class CompleteBackupManagerTest {
             val installation = registry.load().getValue(entry.id)
             assertTrue(installation.enabled)
             assertEquals(4, installation.maxResults)
-            assertTrue(packageFile.readBytes().contentEquals(byteArrayOf(1, 2, 3, 4)))
+            assertTrue(packageFile.readBytes().contentEquals(packageBytes))
             val features = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings>(requireNotNull(preferences.data.first()[pluginKey]))
             assertTrue(features.isToolPluginEnabledForProfile("owner", dev.chungjungsoo.gptmobile.data.model.ToolPluginId.AMAZON_FREE))
             assertEquals(77, preferences.data.first()[intPreferencesKey("current_ui_preference")])
@@ -548,6 +555,18 @@ class CompleteBackupManagerTest {
         }
         override suspend fun references() = values.keys.toSet()
     }
+
+    private fun zipOf(vararg entries: Pair<String, ByteArray>): ByteArray = ByteArrayOutputStream().use { bytes ->
+        ZipOutputStream(bytes).use { zip ->
+            entries.forEach { (name, content) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content)
+                zip.closeEntry()
+            }
+        }
+        bytes.toByteArray()
+    }
+
     private fun removeRoadmapColumns(db: android.database.sqlite.SQLiteDatabase) {
         db.execSQL("DROP TABLE IF EXISTS workspace_records")
         for ((table, columns) in mapOf("chats_v2" to listOf("is_temporary", "parent_chat_id", "branch_message_id", "draft_attachments", "last_share_token"), "knowledge_projects" to listOf("includePersonalMemory", "defaultProfileUid"))) {

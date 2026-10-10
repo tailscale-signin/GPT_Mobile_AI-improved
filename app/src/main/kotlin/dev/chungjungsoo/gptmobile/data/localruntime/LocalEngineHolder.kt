@@ -130,9 +130,9 @@ class LocalEngineHolder(
 
     override fun hasOpenConversation(): Boolean = delegate.hasOpenConversation()
 
-    override suspend fun <T> tryRunExclusive(block: suspend LocalRuntime.() -> T): T? {
-        if (coroutineContext[GenerationLock] != null || !mutex.tryLock()) return null
-        return try {
+    override suspend fun <T> tryRunExclusive(block: suspend LocalRuntime.() -> T): T? = InferenceAdmission.tryShared {
+        if (coroutineContext[GenerationLock] != null || !mutex.tryLock()) return@tryShared null
+        try {
             withContext(GenerationLock()) { block(this@LocalEngineHolder) }
         } finally {
             mutex.unlock()

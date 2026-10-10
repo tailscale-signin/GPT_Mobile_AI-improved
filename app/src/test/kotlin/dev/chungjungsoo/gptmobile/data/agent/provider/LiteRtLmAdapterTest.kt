@@ -206,7 +206,7 @@ class LiteRtLmAdapterTest {
             dispatched++
             AgentToolResult(id, ToolResultContent.Text("Unavailable"), true)
         }
-        val events = adapter(runtime, catalog = toolsCatalog()).openSession(turns("look up this result"), localPlatform(), listOf(failing)).streamRound(emptyList(), emptyList()).toList()
+        val events = adapter(runtime, catalog = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 8192)))).openSession(turns("look up this result"), localPlatform(), listOf(failing)).streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, dispatched)
         assertTrue(runtime.createConversationCalls.last().tools.isEmpty())
         assertEquals(2, runtime.sendMessageCalls.size)

@@ -51,4 +51,24 @@ class InferenceAdmissionTest {
         InferenceAdmission.shared { resumed = true }
         assertTrue(resumed)
     }
+
+    @Test
+    fun canceledChatWaiterDoesNotCorruptReaderCount() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val benchmark = launch {
+            InferenceAdmission.benchmark {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        val waitingChat = launch { InferenceAdmission.shared { error("Must not acquire") } }
+        yield()
+        waitingChat.cancel()
+        waitingChat.join()
+        release.complete(Unit)
+        benchmark.join()
+        kotlinx.coroutines.withTimeout(2000) { InferenceAdmission.benchmark { } }
+    }
 }

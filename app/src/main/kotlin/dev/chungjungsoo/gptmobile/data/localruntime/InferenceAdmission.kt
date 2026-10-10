@@ -50,6 +50,32 @@ internal object InferenceAdmission {
         } finally {
             withContext(NonCancellable) {
                 mutex.withLock {
+                    if (acquired) readers--
+                    signal()
+                }
+            }
+        }
+    }
+
+    suspend fun <T> tryShared(block: suspend () -> T): T? {
+        if (coroutineContext[Owner] != null) return block()
+        if (!mutex.tryLock()) return null
+        val acquired = try {
+            if (writer || waitingWriters > 0) {
+                false
+            } else {
+                readers++
+                true
+            }
+        } finally {
+            mutex.unlock()
+        }
+        if (!acquired) return null
+        try {
+            return withContext(Owner()) { block() }
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
                     readers--
                     signal()
                 }

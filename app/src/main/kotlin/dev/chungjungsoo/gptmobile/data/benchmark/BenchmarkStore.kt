@@ -92,7 +92,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         val existing = dao.current()
         // Room is authoritative after a crash between the transaction and backup mirror write.
         val mirrorGeneration = preferences.getLong("snapshot_generation", 0)
-        val source = if (restoreRequested || existing == null || (saved != null && mirrorGeneration >= existing.generation)) recovered.take(200) else stored.take(200)
+        val source = if (restoreRequested || existing == null || (saved != null && mirrorGeneration >= existing.generation)) recovered else stored
         restoreRequested = false
         mutableSnapshot.value = existing?.let { runCatching { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) }.getOrNull() }
         if (source != stored || existing == null) publish(source)
@@ -103,7 +103,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     suspend fun save(run: BenchmarkRun) = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadLocked()
-            persist((listOf(run) + mutableHistory.value.filterNot { it.id == run.id }).take(200))
+            persist((listOf(run) + mutableHistory.value.filterNot { it.id == run.id }))
         }
     }
 

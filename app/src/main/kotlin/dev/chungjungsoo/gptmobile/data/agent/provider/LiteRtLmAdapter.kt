@@ -46,6 +46,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 
 class LiteRtLmAdapter(
     private val localRuntime: LocalRuntime,
@@ -253,6 +254,7 @@ class LiteRtLmAdapter(
                 val toolsKey = toolsFingerprint(descriptors)
                 val runToolsByName = registeredTools.associateBy { it.definition.name }
                 val collectedToolResults = java.util.concurrent.CopyOnWriteArrayList<Pair<String, AgentToolResult>>()
+                val modelEvidenceRemaining = java.util.concurrent.atomic.AtomicInteger(plan.toolResultBytes)
                 val callbackCount = java.util.concurrent.atomic.AtomicInteger()
                 var nativeToolsUsed = false
                 val runToolEventSink: suspend (ProviderEvent) -> Unit = { event ->
@@ -344,7 +346,8 @@ class LiteRtLmAdapter(
                                                         name,
                                                         argumentsJson,
                                                         exclusiveToolsByName,
-                                                        exclusiveToolEventSink
+                                                        exclusiveToolEventSink,
+                                                        modelEvidenceRemaining
                                                     )
                                                 }
                                             } else {
@@ -520,8 +523,17 @@ class LiteRtLmAdapter(
         toolName: String,
         argumentsJson: String,
         toolsByName: Map<String, AgentTool>,
-        eventSink: (suspend (ProviderEvent) -> Unit)?
+        eventSink: (suspend (ProviderEvent) -> Unit)?,
+        modelEvidenceRemaining: java.util.concurrent.atomic.AtomicInteger? = null
     ): String {
+        if (modelEvidenceRemaining != null && modelEvidenceRemaining.get() < 512) {
+            val call = ProviderEvent.ToolCall(UUID.randomUUID().toString(), toolName, buildJsonObject {})
+            val result = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(call.callId, "MODEL_EVIDENCE_LIMIT", "The app reached its local evidence allowance. The provider was not called; retained observations remain available.")
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.completed(toolName, result)
+            eventSink?.invoke(call)
+            eventSink?.invoke(ProviderEvent.ToolResult(call, result))
+            throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("MODEL_EVIDENCE_LIMIT")
+        }
         val arguments = runCatching { Json.parseToJsonElement(argumentsJson) as? JsonObject }.getOrNull()
             ?: return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(
                 toolName,
@@ -545,10 +557,22 @@ class LiteRtLmAdapter(
                 isError = true
             )
         }
-        dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.completed(toolName, result)
-        eventSink?.invoke(ProviderEvent.ToolResult(call, result))
-        if (result.isError && result.errorCode in setOf("BUDGET_EXHAUSTED", "REPEATED_FAILURE", "RECONCILIATION_REQUIRED")) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException(result.errorCode!!)
-        return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(toolName, result)
+        if (result.isError && result.errorCode in setOf("BUDGET_EXHAUSTED", "REPEATED_FAILURE", "RECONCILIATION_REQUIRED")) {
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.completed(toolName, result)
+            eventSink?.invoke(ProviderEvent.ToolResult(call, result))
+            throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException(result.errorCode!!)
+        }
+        val projected = if (modelEvidenceRemaining != null) {
+            val allowance = maxOf(128, (modelEvidenceRemaining.get() - 384) / 2)
+            result.copy(content = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(result.content, allowance), retainedContent = result.retainedContent ?: result.content)
+        } else {
+            result
+        }
+        dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.completed(toolName, projected)
+        eventSink?.invoke(ProviderEvent.ToolResult(call, projected))
+        val encoded = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(toolName, projected)
+        modelEvidenceRemaining?.addAndGet(-encoded.toByteArray(Charsets.UTF_8).size)
+        return encoded
     }
 
     private fun attachmentNotices(

@@ -30,15 +30,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MultiEngineSearchToolTest {
-    @Test fun `all enabled engines start together and crawler receives unique pages`() = runBlocking {
+    @Test fun `all enabled engines run within phone concurrency and crawler receives unique pages`() = runBlocking {
         val started = java.util.concurrent.atomic.AtomicInteger()
-        val allStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val active = java.util.concurrent.atomic.AtomicInteger()
+        val peak = java.util.concurrent.atomic.AtomicInteger()
         var crawled = 0
         val engines = (1..5).map { index ->
             engine("parallel-$index") { id, _ ->
-                if (started.incrementAndGet() == 5) allStarted.complete(Unit)
-                withTimeout(1_000) { allStarted.await() }
-                AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(listOf(buildJsonObject { put("url", "https://example.org/shared") }, buildJsonObject { put("url", "https://example.org/unique-$index") }))) }), false)
+                started.incrementAndGet()
+                val concurrent = active.incrementAndGet()
+                peak.updateAndGet { maxOf(it, concurrent) }
+                try {
+                    kotlinx.coroutines.delay(30)
+                    AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(listOf(buildJsonObject { put("url", "https://example.org/shared") }, buildJsonObject { put("url", "https://example.org/unique-$index") }))) }), false)
+                } finally {
+                    active.decrementAndGet()
+                }
             }
         }
         val result = MultiEngineSearchTool(engines, afterSearch = { _, pages ->
@@ -48,6 +55,8 @@ class MultiEngineSearchToolTest {
         }).execute("all", buildJsonObject { put("query", "test") })
         assertFalse(result.isError)
         assertEquals(5, started.get())
+        assertEquals(3, peak.get())
+        assertEquals(0, active.get())
         assertEquals(1, crawled)
     }
 

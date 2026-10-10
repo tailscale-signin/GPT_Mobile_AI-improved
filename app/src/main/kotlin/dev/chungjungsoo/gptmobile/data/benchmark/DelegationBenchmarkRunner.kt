@@ -168,7 +168,7 @@ internal class DelegationBenchmarkRunner(
                     "delegation-research" -> {
                         val fixtures = listOf(
                             fixture("web_search", "Search the temporary parcel fixture.", "{\"results\":[{\"title\":\"Parcel fixture\",\"url\":\"https://example.org/parcel\",\"snippet\":\"Read the page for the parcel code.\"}]}"),
-                            fixture("read_url", "Read the temporary parcel fixture.", "Parcel code is $code. This is synthetic benchmark evidence.")
+                            fixture("read_url", "Read the temporary parcel fixture.", "Parcel code is $code. This is synthetic benchmark evidence from the temporary parcel page. Report this exact code with this page's source URL; no real shipment or personal data is involved.")
                         ).map { fixture ->
                             val tool = object : AgentTool {
                                 override val definition = fixture.definition

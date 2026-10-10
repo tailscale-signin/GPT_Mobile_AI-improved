@@ -42,7 +42,7 @@ class AndroidResearchWorkflowTest {
             name,
             name,
             buildJsonObject {
-                put("properties", buildJsonObject { for (key in listOf("query", "url", "includeLinks", "totalResults")) put(key, buildJsonObject { put("type", "string") }) })
+                put("properties", buildJsonObject { for (key in listOf("query", "url", "includeLinks", "totalResults", "includeDomains", "excludeDomains")) put(key, buildJsonObject { put("type", "string") }) })
             }
         )
         return ResolvedAgentTool(
@@ -412,5 +412,36 @@ class AndroidResearchWorkflowTest {
         ).run("Research", "metadata")
         assertEquals(0, result.pagesRead)
         assertTrue(journal.snapshot!!.claims.isEmpty())
+    }
+
+    @Test fun combinedDomainPreferencesUseOneProviderFilterAndEnforceBothLocally() = runBlocking {
+        val journal = Journal()
+        val search = tool("web_search") { id, args ->
+            assertEquals(JsonArray(listOf(JsonPrimitive("example.org"))), args["includeDomains"])
+            assertFalse(args.containsKey("excludeDomains"))
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put(
+                            "sources",
+                            JsonArray(
+                                listOf("example.org", "blocked.example.org", "other.org").map { host ->
+                                    buildJsonObject {
+                                        put("url", "https://$host/research")
+                                        put("title", "Research")
+                                    }
+                                }
+                            )
+                        )
+                    }
+                ),
+                false
+            )
+        }
+        val settings = config().copy(deepResearch = config().deepResearch.copy(includeDomains = "example.org", excludeDomains = "blocked.example.org"))
+        AndroidResearchWorkflow(settings, listOf(search, reader()), ::model, journal).run("Research", "domains")
+        assertEquals(listOf("https://example.org/research"), journal.snapshot!!.sources.map { it.url })
+        assertEquals(1, journal.snapshot!!.sources.count { it.readable })
     }
 }

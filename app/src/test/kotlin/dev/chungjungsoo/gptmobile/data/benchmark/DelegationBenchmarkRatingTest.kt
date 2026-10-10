@@ -17,7 +17,7 @@ class DelegationBenchmarkRatingTest {
         reviewerScore: Int? = null
     ) = BenchmarkRun(
         worker, "primary", "Primary", "OPENAI", "primary-model", "primary-config", false, BenchmarkMode.DELEGATION, 1,
-        suiteVersion = 2,
+        suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
         delegationSettings = ModelDelegationSettings(targetProfileUid = worker),
         samples = delegationBenchmarkSuite().map { test ->
             BenchmarkSample(

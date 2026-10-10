@@ -18,10 +18,18 @@ internal fun providerErrorDetails(body: String, fallback: String, credential: St
         metadata.value("provider_name")?.let { "provider=$it" },
         (envelope.value("id") ?: metadata.value("generation_id"))?.let { "generation=$it" },
         metadata.value("raw")?.let { raw ->
-            val nested = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+            val nested = runCatching { Json.parseToJsonElement(raw.trim().removePrefix("data:").trim()) as? JsonObject }.getOrNull()
             val nestedError = nested?.get("error") as? JsonObject ?: nested
             // Only the upstream message, not an arbitrary response body (which can echo prompts).
-            nestedError.value("message")?.let { "upstream=$it" }
+            listOfNotNull(
+                nestedError.value("message"),
+                // Some upstreams put the actionable ceiling in param. Accept only a
+                // numeric token-limit diagnostic, never arbitrary echoed parameters.
+                nestedError.value("param")?.takeIf { param ->
+                    Regex("(?i)^max[_ ](?:completion[_ ])?tokens.{0,80}(?:too large|exceed)").containsMatchIn(param) &&
+                        Regex("(?i)(?:completion|output) tokens").containsMatchIn(param)
+                }
+            ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.let { "upstream=$it" }
         }
     ).joinToString(" · ")
     var redacted = details

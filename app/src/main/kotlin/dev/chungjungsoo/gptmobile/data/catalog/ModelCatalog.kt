@@ -28,7 +28,10 @@ data class CatalogEntry(
     val sha256: String = "",
     val upstreamRevision: String = "",
     val tokenizerFormat: String = "",
-    val runtimeRequirement: String = ""
+    val runtimeRequirement: String = "",
+    val familyId: String = "",
+    val variantLabel: String = "",
+    val precision: String = ""
 )
 
 @Serializable

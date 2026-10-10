@@ -242,20 +242,30 @@ fun LocalModelsScreen(
                             compareByDescending<LocalModelListItem> {
                                 backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN && dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(it.entry.supportedAccelerators, it.entry.socToModelFiles, runtimeViewModel.soc)
                             }.thenByDescending { it.entry.capabilities.tools }.thenBy { it.downloadSizeBytes }
-                        ).take(3)
+                        ).groupBy { it.entry.familyId.ifBlank { it.entry.id } }.values.take(3)
                         if (marketplaceTab == 0 && uiState.searchQuery.isBlank() && recommendations.isNotEmpty()) {
                             item { Text("Recommended models", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium) }
-                            items(recommendations, key = { "recommended-${it.entry.id}" }) { item ->
-                                LocalModelItem(
-                                    item,
-                                    LocalModelSource.CATALOG,
-                                    uiState.checkingAccessEntryId == item.entry.id,
-                                    { requestDownload(item.entry) },
-                                    { viewModel.cancelDownload(item.entry) },
-                                    { viewModel.onDeleteClick(item.entry) },
-                                    { runtimeViewModel.createProfile(item.entry, onOpenProfile) },
-                                    hasProfile = profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
-                                )
+                            items(recommendations, key = { "recommended-${it.first().entry.familyId.ifBlank { it.first().entry.id }}" }) { variants ->
+                                var showVariants by remember(variants.first().entry.id) { mutableStateOf(false) }
+                                Column {
+                                    (if (showVariants) variants else variants.take(1)).forEach { item ->
+                                        LocalModelItem(
+                                            item,
+                                            LocalModelSource.CATALOG,
+                                            uiState.checkingAccessEntryId == item.entry.id,
+                                            { requestDownload(item.entry) },
+                                            { viewModel.cancelDownload(item.entry) },
+                                            { viewModel.onDeleteClick(item.entry) },
+                                            { runtimeViewModel.createProfile(item.entry, onOpenProfile) },
+                                            hasProfile = profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
+                                        )
+                                    }
+                                    if (variants.size > 1) {
+                                        TextButton(onClick = { showVariants = !showVariants }, modifier = Modifier.padding(horizontal = 16.dp)) {
+                                            Text(if (showVariants) "Hide variants" else "Compare ${variants.size} variants · Same model family")
+                                        }
+                                    }
+                                }
                             }
                         }
                         if (marketplaceTab == 0) {
@@ -752,6 +762,12 @@ private fun LocalModelItem(
                 )
             }
             Text("Context: ${item.entry.maxContextTokens.takeIf { it > 0 }?.let { "$it tokens" } ?: "not declared"} · Output default: ${item.entry.defaultConfig.maxTokens}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            if (item.entry.variantLabel.isNotBlank()) {
+                Text(item.entry.variantLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+            if (item.entry.precision.isNotBlank()) {
+                Text("Precision: ${item.entry.precision} · Candidate; device qualification required", style = MaterialTheme.typography.bodySmall)
+            }
             LocalModelRequirements(item = item)
             LocalModelDownloadStatus(
                 item = item,

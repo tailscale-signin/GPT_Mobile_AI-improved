@@ -23,6 +23,7 @@ class LocalRuntimeQnnImplTest {
         val native = FakeLocalRuntime()
         val qnn = LocalRuntimeQnnImpl(
             runtime = native,
+            enabled = true,
             loadGuard = noOpGuard,
             probeEnvironment = { ready }
         )
@@ -41,6 +42,7 @@ class LocalRuntimeQnnImplTest {
         val native = FakeLocalRuntime()
         val qnn = LocalRuntimeQnnImpl(
             runtime = native,
+            enabled = true,
             loadGuard = noOpGuard,
             probeEnvironment = { ready.copy(isReady = false, errorMessage = "missing HTP") }
         )
@@ -53,6 +55,7 @@ class LocalRuntimeQnnImplTest {
         val native = FakeLocalRuntime()
         val qnn = LocalRuntimeQnnImpl(
             runtime = native,
+            enabled = true,
             loadGuard = noOpGuard,
             probeEnvironment = { ready }
         )
@@ -65,6 +68,7 @@ class LocalRuntimeQnnImplTest {
         val native = FakeLocalRuntime()
         val qnn = LocalRuntimeQnnImpl(
             runtime = native,
+            enabled = true,
             loadGuard = noOpGuard,
             probeEnvironment = { ready }
         )
@@ -88,10 +92,19 @@ class LocalRuntimeQnnImplTest {
         }
         val qnn = LocalRuntimeQnnImpl(
             runtime = native,
+            enabled = true,
             loadGuard = blockingGuard,
             probeEnvironment = { ready }
         )
 
+        assertTrue(runCatching { qnn.loadEngine(spec) }.isFailure)
+        assertTrue(native.loadEngineCalls.isEmpty())
+    }
+
+    @Test
+    fun previewPackagingRejectsLiteRtNpuBeforeLoadingNativeCode() = runTest {
+        val native = FakeLocalRuntime()
+        val qnn = LocalRuntimeQnnImpl(native, noOpGuard, { ready }, enabled = false)
         assertTrue(runCatching { qnn.loadEngine(spec) }.isFailure)
         assertTrue(native.loadEngineCalls.isEmpty())
     }

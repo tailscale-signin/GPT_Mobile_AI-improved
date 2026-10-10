@@ -67,6 +67,9 @@ class McpOAuthCoordinator @Inject constructor(
             val secretRef = connection.secretRef ?: throw McpOAuthException("MCP OAuth connection is not authorized.")
             var credential = readSecret<McpOAuthCredential>(secretRef)
                 ?: throw McpOAuthException("MCP OAuth credential is missing.")
+            if (credential.requiresReauthorization) {
+                throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
+            }
             val fingerprint = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(NetworkClient.json.encodeToString(credential))
             if (rejectedCredentials[connection.connectionUid] == fingerprint) {
                 throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
@@ -82,6 +85,12 @@ class McpOAuthCoordinator @Inject constructor(
                     if (error.requiresReauthorization) {
                         if (rejectedCredentials.size >= 64) rejectedCredentials.remove(rejectedCredentials.keys.first())
                         rejectedCredentials[connection.connectionUid] = fingerprint
+                        // Store the rejection with the encrypted credential so app restarts
+                        // do not replay an invalid refresh grant indefinitely.
+                        connectionRepository.upsertConnection(
+                            connection,
+                            credential = NetworkClient.json.encodeToString(credential.copy(requiresReauthorization = true)).encodeToByteArray()
+                        )
                     }
                     throw error
                 }

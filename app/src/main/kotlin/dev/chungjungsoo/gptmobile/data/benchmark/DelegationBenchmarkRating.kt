@@ -140,7 +140,7 @@ fun delegateRankings(
     primaryConfigKey: String,
     settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings? = null
 ): List<DelegateRanking> = history
-    .filter { it.mode == BenchmarkMode.DELEGATION && it.suiteVersion == 2 && it.configKey == primaryConfigKey && it.finished && !it.canceled }
+    .filter { it.mode == BenchmarkMode.DELEGATION && it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION && it.configKey == primaryConfigKey && it.finished && !it.canceled }
     .filter { settings == null || it.delegationSettings?.copy(targetProfileUid = "", fallbackToAnotherProfile = false) == settings.normalized().copy(targetProfileUid = "", fallbackToAnotherProfile = false) }
     .groupBy { run ->
         val worker = run.samples.mapNotNull { it.delegation }.firstOrNull()

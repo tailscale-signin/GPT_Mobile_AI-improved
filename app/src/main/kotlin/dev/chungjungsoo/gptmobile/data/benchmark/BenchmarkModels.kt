@@ -170,6 +170,7 @@ data class BenchmarkRating(
 
 fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = ""): String {
     val values = listOf(
+        "quick-reasoning-off-v3",
         profile.compatibleType.name, profile.model, profile.apiUrl, profile.accelerator.orEmpty(),
         profile.temperature.toString(), profile.maxTokens.toString(), profile.timeout.toString(), profile.stream.toString(),
         profile.topP.toString(), profile.topK.toString(), profile.openRouterRouting.orEmpty(), profile.ollamaOptions.orEmpty(),
@@ -181,7 +182,7 @@ fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = ""): Stri
 
 fun comparableRuns(history: List<BenchmarkRun>, profile: PlatformV2, mode: BenchmarkMode, localEnvironment: String = ""): List<BenchmarkRun> {
     val key = benchmarkConfigKey(profile, localEnvironment)
-    return history.filter { it.profileUid == profile.uid && it.configKey == key && it.mode == mode && it.suiteVersion == 2 && it.finished && !it.canceled && it.stoppedReason == null }
+    return history.filter { it.profileUid == profile.uid && it.configKey == key && it.mode == mode && it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION && it.finished && !it.canceled && it.stoppedReason == null }
         .sortedByDescending { it.startedAt }.take(5)
 }
 

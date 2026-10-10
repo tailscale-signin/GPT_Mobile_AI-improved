@@ -28,6 +28,8 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -85,6 +87,20 @@ class ReadUrlTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val url = parseUrl(arguments)?.toASCIIString() ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
+        // Bound coordination memory; serialize identical URLs across parallel profiles.
+        return requestLocks[(url.hashCode() and Int.MAX_VALUE) % requestLocks.size].withLock {
+            val until = missingUntil[url]
+            if (until != null && until > System.currentTimeMillis()) {
+                error(callId, "Read URL failed: this exact source recently returned 404/405/410. Search for another URL; repeating it will not recover the page.")
+            } else {
+                missingUntil.remove(url)
+                executeOnce(callId, arguments)
+            }
+        }
+    }
+
+    private suspend fun executeOnce(callId: String, arguments: JsonObject): AgentToolResult {
         val start = parseUrl(arguments) ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
         if (start.toASCIIString() in unavailableUrls) return error(callId, "Read URL failed: this source was already unavailable in this turn. Choose another source.")
         return try {
@@ -101,6 +117,11 @@ class ReadUrlTool(
             throw exception
         } catch (exception: ReadUrlException) {
             if (exception.message.orEmpty().let { it.contains("redirect") || it.contains("binary") || it.contains("HTTP 404") || it.contains("HTTP 405") }) unavailableUrls += start.toASCIIString()
+            if (exception.message in setOf("HTTP 404", "HTTP 405", "HTTP 410")) {
+                val now = System.currentTimeMillis()
+                if (missingUntil.size >= 256) missingUntil.entries.removeAll { it.value <= now }
+                if (missingUntil.size < 256) missingUntil[start.toASCIIString()] = now + 300_000
+            }
             recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
             error(callId, "Read URL failed: ${exception.message}.")
         } catch (exception: UnknownHostException) {
@@ -335,6 +356,8 @@ class ReadUrlTool(
     )
 
     private companion object {
+        private val requestLocks = Array(32) { Mutex() }
+        private val missingUntil = ConcurrentHashMap<String, Long>()
         val rateLimitUntil = ConcurrentHashMap<String, Long>()
         const val MAX_BODY_BYTES = 1024 * 1024 // 1 MB bounded buffer to prevent OOM
         const val MAX_OUTPUT_BYTES = 64 * 1024 // 64 KB output limit aligned with tests

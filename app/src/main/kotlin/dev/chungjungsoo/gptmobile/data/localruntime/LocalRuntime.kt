@@ -85,7 +85,11 @@ data class LocalInferenceMetrics(
     val totalCharacters: Int = 0,
     val estimatedTokens: Int = 0,
     val tokensPerSecond: Double = 0.0,
-    val native: NativeInferenceMetrics? = null
+    val native: NativeInferenceMetrics? = null,
+    val metricSource: String = "estimated_characters",
+    val firstVisibleAnswerMs: Long? = null,
+    val decodeDurationMs: Long? = null,
+    val segmentId: String? = null
 )
 
 /** Native counters cover the last prefill/decode segment, not an entire multi-tool turn. */
@@ -144,6 +148,8 @@ interface LocalRuntime {
 
     fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
         DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), deviceRamGb >= 10L)
+
+    suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = null
 
     suspend fun loadEngine(spec: LocalEngineSpec)
     suspend fun createConversation(config: LocalConversationConfig)

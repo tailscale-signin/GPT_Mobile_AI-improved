@@ -353,7 +353,7 @@ class ChatRepositoryImpl(
         tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
         runId: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
-        val constraints = RequestConstraints(maxOutputTokens = 512, allowTools = tools.isNotEmpty(), allowReasoning = true)
+        val constraints = RequestConstraints(maxOutputTokens = 512, allowTools = tools.isNotEmpty(), allowReasoning = false)
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty())
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)

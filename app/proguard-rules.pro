@@ -132,3 +132,6 @@
 
 # Preserve line numbers and source files for release stack traces
 -keepattributes SourceFile,LineNumberTable
+
+# GenieX preview uses pinned JNI bindings with native method/class lookup.
+-keep class com.geniex.sdk.** { *; }

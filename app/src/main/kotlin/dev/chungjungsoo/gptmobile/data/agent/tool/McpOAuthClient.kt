@@ -69,7 +69,8 @@ data class McpOAuthCredential(
     val tokenType: String,
     val refreshToken: String? = null,
     val expiresAtEpochSeconds: Long? = null,
-    val scope: String? = null
+    val scope: String? = null,
+    val requiresReauthorization: Boolean = false
 )
 
 class McpOAuthException(message: String, cause: Throwable? = null, val requiresReauthorization: Boolean = false) : Exception(message, cause)

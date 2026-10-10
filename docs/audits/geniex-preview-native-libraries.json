@@ -1,0 +1,267 @@
+{
+  "litertlmVersion": "0.18.0",
+  "geniexVersion": "0.8.0",
+  "qairtVersion": "bundled-with-geniex-0.8.0",
+  "libraries": {
+    "lib/arm64-v8a/liblitertlm_jni.so": {
+      "sha256": "4a94a3f955ad7c58cbcdfc5cb4ff566187bb9e8c5bc2c4056b4e226646c7e8fd",
+      "bytes": 22155680,
+      "source": "com.google.ai.edge.litertlm:litertlm-android:0.18.0"
+    },
+    "lib/arm64-v8a/libCalculator_skel.so": {
+      "sha256": "364f834b5940f8eca19d6145be0b6dc83957ae0b1e72b19691cc506de042c024",
+      "bytes": 5656,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libPlatformValidatorShared.so": {
+      "sha256": "c8d39905fca9b56edf3c5a1606c5f310daa5f423ddee10b506a8cd9f0774524d",
+      "bytes": 15211024,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnChrometraceProfilingReader.so": {
+      "sha256": "db797082f1ede6b41039b3aecf2303ca8ace1f00c8cef7f0283f8f83a3309b7d",
+      "bytes": 633560,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHta.so": {
+      "sha256": "f23c4f864b98842ad601378691c1f3559e20a80b36434749baf39b9f164b4b60",
+      "bytes": 1019312,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtaNetRunExtensions.so": {
+      "sha256": "4e3588f7f6185a9c083e4c886573dfe43849859f3f7123768556d43306fe0e9c",
+      "bytes": 414728,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtp.so": {
+      "sha256": "b5b36b2d5e0cc352b5e5f468f6f668b1585d515854fc1c5890b1365047a36be1",
+      "bytes": 2952008,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpNetRunExtensions.so": {
+      "sha256": "0d29d3dac7d82d8eb5bdc47a0649a7d6a5f5b4a2fbc52b2f975b6ae2c16b6213",
+      "bytes": 957864,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpOptraceProfilingReader.so": {
+      "sha256": "154657f3b58fa3418bd1d62aaf712eb66f1daa34ca01b6dffc6ba2d234a92ab3",
+      "bytes": 3909608,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpPrepare.so": {
+      "sha256": "d0001d629c6d7ded14f2c850e93983b87589cd5748724bb9aaf56f7adb2b338a",
+      "bytes": 87739504,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpProfilingReader.so": {
+      "sha256": "84afddf100ab5799037d38d1f1456b21ab3e90284acdfece955527a01b13ba13",
+      "bytes": 624312,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV79.so": {
+      "sha256": "4cda6566a20775a1062c4adc44b7a07e88e786ac086c48c261279ffb2e96fc21",
+      "bytes": 11212084,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV79CalculatorStub.so": {
+      "sha256": "a1b922bdec311f208bed2ee6179359db0113e0bd1235fc3250727c3a8338ee1d",
+      "bytes": 250712,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV79Skel.so": {
+      "sha256": "82275aaae3f022387e2c86d5b45eecb390b1b873e6a223a31036bdf5c985ceb1",
+      "bytes": 10936696,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV79Stub.so": {
+      "sha256": "16ed6f58965bcabc5cbe4e6c322a4953aefe2c74d6d1c662e70e6234eae0c662",
+      "bytes": 726960,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV81.so": {
+      "sha256": "a9caf550a71d827cb324f4d4f9bbe9b393a58ac781e26343c5f437e85c5b9ffc",
+      "bytes": 12108736,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV81CalculatorStub.so": {
+      "sha256": "53c464f8833cabc65baf16d0292aa0fe293909bf9333327092283261f713e603",
+      "bytes": 250712,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV81Skel.so": {
+      "sha256": "4b19d3c6ec8b3017f80710ffa1726c3a6578047933aee4cf451b9eb526403ff9",
+      "bytes": 11788496,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnHtpV81Stub.so": {
+      "sha256": "e97898d6772288e202e9cf988b80b39b8336f3dca8b99ee3075d234093582e3c",
+      "bytes": 803416,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnIr.so": {
+      "sha256": "693ff3328eeb300de627518038c8a96adde2573fe36d7f97191b687a506223a1",
+      "bytes": 1890848,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnJsonProfilingReader.so": {
+      "sha256": "3dc1d660723b69b97ee23ea13a4c1ff24be28a5a68d1972be22ce18602cf34c4",
+      "bytes": 670744,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnModelDlc.so": {
+      "sha256": "7df64d2f79f34a701d2cd4d4b3b2ef2ded4ec1f24375b77ff0aa31fd4ea70932",
+      "bytes": 3122808,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnNetRunDirectV79Skel.so": {
+      "sha256": "3701773947b54236d098f0a5f968e77104fb27e066909a978528792ded3c78d4",
+      "bytes": 2063044,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnNetRunDirectV79Stub.so": {
+      "sha256": "48bb7c424d566d2cc0a09fd7433eabf6234afe3aff473e54b7d366cf0946a692",
+      "bytes": 959648,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnNetRunDirectV81Skel.so": {
+      "sha256": "9839672ce9db0519dc43b638d04fad6bfc4844ec68897db79e440825ee2163f2",
+      "bytes": 2683988,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnNetRunDirectV81Stub.so": {
+      "sha256": "f523c658575e93f3e7c44e921db5e5c72b6695374a9379923d6d0e5eaccd9056",
+      "bytes": 1017912,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnSaver.so": {
+      "sha256": "61376cb2d732dc680466740366d1c719b058370f4adfa43dae1ff4514a781f1b",
+      "bytes": 788056,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libQnnSystem.so": {
+      "sha256": "f08e9ddc18a40719839cce8bbfb3afd3aef06f5ad486b21934a1c4568c9a6a48",
+      "bytes": 3635400,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libcalculator.so": {
+      "sha256": "a3a2a7df973cae84671a6241e437b95c74687b6ad7191e686675277977db7118",
+      "bytes": 250144,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libgeniex-proc-vision.so": {
+      "sha256": "996da37ad72bd345f14cea82ffcb01781eabcfd579509caf0351f0b4355a8b78",
+      "bytes": 374032,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libgeniex-proc.so": {
+      "sha256": "ab64baa0af53f74c1599902b94f1aefaab8b42f424cd747e070fb8a44c68e40e",
+      "bytes": 7092056,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libgeniex.so": {
+      "sha256": "47ba9feb717ded2dd74d566b1808e3f3515e2824f46d6c42f0e20f47ab63f02b",
+      "bytes": 5265880,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libgeniex_core.so": {
+      "sha256": "d39778e9ef992c913f2bae3ea243b4c0eb49c6ce0d8533c62b837d28fca372a9",
+      "bytes": 1141400,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libgeniex_plugin_llama_cpp.so": {
+      "sha256": "c4e5f93dd883e3cb4c1bd53b864b2c08146b09f2524a15bd0344f556cd76b78c",
+      "bytes": 228560,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libgeniex_plugin_qairt.so": {
+      "sha256": "cbbff6b297d53bc3a86b621edbb03e7d60b08eeab1f3111c7432b8d5538304eb",
+      "bytes": 277600,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libgeniex_vlm.so": {
+      "sha256": "38344ab1713c0739514ec55726f73e6573ad46d656aa43476824dfcc78062fff",
+      "bytes": 356832,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-base.so": {
+      "sha256": "448799f31f969b7fef5bb2715a77a1f8850d684c3af6b299da6936c4ce24387e",
+      "bytes": 996280,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-cpu.so": {
+      "sha256": "c43dbd66a1e8c366930c2b02a098956b8e7cd9dce21654ae7501f516e96c1ae7",
+      "bytes": 867280,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-hexagon.so": {
+      "sha256": "d20212fd44f66759a02f31f65286f30d9d51b1161fb3b9b04f26ff2ea81def7a",
+      "bytes": 860944,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-htp-v73.so": {
+      "sha256": "003ec7c9dc4b451773fda44e97816a33dff7ba3b64f2b9db40335986f52e9bc2",
+      "bytes": 791136,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-htp-v75.so": {
+      "sha256": "4fea34565752790266ab653d331640f52be8c446f1d9d15dfb308e4c9671662f",
+      "bytes": 741984,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-htp-v79.so": {
+      "sha256": "4185640aaacd627728e324fa191f5bc071e4ca80f82f81712e362c1e55d68b23",
+      "bytes": 758436,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-htp-v81.so": {
+      "sha256": "4aefc5f6372f966e029c393773efd689f0a3a59cdedaae17514a673c1cedad30",
+      "bytes": 783020,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml-opencl.so": {
+      "sha256": "d7690ef7de6f69713c76cfdee3de66527473b5be83e5b91a1f96f54332857f46",
+      "bytes": 3496576,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libggml.so": {
+      "sha256": "d88d0d5bcb3f75a3d47d0357fd966e301a13f4ef2a5c293b61a619e80b8ffe14",
+      "bytes": 31336,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libhta_hexagon_runtime_qnn.so": {
+      "sha256": "b669169c639fd66b32fe75d48c1ac8cdaaf67d278c9bf7932d237e4636c0c296",
+      "bytes": 2400192,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libhta_hexagon_runtime_snpe.so": {
+      "sha256": "b669169c639fd66b32fe75d48c1ac8cdaaf67d278c9bf7932d237e4636c0c296",
+      "bytes": 2400192,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libllama-common.so": {
+      "sha256": "33f4a8fae630738746b0b5efbd10c3d74186dd9abb86848b5c1d5d9466fb4930",
+      "bytes": 3738880,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libllama.so": {
+      "sha256": "cca26539c63842d9910085a030ab141adfe2218fb22b52d9853d3dbb94ac8c21",
+      "bytes": 3390392,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libmtmd.so": {
+      "sha256": "6de28b5e23b8307929ba83f54e31ee3f263426644c600ac3cfa55048e5d97980",
+      "bytes": 1239336,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libnpu_jni.so": {
+      "sha256": "ee2af03f6ab75e0805aa288864075ff1844b5c2e1121ce3704269749fbe3d3da",
+      "bytes": 465896,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    },
+    "lib/arm64-v8a/libomp.so": {
+      "sha256": "cb47b6557429b3c10861cdf2c9819d8ac89a5388e71ed929afca7c533ba312aa",
+      "bytes": 973944,
+      "source": "com.qualcomm.qti:geniex-android:0.8.0"
+    }
+  }
+}

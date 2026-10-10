@@ -172,24 +172,38 @@ object AppLogRecorder {
         }
     }
 
-    /** Call from an IO dispatcher. The exported snapshot is already redacted. */
-    fun export(structured: Boolean = false): File? = synchronized(fileLock) {
-        val context = app ?: return@synchronized null
-        val folder = directory() ?: return@synchronized null
-        val target = File(context.cacheDir, "diagnostics/app-diagnostics.${if (structured) "jsonl" else "log"}").also { it.parentFile?.mkdirs() }
-        var drained = 0
-        while (drained < QUEUE_CAPACITY) {
-            val entry = queue.tryReceive().getOrNull() ?: break
-            if (mutableEnabled.value && privateSessions.isEmpty()) append(entry.line())
-            drained++
-        }
-        target.bufferedWriter().use { output ->
-            if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · process=${Process.myPid()}"))
-            listOf("previous.log", "current.log").map { File(folder, it) }.filter { it.exists() }.forEach { file ->
-                file.bufferedReader().useLines { lines -> lines.forEach { output.appendLine(if (structured) structuredDiagnosticLine(it) else it) } }
+    /** Snapshot bytes under the writer lock; JSON parsing and export IO never hold it. */
+    fun export(structured: Boolean = false): File? {
+        val context = app ?: return null
+        val snapshot = synchronized(fileLock) {
+            val folder = directory() ?: return null
+            val pending = buildList {
+                repeat(QUEUE_CAPACITY) {
+                    val entry = queue.tryReceive().getOrNull() ?: return@repeat
+                    if (mutableEnabled.value && privateSessions.isEmpty()) add(entry.line())
+                }
             }
+            if (pending.isNotEmpty()) append(pending.joinToString("\n"))
+            listOf("previous.log", "current.log").map { File(folder, it) }
+                .filter { it.isFile }.map { it.readBytes() }
         }
-        target
+        val folder = File(context.cacheDir, "diagnostics").also { it.mkdirs() }
+        // Independent exports cannot overwrite a file still being shared/read.
+        val target = File.createTempFile("app-diagnostics-", if (structured) ".jsonl" else ".log", folder)
+        try {
+            target.bufferedWriter().use { output ->
+                if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · process=${Process.myPid()}"))
+                snapshot.forEach { bytes ->
+                    bytes.inputStream().bufferedReader().useLines { lines ->
+                        lines.forEach { output.appendLine(if (structured) structuredDiagnosticLine(it) else it) }
+                    }
+                }
+            }
+            return target
+        } catch (failure: Exception) {
+            target.delete()
+            throw failure
+        }
     }
 
     private fun directory(): File? = app?.let { File(it.filesDir, "diagnostics").also { folder -> folder.mkdirs() } }

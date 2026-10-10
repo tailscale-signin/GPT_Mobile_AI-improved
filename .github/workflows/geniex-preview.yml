@@ -1,0 +1,50 @@
+name: GenieX preview validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/src/geniex/**'
+      - 'app/src/litertOnly/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/**'
+      - 'app/build.gradle.kts'
+      - 'gradle/**'
+      - 'scripts/check_local_runtime_apk.py'
+      - 'docs/audits/geniex-preview-native-libraries.json'
+      - '.github/workflows/geniex-preview.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: geniex-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  OBX_DISABLE_ANALYTICS: "true"
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Compile and test isolated preview
+        run: ./gradlew -PgeniexRuntime=true :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Audit packaged native stack
+        run: |
+          python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/debug/*.apk
+          python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: geniex-preview-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

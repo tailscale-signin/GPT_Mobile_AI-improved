@@ -29,7 +29,8 @@ object LocalRuntimeModule {
         val router = LocalRuntimeRouter(
             settingRepository = settingRepository,
             qnnRuntime = qnnRuntime,
-            liteRtRuntime = liteRtRuntime
+            liteRtRuntime = liteRtRuntime,
+            artifactRuntime = dev.chungjungsoo.gptmobile.data.localruntime.NativeArtifactRuntimeFactory.create(context)
         )
         return LocalEngineHolder(router)
     }

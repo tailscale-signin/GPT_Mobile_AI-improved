@@ -173,7 +173,7 @@ class RuntimeTests(unittest.TestCase):
         fixture=json.loads((Path(__file__).resolve().parents[1]/'contracts/v14/capabilities.json').read_text())
         for key,value in fixture.items(): self.assertEqual(cap[key],value)
         self.assertFalse(cap['auth']['apiKeyRequired'])
-        self.assertEqual(cap['gatewayVersion'],'14.0.0')
+        self.assertEqual(cap['gatewayVersion'],'14.1.0')
         self.assertEqual(cap['memory']['authority'],'client')
         self.assertFalse(cap['features']['mcpFacade'])
         self.assertEqual(self.client.post('/mcp',json={}).status_code,404)
@@ -204,7 +204,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_distribution_detects_missing_companion(self):
         root=Path(__file__).resolve().parents[1]
-        self.assertEqual(validate_package(root)['version'],'14.0.0')
+        self.assertEqual(validate_package(root)['version'],'14.1.0')
         with tempfile.TemporaryDirectory() as target:
             shutil.copytree(root,target,dirs_exist_ok=True)
             (Path(target)/'gateway_v13_runtime.py').unlink()
@@ -236,6 +236,16 @@ class ExactToolTests(unittest.TestCase):
         self.assertEqual(runtime.get_all_mcp_tools(),[])
         with self.assertRaises(CatalogBindingError): runtime._execute_mcp_tool_single('a_b_read',{})
         runtime.mcp_call.assert_not_called()
+
+    def test_malformed_catalog_entries_do_not_hide_healthy_tools(self):
+        from v14.tools import install_exact_routing
+        runtime=self.runtime([{'function': None}, {'function': {'name': []}},
+                              {'function': {'name':'bad', 'parameters': {'required': [[]]}}},
+                              {'function': {'name':'a_b_read'}}])
+        install_exact_routing(runtime)
+        self.assertEqual(len(runtime.get_all_mcp_tools()), 1)
+        runtime._execute_mcp_tool_single('a_b_read', {})
+        runtime.mcp_call.assert_called_once()
 
 
 class DurableFailureTests(unittest.TestCase):

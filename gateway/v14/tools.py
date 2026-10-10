@@ -11,7 +11,9 @@ def install_exact_routing(runtime):
     original_catalog = runtime.get_all_mcp_tools
     def catalog(force_refresh=False):
         definitions = original_catalog(force_refresh)
-        names = [item.get('function', {}).get('name') for item in definitions if isinstance(item, dict)]
+        names = [item['function'].get('name') for item in definitions
+                 if isinstance(item, dict) and isinstance(item.get('function'), dict)
+                 and isinstance(item['function'].get('name'), str)]
         counts = collections.Counter(names)
         valid = []
         servers = runtime.load_mcp_config()
@@ -28,9 +30,9 @@ def install_exact_routing(runtime):
             schema = fn.get('parameters', {})
             if not isinstance(schema, dict) or schema.get('type', 'object') != 'object' or not isinstance(schema.get('properties', {}), dict) or not isinstance(schema.get('required', []), list):
                 continue
-            if not set(schema.get('required', [])) <= schema.get('properties', {}).keys():
+            if not all(isinstance(field, str) for field in schema.get('required', [])) or not set(schema.get('required', [])) <= schema.get('properties', {}).keys():
                 continue
-            valid.append(item)
+            valid.append(dict(item, function=dict(fn, parameters=schema)))
         with runtime.mcp_cache_lock:
             runtime.mcp_tools_cache = list(valid)
         return valid

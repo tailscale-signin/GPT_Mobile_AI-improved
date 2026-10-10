@@ -76,7 +76,7 @@ class Admission:
             if not principal.local_admin:
                 return await deny("local_admin_required")
         if self.config.mode == "trusted_proxy":
-            public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/v13", "/gateway/v14", "/gateway/connections", "/gateway/tools", "/gateway/session"}
+            public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/connections", "/gateway/tools", "/gateway/session"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
                 if path not in public_reads and not job_path:

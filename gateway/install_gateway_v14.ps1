@@ -10,10 +10,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Unsupported Python' }
 & $Python -c 'import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from v14.package import validate_package; validate_package(Path(sys.argv[1]))' $PSScriptRoot
 if ($LASTEXITCODE -ne 0) { throw 'Incomplete or modified package' }
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-$Stage = Join-Path $Releases "14.0.0-$Stamp"
+$Manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest-v14.json') -Raw | ConvertFrom-Json
+$Stage = Join-Path $Releases "$($Manifest.version)-$Stamp"
 if (Test-Path -LiteralPath $Stage) { throw 'Stage already exists' }
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
-$Manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest-v14.json') -Raw | ConvertFrom-Json
 foreach ($Property in $Manifest.files.PSObject.Properties) {
     $Target = Join-Path $Stage $Property.Name
     New-Item -ItemType Directory -Path (Split-Path -Parent $Target) -Force | Out-Null

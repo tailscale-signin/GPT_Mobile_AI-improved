@@ -26,11 +26,15 @@ jobs:
           python3 scripts/check_android_regex.py
           python3 -m unittest discover -s scripts/tests
 
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+
       - name: Validate gateway Python and contract tests
         run: |
           python3 -m pip install -r gateway/requirements.txt
           python3 -m py_compile gateway/gateway*.py
-          python3 -m unittest discover -s gateway/tests
+          python3 gateway/check_gateway.py
 
       - name: Resource preflight
         run: bash scripts/validate.sh resources

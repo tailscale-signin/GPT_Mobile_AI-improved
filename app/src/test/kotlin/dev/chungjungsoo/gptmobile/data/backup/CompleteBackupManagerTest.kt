@@ -73,7 +73,7 @@ class CompleteBackupManagerTest {
     }
 
     @Test
-    fun encryptionSettingsAndPasswordRoundTripWithoutCredentialSelection() = runBlocking {
+    fun conversationRestoreDoesNotReplaceProtectionAndExportsNeverContainSavedPassword() = runBlocking {
         val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS))
         val protection = BackupProtection(true, "persistent-password")
         manager.saveProtection(protection)
@@ -86,7 +86,7 @@ class CompleteBackupManagerTest {
         manager.saveProtection(BackupProtection(false, "changed-password"))
         val restored = manager.restore(Uri.fromFile(encrypted), protection.password, selected)
         assertTrue(restored.message, restored.success)
-        assertEquals(protection, recreated.savedProtection())
+        assertEquals(BackupProtection(false, "changed-password"), recreated.savedProtection())
 
         val plain = File(context.cacheDir, "plain.gptbackup")
         manager.saveProtection(protection.copy(enabled = false))
@@ -97,7 +97,12 @@ class CompleteBackupManagerTest {
         manager.saveProtection(BackupProtection())
         val plainRestored = manager.restore(Uri.fromFile(plain), selection = selected)
         assertTrue(plainRestored.message, plainRestored.success)
-        assertEquals(protection.copy(enabled = false), manager.savedProtection())
+        assertEquals(BackupProtection(), manager.savedProtection())
+        java.util.zip.ZipFile(plain).use { archive ->
+            val manifest = archive.getInputStream(archive.getEntry("manifest.json")).bufferedReader().readText()
+            assertFalse(manifest.contains("persistent-password"))
+            assertFalse(manifest.contains("changed-password"))
+        }
     }
 
     @Test

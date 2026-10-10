@@ -212,4 +212,29 @@ class ModelCatalogRepositoryTest {
           ]
         }
     """.trimIndent()
+
+    @Test
+    fun currentCatalogWinsOverInstalledMetadata() = runBlocking {
+        val repository = ModelCatalogRepositoryImpl(
+            fetchRemoteJson = { remoteCatalog("model", "0.1.0") },
+            readCacheJson = { null },
+            writeCacheJson = {},
+            readBundledJson = { remoteCatalog("model", "0.1.0") },
+            appVersionName = "1.0.0",
+            readInstalledEntries = { listOf(dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry(id = "model", displayName = "stale installed description")) }
+        )
+        assertTrue(repository.getVisibleEntries().single().displayName != "stale installed description")
+    }
+
+    @Test(expected = kotlinx.coroutines.CancellationException::class)
+    fun cancelledRefreshDoesNotFallBackToCatalog() = runBlocking {
+        ModelCatalogRepositoryImpl(
+            fetchRemoteJson = { throw kotlinx.coroutines.CancellationException("cancel") },
+            readCacheJson = { error("must not read cache") },
+            writeCacheJson = {},
+            readBundledJson = { error("must not read bundle") },
+            appVersionName = "1.0.0"
+        ).getVisibleEntries()
+        Unit
+    }
 }

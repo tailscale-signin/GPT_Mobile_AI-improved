@@ -265,7 +265,7 @@ class CompleteBackupManager @Inject constructor(
             secrets = readSecrets(selected),
             files = sources.mapValues { it.value.length() },
             sections = selected.sections.mapTo(linkedSetOf()) { it.name },
-            protection = savedProtection()
+            protection = if (selected.includes(CompleteBackupSection.SETTINGS)) savedProtection().copy(password = "") else null
         )
 
         val archive = File(work, "archive.zip")
@@ -491,7 +491,7 @@ class CompleteBackupManager @Inject constructor(
                         preferences.replace(if (restoreSettings) manifest.preferences else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
                     }
                     if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
-                    manifest.protection?.let { saveProtection(it) }
+                    if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }
                 }
             } catch (error: Throwable) {
                 withContext(NonCancellable) {
@@ -499,7 +499,7 @@ class CompleteBackupManager @Inject constructor(
                     if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
                     if (restorePreferences) runCatching { preferences.replace(oldPreferences, oldShared) }
                     if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) runCatching { nativePlugins?.reload() }
-                    if (manifest.protection != null) runCatching { saveProtection(oldProtection) }
+                    if (restoreSettings && manifest.protection != null) runCatching { saveProtection(oldProtection) }
                 }
                 throw error
             }

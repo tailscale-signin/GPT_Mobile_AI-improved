@@ -202,10 +202,12 @@ class LocalModelDownloadPathsTest {
     }
 
     @Test
-    fun `response length supersedes approximate catalog sizes and accounts for resume`() {
-        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes(null, 100, 0, 101))
-        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes("bytes 50-99/100", 50, 50, 101))
-        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes(null, 50, 50, 101))
+    fun `authoritative catalog length cannot be replaced by response metadata`() {
+        org.junit.Assert.assertThrows(java.io.IOException::class.java) { LocalModelDownloadPaths.responseTotalBytes(null, 100, 0, 101) }
+        org.junit.Assert.assertThrows(java.io.IOException::class.java) { LocalModelDownloadPaths.responseTotalBytes("bytes 50-99/100", 50, 50, 101) }
+        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes(null, 50, 50, 100))
+        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes(null, 100, 0, 0))
+        assertFalse(LocalModelDownloadPaths.isValidPathSegment("."))
         assertEquals(101L, LocalModelDownloadPaths.responseTotalBytes(null, -1, 0, 101))
     }
 }

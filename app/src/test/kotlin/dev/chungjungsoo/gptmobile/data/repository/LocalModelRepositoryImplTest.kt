@@ -104,7 +104,9 @@ class LocalModelRepositoryImplTest {
         workInfos: () -> Flow<List<WorkInfo>> = { flowOf(emptyList()) },
         externalFilesDir: (() -> File?)? = { File("/tmp") }
     ) = LocalModelRepositoryImpl(
-        context = ContextWrapper(null),
+        context = object : ContextWrapper(null) {
+            override fun getFilesDir(): File = File(System.getProperty("java.io.tmpdir"), "empty-model-test-root")
+        },
         localModelDao = localModelDao,
         deviceSocModel = "",
         ioDispatcher = ioDispatcher,

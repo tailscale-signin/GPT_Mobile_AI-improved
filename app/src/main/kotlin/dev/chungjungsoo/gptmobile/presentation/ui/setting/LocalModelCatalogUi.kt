@@ -24,6 +24,7 @@ data class LocalModelsUiState(
     val source: LocalModelSource = LocalModelSource.CATALOG,
     val huggingFaceItems: List<LocalModelListItem> = emptyList(),
     val isSearchingHuggingFace: Boolean = false,
+    val huggingFaceSearchNotice: String? = null,
     val huggingFaceSearchError: String? = null
 )
 
@@ -55,6 +56,8 @@ data class LocalModelListItem(
     val downloadSizeBytes: Long = 0L,
     val errorMessage: String? = null,
     val failureKind: DownloadFailureKind = DownloadFailureKind.GENERIC,
+    val verifying: Boolean = false,
+    val queued: Boolean = false,
     val benchmarkScore: Int? = null
 )
 
@@ -138,7 +141,7 @@ fun toLocalModelListItem(
     val isWorkActive = workState == WorkInfo.State.RUNNING ||
         workState == WorkInfo.State.ENQUEUED ||
         workState == WorkInfo.State.BLOCKED
-    val resolvedDownloadSize = if (downloadSizeBytes > 0L) downloadSizeBytes else entry.sizeInBytes
+    val resolvedDownloadSize = workInfo?.progress?.getLong(LocalModelDownloadWorker.KEY_TOTAL_BYTES, 0L)?.takeIf { it > 0 } ?: downloadSizeBytes.takeIf { it > 0L } ?: entry.sizeInBytes
     return when {
         record?.status == LocalModelStatus.READY -> LocalModelListItem(
             entry = entry,
@@ -153,6 +156,8 @@ fun toLocalModelListItem(
             receivedBytes = receivedBytes,
             bytesPerSecond = bytesPerSecond,
             remainingMs = remainingMs,
+            verifying = workInfo?.progress?.getBoolean(LocalModelDownloadWorker.KEY_VERIFYING, false) == true,
+            queued = workState == WorkInfo.State.ENQUEUED || workState == WorkInfo.State.BLOCKED,
             diskBytes = resolvedDownloadSize,
             downloadSizeBytes = resolvedDownloadSize
         )

@@ -19,6 +19,8 @@ object LocalModelDownloadPaths {
 
     fun isValidPathSegment(segment: String): Boolean = segment.isNotEmpty() &&
         segment != ".." &&
+        segment != "." &&
+        segment.none { it.code < 32 } &&
         '/' !in segment &&
         '\\' !in segment
 
@@ -30,10 +32,15 @@ object LocalModelDownloadPaths {
 
     fun isCompleteDownload(tmpLength: Long, totalBytes: Long): Boolean = tmpLength > 0L && (totalBytes <= 0L || tmpLength == totalBytes)
 
-    fun responseTotalBytes(contentRange: String?, contentLength: Long, appendedBytes: Long, catalogTotal: Long): Long =
-        contentRange?.substringAfter('/', "")?.toLongOrNull()?.takeIf { it > 0 }
+    fun responseTotalBytes(contentRange: String?, contentLength: Long, appendedBytes: Long, catalogTotal: Long): Long {
+        val reported = contentRange?.substringAfter('/', "")?.toLongOrNull()?.takeIf { it > 0 }
             ?: contentLength.takeIf { it >= 0 && it <= Long.MAX_VALUE - appendedBytes }?.plus(appendedBytes)
-            ?: catalogTotal
+            ?: 0L
+        if (catalogTotal > 0 && reported > 0 && reported != catalogTotal) {
+            throw java.io.IOException("Model size does not match the catalog. Refresh the catalog before retrying.")
+        }
+        return catalogTotal.takeIf { it > 0 } ?: reported
+    }
 
     fun relativeDirectory(catalogEntryId: String, commitHash: String): String {
         requireValidPathSegments(catalogEntryId, commitHash)

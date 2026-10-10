@@ -105,7 +105,7 @@ fun LocalModelDownloadStatus(
             item.status == LocalModelItemStatus.DOWNLOADING -> {
                 val fraction = DownloadProgress.fraction(item.receivedBytes, item.diskBytes)
                 val percent = DownloadProgress.percent(item.receivedBytes, item.diskBytes)
-                if (fraction == null) {
+                if (fraction == null || item.verifying || item.queued) {
                     LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -120,7 +120,11 @@ fun LocalModelDownloadStatus(
                     )
                 }
                 Text(
-                    text = downloadProgressText(item, percent),
+                    text = when {
+                        item.verifying -> "Verifying model integrity…"
+                        item.queued -> "Queued · waiting for network or Android scheduling"
+                        else -> downloadProgressText(item, percent)
+                    },
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp)

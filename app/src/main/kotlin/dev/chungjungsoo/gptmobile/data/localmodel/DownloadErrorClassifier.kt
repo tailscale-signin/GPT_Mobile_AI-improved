@@ -27,6 +27,7 @@ object DownloadErrorClassifier {
             .mapNotNull { it.message }
             .joinToString(" ")
             .lowercase()
+        if (listOf("checksum mismatch", "trusted package checksum", "size does not match the catalog", "exceeds the expected artifact size", "invalid local model download").any { it in messages }) return DownloadRetryClass.PERMANENT
         if (isInsufficientStorage(messages)) return DownloadRetryClass.PERMANENT
         if (isTransientHttp(messages)) return DownloadRetryClass.TRANSIENT
         if (isPermanentHttp(messages)) return DownloadRetryClass.PERMANENT
@@ -43,7 +44,8 @@ object DownloadErrorClassifier {
     private fun isInsufficientStorage(messages: String): Boolean = "enospc" in messages ||
         "no space left" in messages ||
         "insufficient storage" in messages ||
-        "not enough space" in messages
+        "not enough space" in messages ||
+        "storage is nearly full" in messages
 
     private fun isTransientHttp(messages: String): Boolean {
         val code = httpStatusCode(messages) ?: return false

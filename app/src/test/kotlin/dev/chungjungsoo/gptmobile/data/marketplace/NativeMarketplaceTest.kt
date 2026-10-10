@@ -33,6 +33,26 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class NativeMarketplaceTest {
+
+    @Test
+    fun corruptRegistryRequiresExplicitDisabledRepair() = runBlocking {
+        val file = files.newFile("damaged-registry.json").apply { writeText("{broken") }
+        val registry = NativeMarketplaceRegistry(file, mockk(relaxed = true))
+        var rejected = false
+        try {
+            registry.load()
+        } catch (_: MarketplaceRegistryRepairRequired) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        val id = GitHubMarketplaceCatalog.packages.first { NativeMarketplaceCatalog.supports(it) }.id
+        registry.repairFromVerifiedPackages(setOf(id, "unknown-package"))
+        assertEquals(setOf(id), registry.load().keys)
+        assertFalse(registry.load().getValue(id).enabled)
+        assertEquals(null, registry.load().getValue(id).credentialRef)
+        assertTrue(files.root.listFiles().orEmpty().any { it.name.startsWith("damaged-registry.json.corrupt-") })
+    }
+
     @Test fun everyDownloadableNativeAdapterHasExecutableDefinitionsAndARequestBuilder() {
         val entries = GitHubMarketplaceCatalog.packages.filter { it.runtime == MarketplaceRuntime.NATIVE }
         assertTrue(entries.isNotEmpty())

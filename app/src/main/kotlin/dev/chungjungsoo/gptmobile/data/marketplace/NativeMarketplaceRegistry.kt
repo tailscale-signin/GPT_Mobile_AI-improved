@@ -173,7 +173,7 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         current.copy(usageDay = day, usageCount = used + 1, nextRequestAt = now + 1000)
     }
 
-    suspend fun rateLimited(entry: GitHubMarketplacePackage) = change(entry) { it?.copy(nextRequestAt = System.currentTimeMillis() + 60_000) }
+    suspend fun rateLimited(entry: GitHubMarketplacePackage, retryAfterMs: Long = 60_000) = change(entry) { it?.copy(nextRequestAt = maxOf(it.nextRequestAt, System.currentTimeMillis() + retryAfterMs.coerceIn(1000, 86_400_000))) }
 
     private suspend fun change(entry: GitHubMarketplacePackage, transform: (NativePluginInstallation?) -> NativePluginInstallation?) = withContext(Dispatchers.IO) {
         requireKnown(entry)
@@ -202,6 +202,10 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
             }
         } catch (_: FileNotFoundException) {
             emptyMap()
+        } catch (_: kotlinx.serialization.SerializationException) {
+            throw MarketplaceRegistryRepairRequired()
+        } catch (_: IllegalArgumentException) {
+            throw MarketplaceRegistryRepairRequired()
         }
         val bundled = bundleLegacyOpenStreetMap(records)
         _state.value = bundled.filterKeys { GitHubMarketplaceCatalog.find(it)?.let(NativeMarketplaceCatalog::supports) == true }.mapValues { (_, record) ->
@@ -210,6 +214,20 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         }
         if (bundled != records) writeLocked(_state.value)
         loaded = true
+    }
+
+    /** Explicit repair preserves the damaged bytes and never recreates permission or credential grants. */
+    suspend fun repairFromVerifiedPackages(ids: Set<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (file.exists()) {
+                val quarantine = File(file.parentFile, "${file.name}.corrupt-${System.currentTimeMillis()}")
+                check(file.renameTo(quarantine)) { "Could not preserve the damaged registry. Free storage and retry." }
+            }
+            val recovered = ids.filter { GitHubMarketplaceCatalog.find(it)?.let(NativeMarketplaceCatalog::supports) == true }
+                .associateWith { NativePluginInstallation() }
+            writeLocked(recovered)
+            loaded = true
+        }
     }
 
     internal fun bundleLegacyOpenStreetMap(records: Map<String, NativePluginInstallation>): Map<String, NativePluginInstallation> {

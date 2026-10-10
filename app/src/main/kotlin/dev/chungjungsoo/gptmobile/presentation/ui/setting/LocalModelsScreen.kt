@@ -87,6 +87,8 @@ fun LocalModelsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
     val context = LocalContext.current
+    val downloadPreferences = remember { context.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE) }
+    var wifiOnly by remember { mutableStateOf(downloadPreferences.getBoolean("wifiOnly", false)) }
     var marketplace by rememberSaveable { mutableStateOf(startInMarketplace) }
     var marketplaceTab by rememberSaveable { mutableIntStateOf(0) }
     var architecture by rememberSaveable { mutableStateOf("") }
@@ -148,6 +150,18 @@ fun LocalModelsScreen(
                         item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
                     } else if (!marketplace) {
                         item(key = "overview") { LocalModelsOverviewCard(uiState) }
+                        item(key = "download-policy") {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Wi-Fi only downloads", style = MaterialTheme.typography.titleSmall)
+                                    Text("Applies to new downloads and retries. Storage includes partial files.", style = MaterialTheme.typography.bodySmall)
+                                }
+                                androidx.compose.material3.Switch(checked = wifiOnly, onCheckedChange = {
+                                    wifiOnly = it
+                                    downloadPreferences.edit().putBoolean("wifiOnly", it).apply()
+                                })
+                            }
+                        }
                         item(key = "import-main") {
                             CustomModelImportSection(
                                 onImportClick = { openDocumentLauncher.launch(arrayOf("*/*")) }
@@ -265,6 +279,7 @@ fun LocalModelsScreen(
                                     selectedSource = uiState.source,
                                     isSearchingHuggingFace = uiState.isSearchingHuggingFace,
                                     huggingFaceSearchError = uiState.huggingFaceSearchError,
+                                    huggingFaceSearchNotice = uiState.huggingFaceSearchNotice,
                                     onQueryChange = viewModel::updateSearchQuery,
                                     onFilterChange = viewModel::updateFilter,
                                     onSourceChange = viewModel::updateModelSource,
@@ -450,6 +465,7 @@ private fun ModelCatalogSearch(
     selectedSource: LocalModelSource,
     isSearchingHuggingFace: Boolean,
     huggingFaceSearchError: String?,
+    huggingFaceSearchNotice: String?,
     onQueryChange: (String) -> Unit,
     onFilterChange: (LocalModelFilter) -> Unit,
     onSourceChange: (LocalModelSource) -> Unit,
@@ -528,6 +544,9 @@ private fun ModelCatalogSearch(
             )
         }
 
+        huggingFaceSearchNotice?.takeIf { selectedSource == LocalModelSource.HUGGING_FACE }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         huggingFaceSearchError?.takeIf { selectedSource == LocalModelSource.HUGGING_FACE }?.let { error ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
@@ -547,7 +566,7 @@ private fun ModelCatalogSearch(
             if (selectedSource == LocalModelSource.HUGGING_FACE) {
                 "Searches Hub repositories for LiteRT-LM GPU exports and matching Qualcomm NPU packages within this phone’s RAM budget. Raw checkpoints and ZIP archives are excluded. Runtime compatibility is checked when loading."
             } else {
-                "Curated downloads include app-tested models and device-specific variants. Custom file import now lives in your Local models Library."
+                "Curated downloads include selected models and device-specific variants. Capabilities are catalog claims until tested on this device. Import your own files from the Local models Library."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -658,9 +677,9 @@ private fun LocalModelItem(
             val hasLiteRt = item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
             Text(
                 if (hasNpu) {
-                    if (hasLiteRt) "QNN preferred · LiteRT compatible" else "QNN preferred"
+                    if (hasLiteRt) "QNN candidate · LiteRT fallback" else "QNN candidate"
                 } else if (hasLiteRt) {
-                    "LiteRT preferred"
+                    "LiteRT · CPU / GPU package"
                 } else {
                     "Imported model · check compatibility"
                 },
@@ -719,6 +738,19 @@ private fun LocalModelItem(
                     )
                 }
             }
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (item.entry.sha256.isNotBlank()) "Publisher checksum available" else "Publisher checksum unavailable",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon(
+                    title = "Model requirements & verification",
+                    description = "A publisher checksum verifies downloaded bytes against the catalog. Without it, size and container checks identify the file but do not prove publisher authenticity. Installation does not verify model capabilities or runtime compatibility. NPU packages need an exact supported chip and runtime. RAM is an advisory total-memory threshold; available memory and context size also matter. Context includes prompts, tools and output."
+                )
+            }
+            Text("Context: ${item.entry.maxContextTokens.takeIf { it > 0 }?.let { "$it tokens" } ?: "not declared"} · Output default: ${item.entry.defaultConfig.maxTokens}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
             LocalModelRequirements(item = item)
             LocalModelDownloadStatus(
                 item = item,

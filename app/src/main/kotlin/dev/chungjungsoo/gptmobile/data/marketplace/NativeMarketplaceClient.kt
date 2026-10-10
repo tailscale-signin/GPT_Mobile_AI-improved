@@ -28,7 +28,7 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
-class NativeMarketplaceFailure(message: String, val status: Int? = null) : Exception(message)
+class NativeMarketplaceFailure(message: String, val status: Int? = null, val retryAfterMs: Long? = null) : Exception(message)
 
 /** Fixed provider origins and provider-specific authentication; never arbitrary model URLs. */
 object NativeMarketplaceRequests {
@@ -176,7 +176,8 @@ class NativeMarketplaceClient @Inject constructor() {
                                     429 -> "Provider rate limit reached. Wait before trying again."
                                     else -> "Provider request failed (HTTP ${it.code})."
                                 },
-                                it.code
+                                it.code,
+                                if (it.code == 429) retryAfterMillis(it.header("Retry-After")) else null
                             )
                         }
                         val body = it.body ?: throw NativeMarketplaceFailure("Provider returned an empty response.")
@@ -194,7 +195,7 @@ class NativeMarketplaceClient @Inject constructor() {
                         }
                         Json.parseToJsonElement(bytes.decodeToString())
                     }
-                    if (result is JsonObject && (result["error"] != null || result["errors"] != null || (result["success"] as? JsonPrimitive)?.booleanOrNull == false)) {
+                    if (result is JsonObject && (hasMeaningfulProviderError(result["error"]) || hasMeaningfulProviderError(result["errors"]) || (result["success"] as? JsonPrimitive)?.booleanOrNull == false)) {
                         throw NativeMarketplaceFailure("Provider returned an error. Check credentials and service access.")
                     }
                     if (continuation.isActive) continuation.resume(result)

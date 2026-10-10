@@ -430,6 +430,10 @@ fun McpMarketplaceScreen(
                         downloaded = native && installation != null,
                         downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
                         changing = preset.id in packageState.changingIds,
+                        onTestConnection = connection?.takeIf { it.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.MCP }
+                            ?.let { testedConnection -> { marketplaceViewModel.testConnection(testedConnection.connectionUid) } },
+                        testingConnection = connection?.connectionUid?.let { it in packageState.testingConnectionUids } == true,
+                        connectionTest = connection?.let { packageState.connectionTests[it.connectionUid] },
                         connectionStatus = operationLabel ?: if (native && entry != null) dev.chungjungsoo.gptmobile.data.marketplace.nativeMarketplaceAvailability(entry, installation, features, now) else connectionHealth?.let(::marketplaceConnectionStatus),
                         error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
                         onExport = {
@@ -637,6 +641,9 @@ private fun MarketplacePackageCard(
     canEnable: Boolean = true,
     onEnabledChange: (Boolean) -> Unit = {},
     onRemoveConnection: (() -> Unit)? = null,
+    onTestConnection: (() -> Unit)? = null,
+    testingConnection: Boolean = false,
+    connectionTest: MarketplaceConnectionTestResult? = null,
     nativeSettings: (@Composable () -> Unit)? = null,
     needsSetup: Boolean = false,
     connectionStatus: String? = null
@@ -678,6 +685,9 @@ private fun MarketplacePackageCard(
                 }
             }
             Text(preset.description, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (expanded && onTestConnection != null) {
+                Text("Connection test performs MCP initialization and tool discovery only. It does not execute tools; provider access limits may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (download != null) {
                 Text(
                     if (NativeMarketplaceCatalog.requiresKey(download)) "Internet required · Provider API key" else "Internet required · No provider API key",
@@ -693,6 +703,13 @@ private fun MarketplacePackageCard(
                 }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            connectionTest?.let { result ->
+                Text(
+                    result.message + if (result.connected) " · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(result.completedAt))}" else " · ref ${result.correlationId.take(8)}",
+                    color = if (result.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
                     download != null && !downloaded -> Button(onClick = onDownload, enabled = !downloading, shape = RoundedCornerShape(12.dp)) {
@@ -721,6 +738,11 @@ private fun MarketplacePackageCard(
                     Button(onClick = { onEnabledChange(!value) }, enabled = !removing && !changing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
                 }
                 if (download == null && onRemoveConnection != null) TextButton(onClick = onRemoveConnection) { Text("Uninstall") }
+                onTestConnection?.let { test ->
+                    TextButton(onClick = test, enabled = !testingConnection && !removing && !changing) {
+                        Text(if (testingConnection) "Testing…" else "Test connection")
+                    }
+                }
                 TextButton(onClick = { expanded = !expanded }) {
                     Text(if (expanded) "Less" else "Details")
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))

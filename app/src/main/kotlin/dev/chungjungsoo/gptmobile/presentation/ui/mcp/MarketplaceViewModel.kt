@@ -26,7 +26,18 @@ data class MarketplaceUiState(
     val registryNeedsRepair: Boolean = false,
     val changingIds: Set<String> = emptySet(),
     val message: String? = null,
-    val operations: Map<String, dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationState> = emptyMap()
+    val operations: Map<String, dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationState> = emptyMap(),
+    val testingConnectionUids: Set<String> = emptySet(),
+    val connectionTests: Map<String, MarketplaceConnectionTestResult> = emptyMap()
+)
+
+data class MarketplaceConnectionTestResult(
+    val connected: Boolean,
+    val toolCount: Int? = null,
+    val completedAt: Long,
+    val failureCode: String? = null,
+    val message: String,
+    val correlationId: String
 )
 
 /** Own downloads outside composition so rotation cannot cancel or duplicate them. */
@@ -38,7 +49,8 @@ class MarketplaceViewModel @Inject constructor(
     private val mcpClientManager: dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager? = null,
     private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
     private val freeConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
-    private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null
+    private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null,
+    private val agentToolResolver: dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver? = null
 ) : ViewModel() {
     private val _uninstallRequest = MutableStateFlow<GitHubMarketplacePackage?>(null)
     val uninstallRequest = _uninstallRequest.asStateFlow()
@@ -82,6 +94,52 @@ class MarketplaceViewModel @Inject constructor(
 
     fun showMessage(message: String?) {
         _uiState.update { it.copy(message = message) }
+    }
+
+    /** Explicit MCP initialize/discovery probe. It never calls a discovered tool. */
+    fun testConnection(connectionUid: String) {
+        if (connectionUid in _uiState.value.testingConnectionUids) return
+        _uiState.update { it.copy(testingConnectionUids = it.testingConnectionUids + connectionUid) }
+        viewModelScope.launch {
+            val correlationId = java.util.UUID.randomUUID().toString()
+            try {
+                initialization.join()
+                val connection = connections.getConnection(connectionUid)
+                    ?: throw IllegalStateException("The saved connection is no longer available.")
+                require(connection.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.MCP) {
+                    "Only MCP connections support discovery tests."
+                }
+                val resolver = agentToolResolver ?: throw IllegalStateException("Connection testing is unavailable.")
+                // Reuse the production discovery path so OAuth reauthorization and
+                // endpoint validation behave exactly as they do during setup.
+                val tools = resolver.discoverMcpTools(connection, forceRefresh = true)
+                _uiState.update { state ->
+                    state.copy(connectionTests = state.connectionTests + (connectionUid to MarketplaceConnectionTestResult(
+                        connected = true,
+                        toolCount = tools.size,
+                        completedAt = System.currentTimeMillis(),
+                        message = "Connected; discovered ${tools.size} tool${if (tools.size == 1) "" else "s"}. No tool was executed.",
+                        correlationId = correlationId
+                    )))
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _uiState.update { state ->
+                    state.copy(connectionTests = state.connectionTests + (connectionUid to MarketplaceConnectionTestResult(
+                        connected = false,
+                        completedAt = System.currentTimeMillis(),
+                        failureCode = error::class.simpleName?.take(80) ?: "connection_test_failed",
+                        // Server errors may echo credentials or private endpoint data. Keep
+                        // the UI message actionable and use the correlation ID for support.
+                        message = "Connection discovery failed. Check the saved endpoint and credentials, then retry.",
+                        correlationId = correlationId
+                    )))
+                }
+            } finally {
+                _uiState.update { it.copy(testingConnectionUids = it.testingConnectionUids - connectionUid) }
+            }
+        }
     }
 
     suspend fun exportBytes(entry: GitHubMarketplacePackage): ByteArray = store.exportBytes(entry)

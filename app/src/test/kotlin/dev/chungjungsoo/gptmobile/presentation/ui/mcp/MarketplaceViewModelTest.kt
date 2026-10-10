@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.mcp
 
 import androidx.lifecycle.ViewModelStore
+import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
 import dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation
@@ -203,5 +206,49 @@ class MarketplaceViewModelTest {
         coVerify { registry.uninstall(entry) }
         coVerify { store.finishRemoval(entry) }
         assertTrue(model.uiState.value.downloadedIds.isEmpty())
+    }
+
+    @Test
+    fun explicitConnectionTestRunsDiscoveryWithoutCallingTools() = runTest(dispatcher) {
+        val connection = ToolConnection(
+            connectionUid = "conn-1", name = "Example", alias = "example", type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.com/mcp", authType = "NONE", secretRef = null, oauthClientId = null
+        )
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { connections.getConnection("conn-1") } returns connection
+        coEvery { resolver.discoverMcpTools(connection, forceRefresh = true) } returns emptyList()
+        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver)
+        viewModels.put("marketplace", model)
+
+        model.testConnection("conn-1")
+        runCurrent()
+
+        val result = model.uiState.value.connectionTests.getValue("conn-1")
+        assertTrue(result.connected)
+        assertEquals(0, result.toolCount)
+        assertTrue(result.message.contains("No tool was executed"))
+        assertTrue(model.uiState.value.testingConnectionUids.isEmpty())
+        coVerify(exactly = 1) { resolver.discoverMcpTools(connection, forceRefresh = true) }
+    }
+
+    @Test
+    fun connectionTestDoesNotExposeServerErrorText() = runTest(dispatcher) {
+        val connection = ToolConnection(
+            connectionUid = "conn-1", name = "Example", alias = "example", type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.com/mcp", authType = "NONE", secretRef = null, oauthClientId = null
+        )
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { connections.getConnection("conn-1") } returns connection
+        coEvery { resolver.discoverMcpTools(connection, forceRefresh = true) } throws IOException("server echoed bearer-secret-123")
+        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver)
+        viewModels.put("marketplace", model)
+
+        model.testConnection("conn-1")
+        runCurrent()
+
+        val result = model.uiState.value.connectionTests.getValue("conn-1")
+        assertFalse(result.connected)
+        assertFalse(result.message.contains("bearer-secret-123"))
+        assertTrue(result.correlationId.isNotBlank())
     }
 }

@@ -12,6 +12,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
+    @Test fun transientRecoveryDoesNotReplayAnInitialToolBearingRequest() = runTest {
+        val wrapper = OutputLimitRecoverySession(session { emit(ProviderEvent.Failed("Service overloaded")) }, recoverTransientFailures = true) { _, _ -> error("No tool request replay") }
+        val events = wrapper.streamRound(listOf(AgentToolDefinition("write", "", buildJsonObject {})), emptyList()).toList()
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+    }
+
+    @Test fun interruptedEditorialAnswerKeepsPartialOutputAndRecoversWithoutTools() = runTest {
+        var attempts = 0
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta("Saved paragraph. "))
+                emit(ProviderEvent.Failed("Read error: SSL protocol error"))
+            },
+            recoverTransientFailures = true
+        ) { draft, _ ->
+            attempts++
+            assertEquals("Saved paragraph. ", draft)
+            session {
+                emit(ProviderEvent.TextDelta("Remaining evidence."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, attempts)
+        assertEquals("Saved paragraph. Remaining evidence.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.none { it is ProviderEvent.Failed || it is ProviderEvent.ToolCall })
+    }
+
+    @Test fun editorialTransientRetriesAreBoundedAndNeverRetryQuota() = runTest {
+        var attempts = 0
+        val wrapper = OutputLimitRecoverySession(session { emit(ProviderEvent.Failed("Service temporarily overloaded")) }, recoverTransientFailures = true) { _, _ ->
+            attempts++
+            session { emit(ProviderEvent.Failed("Service temporarily overloaded")) }
+        }
+        assertEquals(1, wrapper.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().size)
+        assertEquals(2, attempts)
+        val quota = OutputLimitRecoverySession(session { emit(ProviderEvent.Failed("LLM7 has reached its free allowance")) }, recoverTransientFailures = true) { _, _ -> error("No quota retry") }
+        assertEquals(1, quota.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().size)
+    }
+
     @Test fun truncatedAnswerContinuesOnceWithEvidenceAndWithoutRepeatingTools() = runTest {
         var continuations = 0
         val call = ProviderEvent.ToolCall("done", "write", buildJsonObject {})

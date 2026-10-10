@@ -10,9 +10,11 @@ internal class OutputLimitRecoverySession(
     private var active: AgentProviderSession,
     private val maxContinuations: Int = 1,
     private val targetWords: Int? = null,
+    private val recoverTransientFailures: Boolean = false,
     private val continuation: suspend (String, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
     private var continuations = 0
+    private var transientRetries = 0
     private val answer = StringBuilder()
     override val handlesToolsInternally: Boolean get() = active.handlesToolsInternally
 
@@ -23,7 +25,7 @@ internal class OutputLimitRecoverySession(
         }
         val evidence = ToolExchangeCompactor.compact(exchanges, maxReplayTokens = 4_000, maxResultTokens = 512)
         while (true) {
-            val continuing = continuations > 0
+            val continuing = continuations > 0 || transientRetries > 0
             var failure: ProviderEvent.Failed? = null
             var completed = false
             val pendingCalls = mutableListOf<ProviderEvent.ToolCall>()
@@ -42,7 +44,7 @@ internal class OutputLimitRecoverySession(
                         is ProviderEvent.Failed -> failure = event
                         is ProviderEvent.TextDelta -> {
                             // Bound retained text, including misbehaving providers that ignore output caps.
-                            check(segment.length + event.text.length <= MAX_ANSWER_CHARACTERS) { "Response exceeded the safe continuation buffer. Partial output is saved." }
+                            check(answer.length.toLong() + segment.length + event.text.length <= MAX_ANSWER_CHARACTERS) { "Response exceeded the safe continuation buffer. Partial output is saved." }
                             segment.append(event.text)
                             if (!continuing) emit(event)
                         }
@@ -54,17 +56,24 @@ internal class OutputLimitRecoverySession(
             if (continuing && novel.isNotEmpty()) emit(ProviderEvent.TextDelta(novel))
             answer.append(novel)
             val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true
-            if (failure != null && !limitFailure) {
+            val transientFailure = failure != null &&
+                !limitFailure &&
+                recoverTransientFailures &&
+                (tools.isEmpty() || continuing) &&
+                pendingCalls.isEmpty() &&
+                isRecoverableStreamFailure(requireNotNull(failure).message) &&
+                transientRetries < 2
+            if (failure != null && !limitFailure && !transientFailure) {
                 emit(requireNotNull(failure))
                 return@flow
             }
             val shortAnswer = completed && pendingCalls.isEmpty() && LongResponsePolicy.needsMore(answer.toString(), targetWords)
-            if (!limitFailure && !shortAnswer) {
+            if (!limitFailure && !shortAnswer && !transientFailure) {
                 pendingCalls.forEach { emit(it) }
                 if (completed) emit(ProviderEvent.Completed)
                 return@flow
             }
-            if (continuations >= maxContinuations.coerceIn(0, 16) || answer.length >= MAX_ANSWER_CHARACTERS || continuing && novel.isBlank()) {
+            if ((!transientFailure && continuations >= maxContinuations.coerceIn(0, 16)) || answer.length >= MAX_ANSWER_CHARACTERS || (!transientFailure && continuing && novel.isBlank())) {
                 emit(
                     ProviderEvent.Failed(
                         "The response is incomplete after bounded continuation (${LongResponsePolicy.countWords(answer.toString())} words" +
@@ -73,8 +82,14 @@ internal class OutputLimitRecoverySession(
                 )
                 return@flow
             }
-            continuations++
-            emit(ProviderEvent.Notice("Continuing the response ($continuations/${maxContinuations.coerceIn(0, 16)}) from the saved answer and completed evidence.", false))
+            if (transientFailure) {
+                transientRetries++
+                emit(ProviderEvent.Notice("The response stream was interrupted. Retrying from saved output ($transientRetries/2).", false))
+                kotlinx.coroutines.delay(transientRetries * 1000L)
+            } else {
+                continuations++
+            }
+            if (!transientFailure) emit(ProviderEvent.Notice("Continuing the response ($continuations/${maxContinuations.coerceIn(0, 16)}) from the saved answer and completed evidence.", false))
             active = try {
                 continuation(answer.toString(), evidence)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

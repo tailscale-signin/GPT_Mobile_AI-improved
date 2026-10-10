@@ -398,7 +398,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
                     }
 
-                    val effectiveOutputTokens = constraints.outputLimit(effectiveMaxTokens)
+                    val outputLimitKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
+                    var effectiveOutputTokens = ProviderOutputLimits.effective(outputLimitKey, constraints.outputLimit(effectiveMaxTokens))
+                    var ceilingRetryUsed = false
                     if (constraints.maxOutputTokens != null) {
                         emit(
                             ProviderEvent.RequestConfigured(
@@ -411,10 +413,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                     // The desktop gateway has its own intermediate-generation ceiling.
                     // Keep it aligned with the delegated provider cap so a 128/256-token
                     // worker cannot silently expand to the gateway default (for example 1024).
-                    val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints)
                     var currentRequestMessages = baseMessages
 
                     while (true) {
+                        val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints)
                         val request = ChatCompletionRequest(
                             model = platform.model,
                             messages = currentRequestMessages,
@@ -623,6 +625,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
 
                         val llamaReasoningParser = if (isLlama) GroqReasoningParser() else null
+                        var deliveredPayload = false
 
                         openAIAPI.streamChatCompletion(request, platform.timeout, requestConfig)
                             .catch { error ->
@@ -667,6 +670,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     lastFailedMessage = error.message
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
+                                    if (!choice.effectiveDelta.content.isNullOrEmpty() || !choice.effectiveDelta.effectiveReasoning.isNullOrEmpty() || !choice.effectiveDelta.toolCalls.isNullOrEmpty()) deliveredPayload = true
                                     if (choice.finishReason == "length") {
                                         roundFailed = true
                                         lastFailedMessage = "The response reached its output limit. Saved output and tool results will be used to continue on the next request."
@@ -702,10 +706,24 @@ class OpenAICompatibleAdapter @Inject constructor(
                             state.toProviderEvent()?.let { emit(it) }
                         }
 
+                        val learnedCeiling = if (roundFailed && !deliveredPayload && !ceilingRetryUsed) {
+                            ProviderOutputLimits.learn(outputLimitKey, lastFailedMessage.orEmpty(), effectiveOutputTokens)
+                        } else {
+                            null
+                        }
+                        if (learnedCeiling != null) {
+                            ceilingRetryUsed = true
+                            effectiveOutputTokens = learnedCeiling
+                            roundFailed = false
+                            canRotate = false
+                            emit(ProviderEvent.Notice("The provider reported a lower completion ceiling. Retrying once with $learnedCeiling output tokens.", false))
+                            emit(ProviderEvent.RequestConfigured(effectiveMaxTokens, constraints.maxOutputTokens, learnedCeiling))
+                            continue
+                        }
                         if (!roundFailed) {
                             emit(ProviderEvent.Completed)
                             return@flow
-                        } else if (canRotate && attempt < attempts - 1) {
+                        } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                             break
                         } else {
                             emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed"))

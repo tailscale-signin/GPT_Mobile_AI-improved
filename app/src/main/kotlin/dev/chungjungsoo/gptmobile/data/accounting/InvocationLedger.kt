@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 @Entity(tableName = "model_invocations", indices = [Index("turnKey"), Index("startedAt")])
+@kotlinx.serialization.Serializable
 data class ModelInvocation(
     @PrimaryKey val id: String,
     val parentRunId: String,
@@ -53,6 +54,9 @@ class TokenAllowanceReached : IllegalStateException("The conversation turn reach
 @Dao
 interface InvocationDao {
     @Upsert suspend fun save(invocation: ModelInvocation)
+
+    @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
+    suspend fun forChat(chatId: Int): List<ModelInvocation>
 
     @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 100")
     fun recent(): Flow<List<ModelInvocation>>
@@ -154,7 +158,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 emit(ProviderEvent.Completed)
                 return@flow
             }
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens}")
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
             val started = System.nanoTime()
             var first: Long? = null
             var input: Int? = null
@@ -171,6 +175,10 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             generatedBytes += event.text.toByteArray().size
                         }
                         is ProviderEvent.ThinkingDelta -> generatedBytes += event.text.toByteArray().size
+                        is ProviderEvent.RequestConfigured -> dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                            "Model",
+                            "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileOutputCap=${event.configuredProfileOutputTokens ?: 0} · requestedOutputCap=${event.requestedOutputTokens ?: 0} · effectiveOutputCap=${event.effectiveOutputTokens ?: 0}"
+                        )
                         is ProviderEvent.Usage -> {
                             event.inputTokens?.let { input = if (event.cumulative) maxOf(input ?: 0, it) else (input ?: 0) + it }
                             event.outputTokens?.let { output = if (event.cumulative) maxOf(output ?: 0, it) else (output ?: 0) + it }
@@ -209,7 +217,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             } finally {
                 withContext(NonCancellable) {
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${output == null}", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             dao.save(

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 

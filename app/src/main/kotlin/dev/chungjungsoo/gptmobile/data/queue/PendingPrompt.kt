@@ -15,6 +15,7 @@ import kotlinx.serialization.json.Json
     foreignKeys = [ForeignKey(entity = ChatRoomV2::class, parentColumns = ["chat_id"], childColumns = ["chatId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("chatId")]
 )
+@kotlinx.serialization.Serializable
 data class PendingPrompt(
     @PrimaryKey val id: String,
     val chatId: Int,

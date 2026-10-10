@@ -98,6 +98,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -1764,7 +1765,7 @@ class ChatRepositoryImpl(
         val requestedOutputTokens = contextPlan.outputTokens
         // Delegation saves input/replay tokens. Its brief budget must never cap the
         // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
-        val effectiveOutputCap = requestedOutputTokens
+        val effectiveOutputCap = requestedOutputTokens ?: if (runId.startsWith("combined-synthesis:") && platform.maxTokens == null) 16_384 else null
         val editorialPass = runId.startsWith("combined-synthesis:")
         val requestConstraints = RequestConstraints(
             maxOutputTokens = effectiveOutputCap,
@@ -1779,7 +1780,14 @@ class ChatRepositoryImpl(
         }
         suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
             val constraints = if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints
-            workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan, turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
+            workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan.copy(tools = if (textOnly) emptyList() else contextPlan.tools), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
+            try {
+                workspace?.recordDebugRequest(latestUser?.chatId ?: 0, runId, kind, requestPlatform, turns, if (textOnly) emptyList() else contextPlan.tools, constraints)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                AppLogRecorder.record("Debug", "Request snapshot unavailable · parentRunId=$runId · requestKind=$kind", "W")
+            }
             val raw = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, constraints)
 
@@ -1814,11 +1822,16 @@ class ChatRepositoryImpl(
             }
         )
         val remainingWordGoal = wordGoal?.let { (it - previousAnswerWords).coerceAtLeast(0) }
-        val continuationLimit = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
+        val continuationLimit = if (editorialPass) {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(latestUser?.content.orEmpty(), requestConstraints.outputLimit(platform.maxTokens), remainingWordGoal)
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
+        }
         val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
             openPrimarySession(contextPlan.turns),
             maxContinuations = continuationLimit,
-            targetWords = remainingWordGoal
+            targetWords = remainingWordGoal,
+            recoverTransientFailures = true
         ) { draft, exchanges ->
             val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                 contextPlan.turns,
@@ -2277,6 +2290,49 @@ class ChatRepositoryImpl(
         }
         combined.sortByDescending { it.updatedAt }
         return combined
+    }
+
+    override suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = withContext(Dispatchers.IO) {
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+        val receipts = workspace?.dao?.forChat(chatId).orEmpty().map { entry ->
+            if (entry.kind == "context") {
+                try {
+                    entry.copy(payload = json.encodeToString(dev.chungjungsoo.gptmobile.data.workspace.ContextReceipt.serializer(), workspace!!.readReceipt(entry)))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    entry.copy(title = entry.title + " · protected context unavailable")
+                }
+            } else {
+                entry
+            }
+        }
+        val runs = agentRunDao.getByChatId(chatId)
+        val runIds = runs.map { it.runId }.toSet()
+        val events = observeToolEvents(chatId).first()
+        val savedInvocations = invocationLedger?.dao?.forChat(chatId).orEmpty()
+        val liveInvocations = invocationLedger?.active?.value?.values.orEmpty().filter { it.parentRunId in runIds }
+        val invocations = (savedInvocations.associateBy { it.id } + liveInvocations.associateBy { it.id }).values.sortedBy { it.startedAt }
+        val identifiers = (runIds + invocations.map { it.id } + events.map { it.callId }).filter { it.length >= 8 }
+        val logs = if (identifiers.isEmpty()) {
+            emptyList()
+        } else {
+            try {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.export(structured = true)?.bufferedReader()?.useLines { lines ->
+                    lines.filter { line -> identifiers.any { it in line } }.map { json.parseToJsonElement(it) }.toList()
+                }.orEmpty()
+            } catch (_: java.io.IOException) {
+                emptyList()
+            }
+        }
+        kotlinx.serialization.json.buildJsonObject {
+            put("runs", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(AgentRun.serializer()), runs))
+            put("toolEvents", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent.serializer()), events))
+            put("invocations", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation.serializer()), invocations))
+            put("diagnosticEvents", kotlinx.serialization.json.JsonArray(logs))
+            put("workspace", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord.serializer()), receipts))
+            put("queuedPrompts", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.queue.PendingPrompt.serializer()), pendingPromptDao?.forChat(chatId).orEmpty()))
+        }
     }
 
     override suspend fun fetchMessagesV2(chatId: Int): List<MessageV2> = messageV2Dao.loadMessages(chatId)

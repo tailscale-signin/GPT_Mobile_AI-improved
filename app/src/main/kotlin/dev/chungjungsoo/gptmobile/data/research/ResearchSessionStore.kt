@@ -81,6 +81,13 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
     }
 
+    suspend fun exportChat(chatId: Int): List<ResearchSession> = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val stored = directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read).filter { it.chatId == chatId }
+            (stored.associateBy { it.runId } + mutable.value.filterValues { it.chatId == chatId }).values.sortedBy { it.snapshot.updatedAt }
+        }
+    }
+
     suspend fun deleteChat(chatId: Int) = withContext(Dispatchers.IO) {
         deletedChats += chatId
         lock.withLock {

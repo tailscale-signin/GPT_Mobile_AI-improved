@@ -1236,6 +1236,33 @@ class ChatViewModel @Inject constructor(
     }
 
     suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
+        if (format == ChatExportFormat.DEBUG) {
+            check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
+            val room = _chatRoom.value
+            val visible = persistableMessages(_groupedMessages.value)
+            val profiles = _platformsInApp.value.filter { it.uid in enabledPlatformsInChat }.toList()
+            val tools = _chatToolConfig.value
+            val features = featureSettings.value
+            val draft = question.text.toString()
+            val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
+            val records = chatRepository.fetchDebugRecords(room.id)
+            val messages = withContext(Dispatchers.IO) {
+                chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
+                    visible.filter { it.id > 0 }.forEach { put(it.id, it) }
+                    live.filter { it.id > 0 }.forEach { put(it.id, it) }
+                }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
+            }
+            val research = researchSessionStore?.exportChat(room.id).orEmpty()
+            val json = kotlinx.serialization.json.Json {
+                encodeDefaults = true
+                prettyPrint = true
+            }
+            val body = withContext(Dispatchers.IO) {
+                buildChatDebugExport(room, messages, profiles, tools, features, draft, records, research, json)
+            }
+            val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
+            return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to body
+        }
         val exported = groupPersistedMessages(completeWindowMessages(_groupedMessages.value), enabledPlatformsInChat, _chatRoom.value.id)
         val content = exported.assistantMessages.flatten()
             .map { assistantExportText(it, format) }
@@ -1891,7 +1918,7 @@ class ChatViewModel @Inject constructor(
                     chatId = persisted.assistantMessage.chatId,
                     assistantMessage = persisted.assistantMessage,
                     platform = leadPlatform.copy(
-                        systemPrompt = leadPlatform.systemPrompt.orEmpty() + "\n" + COMBINED_SYNTHESIS_INSTRUCTION,
+                        systemPrompt = COMBINED_SYNTHESIS_INSTRUCTION,
                         disableAllTools = true,
                         disableLocalTools = true
                     ),

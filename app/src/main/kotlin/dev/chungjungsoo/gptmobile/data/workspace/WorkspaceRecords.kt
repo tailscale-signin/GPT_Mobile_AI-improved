@@ -13,6 +13,7 @@ import kotlinx.serialization.Serializable
 
 /** Versioned user work products. Execution remains owned by agent_runs and pending_prompts. */
 @Entity(tableName = "workspace_records", foreignKeys = [ForeignKey(entity = ChatRoomV2::class, parentColumns = ["chat_id"], childColumns = ["chatId"], onDelete = ForeignKey.CASCADE)], indices = [Index("chatId"), Index("kind"), Index("runId")])
+@kotlinx.serialization.Serializable
 data class WorkspaceRecord(
     @PrimaryKey val id: String,
     val kind: String,
@@ -27,6 +28,9 @@ data class WorkspaceRecord(
 @Dao
 interface WorkspaceDao {
     @Upsert suspend fun save(record: WorkspaceRecord)
+
+    @Query("SELECT * FROM workspace_records WHERE chatId = :chatId ORDER BY updatedAt, id")
+    suspend fun forChat(chatId: Int): List<WorkspaceRecord>
 
     @Query("SELECT * FROM workspace_records ORDER BY updatedAt DESC LIMIT 500")
     fun observe(): Flow<List<WorkspaceRecord>>

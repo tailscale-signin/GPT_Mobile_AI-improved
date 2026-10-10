@@ -114,6 +114,7 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionHealth
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionHealthStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
 import kotlinx.coroutines.CancellationException
@@ -559,10 +560,10 @@ fun ServiceIcon(iconName: String, category: McpCategory, modifier: Modifier = Mo
     }
 }
 
-private fun marketplaceConnectionStatus(status: dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel.ToolConnectionHealth): String = when (status.status) {
+private fun marketplaceConnectionStatus(status: ToolConnectionHealth): String = when (status.status) {
     ToolConnectionHealthStatus.CHECKING -> "Checking…"
     ToolConnectionHealthStatus.ONLINE -> "Online"
-    ToolConnectionHealthStatus.LIMITED -> "Authentication needed"
+    ToolConnectionHealthStatus.LIMITED -> "Needs attention"
     ToolConnectionHealthStatus.OFFLINE -> "Offline"
 }
 

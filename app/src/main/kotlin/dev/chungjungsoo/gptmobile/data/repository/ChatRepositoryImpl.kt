@@ -209,7 +209,8 @@ class ChatRepositoryImpl(
     private val memoryEnrichment: dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue? = null,
     private val conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion? = null,
     private val workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
-    private val amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache? = null
+    private val amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache? = null,
+    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
 ) : ChatRepository {
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
@@ -1180,8 +1181,11 @@ class ChatRepositoryImpl(
                 val defaults = settingRepository.getFeatureSettings().delegationFor(platform.uid)
                 return chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
             }
+            val researchChatId = userMessages.lastOrNull()?.chatId ?: -1
+            val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
             val localDelegation = LocalDelegationCoordinator(
                 platform,
+                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent),
                 settings = { effectiveDelegationSettings() },
                 profiles = { settingRepository.fetchPlatformV2s() },
                 generate = { target, task, cap -> generateDelegate(target, task, cap) },
@@ -1452,7 +1456,8 @@ class ChatRepositoryImpl(
                 )
             }
             val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
-            val crawlStage = if (behavior.crawlersEnabled) {
+            val delegationConfig = effectiveDelegationSettings()
+            val crawlStage = if (behavior.crawlersEnabled && !(localResearch && delegationConfig.deepResearch.enabled)) {
                 dev.chungjungsoo.gptmobile.data.agent.tool.SearchCrawlStage(
                     selectedCrawlers,
                     behavior.maxCrawlPages
@@ -1514,7 +1519,6 @@ class ChatRepositoryImpl(
                 if (brief.isNotBlank()) appendPreparedEvidence(brief)
             }
             var preparedEvidenceComplete = false
-            val delegationConfig = effectiveDelegationSettings()
             if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && (processingOwnership == 0 || !isGitHubTask(latestUser.content)) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
                 emit(ApiState.Notice("Local model is planning research and preparing evidence…", persistent = false))
                 val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })
@@ -1590,6 +1594,11 @@ class ChatRepositoryImpl(
                     exposedTools = listOf(recoveryTool) + exposedTools
                     contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
                 }
+            }
+            if (localDelegation.researchStopped()) {
+                exposedTools = emptyList()
+                requestPlatform = requestPlatform.copy(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nThe user stopped research. Summarize only the completed evidence and identify unfinished questions. Do not claim independent review completed. Do not start more tools or research.")
+                contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
             }
             val effectiveTools = aggregatedTools
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }

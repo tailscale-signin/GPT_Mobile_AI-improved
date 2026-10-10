@@ -17,7 +17,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
@@ -46,6 +48,7 @@ class MultiEngineSearchTool(
     private val configurationRevision: suspend () -> String = { "" },
     private val nanoTime: () -> Long = System::nanoTime
 ) : AgentTool {
+    private val enginePermits = Semaphore(3)
     private val selected = engines.distinctBy { it.selectionId() }.toList()
     init {
         require(engineTimeoutMillis > 0L && searchTimeoutMillis > 0L)
@@ -223,7 +226,7 @@ class MultiEngineSearchTool(
             }
             return Response(if (outcome == "malformed_response") result.copy(isError = true) else result, outcome, ready.effectiveCount)
         }
-        val initial = selected.indices.map { index -> async { attempt(index, prepared[index], false) } }.awaitAll()
+        val initial = selected.indices.map { index -> async { enginePermits.withPermit { attempt(index, prepared[index], false) } } }.awaitAll()
         val allAttempts = initial.toMutableList()
         fun candidates(index: Int, response: Response): List<SearchCandidate> {
             if (response.result.isError) return emptyList()
@@ -255,7 +258,7 @@ class MultiEngineSearchTool(
                     WebSearchEngineAdapter.forTool(selected[index].realToolName, selected[index].tool.definition)?.nextPage(fetchRequest, clock) != null
             }
             val next = eligible.map { index -> index to prepare(index, fetchRequest, true) }
-            next.map { (index, ready) -> async { index to attempt(index, ready, true) } }.awaitAll().forEach { (index, response) ->
+            next.map { (index, ready) -> async { enginePermits.withPermit { index to attempt(index, ready, true) } } }.awaitAll().forEach { (index, response) ->
                 refillResponses[index] = response
                 allAttempts += response
                 buckets[index] = buckets[index] + withContext(Dispatchers.Default) { candidates(index, response) }

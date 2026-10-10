@@ -305,6 +305,8 @@ fun ChatScreen(
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
+    val researchSessions by chatViewModel.researchSessions.collectAsStateWithLifecycle()
+    LaunchedEffect(chatRoom.id) { chatViewModel.loadResearchHistory(chatRoom.id) }
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
     val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
@@ -695,6 +697,12 @@ fun ChatScreen(
                         onContinueClick = { chatViewModel.sendContinueResponse() },
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
+                }
+                val chatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
+                if (chatResearch.isNotEmpty()) {
+                    item(key = "research-progress") {
+                        ResearchProgressCard(chatResearch, activeAgentRuns.keys, chatViewModel::stopResearch)
+                    }
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
                     QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[pendingPrompts[index].id])

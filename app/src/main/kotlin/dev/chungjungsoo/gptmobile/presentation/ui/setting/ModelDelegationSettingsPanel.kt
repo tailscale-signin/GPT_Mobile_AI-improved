@@ -266,6 +266,7 @@ internal fun ModelDelegationSettingsContent(
             }
         }
         if (settingsTab == 0) {
+            DeepResearchSettingsCard(config.deepResearch, !busy) { value -> onChange { it.copy(deepResearch = value) } }
             Card(shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("Workload", "Adjust how much the delegate does and how widely it researches.")

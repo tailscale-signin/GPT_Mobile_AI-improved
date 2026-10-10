@@ -99,7 +99,8 @@ class ChatViewModel @Inject constructor(
     private val mcpInteractions: dev.chungjungsoo.gptmobile.data.agent.tool.McpInteractions? = null,
     private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
     private val shareInbox: dev.chungjungsoo.gptmobile.data.sharing.ShareInbox? = null,
-    private val factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null
+    private val factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
+    private val researchSessionStore: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -215,6 +216,13 @@ class ChatViewModel @Inject constructor(
         )
     )
     val chatRoom = _chatRoom.asStateFlow()
+    val researchSessions = researchSessionStore?.sessions ?: MutableStateFlow<Map<String, dev.chungjungsoo.gptmobile.data.research.ResearchSession>>(emptyMap()).asStateFlow()
+    fun stopResearch(runId: String) {
+        researchSessionStore?.stop(runId)
+    }
+    fun loadResearchHistory(chatId: Int) {
+        viewModelScope.launch { researchSessionStore?.loadChat(chatId) }
+    }
 
     // Fact text remains in the encrypted vault; persisted timelines contain IDs only.
     val debugMemorySources by lazy {

@@ -40,7 +40,7 @@ class ReadUrlToolTest {
         assertEquals(setOf("url"), schema["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet())
         assertEquals("string", properties["url"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals(false, schema["additionalProperties"]!!.jsonPrimitive.content.toBoolean())
-        assertEquals(setOf("url", "includeLinks"), properties.keys)
+        assertEquals(setOf("url", "includeLinks", "includeDomains", "excludeDomains"), properties.keys)
         assertEquals("boolean", properties["includeLinks"]!!.jsonObject["type"]!!.jsonPrimitive.content)
     }
 
@@ -207,6 +207,29 @@ class ReadUrlToolTest {
 
         assertTrue(result.isError)
         assertContains(result.text(), "unsafe DNS")
+    }
+
+    @Test
+    fun `domain restriction blocks redirects before DNS lookup`() = runBlocking {
+        val server = server { exchange -> exchange.respond(302, "text/plain", "", "Location" to "http://outside.test/secret") }
+        var outsideLookups = 0
+        val reader = tool(
+            dns = Dns { host ->
+                if (host == "outside.test") outsideLookups++
+                listOf(InetAddress.getByName("127.0.0.1"))
+            },
+            allowTestLoopback = true
+        )
+        val result = reader.execute(
+            "scope",
+            buildJsonObject {
+                put("url", server.url("fixture.test", "/redirect"))
+                put("includeDomains", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("fixture.test"))))
+            }
+        )
+        assertTrue(result.isError)
+        assertContains(result.text(), "domain scope")
+        assertEquals(0, outsideLookups)
     }
 
     @Test

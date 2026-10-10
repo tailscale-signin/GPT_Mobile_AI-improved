@@ -57,6 +57,16 @@ class ReadUrlTool(
                 "properties",
                 buildJsonObject {
                     put("url", buildJsonObject { put("type", "string") })
+                    for (name in listOf("includeDomains", "excludeDomains")) {
+                        put(
+                            name,
+                            buildJsonObject {
+                                put("type", "array")
+                                put("maxItems", 20)
+                                put("items", buildJsonObject { put("type", "string") })
+                            }
+                        )
+                    }
                     put(
                         "includeLinks",
                         buildJsonObject {
@@ -74,7 +84,13 @@ class ReadUrlTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val start = parseUrl(arguments) ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
         return try {
-            read(callId, start, (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true)
+            read(
+                callId,
+                start,
+                (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true,
+                (arguments["includeDomains"] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content.lowercase() },
+                (arguments["excludeDomains"] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content.lowercase() }
+            )
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: ReadUrlException) {
@@ -92,12 +108,13 @@ class ReadUrlTool(
         }
     }
 
-    private suspend fun read(callId: String, start: URI, includeLinks: Boolean): AgentToolResult {
+    private suspend fun read(callId: String, start: URI, includeLinks: Boolean, includeDomains: List<String>, excludeDomains: List<String>): AgentToolResult {
         val outputCap = minOf(outputLimitBytes, kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: outputLimitBytes)
         var current = start
         var redirects = 0
         val seen = mutableSetOf(current.toASCIIString())
         while (true) {
+            if (!dev.chungjungsoo.gptmobile.data.research.researchDomainAllowed(current.toString(), includeDomains, excludeDomains)) throw ReadUrlException("redirect or source outside allowed domain scope")
             val authority = current.host.lowercase(Locale.ROOT).removePrefix("www.") + ":" + current.port
             if (authority in deniedHosts) return error(callId, "Read URL failed: this host denied access earlier in this turn. Choose another source.")
             val request = request(current)
@@ -114,7 +131,7 @@ class ReadUrlTool(
                     redirects += 1
                     continue
                 }
-                if (status == 401 || status == 403) deniedHosts += authority
+                if (status == 401 || status == 403 || status == 429) deniedHosts += authority
                 if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status")
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
                 if (!isTextContent(contentType)) throw ReadUrlException("binary content rejected")
@@ -218,8 +235,13 @@ class ReadUrlTool(
     }
 
     private fun parseUrl(arguments: JsonObject): URI? {
-        if (arguments.keys.any { it !in setOf("url", "includeLinks") }) return null
+        if (arguments.keys.any { it !in setOf("url", "includeLinks", "includeDomains", "excludeDomains") }) return null
         if ("includeLinks" in arguments && (arguments["includeLinks"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) return null
+        for (name in listOf("includeDomains", "excludeDomains")) {
+            if (name !in arguments) continue
+            val domains = arguments[name] as? JsonArray ?: return null
+            if (domains.size > 20 || domains.any { (it as? JsonPrimitive)?.takeIf { entry -> entry.isString }?.content?.matches(Regex("[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")) != true }) return null
+        }
         val value = (arguments["url"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.trim().orEmpty()
         if (value.isBlank()) return null
         return runCatching { URI(value) }.getOrNull()?.takeIf { it.isAllowedUrl() }

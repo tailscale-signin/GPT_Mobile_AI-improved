@@ -236,6 +236,11 @@ class CompleteBackupManager @Inject constructor(
             sources["database.sqlite"] = dbFile
         }
 
+        if (selected.includes(CompleteBackupSection.CONVERSATIONS)) {
+            File(context.filesDir, "research-history").listFiles().orEmpty()
+                .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.json")) && it.length() <= 512 * 1024 }
+                .forEach { sources["internal/research-history/${it.name}"] = it }
+        }
         if (selected.includes(CompleteBackupSection.TOOLS)) {
             sources.putAll(storage.collectPlugins())
             nativePlugins?.backupState()?.let { bytes ->
@@ -407,7 +412,9 @@ class CompleteBackupManager @Inject constructor(
             .asSequence()
             .filterNot { it == "database.sqlite" }
             .filter { path ->
-                if (CompleteBackupFiles.isPluginPath(path)) {
+                if (path.startsWith("internal/research-history/")) {
+                    effective.includes(CompleteBackupSection.CONVERSATIONS)
+                } else if (CompleteBackupFiles.isPluginPath(path)) {
                     effective.includes(CompleteBackupSection.TOOLS)
                 } else {
                     (restoreModels && isModelArchivePath(path)) ||

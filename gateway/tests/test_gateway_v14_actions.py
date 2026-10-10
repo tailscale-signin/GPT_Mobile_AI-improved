@@ -133,6 +133,23 @@ class ActionLedgerTests(unittest.TestCase):
             with self.assertRaises(IdempotencyExpired):
                 self.ledger.admit_request("owner", "POST /chat", "idem-exp", {"x": 1}, "job-2", ttl_seconds=1)
 
+    def test_request_tombstone_expires_after_retention_and_is_pruned(self):
+        from unittest.mock import patch
+        from v14.actions import IdempotencyExpired
+        with patch("v14.actions.time.time", return_value=1000.0):
+            self.ledger.admit_request("owner", "POST /chat", "idem-retained", {"x": 1}, "job-1", ttl_seconds=1)
+        with patch("v14.actions.time.time", return_value=1002.0):
+            with self.assertRaises(IdempotencyExpired):
+                self.ledger.admit_request("owner", "POST /chat", "idem-retained", {"x": 1}, "job-2", ttl_seconds=1)
+        with patch("v14.actions.time.time", return_value=31 * 24 * 60 * 60 + 1002.0):
+            self.assertEqual(
+                ("job-3", False),
+                self.ledger.admit_request("owner", "POST /chat", "idem-retained", {"x": 1}, "job-3", ttl_seconds=1),
+            )
+            with self.ledger._connect() as db:
+                row = db.execute("SELECT job_id FROM gateway_requests WHERE principal_id=?", ("owner",)).fetchall()
+            self.assertEqual([("job-3",)], row)
+
     def test_exact_dispatch_replays_known_result_and_blocks_unknown_write(self):
         try:
             from gateway_security import current_device

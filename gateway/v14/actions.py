@@ -138,6 +138,9 @@ class ActionLedger:
                 self._create_request_table(db)
                 with db:
                     db.execute("BEGIN IMMEDIATE")
+                    # Expired replay keys stay reserved for the full tombstone
+                    # window, then become eligible for bounded cleanup/reuse.
+                    db.execute("DELETE FROM gateway_requests WHERE tombstone_until<=?", (now,))
                     row = db.execute("SELECT request_digest,job_id,expires_at FROM gateway_requests WHERE principal_id=? AND api_scope=? AND idempotency_key_digest=?",
                                      (principal_id, api_scope, key_digest)).fetchone()
                     if row:

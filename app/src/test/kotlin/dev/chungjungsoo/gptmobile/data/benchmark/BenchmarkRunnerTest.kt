@@ -96,7 +96,7 @@ class BenchmarkRunnerTest {
             BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.ERROR, error = "Worker failed")
         }, { saved.add(it) }, stopOnError = false)
         assertNull(reason)
-        assertEquals(3, saved.size)
+        assertEquals(24, saved.size)
     }
 
     @Test

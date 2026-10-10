@@ -1864,7 +1864,7 @@ class ChatRepositoryImpl(
             )
         ).run(groundedSession, runnerTools)
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace).collect { send(it) }
-    }
+    }.let { dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.sharedFlow(it) }
 
     private suspend fun followUpInbox(
         scope: kotlinx.coroutines.CoroutineScope,

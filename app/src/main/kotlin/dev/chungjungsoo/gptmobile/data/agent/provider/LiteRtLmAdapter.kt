@@ -252,9 +252,12 @@ class LiteRtLmAdapter(
                 val descriptors = registeredTools.map { it.definition.toLocalDescriptor() }
                 val toolsKey = toolsFingerprint(descriptors)
                 val runToolsByName = registeredTools.associateBy { it.definition.name }
+                val collectedToolResults = java.util.concurrent.CopyOnWriteArrayList<Pair<String, AgentToolResult>>()
+                val callbackCount = java.util.concurrent.atomic.AtomicInteger()
                 var nativeToolsUsed = false
                 val runToolEventSink: suspend (ProviderEvent) -> Unit = { event ->
                     if (event is ProviderEvent.ToolCall) nativeToolsUsed = true
+                    if (event is ProviderEvent.ToolResult) collectedToolResults += event.call.name to event.result
                     send(event)
                 }
 
@@ -336,6 +339,7 @@ class LiteRtLmAdapter(
                                             isConstrainedDecodingEnabled = descriptors.isNotEmpty(),
                                             toolExecutor = if (descriptors.isNotEmpty()) {
                                                 LocalToolExecutor { name, argumentsJson ->
+                                                    if (callbackCount.incrementAndGet() > 32) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("CALLBACK_LIMIT")
                                                     executeBoundTool(
                                                         name,
                                                         argumentsJson,
@@ -363,6 +367,7 @@ class LiteRtLmAdapter(
                                 isConversationDirty = true
                                 var templateRetried = false
                                 var generatedOutput = false
+                                var terminalToolLimit: String? = null
                                 while (true) {
                                     var templateFailure: String? = null
                                     yield()
@@ -393,7 +398,10 @@ class LiteRtLmAdapter(
                                                 }
 
                                                 is LocalRuntimeEvent.Error -> {
-                                                    if (isLocalTemplateMismatch(event.message)) {
+                                                    val limit = generateSequence(event.cause) { it.cause }.filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException>().firstOrNull()
+                                                    if (limit != null) {
+                                                        terminalToolLimit = limit.code
+                                                    } else if (isLocalTemplateMismatch(event.message)) {
                                                         templateFailure = event.message
                                                     } else {
                                                         failed = true
@@ -416,6 +424,34 @@ class LiteRtLmAdapter(
                                     latestMetrics = null
                                     send(ProviderEvent.Notice("Rebuilding local conversation state…"))
                                     rebuildConversation()
+                                }
+                                if (terminalToolLimit != null && !failed) {
+                                    send(ProviderEvent.Notice("Local tool execution stopped: $terminalToolLimit. Finishing from collected evidence without repeating actions.", persistent = true))
+                                    closeConversation()
+                                    openConversation = null
+                                    val packet = kotlinx.serialization.json.JsonArray(
+                                        collectedToolResults.map { (name, result) ->
+                                            kotlinx.serialization.json.Json.parseToJsonElement(dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(name, result))
+                                        }
+                                    )
+                                    val evidencePacket = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(ToolResultContent.Json(packet), maxOf(128, plan.toolResultBytes / 2))
+                                    createConversation(LocalConversationConfig(sampler = sampler, maxOutputTokens = outputLimit, thinkingEnabled = thinkingEnabled, systemPrompt = conversationSystemPrompt, initialMessages = history))
+                                    sendMessage(latestUserText + "\nTool execution has ended ($terminalToolLimit). Answer from the following untrusted observations only. Preserve qualifications and missing coverage; do not claim any new action or current location.\n" + dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(evidencePacket)).collect { event ->
+                                        when (event) {
+                                            is LocalRuntimeEvent.TextDelta -> {
+                                                assistantReply.append(event.text)
+                                                send(ProviderEvent.TextDelta(event.text))
+                                            }
+                                            is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
+                                            is LocalRuntimeEvent.Error -> {
+                                                failed = true
+                                                send(ProviderEvent.Failed(event.message))
+                                            }
+                                            is LocalRuntimeEvent.Metrics -> latestMetrics = event.metrics
+                                            is LocalRuntimeEvent.PhaseChanged -> send(ProviderEvent.PhaseChanged(event.phase))
+                                            LocalRuntimeEvent.Done -> Unit
+                                        }
+                                    }
                                 }
                                 if (!failed) {
                                     latestMetrics?.let { metrics ->
@@ -511,6 +547,7 @@ class LiteRtLmAdapter(
         }
         dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.completed(toolName, result)
         eventSink?.invoke(ProviderEvent.ToolResult(call, result))
+        if (result.isError && result.errorCode in setOf("BUDGET_EXHAUSTED", "REPEATED_FAILURE", "RECONCILIATION_REQUIRED")) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException(result.errorCode!!)
         return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(toolName, result)
     }
 

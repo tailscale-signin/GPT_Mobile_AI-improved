@@ -50,6 +50,21 @@ class DynamicScoreEngineTest {
     }
 
     @Test
+    fun deliveryScoresBalanceBandsBeforeAggregation() {
+        val varied = run("varied", 100).let { block ->
+            block.copy(
+                samples = block.samples.map { sample ->
+                    sample.copy(referenceDecodeTokens = if (sample.workload == "short") 400 else 100)
+                }
+            )
+        }
+        val steady = run("steady", 200)
+        val rows = DynamicScoreEngine.snapshot(listOf(varied, steady), 1, 2000).rows
+        assertEquals((100.0 + 50.0 + 50.0) / 3, rows.first { it.profileUid == "varied" }.speedScore!!, .0001)
+        assertEquals((50.0 + 100.0 + 100.0) / 3, rows.first { it.profileUid == "steady" }.speedScore!!, .0001)
+    }
+
+    @Test
     fun invalidValuesHaveNoScores() {
         assertNull(DynamicScoreEngine.higher(Double.NaN, 1.0))
         assertNull(DynamicScoreEngine.higher(Double.POSITIVE_INFINITY, 1.0))

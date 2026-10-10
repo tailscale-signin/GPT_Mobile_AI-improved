@@ -87,6 +87,7 @@ internal object LocalContextPlanner {
         }
         if (Regex("nearby|nearest|closest|my location|current location").containsMatchIn(lower)) select("device_location")
         if ("airbnb" in lower) select("airbnb")
+        if (Regex("read.*https?://|open.*https?://|crawl|read the page").containsMatchIn(lower)) select("read_url")
         if (Regex("search|research|look up|latest|browse|find online").containsMatchIn(lower)) select("web_search")
         return required
     }

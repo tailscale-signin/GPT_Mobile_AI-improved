@@ -117,7 +117,8 @@ sealed interface LocalRuntimeEvent {
 data class LocalRuntimeState(
     val backend: LocalRuntimeBackend? = null,
     val engineSpec: LocalEngineSpec? = null,
-    val fallbackReason: String? = null
+    val fallbackReason: String? = null,
+    val preferredBackend: LocalRuntimeBackend? = null
 )
 
 private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
@@ -175,3 +176,6 @@ interface LocalRuntime {
         block(this@LocalRuntime).collect { emit(it) }
     }
 }
+
+/** Ends a native callback loop without replaying any dispatched action. */
+internal class LocalToolLimitException(val code: String) : IllegalStateException("Local tool execution stopped: $code")

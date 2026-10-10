@@ -118,7 +118,7 @@ class DelegationBenchmarkRatingTest {
         assertEquals(100, strong.reviewerScore)
         assertEquals(24, strong.reviewerEvaluations)
         assertEquals(0, weak.reviewerScore)
-        assertEquals(3, weak.reviewerEvaluations)
+        assertEquals(24, weak.reviewerEvaluations)
         assertEquals(strong.score, weak.score)
         assertTrue(strong.dimensions.any { it.label == "Reviewer report (diagnostic)" && it.score == 100.0 })
     }
@@ -139,9 +139,9 @@ class DelegationBenchmarkRatingTest {
         )
 
         val result = rate(listOf(enriched))
-        assertEquals(3, result.reviewerCalls)
-        assertEquals(360L, result.reviewerInputTokens)
-        assertEquals(90L, result.reviewerOutputTokens)
+        assertEquals(24, result.reviewerCalls)
+        assertEquals(2880L, result.reviewerInputTokens)
+        assertEquals(720L, result.reviewerOutputTokens)
         assertTrue(result.reviewerEstimated)
         assertEquals(2400L, result.workerInputTokens)
         assertEquals(480L, result.workerOutputTokens)

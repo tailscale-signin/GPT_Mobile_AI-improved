@@ -9,6 +9,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -32,8 +34,13 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     private val mutableHistory = MutableStateFlow<List<BenchmarkRun>>(emptyList())
     val history = mutableHistory.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile private var writingMirror = false
+
+    @Volatile private var restoreRequested = false
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "history" || key == null) {
+        if (!writingMirror && (key == "history" || key == null)) {
+            restoreRequested = true
             scope.launch {
                 mutex.withLock {
                     loaded = false
@@ -48,6 +55,18 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
 
     init {
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
+        scope.launch {
+            while (true) {
+                delay(60_000)
+                mutex.withLock {
+                    if (loaded) {
+                        val current = mutableSnapshot.value
+                        val recalculated = DynamicScoreEngine.snapshot(mutableHistory.value, (current?.generation ?: 0) + 1, System.currentTimeMillis())
+                        if (recalculated.rows != current?.rows) publish(mutableHistory.value)
+                    }
+                }
+            }
+        }
     }
 
     suspend fun load() = withContext(Dispatchers.IO) {
@@ -70,8 +89,11 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         }.orEmpty()
         val records = dao.runs()
         val stored = records.mapNotNull { runCatching { json.decodeFromString<BenchmarkRun>(it.payload) }.getOrNull() }
-        val source = if (saved != null) recovered.take(200) else stored.take(200)
         val existing = dao.current()
+        // Room is authoritative after a crash between the transaction and backup mirror write.
+        val mirrorGeneration = preferences.getLong("snapshot_generation", 0)
+        val source = if (restoreRequested || existing == null || (saved != null && mirrorGeneration >= existing.generation)) recovered.take(200) else stored.take(200)
+        restoreRequested = false
         mutableSnapshot.value = existing?.let { runCatching { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) }.getOrNull() }
         if (source != stored || existing == null) publish(source)
         mutableHistory.value = source
@@ -99,6 +121,12 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         mutableSnapshot.value = next
     }
 
+    fun close() {
+        preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
+        scope.cancel()
+        database.close()
+    }
+
     suspend fun exportJson(): String = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadLocked()
@@ -108,7 +136,12 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
 
     private suspend fun persist(runs: List<BenchmarkRun>) {
         publish(runs)
-        check(preferences.edit().putString("history", json.encodeToString(runs)).commit()) { "Could not save benchmark history. Check available storage." }
+        writingMirror = true
+        try {
+            check(preferences.edit().putString("history", json.encodeToString(runs)).putLong("snapshot_generation", mutableSnapshot.value?.generation ?: 0).commit()) { "Benchmark saved in Room, but backup mirror could not be updated. Check available storage." }
+        } finally {
+            writingMirror = false
+        }
         mutableHistory.value = runs
     }
 }

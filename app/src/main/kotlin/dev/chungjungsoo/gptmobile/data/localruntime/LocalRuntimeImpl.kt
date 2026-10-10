@@ -35,7 +35,6 @@ import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -388,9 +387,9 @@ internal class BridgedOpenApiTool(
     ) {
         val current = executor ?: error("LiteRT-LM tool executor is not registered")
         try {
-            withTimeout(TOOL_EXECUTE_TIMEOUT_MS) {
-                current.execute(descriptor.name, paramsJsonString)
-            }
+            current.execute(descriptor.name, paramsJsonString)
+        } catch (error: LocalToolLimitException) {
+            throw error
         } catch (error: TimeoutCancellationException) {
             dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(descriptor.name, dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error("native", "TIMEOUT_OUTCOME_UNKNOWN", "Native tool callback timed out; reconcile before repeating an action.", dispatched = true))
         } catch (error: CancellationException) {
@@ -398,9 +397,5 @@ internal class BridgedOpenApiTool(
         } catch (error: Exception) {
             dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(descriptor.name, dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error("native", "PROVIDER_UNAVAILABLE", "Native tool callback failed. Check connection diagnostics.", dispatched = true))
         }
-    }
-
-    private companion object {
-        const val TOOL_EXECUTE_TIMEOUT_MS = 60_000L
     }
 }

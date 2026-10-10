@@ -19,7 +19,9 @@ internal data class BenchmarkScoreRow(
     val overall: Double?,
     val verified: Boolean,
     val sampleCount: Int,
-    val explanation: String
+    val explanation: String,
+    val speedByBand: Map<String, Double> = emptyMap(),
+    val latencyByBand: Map<String, Double> = emptyMap()
 )
 
 @Serializable
@@ -69,6 +71,12 @@ internal object DynamicScoreEngine {
             val verified = run.mode in setOf(BenchmarkMode.FULL, BenchmarkMode.AGENT) &&
                 complete.isNotEmpty() &&
                 complete.all { block -> listOf("short", "medium", "long").all { band -> block.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED } >= 5 } }
+            val speedByBand = listOf("short", "medium", "long").mapNotNull { band ->
+                median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band }.mapNotNull { it.referenceSpeed }) })?.let { band to it }
+            }.toMap()
+            val latencyByBand = listOf("short", "medium", "long").mapNotNull { band ->
+                median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band && it.completed }.mapNotNull { it.firstTextMs?.toDouble() }) })?.let { band to it }
+            }.toMap()
             val speed = median(
                 source.mapNotNull { block ->
                     median(block.samples.filter { !it.warmup && it.category == "speed" }.mapNotNull { it.referenceSpeed })
@@ -84,14 +92,13 @@ internal object DynamicScoreEngine {
                     100.0 * (1 - sqrt(values.map { (it - mean) * (it - mean) }.average()) / mean).coerceIn(0.0, 1.0)
                 }
             }.takeIf { it.size == 3 }?.average()
-            BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional or incomplete; cannot establish an official anchor")
+            BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional or incomplete; cannot establish an official anchor", speedByBand, latencyByBand)
         }
         val rows = aggregated.map { row ->
             val cohortRows = aggregated.filter { it.cohort == row.cohort && it.verified }
             val anchor = cohortRows.mapNotNull { it.speed }.filter(::valid).maxOrNull()
-            val latencyAnchor = cohortRows.mapNotNull { it.firstTextMs }.filter(::valid).minOrNull()
-            val speedScore = higher(row.speed, anchor)
-            val latencyScore = lower(row.firstTextMs, latencyAnchor)
+            val speedScore = row.speedByBand.mapNotNull { (band, value) -> higher(value, cohortRows.mapNotNull { it.speedByBand[band] }.filter(::valid).maxOrNull()) }.takeIf { it.size == 3 }?.average()
+            val latencyScore = row.latencyByBand.mapNotNull { (band, value) -> lower(value, cohortRows.mapNotNull { it.latencyByBand[band] }.filter(::valid).minOrNull()) }.takeIf { it.size == 3 }?.average()
             val local = row.cohort.contains("device:")
             val weights = if (local) listOf(40, 25, 10, 10, 15) else listOf(35, 20, 20, 15, 10)
             val dimensions = listOf(row.quality, row.reliability, speedScore, latencyScore, row.consistency)
@@ -101,7 +108,7 @@ internal object DynamicScoreEngine {
                 speedScore = speedScore,
                 latencyScore = latencyScore,
                 overall = overall,
-                explanation = row.explanation + if (anchor != null) "; speed = 100 × measured / $anchor; ${cohortRows.size} eligible profiles" else "; no verified cohort anchor"
+                explanation = row.explanation + if (anchor != null) "; speed = equal mean of 100 × band rate / verified band leader; ${cohortRows.size} eligible profiles" else "; no verified cohort anchor"
             )
         }
         return BenchmarkScoreSnapshot(generation, now, rows = rows)

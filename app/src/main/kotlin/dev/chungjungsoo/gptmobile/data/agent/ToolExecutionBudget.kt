@@ -246,7 +246,13 @@ class ToolExecutionBudget(
         }
         return withBudgetState(
             result.copy(
-                content = if (changed) ToolResultEnvelope.compact(result.content, available) else result.content,
+                content = if (changed && bounded.isBlank()) {
+                    ToolResultContent.Text(safeText)
+                } else if (changed) {
+                    ToolResultEnvelope.compact(result.content, available)
+                } else {
+                    result.content
+                },
                 retainedContent = result.retainedContent ?: result.content.takeIf { changed },
                 traceContent = trace,
                 outputBudgetExhausted = result.outputBudgetExhausted || remainingBytes.get() <= 0,

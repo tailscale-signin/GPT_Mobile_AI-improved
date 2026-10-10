@@ -234,7 +234,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         val config = delegationSettings.value.copy(targetProfileUid = helper?.uid.orEmpty(), fallbackToAnotherProfile = false)
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating profile", 0, benchmarkSuite(mode).size)
-        job = viewModelScope.launch {
+        job = launchBenchmark {
             try {
                 chats.validateBenchmarkProfile(profile)
                 if (mode == BenchmarkMode.DELEGATION) {
@@ -249,7 +249,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 mutableProgress.value = null
                 if (error is CancellationException) throw error
                 mutableError.value = safeMessage(error)
-                return@launch
+                return@launchBenchmark
             }
             val suite = benchmarkSuite(mode)
             var run = BenchmarkRun(
@@ -340,7 +340,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         val totalTests = suite.size * targets.size
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress("Batch benchmark", "Preparing models", 0, totalTests)
-        job = viewModelScope.launch {
+        job = launchBenchmark {
             val failures = mutableListOf<String>()
             try {
                 targets.forEachIndexed { profileIndex, target ->
@@ -451,7 +451,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         val totalTests = suite.size * helpers.size
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating delegation batch", 0, totalTests)
-        job = viewModelScope.launch {
+        job = launchBenchmark {
             val failures = mutableListOf<String>()
             val reviewer = if (baseConfig.reviewerEnabled) profiles.value.firstOrNull { it.uid == baseConfig.reviewerProfileUid } else null
             try {
@@ -468,7 +468,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 if (error is CancellationException) throw error
                 mutableError.value = safeMessage(error)
                 mutableProgress.value = null
-                return@launch
+                return@launchBenchmark
             }
             try {
                 helpers.forEachIndexed { helperIndex, helper ->
@@ -553,6 +553,16 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 mutableProgress.value = null
                 if (failures.isNotEmpty()) mutableError.value = failures.joinToString("\n").take(1000)
             }
+        }
+    }
+
+    private fun launchBenchmark(block: suspend () -> Unit): Job = viewModelScope.launch {
+        try {
+            dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.benchmark(block)
+        } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+            mutableError.value = "Benchmark could not acquire inference resources within 60 seconds. Stop active requests and try again."
+        } finally {
+            mutableProgress.value = null
         }
     }
 

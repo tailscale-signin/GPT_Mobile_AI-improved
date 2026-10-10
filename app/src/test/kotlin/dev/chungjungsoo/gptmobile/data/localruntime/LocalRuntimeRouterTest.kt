@@ -200,9 +200,9 @@ class LocalRuntimeRouterTest {
         holder.loadEngine(spec)
         holder.createConversation(testConversationConfig())
         holder.sendMessage("new backend").toList()
-        assertTrue(qnnRuntime.sendMessageCalls.isEmpty())
-        assertEquals(listOf("new backend"), liteRtRuntime.sendMessageCalls)
-        assertFalse(qnnRuntime.hasOpenConversation())
+        // Direct LiteRT NPU selection uses the guarded QNN path as well.
+        assertEquals(listOf("new backend"), qnnRuntime.sendMessageCalls)
+        assertTrue(liteRtRuntime.sendMessageCalls.isEmpty())
     }
 
     @Test

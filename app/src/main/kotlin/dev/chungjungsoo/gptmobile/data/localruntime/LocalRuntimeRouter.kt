@@ -153,7 +153,7 @@ class LocalRuntimeRouter(
         delegatedSpec = delegated
         preferenceAtLoad = preference
         tuningAtLoad = LocalEngineTuning(delegated.cpuThreads, delegated.cacheEnabled, delegated.speculativeDecoding, delegated.nativeMetricsEnabled)
-        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason)
+        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason, preference)
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {

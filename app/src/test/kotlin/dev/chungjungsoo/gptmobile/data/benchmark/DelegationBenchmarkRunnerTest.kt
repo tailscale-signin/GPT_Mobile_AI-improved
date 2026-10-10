@@ -44,7 +44,7 @@ class DelegationBenchmarkRunnerTest {
                 workerTokens = { 0L to 0L },
                 workerCalls = { 0 }
             )
-            assertEquals(BenchmarkOutcome.PASSED, runner.run(delegationBenchmarkSuite()[1]).outcome)
+            assertEquals(BenchmarkOutcome.PASSED, runner.run(delegationBenchmarkSuite().first { it.id == "delegation-tools" }).outcome)
         }
         assertEquals(2, prompts.distinct().size)
     }
@@ -73,7 +73,7 @@ class DelegationBenchmarkRunnerTest {
                 )
             }
         )
-        val sample = runner.run(delegationBenchmarkSuite()[1])
+        val sample = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-tools" })
         val metrics = sample.delegation!!
         assertTrue(metrics.workerSpeedUsesReportedTokens)
         assertEquals(2, metrics.reviewerCalls)
@@ -99,7 +99,7 @@ class DelegationBenchmarkRunnerTest {
             workerTokens = { 0L to 0L },
             workerCalls = { 1 }
         )
-        val result = runner.run(delegationBenchmarkSuite()[1])
+        val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-tools" })
         assertEquals(BenchmarkOutcome.ERROR, result.outcome)
         assertTrue(result.error.orEmpty().contains("Software caused connection abort"))
         assertEquals(0, result.delegation!!.fixtureCalls)
@@ -127,7 +127,7 @@ class DelegationBenchmarkRunnerTest {
             workerTokens = { 0L to 0L },
             workerCalls = { 0 }
         )
-        val result = runner.run(delegationBenchmarkSuite().last())
+        val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-research" })
         assertEquals(BenchmarkOutcome.ERROR, result.outcome)
         assertTrue(result.error.orEmpty().contains("Unable to resolve host"))
     }
@@ -168,7 +168,7 @@ class DelegationBenchmarkRunnerTest {
             workerTokens = { calls * 100L to calls * 20L },
             workerCalls = { calls }
         )
-        val result = runner.run(delegationBenchmarkSuite().last())
+        val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-research" })
         assertEquals(BenchmarkOutcome.PASSED, result.outcome)
         assertEquals(1, primaryCalls)
         assertEquals(1, result.delegation!!.pagesRead)
@@ -194,7 +194,7 @@ class DelegationBenchmarkRunnerTest {
                 workerTokens = { 0L to 0L },
                 workerCalls = { 0 }
             )
-            val result = runner.run(delegationBenchmarkSuite()[1])
+            val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-tools" })
             assertEquals(if (valid) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED, result.outcome)
             assertEquals(1, result.delegation!!.fixtureCalls)
             assertEquals(if (valid) 1 else 0, result.delegation!!.successfulFixtureCalls)

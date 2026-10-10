@@ -167,17 +167,17 @@ class LocalEngineHolder(
         } finally {
             if (locked) mutex.unlock()
         }
-    }
+    }.let { InferenceAdmission.sharedFlow(it) }
 
     private fun markAccessed() {
         lastAccessedElapsedRealtimeMs = timeProvider()
     }
 
-    private suspend fun <T> withGenerationLock(block: suspend () -> T): T {
+    private suspend fun <T> withGenerationLock(block: suspend () -> T): T = InferenceAdmission.shared {
         if (coroutineContext[GenerationLock] != null) {
-            return block()
+            return@shared block()
         }
-        return mutex.withLock {
+        mutex.withLock {
             withContext(GenerationLock()) { block() }
         }
     }

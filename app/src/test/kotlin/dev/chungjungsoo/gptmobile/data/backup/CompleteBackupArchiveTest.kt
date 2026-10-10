@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.backup
 
+import android.app.Application
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -12,8 +13,10 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class, sdk = [34])
 class CompleteBackupArchiveTest {
     @get:Rule val temp = TemporaryFolder()
 

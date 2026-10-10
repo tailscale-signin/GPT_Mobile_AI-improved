@@ -57,6 +57,7 @@ interface ChatRepository {
     suspend fun searchChatsV2(query: String): List<ChatRoomV2>
     suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
     suspend fun saveComposerDraft(chatId: Int, text: String?, attachments: String, timestamp: Long?) = updateDraft(chatId, text, timestamp)
+    suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
     suspend fun newestAssistantMessageId(chatId: Int): Int? = fetchMessagesV2(chatId)
         .filter { it.platformType != null && it.content.isNotBlank() }

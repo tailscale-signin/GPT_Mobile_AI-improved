@@ -11,6 +11,9 @@ interface PendingPromptDao {
     @Insert
     suspend fun insert(prompt: PendingPrompt)
 
+    @Query("SELECT * FROM pending_prompts WHERE chatId = :chatId ORDER BY position, id")
+    suspend fun forChat(chatId: Int): List<PendingPrompt>
+
     @Query("SELECT COALESCE(MAX(position), 0) + 1 FROM pending_prompts")
     suspend fun nextPosition(): Long
 

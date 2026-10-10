@@ -21,6 +21,7 @@ import androidx.room.PrimaryKey
         Index(value = ["run_id", "sequence"], unique = true)
     ]
 )
+@kotlinx.serialization.Serializable
 data class ToolEvent(
     @PrimaryKey
     @ColumnInfo(name = "event_id")

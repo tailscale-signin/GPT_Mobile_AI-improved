@@ -77,6 +77,24 @@ import org.junit.Test
 
 class ProviderAdaptersTest {
     @Test
+    fun `provider completion ceiling rejection retries once with reported cap`() = runBlocking {
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow { throw IllegalArgumentException("max_tokens is too large: 256000. This model supports at most 131072 completion tokens, whereas you provided 256000.") },
+                    emptyFlow()
+                )
+            )
+        )
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OPENROUTER).copy(model = "mimo-cap-test", maxTokens = 256000))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(256000, 131072), api.chatRequests.map { it.maxTokens })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+        assertTrue(events.any { it == ProviderEvent.Completed })
+    }
+
+    @Test
     fun `compatible and Ollama output limits save partial output as a failed run`() = runBlocking {
         for (type in listOf(ClientType.CUSTOM, ClientType.LLAMA, ClientType.OLLAMA)) {
             val api = FakeOpenAIAPI(

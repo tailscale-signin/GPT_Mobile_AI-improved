@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FileDownload
@@ -26,14 +28,14 @@ import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
-internal fun ChatExportDialog(onDismiss: () -> Unit, onExport: (ChatExportFormat) -> Unit) {
+internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false, onExport: (ChatExportFormat) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Rounded.FileDownload, null, tint = MaterialTheme.colorScheme.primary) },
-        title = { Text("Export conversation answers") },
+        title = { Text("Export conversation") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Choose how to save the selected AI responses.", style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Choose how to save this conversation.", style = MaterialTheme.typography.bodyMedium)
                 ExportFormatCard(
                     "Plain text",
                     ".txt",
@@ -48,6 +50,15 @@ internal fun ChatExportDialog(onDismiss: () -> Unit, onExport: (ChatExportFormat
                     Icons.Rounded.Description,
                     "Saves the original response formatting in a .md file. Open it in a Markdown editor to render headings, tables, source links, and code blocks. Exports the selected response revisions without prompts, thinking, or tool activity."
                 ) { onExport(ChatExportFormat.MARKDOWN) }
+                if (debugMode) {
+                    ExportFormatCard(
+                        "Debug export",
+                        ".debug.json",
+                        "All conversation records and diagnostic evidence",
+                        Icons.Rounded.Description,
+                        "Includes prompts, all stored responses and revisions, thinking, original Combined contributions, run and request IDs, tool arguments/results, context receipts, queued prompts, settings and research evidence. Credentials are redacted. Attachment contents and unrecorded network payloads are not included. The file contains private conversation data. Active responses are a snapshot taken during export."
+                    ) { onExport(ChatExportFormat.DEBUG) }
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }

@@ -414,7 +414,7 @@ fun ChatScreen(
 
     val scope = rememberCoroutineScope()
     if (showExportOptions) {
-        ChatExportDialog(onDismiss = { showExportOptions = false }) { format ->
+        ChatExportDialog(onDismiss = { showExportOptions = false }, debugMode = debugMode) { format ->
             showExportOptions = false
             scope.launch { exportChat(context, chatViewModel, format) }
         }
@@ -1507,6 +1507,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             context.grantUriPermission(res.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(chooser)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
     } catch (e: Exception) {
         Log.e("ChatExport", "Failed to export chat", e)
         Toast.makeText(context, "Failed to export chat", Toast.LENGTH_SHORT).show()

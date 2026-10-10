@@ -36,6 +36,7 @@ import androidx.room.PrimaryKey
         Index(value = ["gateway_job_id"])
     ]
 )
+@kotlinx.serialization.Serializable
 data class AgentRun(
     @PrimaryKey
     @ColumnInfo(name = "run_id")

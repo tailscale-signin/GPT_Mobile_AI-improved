@@ -9,7 +9,7 @@ from pathlib import Path
 
 class GatewayRecoveryPayloadTests(unittest.TestCase):
     def setUp(self):
-        self.tree = ast.parse((Path(__file__).resolve().parents[1] / "gateway_v13.py").read_text())
+        self.tree = ast.parse((Path(__file__).resolve().parents[1] / "gateway_v13.py").read_text(encoding="utf-8"))
         names = {"emit_progress", "make_progress_sse", "sanitize_progress_value", "sanitized_progress_arguments"}
         module = ast.Module(body=[node for node in self.tree.body if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[])
         self.scope = {

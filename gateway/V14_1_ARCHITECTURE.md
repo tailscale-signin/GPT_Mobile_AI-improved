@@ -39,6 +39,7 @@ flowchart TD
 | Progress persistence failure could leave unsaved state in memory | Restore event history, sequence and public fields on failed progress commit; prevent reopening terminal jobs | Distributed exactly-once effects are still not promised |
 | Malformed tool definitions could break catalog filtering | Quarantine malformed entries while preserving usable tools | Full JSON Schema argument validation is still future work |
 | Release checks were mainly local | A single check command and a Windows/Linux, Python 3.12/3.13 CI matrix | Adding CI is not evidence that the Windows jobs or a physical phone have passed |
+| Windows Git checkout changed line endings and invalidated package hashes | Gateway files are explicitly checked out as LF; source-reading tests and captured process output use UTF-8 | Exact-byte hash validation remains enforced; modified files still fail validation |
 
 ## Why these choices follow the research
 

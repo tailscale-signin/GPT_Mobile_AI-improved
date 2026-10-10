@@ -10,7 +10,7 @@ REQUIRED.update({'v14/journal.py', 'v14/service.py', 'v14/mcp.py', 'v14/health.p
 
 def validate_package(root):
     root = Path(root).resolve()
-    manifest = json.loads((root / "manifest-v14.json").read_text())
+    manifest = json.loads((root / "manifest-v14.json").read_text(encoding="utf-8"))
     hashes = manifest.get("files", {})
     if manifest.get("version") != VERSION or not REQUIRED <= hashes.keys():
         raise ValueError("Incomplete or incompatible v14 manifest")

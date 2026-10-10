@@ -170,7 +170,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_actual_capabilities_ready_and_facade(self):
         cap=self.client.get('/v1/gateway/capabilities').json()
-        fixture=json.loads((Path(__file__).resolve().parents[1]/'contracts/v14/capabilities.json').read_text())
+        fixture=json.loads((Path(__file__).resolve().parents[1]/'contracts/v14/capabilities.json').read_text(encoding="utf-8"))
         for key,value in fixture.items(): self.assertEqual(cap[key],value)
         self.assertFalse(cap['auth']['apiKeyRequired'])
         self.assertEqual(cap['gatewayVersion'],'14.1.0')

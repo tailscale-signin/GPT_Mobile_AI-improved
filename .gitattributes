@@ -1,0 +1,2 @@
+# Package manifests hash exact bytes. Keep gateway checkouts identical on Windows.
+gateway/** text eol=lf

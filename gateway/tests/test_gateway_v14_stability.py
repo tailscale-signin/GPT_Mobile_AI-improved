@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -33,7 +34,7 @@ class JournalStabilityTests(unittest.TestCase):
         self.runtime.init_durable_job_store()
         backups = list(self.db.parent.glob('backups/*.sqlite3'))
         self.assertEqual(len(backups), 1)
-        with sqlite3.connect(backups[0]) as db:
+        with closing(sqlite3.connect(backups[0])) as db, db:
             self.assertNotIn('created_at', {row[1] for row in db.execute('PRAGMA table_info(gateway_jobs)')})
             self.assertEqual(json.loads(db.execute('SELECT result_json FROM gateway_jobs').fetchone()[0]), self.old_result)
         self.runtime.durable_job_initialized = False
@@ -48,14 +49,14 @@ class JournalStabilityTests(unittest.TestCase):
 
     def test_future_version_is_rejected_without_retention_or_data_changes(self):
         self.legacy_database()
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db, db:
             db.execute('CREATE TABLE gateway_schema(id INTEGER PRIMARY KEY,version INTEGER)')
             db.execute('INSERT INTO gateway_schema VALUES(1,999)')
         with self.assertRaises(DurableCommitError):
             self.runtime.init_durable_job_store()
         self.assertFalse(self.runtime.durable_job_initialized)
         self.assertFalse(list(self.db.parent.glob('backups/*.sqlite3')))
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db, db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM gateway_jobs').fetchone()[0], 1)
 
     def test_failed_snapshot_prevents_schema_mutation(self):
@@ -63,13 +64,14 @@ class JournalStabilityTests(unittest.TestCase):
         with patch('v14.journal.backup_database', side_effect=OSError('disk full')):
             with self.assertRaises(DurableCommitError):
                 self.runtime.init_durable_job_store()
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db, db:
             self.assertNotIn('created_at', {row[1] for row in db.execute('PRAGMA table_info(gateway_jobs)')})
             self.assertEqual(db.execute('SELECT COUNT(*) FROM gateway_jobs').fetchone()[0], 1)
 
     def test_process_crash_preserves_completion_and_marks_active_job_failed(self):
         script = '''
 import os, sys, threading
+from contextlib import closing
 from pathlib import Path
 from gateway_v14 import runtime as r
 r.GATEWAY_JOB_DB_PATH=Path(sys.argv[1])
@@ -110,7 +112,7 @@ os._exit(0)
         db.commit()
         target = self.db.with_name('backup.sqlite3')
         backup_database(db, target)
-        with sqlite3.connect(target) as saved:
+        with closing(sqlite3.connect(target)) as saved, saved:
             self.assertEqual(saved.execute('SELECT value FROM evidence').fetchone()[0], 'latest committed data')
         with self.assertRaises(FileExistsError):
             backup_database(db, target)
@@ -120,7 +122,7 @@ os._exit(0)
     def test_failed_progress_commit_rolls_back_memory_event_and_sequence(self):
         self.runtime.init_durable_job_store()
         self.runtime.register_gateway_job('j', 'local', 'chat', threading.Event(), threading.Event())
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db, db:
             db.execute("CREATE TRIGGER reject_events BEFORE INSERT ON gateway_events BEGIN SELECT RAISE(ABORT,'disk failure'); END")
         with self.assertRaises(DurableCommitError):
             self.runtime.update_gateway_job('j', {'sequence': 5, 'stage': 'unsaved'})
@@ -269,7 +271,7 @@ class MCPStabilityTests(unittest.TestCase):
             session = self.session('crash', [counter])
             with self.assertRaises(RuntimeError):
                 session.call('tools/call', {'name': 'write'}, absolute_timeout=3)
-            self.assertEqual(Path(counter).read_text(), 'executed\n')
+            self.assertEqual(Path(counter).read_text(encoding="utf-8"), 'executed\n')
             self.assertEqual(session.calls, 1)
             self.assertIsNone(session.process)
 

@@ -13,7 +13,7 @@ NAMES = {'v12_positive_int', 'v12_enforce_request_budget', 'v12_enrich_progress'
          'gateway_result_quality', 'extract_openai_completion_content',
          'completion_contains_tool_calls', 'process_chat_payload',
          'v12_delegate_model_round', 'completion_to_sse', 'v12_isolated_delegate'}
-tree = ast.parse(SOURCE.read_text())
+tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 scope = {'copy': copy, 'math': math, 'json': json, 'time': time, 'GATEWAY_PROGRESS_PROTOCOL': 'gpt-mobile-gateway-progress/2',
          'gateway_tool_display_name': lambda name: name.replace('_', ' '),
          'looks_like_secret': lambda text: 'token=' in text}
@@ -23,7 +23,7 @@ exec(compile(ast.Module(body=[node for node in tree.body if isinstance(node, ast
 
 class GatewayV12Tests(unittest.TestCase):
     def test_versioned_gateway_matches_canonical_implementation(self):
-        self.assertIn('gateway_v12.py', SOURCE.with_name('gateway_v12.1.py').read_text())
+        self.assertIn('gateway_v12.py', SOURCE.with_name('gateway_v12.1.py').read_text(encoding="utf-8"))
         self.assertLess(SOURCE.with_name('gateway_v12.1.py').stat().st_size, 1024)
 
     def test_delegate_preserves_isolated_client_tools_and_skips_domain_routing(self):
@@ -140,30 +140,30 @@ class GatewayV12Tests(unittest.TestCase):
         self.assertTrue(result['ui']['indeterminate'])
 
     def test_context_guard_has_no_512_floor(self):
-        source = SOURCE.read_text()
+        source = SOURCE.read_text(encoding="utf-8")
         self.assertIn('safe_max = max(\n        1,', source)
         self.assertIn('available_generation = max(\n        1,', source)
 
     def test_explicit_no_reasoning_disables_qwen_thinking(self):
-        source = SOURCE.read_text()
+        source = SOURCE.read_text(encoding="utf-8")
         self.assertIn('template_kwargs["enable_thinking"] = False', source)
         self.assertIn('explicit_reasoning != "none"', source)
 
     def test_tool_choice_none_is_a_strict_gateway_fast_path(self):
-        source = SOURCE.read_text()
+        source = SOURCE.read_text(encoding="utf-8")
         self.assertIn('strict_no_tool_request = (', source)
         self.assertIn('client_tools = [] if strict_no_tool_request else early_client_tools', source)
         self.assertIn('"explicit tool_choice=none"', source)
 
     def test_delegated_worker_keeps_isolation_unless_local_tools_are_requested(self):
-        source = SOURCE.read_text()
+        source = SOURCE.read_text(encoding="utf-8")
         self.assertIn('headers.get("x-gateway-delegated-worker")', source)
         self.assertIn('or bool(runtime_perf.get("delegated_worker", False))', source)
         self.assertIn('delegated_worker_request = bool(', source)
         self.assertIn('"delegated worker"', source)
 
     def test_llama_model_dispatch_is_bounded_and_cancel_aware(self):
-        source = SOURCE.read_text()
+        source = SOURCE.read_text(encoding="utf-8")
         self.assertIn('llama_model_gate = threading.BoundedSemaphore(LLAMA_SLOT_COUNT)', source)
         self.assertIn('LLAMA_MODEL_QUEUE_TIMEOUT_SECONDS', source)
         self.assertIn('LLAMA_MODEL_READ_TIMEOUT_SECONDS', source)
@@ -172,7 +172,7 @@ class GatewayV12Tests(unittest.TestCase):
         self.assertIn('cancelled_before_dispatch', source)
 
     def test_llama_model_round_does_not_use_hour_long_generic_timeout(self):
-        source = SOURCE.read_text()
+        source = SOURCE.read_text(encoding="utf-8")
         start = source.index('def post_llama_model_round(')
         end = source.index('\ndef process_chat_payload(', start)
         model_round = source[start:end]
@@ -182,7 +182,7 @@ class GatewayV12Tests(unittest.TestCase):
         self.assertIn('except TimeoutError:', model_round)
 
     def test_long_model_work_yields_to_interactive_waiters(self):
-        source = SOURCE.read_text()
+        source = SOURCE.read_text(encoding="utf-8")
         start = source.index('def _acquire_llama_model_gate(')
         end = source.index('\ndef _release_llama_model_gate(', start)
         gate = source[start:end]

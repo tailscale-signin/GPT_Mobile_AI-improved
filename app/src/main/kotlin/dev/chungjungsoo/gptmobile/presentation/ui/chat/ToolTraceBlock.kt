@@ -262,7 +262,7 @@ internal fun ToolServiceCircleIcon(
         contentAlignment = Alignment.Center
     ) {
         if (iconRes == null) {
-            dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size((sizeDp * 0.76).dp))
+            dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(sizeDp.dp))
         } else {
             Icon(
                 painter = painterResource(iconRes),

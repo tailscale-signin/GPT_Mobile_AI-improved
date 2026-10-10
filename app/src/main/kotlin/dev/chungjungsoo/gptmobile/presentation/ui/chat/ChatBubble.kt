@@ -852,7 +852,7 @@ fun GPTMobileIcon(loading: Boolean) {
                 trackColor = Color.Transparent
             )
         }
-        dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp), emblemScale = 0.78f)
+        dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
     }
 }
 

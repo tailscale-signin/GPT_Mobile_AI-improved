@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.room.Room
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,6 +23,10 @@ import kotlinx.serialization.json.decodeFromJsonElement
 @Singleton
 class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Context) {
     private val preferences = context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE)
+    private val database = Room.databaseBuilder(context.applicationContext, BenchmarkDatabase::class.java, "benchmark_v2.db").build()
+    private val dao = database.dao()
+    private val mutableSnapshot = MutableStateFlow<BenchmarkScoreSnapshot?>(null)
+    internal val snapshot = mutableSnapshot.asStateFlow()
     private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
     private val mutableHistory = MutableStateFlow<List<BenchmarkRun>>(emptyList())
@@ -49,7 +54,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         mutex.withLock { loadLocked() }
     }
 
-    private fun loadLocked() {
+    private suspend fun loadLocked() {
         if (loaded) return
         val saved = preferences.getString("history", null)
         val recovered = saved?.let { raw ->
@@ -63,7 +68,13 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             }
             valid
         }.orEmpty()
-        mutableHistory.value = recovered.take(200)
+        val records = dao.runs()
+        val stored = records.mapNotNull { runCatching { json.decodeFromString<BenchmarkRun>(it.payload) }.getOrNull() }
+        val source = if (saved != null) recovered.take(200) else stored.take(200)
+        val existing = dao.current()
+        mutableSnapshot.value = existing?.let { runCatching { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) }.getOrNull() }
+        if (source != stored || existing == null) publish(source)
+        mutableHistory.value = source
         loaded = true
     }
 
@@ -81,7 +92,22 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         }
     }
 
-    private fun persist(runs: List<BenchmarkRun>) {
+    private suspend fun publish(runs: List<BenchmarkRun>) {
+        val previous = dao.current()?.generation ?: 0L
+        val next = DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis())
+        dao.publish(runs.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) }, BenchmarkSnapshotRecord(next.generation, next.createdAt, json.encodeToString(next)))
+        mutableSnapshot.value = next
+    }
+
+    suspend fun exportJson(): String = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadLocked()
+            json.encodeToString(mutableHistory.value)
+        }
+    }
+
+    private suspend fun persist(runs: List<BenchmarkRun>) {
+        publish(runs)
         check(preferences.edit().putString("history", json.encodeToString(runs)).commit()) { "Could not save benchmark history. Check available storage." }
         mutableHistory.value = runs
     }

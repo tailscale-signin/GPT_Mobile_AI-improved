@@ -61,7 +61,9 @@ data class AgentToolResult(
     val toolCallBudgetReserved: Int? = null,
     val toolResultBudgetUsedBytes: Int? = null,
     val toolResultBudgetLimitBytes: Int? = null,
-    val retainedContent: ToolResultContent? = null
+    val retainedContent: ToolResultContent? = null,
+    val errorCode: String? = null,
+    val dispatched: Boolean = true
 )
 
 sealed interface ToolResultContent {

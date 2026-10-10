@@ -85,7 +85,8 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         idle: Int? = null,
         fallback: Boolean? = null,
         speculative: SpeculativeDecodingMode? = null,
-        nativeMetrics: Boolean? = null
+        nativeMetrics: Boolean? = null,
+        assist: Boolean? = null
     ) = perform {
         updates.withLock {
             val current = repository.getFeatureSettings()
@@ -95,6 +96,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
                     localModelCache = cache ?: current.localModelCache,
                     localSpeculativeDecoding = speculative ?: current.localSpeculativeDecoding,
                     localNativeMetrics = nativeMetrics ?: current.localNativeMetrics,
+                    localAssist = assist ?: current.localAssist,
                     localIdleMinutes = idle?.coerceIn(0, 60) ?: current.localIdleMinutes,
                     qnnAutomaticFallback = fallback ?: current.qnnAutomaticFallback
                 )

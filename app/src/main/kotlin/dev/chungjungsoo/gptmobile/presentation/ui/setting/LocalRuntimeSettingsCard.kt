@@ -71,6 +71,13 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
                 }
                 Text("Model default follows the package's supported settings. On requires a compatible draft or MTP model package and may fail to load otherwise. Compare speed and answer quality in Benchmarks.", style = MaterialTheme.typography.bodySmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Local Assist (Trial)")
+                        Text("Select complete research records locally before remote synthesis. Warm worker only; off by default.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(settings.localAssist, { viewModel.updateTuning(assist = it) }, enabled = !busy)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Native performance counters", Modifier.weight(1f))
                     Switch(settings.localNativeMetrics, { viewModel.updateTuning(nativeMetrics = it) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Native performance counters" })
                 }

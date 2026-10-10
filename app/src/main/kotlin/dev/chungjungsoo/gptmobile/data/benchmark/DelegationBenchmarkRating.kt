@@ -46,7 +46,7 @@ data class DelegationBenchmarkRating(
 data class DelegateRanking(val run: BenchmarkRun, val runs: Int, val rating: DelegationBenchmarkRating)
 
 /** Separate from the primary-model score: failed/no-call tool tasks cannot earn speed points. */
-fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRating {
+fun delegationBenchmarkRating(runs: List<BenchmarkRun>, speedAnchor: Double? = null, firstAnchor: Long? = null, durationAnchor: Long? = null): DelegationBenchmarkRating {
     val samples = runs.filter { it.mode == BenchmarkMode.DELEGATION && it.finished && !it.canceled }
         .flatMap { it.samples }.filter { it.outcome != BenchmarkOutcome.CANCELED }
     val passed = samples.count { it.outcome == BenchmarkOutcome.PASSED }
@@ -54,7 +54,7 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
     val successful = samples.filter { it.outcome == BenchmarkOutcome.PASSED }
     // Transport/runtime errors still reduce reliability, but are not evidence
     // that a model cannot select a tool. Only completed fixture trials measure that.
-    val tools = samples.filter { it.testId == "delegation-tools" && it.outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED) }
+    val tools = samples.filter { it.testId.startsWith("delegation-tools") && it.outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED) }
     val toolTaskSuccess = tools.takeIf { it.isNotEmpty() }?.let {
         100.0 * it.count { sample ->
             sample.outcome == BenchmarkOutcome.PASSED && (sample.delegation?.successfulFixtureCalls ?: 0) > 0
@@ -69,7 +69,7 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
     val latency = median(successful.map { it.durationMs })
     val first = median(successful.mapNotNull { it.delegation?.workerFirstTextMs })
     val speed = median(successful.mapNotNull { it.delegation?.workerDecodeTokensPerSecond?.takeIf { value -> value > 0 && value.isFinite() } })
-    fun accuracy(id: String) = samples.filter { it.testId == id }.takeIf { it.isNotEmpty() }
+    fun accuracy(id: String) = samples.filter { it.testId.startsWith(id) }.takeIf { it.isNotEmpty() }
         ?.let { 100.0 * it.count { sample -> sample.outcome == BenchmarkOutcome.PASSED } / it.size }
     val successRate = samples.takeIf { it.isNotEmpty() }?.let { 100.0 * passed / it.size }
     val reviewerValues = metrics.mapNotNull { it.reviewerScore }
@@ -77,23 +77,28 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
         (it.average().coerceIn(0.0, 100.0) + 0.5).toInt()
     }
     val reviewerEvaluations = metrics.sumOf { it.reviewerEvaluations }
+    val local = metrics.firstOrNull()?.workerProvider == "LITERT_LM"
+    val quality = samples.filter { it.completed }.takeIf { it.isNotEmpty() }?.let { 100.0 * it.count { sample -> sample.outcome == BenchmarkOutcome.PASSED } / it.size }
+    val budget = samples.takeIf { it.isNotEmpty() && metrics.size == it.size }?.let { trials ->
+        val compliant = 100.0 * trials.count { sample -> sample.durationMs <= 180_000 && sample.delegation?.outputCapViolations == 0 } / trials.size
+        minOf(compliant, metrics.mapNotNull { it.timeEfficiencyPercent }.takeIf { it.isNotEmpty() }?.average() ?: compliant)
+    }
     val dimensions = listOf(
-        BenchmarkDimension("Task reliability", successRate, 20, "Passed delegation cases / attempted cases; errors and timeouts fail"),
-        BenchmarkDimension("Tool usability", toolUsability, 25, "70% tool-task success + 30% valid fixture-call success"),
-        BenchmarkDimension("Token throughput", speed?.let { (100.0 * it / 50.0).coerceIn(0.0, 100.0) }, 20, "100 at 50 output tok/s; reported provider tokens are preferred over character estimates"),
-        BenchmarkDimension("First-response latency", first?.let { (100.0 * 1000.0 / it.coerceAtLeast(1)).coerceIn(0.0, 100.0) }, 15, "100 at 1 second to first usable text"),
-        BenchmarkDimension("End-to-end latency", latency?.let { (100.0 * 5000.0 / it.coerceAtLeast(1)).coerceIn(0.0, 100.0) }, 10, "100 at 5 seconds per successful delegation case"),
-        BenchmarkDimension("Evidence accuracy", accuracy("delegation-compact"), 5, "Preserves the random evidence code"),
-        BenchmarkDimension("Research and handoff", accuracy("delegation-research"), 5, "Reads evidence, preserves the code and source, and survives primary synthesis"),
-        BenchmarkDimension("Time efficiency", metrics.mapNotNull { it.timeEfficiencyPercent }.takeIf { it.isNotEmpty() }?.average(), 15, "Productive request time after failed attempts and repairs"),
-        BenchmarkDimension("Request reliability", metrics.filter { it.delegateAttempts > 0 }.takeIf { it.isNotEmpty() }?.let { 100.0 * it.sumOf { metric -> metric.successfulRequests } / it.sumOf { metric -> metric.delegateAttempts } }, 15, "Successful worker/reviewer requests including retries"),
-        BenchmarkDimension("Reviewer quality", reviewerScore?.toDouble(), 20, "Independent reviewer score for the delegate context; measured only when Reviewer mode is enabled")
+        BenchmarkDimension("Final evidence and answer quality", quality, if (local) 35 else 30, "Ground-truth final scenario validators; reviewer self-reports excluded"),
+        BenchmarkDimension("Tool selection and handoff integrity", toolUsability, 20, "Correct fixture selection, arguments and outcome"),
+        BenchmarkDimension("Task reliability", successRate, if (local) 25 else 20, "Passed scenarios / attempts; operational failures remain visible"),
+        BenchmarkDimension("End-to-end latency", DynamicScoreEngine.lower(latency?.toDouble(), durationAnchor?.toDouble()), if (local) 10 else 20, "Compatible scenario pipeline scale"),
+        BenchmarkDimension("Budget discipline", budget, 10, "Declared scenario deadline, output cap and measured waste"),
+        BenchmarkDimension("Token throughput", speed, 0, "Worker diagnostic only; native tokenizers are not interchangeable"),
+        BenchmarkDimension("First-response latency", first?.toDouble(), 0, "Worker first text in milliseconds"),
+        BenchmarkDimension("Evidence accuracy", accuracy("delegation-compact"), 0, "Critical identifier, date, unit and negation retention"),
+        BenchmarkDimension("Research and handoff", accuracy("delegation-research"), 0, "Final code and source retention"),
+        BenchmarkDimension("Time efficiency", metrics.mapNotNull { it.timeEfficiencyPercent }.takeIf { it.isNotEmpty() }?.average(), 0, "Observed productive time"),
+        BenchmarkDimension("Reviewer report (diagnostic)", reviewerScore?.toDouble(), 0, "Never contributes to pipeline quality score")
     )
-    val measured = dimensions.filter { it.score != null }
-    val weight = measured.sumOf { it.weight }
-    val reliabilityCap = successRate ?: 0.0
-    val score = if (samples.size >= 3 && samples.map { it.testId }.containsAll(delegationBenchmarkSuite().map { it.id })) {
-        minOf(measured.sumOf { it.score!! * it.weight } / weight, reliabilityCap).roundToInt()
+    val mandatory = dimensions.filter { it.weight > 0 }
+    val score = if (samples.size >= 24 && samples.map { it.testId }.containsAll(delegationBenchmarkSuite().map { it.id }) && mandatory.all { it.score != null }) {
+        minOf(mandatory.sumOf { it.score!! * it.weight } / 100, quality!!, successRate!!).roundToInt()
     } else {
         null
     }
@@ -107,7 +112,7 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
         successfulToolCalls = successfulFixtureCalls,
         toolCalls = fixtureCalls,
         medianLatencyMs = latency,
-        p95LatencyMs = percentile(successful.map { it.durationMs }, .95),
+        p95LatencyMs = percentile(successful.map { it.durationMs }, .95).takeIf { successful.size >= 20 },
         medianFirstTextMs = first,
         medianDecodeSpeed = speed,
         workerInputTokens = metrics.sumOf { it.workerInputTokens },
@@ -145,6 +150,21 @@ fun delegateRankings(
         val runs = group.sortedByDescending { it.startedAt }.take(5)
         if (runs.first().samples.none { it.delegation != null }) return@mapNotNull null
         DelegateRanking(runs.first(), runs.size, delegationBenchmarkRating(runs))
+    }
+    .let { rows ->
+        rows.map { row ->
+            val worker = row.run.samples.mapNotNull { it.delegation }.firstOrNull()
+            val local = worker?.workerProvider == "LITERT_LM"
+            val cohort = rows.filter { candidate ->
+                val provider = candidate.run.samples.mapNotNull { it.delegation }.firstOrNull()?.workerProvider
+                (provider == "LITERT_LM") == local && (!local || candidate.run.device == row.run.device) && (provider in setOf("LLAMA", "OLLAMA")) == (worker?.workerProvider in setOf("LLAMA", "OLLAMA"))
+            }
+            val speed = cohort.mapNotNull { it.rating.medianDecodeSpeed }.maxOrNull()
+            val first = cohort.mapNotNull { it.rating.medianFirstTextMs }.filter { it > 0 }.minOrNull()
+            val duration = cohort.mapNotNull { it.rating.medianLatencyMs }.filter { it > 0 }.minOrNull()
+            val sourceRuns = history.filter { run -> run.mode == BenchmarkMode.DELEGATION && run.configKey == row.run.configKey && run.samples.firstOrNull()?.delegation?.workerConfigKey == worker?.workerConfigKey && run.delegationSettings == row.run.delegationSettings }.sortedByDescending { it.startedAt }.take(5)
+            row.copy(rating = delegationBenchmarkRating(sourceRuns, speed, first, duration))
+        }
     }
     .sortedWith(compareByDescending<DelegateRanking> { it.rating.score ?: -1 }.thenBy { it.rating.medianLatencyMs ?: Long.MAX_VALUE })
 

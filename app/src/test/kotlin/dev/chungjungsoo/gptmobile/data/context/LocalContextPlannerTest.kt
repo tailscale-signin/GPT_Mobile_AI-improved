@@ -17,7 +17,7 @@ class LocalContextPlannerTest {
         assertTrue(plan.tools.isNotEmpty())
         assertTrue(plan.omittedTools > 0)
         assertTrue(plan.estimatedPromptTokens < 1024 - 256 - 128 - 128)
-        assertEquals(256, plan.toolResultBytes)
+        assertEquals(512, plan.toolResultBytes)
     }
 
     @Test
@@ -62,5 +62,18 @@ class LocalContextPlannerTest {
         assertFalse(plan.priorTurns.isEmpty())
     }
 
+    @Test
+    fun requiredSearchCannotDisappearUnderContextPressure() {
+        val required = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val others = (1..20).map { AgentToolDefinition("a$it", "Unrelated ".repeat(80), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(emptyList(), "Research the latest weather", "", others + required, 1024, null)
+        assertTrue(plan.tools.any { it.name == "web_search" })
+    }
+
+    @Test
+    fun largerContextAllowsMoreThanTwoKilobytesOfEvidence() {
+        val tool = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        assertTrue(LocalContextPlanner.plan(emptyList(), "Search", "", listOf(tool), 8192, null).toolResultBytes > 2048)
+    }
     private fun turn(text: String) = ConversationTurn(MessageV2(content = text, platformType = null), null, false)
 }

@@ -14,13 +14,13 @@ class BenchmarkRatingTest {
     private fun sample(category: String = "speed", outcome: BenchmarkOutcome = BenchmarkOutcome.PASSED, first: Long = 500, tokens: Int = 80) = BenchmarkSample(
         category, category, category, outcome, first + 1000, first, tokens, false, 320, 5
     )
-    private fun run(samples: List<BenchmarkSample>) = BenchmarkRun("run", profile.uid, profile.name, profile.compatibleType.name, profile.model, benchmarkConfigKey(profile), false, BenchmarkMode.QUICK, 10, samples)
+    private fun run(samples: List<BenchmarkSample>) = BenchmarkRun("run", profile.uid, profile.name, profile.compatibleType.name, profile.model, benchmarkConfigKey(profile), false, BenchmarkMode.QUICK, 10, samples, suiteVersion = 2)
 
     @Test
     fun `rating normalizes missing dimensions instead of penalizing unavailable tools`() {
         val rating = benchmarkRating(listOf(run(listOf(sample(), sample("task"), sample("json"), sample("tools", BenchmarkOutcome.UNSUPPORTED)))))
-        assertEquals(100, rating.score)
-        assertEquals(75, rating.measuredWeight)
+        assertNull(rating.score)
+        assertEquals(40, rating.measuredWeight)
         assertEquals(3, rating.sampleCount)
         assertNull(rating.toolSuccessPercent)
         assertNull(rating.dimensions.first { it.label == "Consistency" }.score)
@@ -38,7 +38,7 @@ class BenchmarkRatingTest {
         assertEquals(2, rating.completed)
         assertEquals(0.0, rating.toolSuccessPercent!!, .001)
         assertEquals(100.0 * 2 / 3, rating.dimensions.first { it.label == "Completion reliability" }.score!!, .001)
-        assertTrue(rating.score!! < 100)
+        assertNull(rating.score)
     }
 
     @Test
@@ -56,7 +56,7 @@ class BenchmarkRatingTest {
         assertNull(benchmarkRating(listOf(run(listOf(sample())))).score)
         val rating = benchmarkRating(listOf(run(listOf(sample(first = 100), sample(first = 300), sample(first = 200)))))
         assertEquals(200L, rating.medianFirstTextMs)
-        assertEquals(300L, rating.p95FirstTextMs)
+        assertNull(rating.p95FirstTextMs)
     }
 
     @Test
@@ -67,7 +67,7 @@ class BenchmarkRatingTest {
             baseline.copy(id = "old-model", configKey = benchmarkConfigKey(profile.copy(model = "old"))),
             baseline.copy(id = "canceled", canceled = true),
             baseline.copy(id = "interrupted", finished = false),
-            baseline.copy(id = "version", suiteVersion = 2),
+            baseline.copy(id = "version", suiteVersion = 1),
             baseline.copy(id = "other", profileUid = "other")
         )
         assertEquals(listOf("6", "5", "4", "3", "2"), comparableRuns(history, profile, BenchmarkMode.QUICK).map { it.id })

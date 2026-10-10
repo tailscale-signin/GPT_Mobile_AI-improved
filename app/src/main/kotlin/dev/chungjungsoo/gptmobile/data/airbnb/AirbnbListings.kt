@@ -40,7 +40,11 @@ data class AirbnbListing(
     val pets: Int? = null,
     val nights: Int? = null,
     val reviewAnalysis: AirbnbReviewAnalysis = AirbnbReviewAnalysis(),
-    val provider: String = "OpenBnB"
+    val provider: String = "OpenBnB",
+    val distanceKm: Double? = null,
+    val distanceVerified: Boolean = false,
+    val observedAtEpochMillis: Long? = null,
+    val priceQualification: String = "Public observation; confirm dates, currency, fees and availability. Displayed totals may be rounded."
 )
 
 @Serializable

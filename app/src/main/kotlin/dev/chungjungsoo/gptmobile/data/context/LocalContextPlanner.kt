@@ -33,12 +33,12 @@ internal object LocalContextPlanner {
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
-        val toolResultReserve = if (tools.isEmpty()) 0 else minOf(1024, contextTokens / 8)
+        val toolResultReserve = if (tools.isEmpty()) 0 else maxOf(128, contextTokens / 4)
         val templateReserve = minOf(256, contextTokens / 8)
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
         val promptLimit = contextTokens.toLong() - outputReserve - templateReserve -
-            if (contextTokens <= 2048) toolResultReserve else 0
+            toolResultReserve
         var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +
@@ -46,10 +46,13 @@ internal object LocalContextPlanner {
                 "Max Output Tokens controls reply length; it does not increase model context."
         }
 
-        val selectedTools = tools.filter { tool ->
+        val requiredNames = requiredToolNames(currentUserPrompt, tools)
+        val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
+        val selectedTools = rankedTools.filter { tool ->
             val cost = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
             (used + cost < promptLimit).also { fits -> if (fits) used += cost }
         }
+        require(selectedTools.map { it.name }.containsAll(requiredNames)) { "Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them." }
         fun cost(turn: ConversationTurn): Long = estimate(turn.userMessage.effectiveContent()) +
             estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
             historyImageCount(turn).toLong() * IMAGE_TOKEN_ESTIMATE
@@ -74,6 +77,24 @@ internal object LocalContextPlanner {
             priorTurns.size - retained.size,
             tools.size - selectedTools.size
         )
+    }
+
+    internal fun requiredToolNames(prompt: String, tools: List<AgentToolDefinition>): Set<String> {
+        val lower = prompt.lowercase()
+        val required = mutableSetOf<String>()
+        fun select(word: String) {
+            tools.firstOrNull { it.name == word }?.let { required += it.name }
+        }
+        if (Regex("nearby|nearest|closest|my location|current location").containsMatchIn(lower)) select("device_location")
+        if ("airbnb" in lower) select("airbnb")
+        if (Regex("search|research|look up|latest|browse|find online").containsMatchIn(lower)) select("web_search")
+        return required
+    }
+
+    private fun relevance(prompt: String, tool: AgentToolDefinition): Int {
+        val words = Regex("[a-z]{3,}").findAll(prompt.lowercase()).map { it.value }.toSet()
+        val descriptor = (tool.name + " " + tool.description).lowercase()
+        return words.count { it in descriptor }
     }
 
     // JSON/tool templates and multilingual input cost more than English prose.

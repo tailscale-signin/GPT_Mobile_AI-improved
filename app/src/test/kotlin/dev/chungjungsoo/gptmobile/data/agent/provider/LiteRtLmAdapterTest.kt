@@ -192,7 +192,7 @@ class LiteRtLmAdapterTest {
             localPlatform(),
             listOf(lookupTool { id, _ -> AgentToolResult(id, ToolResultContent.Text("x".repeat(50000)), false) })
         ).streamRound(emptyList(), emptyList()).toList()
-        assertTrue(runtime.toolExecutorResults.single().toByteArray().size <= 1024)
+        assertTrue(runtime.toolExecutorResults.single().toByteArray().size <= 2048)
         assertTrue(events.filterIsInstance<ProviderEvent.ToolResult>().single().result.outputBudgetExhausted)
         assertEquals(1, runtime.closeConversationCalls)
         assertTrue(events.last() is ProviderEvent.Completed)
@@ -975,7 +975,7 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(listOf("lookup" to """{"query":"weather"}"""), runtime.toolExecutorCalls)
-        assertEquals(listOf("result-ok"), runtime.toolExecutorResults)
+        assertEquals("result-ok", ((kotlinx.serialization.json.Json.parseToJsonElement(runtime.toolExecutorResults.single()) as kotlinx.serialization.json.JsonObject)["data"] as kotlinx.serialization.json.JsonPrimitive).content)
         assertEquals(1, executedArgs.size)
         assertEquals("weather", executedArgs.single()["query"]?.toString()?.trim('"'))
         val toolCall = events.filterIsInstance<ProviderEvent.ToolCall>().single()

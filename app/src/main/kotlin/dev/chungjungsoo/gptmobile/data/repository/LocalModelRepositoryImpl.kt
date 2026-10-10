@@ -96,6 +96,7 @@ class LocalModelRepositoryImpl(
                 .putString(LocalModelDownloadWorker.KEY_DISPLAY_NAME, entry.displayName)
                 .putString(LocalModelDownloadWorker.KEY_DOWNLOAD_URL, resolved.downloadUrl)
                 .putString(LocalModelDownloadWorker.KEY_COMMIT_HASH, resolved.commitHash)
+                .putString(LocalModelDownloadWorker.KEY_SHA256, resolved.sha256)
                 .putString(LocalModelDownloadWorker.KEY_FILE_NAME, resolved.fileName)
                 .putLong(LocalModelDownloadWorker.KEY_TOTAL_BYTES, resolved.sizeInBytes)
                 .putBoolean(LocalModelDownloadWorker.KEY_REQUIRES_HF_AUTH, entry.isGated)

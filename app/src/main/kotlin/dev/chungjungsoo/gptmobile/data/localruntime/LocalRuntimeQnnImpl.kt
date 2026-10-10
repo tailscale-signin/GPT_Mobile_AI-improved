@@ -26,13 +26,16 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
             install.lastUpdateTime,
             BuildConfig.LITERT_LM_VERSION,
             BuildConfig.QAIRT_VERSION,
-            model.canonicalPath,
-            model.length(),
-            model.lastModified()
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalled(model),
+            android.os.Build.SOC_MODEL,
+            android.os.Build.FINGERPRINT,
+            spec.accelerator,
+            spec.maxTokens,
+            spec.litertDispatchLibDir
         ).joinToString("|")
         check(marker.takeIf(File::isFile)?.readText() != signature) {
-            "QNN was disabled for this model after its previous native initialization crashed. " +
-                "Choose LiteRT-LM CPU/GPU or reinstall an NPU package compiled for QAIRT ${BuildConfig.QAIRT_VERSION}."
+            "QNN was disabled for this model after its previous initialization was interrupted. " +
+                "Retest only after a runtime/package compatibility change. Choose LiteRT-LM CPU/GPU or install an NPU package compiled for QAIRT ${BuildConfig.QAIRT_VERSION}."
         }
         marker.parentFile?.mkdirs()
         marker.writeText(signature)
@@ -75,7 +78,7 @@ internal class LocalRuntimeQnnImpl(
         )
         requestedSpec = null
         dispatchedSpec = null
-        loadGuard.beforeLoad(effectiveSpec)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { loadGuard.beforeLoad(effectiveSpec) }
         try {
             runtime.loadEngine(effectiveSpec)
         } catch (error: Throwable) {

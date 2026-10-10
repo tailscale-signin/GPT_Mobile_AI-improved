@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DELEGATION("Delegation") }
+enum class BenchmarkMode(val label: String) { QUICK("Quick Check"), FULL("Core Text Standard"), DELEGATION("Delegation"), AGENT("Agent Standard") }
 
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED }
@@ -84,8 +84,19 @@ data class BenchmarkSample(
     val nativeMetrics: dev.chungjungsoo.gptmobile.data.localruntime.NativeInferenceMetrics? = null,
     val inputTokens: Int = 0,
     val delegation: DelegationBenchmarkMetrics? = null,
-    val reconnectAttempts: Int = 0
+    val reconnectAttempts: Int = 0,
+    val referenceTokens: Int? = null,
+    val referenceDecodeTokens: Int? = null,
+    val tokenBasis: String = "legacy-provider-or-estimated",
+    val warmup: Boolean = false,
+    val workload: String = "legacy",
+    val firstChunkCharacters: Int = 0
 ) {
+    val referenceSpeed: Double? get() = firstTextMs?.let { first ->
+        val last = lastTextMs ?: return@let null
+        referenceDecodeTokens?.takeIf { it > 0 && completed && chunks > 1 && last > first }
+            ?.let { it * 1000.0 / (last - first) }?.takeIf { it.isFinite() && it > 0 }
+    }
     val completed: Boolean get() = outcome == BenchmarkOutcome.PASSED || outcome == BenchmarkOutcome.FAILED
 
     // A one-chunk response has no observed decoding interval; avoid inventing a speed.
@@ -122,7 +133,14 @@ data class BenchmarkRun(
     val batteryAfter: Int? = null,
     val engineWasLoaded: Boolean = false,
     val stoppedReason: String? = null,
-    val delegationSettings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings? = null
+    val delegationSettings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings? = null,
+    val measurementVersion: Int = 1,
+    val scoringVersion: Int = 1,
+    val plannedTrials: Int = 0,
+    val appCommit: String = "",
+    val runtimeVersion: String = "",
+    val powerPolicy: String = "interactive-normal-v1",
+    val networkPolicy: String = "client-default-v1"
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)
@@ -155,7 +173,7 @@ fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = ""): Stri
         profile.compatibleType.name, profile.model, profile.apiUrl, profile.accelerator.orEmpty(),
         profile.temperature.toString(), profile.maxTokens.toString(), profile.timeout.toString(), profile.stream.toString(),
         profile.topP.toString(), profile.topK.toString(), profile.openRouterRouting.orEmpty(), profile.ollamaOptions.orEmpty(),
-        profile.providerConnectionUid.orEmpty(), if (profile.compatibleType == ClientType.LITERT_LM) localEnvironment else ""
+        profile.providerConnectionUid.orEmpty(), profile.systemPrompt.orEmpty(), profile.reasoning.toString(), if (profile.compatibleType == ClientType.LITERT_LM) localEnvironment else ""
     )
     return MessageDigest.getInstance("SHA-256").digest(values.joinToString("\u0000").toByteArray())
         .joinToString("") { "%02x".format(it) }
@@ -163,20 +181,20 @@ fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = ""): Stri
 
 fun comparableRuns(history: List<BenchmarkRun>, profile: PlatformV2, mode: BenchmarkMode, localEnvironment: String = ""): List<BenchmarkRun> {
     val key = benchmarkConfigKey(profile, localEnvironment)
-    return history.filter { it.profileUid == profile.uid && it.configKey == key && it.mode == mode && it.suiteVersion == 1 && it.finished && !it.canceled && it.stoppedReason == null }
+    return history.filter { it.profileUid == profile.uid && it.configKey == key && it.mode == mode && it.suiteVersion == 2 && it.finished && !it.canceled && it.stoppedReason == null }
         .sortedByDescending { it.startedAt }.take(5)
 }
 
 /** Versioned app score, not a general intelligence or hardware benchmark. Missing data is never a zero. */
-fun benchmarkRating(runs: List<BenchmarkRun>, local: Boolean = runs.firstOrNull()?.local == true): BenchmarkRating {
+fun benchmarkRating(runs: List<BenchmarkRun>, local: Boolean = runs.firstOrNull()?.local == true, speedAnchor: Double? = null, latencyAnchor: Long? = null): BenchmarkRating {
     val samples = runs.filter { it.finished && !it.canceled && it.stoppedReason == null }.flatMap { it.samples }
         .filter { it.outcome !in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.UNSUPPORTED) }
     val completed = samples.filter { it.completed }
     val speedSamples = completed.filter { it.category == "speed" && it.outcome == BenchmarkOutcome.PASSED }
     val speeds = speedSamples.mapNotNull { it.decodeTokensPerSecond }.sorted()
     val first = completed.mapNotNull { it.firstTextMs }.sorted()
-    val speedTarget = if (local) 40.0 else 80.0
-    val latencyTargetMs = if (local) 1500.0 else 750.0
+    val speedTarget = speedAnchor
+    val latencyTargetMs = latencyAnchor?.toDouble()
     val speed = percentile(speeds, .5)
     val latency = percentile(first, .5)
     val success = samples.takeIf { it.isNotEmpty() }?.let { 100.0 * completed.size / it.size }
@@ -193,8 +211,8 @@ fun benchmarkRating(runs: List<BenchmarkRun>, local: Boolean = runs.firstOrNull(
         100.0 * it.count { sample -> sample.outcome == BenchmarkOutcome.PASSED } / it.size
     }
     val dimensions = listOf(
-        BenchmarkDimension("Generation speed", speed?.let { (100 * it / speedTarget).coerceIn(0.0, 100.0) }, 20, "100 at $speedTarget tok/s; observed decode interval"),
-        BenchmarkDimension("First response", latency?.let { (100 * latencyTargetMs / it.coerceAtLeast(1)).coerceIn(0.0, 100.0) }, 15, "100 at ${latencyTargetMs.toInt()} ms or faster"),
+        BenchmarkDimension("Generation speed", speed?.let { DynamicScoreEngine.higher(it, speedTarget) }, 20, "Cohort-relative speed; legacy rates are diagnostic only"),
+        BenchmarkDimension("First response", latency?.let { DynamicScoreEngine.lower(it.toDouble(), latencyTargetMs) }, 15, "Cohort-relative first usable text"),
         BenchmarkDimension("Completion reliability", success, 15, "Completed requests ÷ attempted requests; timeouts count as failures"),
         BenchmarkDimension("Consistency", consistency, 10, "Variation across at least three speed trials"),
         BenchmarkDimension("Task accuracy", passRate("task"), 15, "Exact instruction, arithmetic and multi-turn fixture checks"),
@@ -203,9 +221,9 @@ fun benchmarkRating(runs: List<BenchmarkRun>, local: Boolean = runs.firstOrNull(
     )
     val measured = dimensions.filter { it.score != null }
     val weight = measured.sumOf { it.weight }
-    val score = if (samples.size >= 3 && weight >= 40) (measured.sumOf { it.score!! * it.weight } / weight).roundToInt() else null
+    val score = if (samples.size >= 3 && weight == 100) minOf(measured.sumOf { it.score!! * it.weight } / 100, success ?: 0.0, passRate("task") ?: 0.0).roundToInt() else null
     return BenchmarkRating(
-        score, dimensions, samples.size, completed.size, latency, percentile(first, .95),
+        score, dimensions, samples.size, completed.size, latency, percentile(first, .95).takeIf { first.size >= 20 },
         percentile(completed.map { it.durationMs }.sorted(), .5), speed,
         speedSamples.any { it.estimatedTokens && it.decodeTokensPerSecond != null }, toolSuccess, weight
     )

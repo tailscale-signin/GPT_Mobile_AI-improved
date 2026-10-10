@@ -68,6 +68,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     private val selectedUid = MutableStateFlow(savedState.get<String>("profileUid").orEmpty())
     val selected = combine(profiles, selectedUid) { list, uid -> list.firstOrNull { it.uid == uid } ?: list.firstOrNull() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    internal val scoreSnapshot = store.snapshot
     val history = store.history
     val localEnvironment = combine(settings.observeLocalRuntimeBackend(), settings.observeFeatureSettings()) { backend, features ->
         "$backend|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|" +
@@ -254,7 +255,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
             var run = BenchmarkRun(
                 UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                 profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
-                mode, System.currentTimeMillis(), finished = false, suiteVersion = if (mode == BenchmarkMode.DELEGATION) 2 else 1,
+                mode, System.currentTimeMillis(), finished = false, suiteVersion = 2,
+                plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                 engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
                 delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION }
@@ -268,6 +270,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                     suite = suite,
                     runCase = { index, test ->
                         currentTest = test
+                        if (profile.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                         mutableProgress.value = BenchmarkProgress(profile.name, test.label, index, suite.size)
                         if (mode == BenchmarkMode.DELEGATION) {
                             try {
@@ -345,7 +348,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
                     var run = BenchmarkRun(
                         UUID.randomUUID().toString(), target.uid, target.name, target.compatibleType.name,
                         target.model, benchmarkConfigKey(target, localEnvironment.value), target.compatibleType == ClientType.LITERT_LM,
-                        mode, System.currentTimeMillis(), finished = false, suiteVersion = 1,
+                        mode, System.currentTimeMillis(), finished = false, suiteVersion = 2,
+                        plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                         device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                         engineWasLoaded = target.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null
                     )
@@ -362,6 +366,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                             suite = suite,
                             runCase = { index, test ->
                                 currentTest = test
+                                if (target.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                                 mutableProgress.value = BenchmarkProgress(target.name, test.label, baseProgress + index, totalTests)
                                 BenchmarkRunner(openSession = { turns, tools ->
                                     chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}")
@@ -473,6 +478,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                         profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
                         BenchmarkMode.DELEGATION, System.currentTimeMillis(), finished = false, suiteVersion = 2,
+                        plannedTrials = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSuite().size, measurementVersion = 2, scoringVersion = 2, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                         device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                         engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
                         delegationSettings = config
@@ -492,6 +498,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                             suite = suite,
                             runCase = { index, test ->
                                 currentTest = test
+                                if (helper.compatibleType == ClientType.LITERT_LM || profile.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                                 mutableProgress.value = BenchmarkProgress("${profile.name} → ${helper.name}", test.label, baseProgress + index, totalTests)
                                 try {
                                     chats.runDelegationBenchmark(profile, test, "benchmark-${run.id}-${test.id}", config)
@@ -550,6 +557,11 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }
 
     private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
+    private fun checkLocalConditions() {
+        check((battery() ?: 100) >= 15) { "Local benchmark stopped: battery is below 15%." }
+        check((thermal() ?: 0) < PowerManager.THERMAL_STATUS_SEVERE) { "Local benchmark stopped: severe thermal pressure." }
+    }
+
     private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
     private fun safeMessage(error: Exception) = DiagnosticRedactor.redact(error.message ?: "Unknown error").take(500)
 }

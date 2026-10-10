@@ -13,9 +13,12 @@ import kotlinx.serialization.json.JsonObject
 /** One budget per user turn, shared by every bound tool, including the native engine bridge. */
 class ToolExecutionBudget(
     private val limits: AgentRunLimits,
+    private val evidenceBytesPerResult: Int? = null,
     private val failureMessage: (Exception) -> String = { "Tool execution failed. Check the connection diagnostics before repeating an action." }
 ) {
+    private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val calls = AtomicInteger()
+    private val failures = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
     private val completed = AtomicInteger()
     private val remainingBytes = AtomicInteger(limits.maxToolOutputBytes)
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
@@ -36,7 +39,12 @@ class ToolExecutionBudget(
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
-            fun failure(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true)
+            fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
+            val signature = tool.definition.name + ":" + arguments.toString().hashCode()
+            if (signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
+            if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
+            val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
+            if (invalid.isNotEmpty()) return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", invalid.joinToString("; "))) }
             if (!tryAcquireCall()) {
                 val message = toolCallBudgetMessage()
                 AppLogRecorder.record(
@@ -69,7 +77,7 @@ class ToolExecutionBudget(
                     )
                 }
             }
-            if (!authorize(callId, arguments)) return { bounded(failure("Tool permission was denied or this action was already dispatched.")) }
+            if (!authorize(callId, arguments)) return { bounded(ToolResultEnvelope.error(callId, "AUTH_REQUIRED", "Tool permission was denied or this action was already dispatched.")) }
             val dispatched = java.util.concurrent.atomic.AtomicBoolean()
             return execution@{
                 if (!dispatched.compareAndSet(false, true)) return@execution withBudgetState(failure("This prepared tool call was already dispatched."))
@@ -85,7 +93,7 @@ class ToolExecutionBudget(
                             withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
                                 withTimeoutOrNull(limits.toolTimeoutMillis) { tool.execute(callId, arguments) }
                             }
-                                ?: failure("Tool timed out. Its outcome may be unknown; check before repeating a write.")
+                                ?: ToolResultEnvelope.error(callId, "TIMEOUT_OUTCOME_UNKNOWN", "Tool timed out after dispatch. Reconcile the outcome before repeating an action.", dispatched = true)
                         }
                     }
                     val boundedResult = bounded(
@@ -106,6 +114,8 @@ class ToolExecutionBudget(
                     } else {
                         boundedResult
                     }
+                    if (normalizedResult.errorCode == "TIMEOUT_OUTCOME_UNKNOWN") unknownOutcomes += signature
+                    if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
@@ -116,7 +126,7 @@ class ToolExecutionBudget(
                     )
                     throw cancellation
                 } catch (error: Exception) {
-                    val boundedResult = bounded(failure(failureMessage(error)))
+                    val boundedResult = bounded(ToolResultEnvelope.error(callId, "PROVIDER_UNAVAILABLE", failureMessage(error), dispatched = true))
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {
@@ -156,7 +166,13 @@ class ToolExecutionBudget(
         // Debit the admitted excerpt, rather than allowing a single raw JSON/page
         // payload to consume the entire turn's research budget. Keep full results
         // separately for UI and recovery, as before.
-        val resultAllowance = if (preserveSuccessfulHandoff) Int.MAX_VALUE else minOf(16 * 1024, limits.maxToolOutputBytes)
+        val resultAllowance = if (evidenceBytesPerResult != null) {
+            limits.maxToolOutputBytes
+        } else if (preserveSuccessfulHandoff) {
+            Int.MAX_VALUE
+        } else {
+            minOf(16 * 1024, limits.maxToolOutputBytes)
+        }
         val chargedBytes = minOf(size, resultAllowance)
         val sharedAvailable = remainingBytes.getAndUpdate { (it.toLong() - chargedBytes).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
         val handoffReserve = if (
@@ -168,7 +184,8 @@ class ToolExecutionBudget(
         } else {
             0
         }
-        val available = (minOf(sharedAvailable, resultAllowance).toLong() + handoffReserve).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val payloadAvailable = (minOf(sharedAvailable, resultAllowance).toLong() + handoffReserve).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val available = minOf(payloadAvailable, evidenceBytesPerResult ?: Int.MAX_VALUE)
 
         // Delegation is an orchestrator: its nested search/read calls may legitimately
         // consume the shared raw-result budget before the compact final handoff exists.
@@ -229,7 +246,7 @@ class ToolExecutionBudget(
         }
         return withBudgetState(
             result.copy(
-                content = if (changed) ToolResultContent.Text(safeText) else result.content,
+                content = if (changed) ToolResultEnvelope.compact(result.content, available) else result.content,
                 retainedContent = result.retainedContent ?: result.content.takeIf { changed },
                 traceContent = trace,
                 outputBudgetExhausted = result.outputBudgetExhausted || remainingBytes.get() <= 0,

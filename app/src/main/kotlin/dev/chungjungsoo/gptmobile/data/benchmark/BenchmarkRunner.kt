@@ -75,7 +75,10 @@ class BenchmarkRunner(
     private suspend fun runOnce(test: BenchmarkCase, supportsTools: Boolean, limitMs: Long): BenchmarkSample {
         if (test.category == "tools" && !supportsTools) {
             return BenchmarkSample(
-                test.id, test.label, test.category, BenchmarkOutcome.UNSUPPORTED,
+                test.id,
+                test.label,
+                test.category,
+                BenchmarkOutcome.UNSUPPORTED,
                 error = "This model does not advertise tool support; excluded from the rating.",
                 failureCategory = "UNSUPPORTED"
             )
@@ -194,10 +197,12 @@ class BenchmarkRunner(
                 check(text.isNotBlank()) { "Provider returned no answer" }
                 true
             }
-            if (finished != true) return sample(
-                BenchmarkOutcome.TIMED_OUT,
-                "Exceeded ${limitMs / 1000}s remaining per-test limit"
-            ).copy(failureCategory = "TIMEOUT")
+            if (finished != true) {
+                return sample(
+                    BenchmarkOutcome.TIMED_OUT,
+                    "Exceeded ${limitMs / 1000}s remaining per-test limit"
+                ).copy(failureCategory = "TIMEOUT")
+            }
             val answer = text.toString().trim()
             val passed = when (test.category) {
                 "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || ReferenceTextTokenizer.starts(answer).size >= 128)
@@ -220,7 +225,7 @@ class BenchmarkRunner(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Exception) {
-            val qnn = generateSequence(error) { it.cause }
+            val qnn = generateSequence<Throwable>(error) { it.cause }
                 .filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>()
                 .firstOrNull()
             val detail = error.message.orEmpty()

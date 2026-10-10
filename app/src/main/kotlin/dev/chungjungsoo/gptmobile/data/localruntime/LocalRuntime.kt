@@ -127,10 +127,11 @@ data class LocalRuntimeState(
 
 private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
 
-class LocalRuntimeFallbackDisabledException(cause: Throwable) : IllegalStateException(
-    "${cause.message ?: "QNN could not start"}. Automatic fallback is disabled; enable it or choose a compatible GPU/CPU model edition.",
-    cause
-)
+class LocalRuntimeFallbackDisabledException(cause: Throwable) :
+    IllegalStateException(
+        "${cause.message ?: "QNN could not start"}. Automatic fallback is disabled; enable it or choose a compatible GPU/CPU model edition.",
+        cause
+    )
 
 class LocalNpuPackageException(cause: Throwable) :
     IllegalStateException(

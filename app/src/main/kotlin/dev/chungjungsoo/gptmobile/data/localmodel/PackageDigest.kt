@@ -54,8 +54,9 @@ internal object PackageDigest {
         val key = sha256(canonical.toByteArray())
         val cache = File(cacheDirectory, "model-identity-$key")
         val cached = cache.takeIf { it.isFile && it.length() <= 512 }?.readLines().orEmpty()
-        if (cached.size == 5 && cached[0] == canonical && cached[1] == size.toString() &&
-            cached[2] == modified.toString() && cached[3] == fileKey && cached[4].matches(Regex("[a-fA-F0-9]{64}"))
+        if (cached.size == 5 && cached[0] == canonical && cached[1] == size.toString()
+            && cached[2] == modified.toString() && cached[3] == fileKey
+            && cached[4].matches(Regex("[a-fA-F0-9]{64}"))
         ) {
             return cached[4]
         }
@@ -64,8 +65,9 @@ internal object PackageDigest {
         check(directory != null && (directory.isDirectory || directory.mkdirs())) { "Could not prepare model identity cache" }
         val temporary = File(cache.parentFile, "${cache.name}.tmp")
         temporary.writeText(listOf(canonical, size, modified, fileKey, digest).joinToString("\n"))
-        check(temporary.renameTo(cache) || run { temporary.copyTo(cache, overwrite = true); temporary.delete(); true }) {
-            "Could not save model identity cache"
+        if (!temporary.renameTo(cache)) {
+            temporary.copyTo(cache, overwrite = true)
+            check(temporary.delete()) { "Could not remove temporary model identity cache" }
         }
         return digest
     }

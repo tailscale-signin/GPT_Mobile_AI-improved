@@ -138,11 +138,15 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         mutex.withLock {
             loadLocked()
             val recovered = mutableHistory.value.map { run ->
-                if (run.finished) run else run.copy(
-                    finished = true,
-                    canceled = true,
-                    stoppedReason = run.stoppedReason ?: "Benchmark interrupted when Android stopped the app."
-                )
+                if (run.finished) {
+                    run
+                } else {
+                    run.copy(
+                        finished = true,
+                        canceled = true,
+                        stoppedReason = run.stoppedReason ?: "Benchmark interrupted when Android stopped the app."
+                    )
+                }
             }
             if (recovered != mutableHistory.value) persist(recovered)
         }
@@ -180,11 +184,15 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             loadLocked()
             persist(
                 runs.distinctBy { it.id }.map { run ->
-                    if (run.finished) run else run.copy(
-                        finished = true,
-                        canceled = true,
-                        stoppedReason = run.stoppedReason ?: "Benchmark was in progress when the backup was created."
-                    )
+                    if (run.finished) {
+                        run
+                    } else {
+                        run.copy(
+                            finished = true,
+                            canceled = true,
+                            stoppedReason = run.stoppedReason ?: "Benchmark was in progress when the backup was created."
+                        )
+                    }
                 }.sortedByDescending { it.startedAt }
             )
         }

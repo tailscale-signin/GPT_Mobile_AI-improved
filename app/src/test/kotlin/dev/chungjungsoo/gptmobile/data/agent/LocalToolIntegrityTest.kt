@@ -34,6 +34,20 @@ class LocalToolIntegrityTest {
     }
 
     @Test
+    fun unchangedInvalidCallsStopAndSmallEvidenceIsNotRewritten() = runBlocking {
+        val bound = ToolExecutionBudget(AgentRunLimits()).bind(object : AgentTool {
+            override val definition = AgentToolDefinition("unsubscribe", "Mutation fixture", schema)
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Must not dispatch")
+        })
+        val arguments = JsonObject(emptyMap())
+        assertEquals("INVALID_ARGUMENTS", bound.execute("first", arguments).errorCode)
+        assertEquals("INVALID_ARGUMENTS", bound.execute("second", arguments).errorCode)
+        assertEquals("REPEATED_FAILURE", bound.execute("third", arguments).errorCode)
+        val small = ToolResultContent.Text("Exact observation")
+        assertEquals(small, ToolResultEnvelope.compact(small, 1024))
+    }
+
+    @Test
     fun largeJsonThenSecondToolPreservesWholeEvidence() = runBlocking {
         val payload = buildJsonObject {
             put("indexedFallback", true)

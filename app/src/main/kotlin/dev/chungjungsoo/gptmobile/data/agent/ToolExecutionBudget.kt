@@ -44,7 +44,10 @@ class ToolExecutionBudget(
             if (signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
             if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
             val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
-            if (invalid.isNotEmpty()) return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", invalid.joinToString("; "))) }
+            if (invalid.isNotEmpty()) {
+                failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
+                return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", invalid.joinToString("; "))) }
+            }
             if (!tryAcquireCall()) {
                 val message = toolCallBudgetMessage()
                 AppLogRecorder.record(
@@ -126,6 +129,7 @@ class ToolExecutionBudget(
                     )
                     throw cancellation
                 } catch (error: Exception) {
+                    failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     val boundedResult = bounded(ToolResultEnvelope.error(callId, "PROVIDER_UNAVAILABLE", failureMessage(error), dispatched = true))
                     success = !boundedResult.isError
                     return@execution boundedResult

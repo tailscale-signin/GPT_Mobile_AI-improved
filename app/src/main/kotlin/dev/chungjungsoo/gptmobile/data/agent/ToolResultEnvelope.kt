@@ -68,6 +68,7 @@ internal object ToolResultEnvelope {
 
     /** Keep complete records, metadata and qualifications. Never slice serialized JSON. */
     fun compact(content: ToolResultContent, maxBytes: Int): ToolResultContent {
+        if (element(content).toString().toByteArray(Charsets.UTF_8).size <= maxBytes) return content
         if (content is ToolResultContent.Text) {
             val parsed = runCatching { Json.parseToJsonElement(content.text) }.getOrNull()
             if (parsed != null && (parsed is JsonObject || parsed is JsonArray)) return compact(ToolResultContent.Json(parsed), maxBytes)

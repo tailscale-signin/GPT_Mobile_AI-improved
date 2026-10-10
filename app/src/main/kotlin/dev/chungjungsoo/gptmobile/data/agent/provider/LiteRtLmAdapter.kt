@@ -256,6 +256,7 @@ class LiteRtLmAdapter(
                 val collectedToolResults = java.util.concurrent.CopyOnWriteArrayList<Pair<String, AgentToolResult>>()
                 val modelEvidenceRemaining = java.util.concurrent.atomic.AtomicInteger(plan.toolResultBytes)
                 val callbackCount = java.util.concurrent.atomic.AtomicInteger()
+                val callbackFailures = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
                 var nativeToolsUsed = false
                 val runToolEventSink: suspend (ProviderEvent) -> Unit = { event ->
                     if (event is ProviderEvent.ToolCall) nativeToolsUsed = true
@@ -342,13 +343,17 @@ class LiteRtLmAdapter(
                                             toolExecutor = if (descriptors.isNotEmpty()) {
                                                 LocalToolExecutor { name, argumentsJson ->
                                                     if (callbackCount.incrementAndGet() > 32) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("CALLBACK_LIMIT")
-                                                    executeBoundTool(
+                                                    val signature = name + argumentsJson.hashCode()
+                                                    if ((callbackFailures[signature]?.get() ?: 0) >= 2) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("REPEATED_FAILURE")
+                                                    val response = executeBoundTool(
                                                         name,
                                                         argumentsJson,
                                                         exclusiveToolsByName,
                                                         exclusiveToolEventSink,
                                                         modelEvidenceRemaining
                                                     )
+                                                    if ((kotlinx.serialization.json.Json.parseToJsonElement(response) as JsonObject)["status"]?.toString() == "\"error\"") callbackFailures.computeIfAbsent(signature) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet()
+                                                    response
                                                 }
                                             } else {
                                                 null
@@ -535,10 +540,14 @@ class LiteRtLmAdapter(
             throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("MODEL_EVIDENCE_LIMIT")
         }
         val arguments = runCatching { Json.parseToJsonElement(argumentsJson) as? JsonObject }.getOrNull()
-            ?: return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(
-                toolName,
-                dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(UUID.randomUUID().toString(), "INVALID_ARGUMENTS", "Tool arguments must be a valid JSON object. No action was dispatched.")
-            )
+        if (arguments == null) {
+            val call = ProviderEvent.ToolCall(UUID.randomUUID().toString(), toolName, buildJsonObject {})
+            val result = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(call.callId, "INVALID_ARGUMENTS", "Tool arguments must be a valid JSON object. No action was dispatched.")
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.completed(toolName, result)
+            eventSink?.invoke(call)
+            eventSink?.invoke(ProviderEvent.ToolResult(call, result))
+            return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.encode(toolName, result)
+        }
         val call = ProviderEvent.ToolCall(UUID.randomUUID().toString(), toolName, arguments)
         eventSink?.invoke(call)
         val result = try {
@@ -564,7 +573,8 @@ class LiteRtLmAdapter(
         }
         val projected = if (modelEvidenceRemaining != null) {
             val allowance = maxOf(128, (modelEvidenceRemaining.get() - 384) / 2)
-            result.copy(content = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(result.content, allowance), retainedContent = result.retainedContent ?: result.content)
+            val compacted = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(result.content, allowance)
+            result.copy(content = compacted, retainedContent = result.retainedContent ?: result.content.takeIf { compacted != result.content })
         } else {
             result
         }

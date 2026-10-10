@@ -5,7 +5,7 @@ import json
 import re
 import uuid
 from gateway_security import current_device
-from v14.actions import ActionLedger, ActionReplay, ExternalOutcomeUnknown, current_gateway_job_id, current_gateway_tool_call_id
+from v14.actions import ActionLedger, ActionReplay, ExternalOutcomeUnknown, current_gateway_job_id, current_gateway_tool_call_id, logical_action_id
 from v14.contracts import SchemaValidationError, validate_arguments, validate_schema
 
 
@@ -64,10 +64,11 @@ def install_exact_routing(runtime):
         schema_digest = hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).hexdigest()
         binding = {'server': meta['server'], 'tool': meta['tool'], 'schemaDigest': schema_digest,
                    'bindingRevision': 'gptmobile.tool-binding.v1'}
-        action_id = str(call_id or current_gateway_tool_call_id.get() or ('internal-' + uuid.uuid4().hex))
-        job_id = str(current_gateway_job_id.get() or action_id)
+        model_call_id = str(call_id or current_gateway_tool_call_id.get() or "") or None
+        job_id = str(current_gateway_job_id.get() or ("internal_" + model_call_id if model_call_id else "internal_" + uuid.uuid4().hex))
         principal_id = str(current_device.get() or 'unowned')
-        admitted = ledger.begin(principal_id, job_id, action_id, binding, arguments)
+        action_id = logical_action_id(job_id, binding, arguments)
+        admitted = ledger.begin(principal_id, job_id, action_id, binding, arguments, model_call_id=model_call_id)
         if isinstance(admitted, ActionReplay):
             return admitted.result
         if admitted is not None:

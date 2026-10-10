@@ -1,10 +1,13 @@
 """Focused durable action-ledger tests; intentionally independent of FastAPI."""
 import sqlite3
+import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from contextvars import ContextVar
+from unittest.mock import Mock
 
 from v14.actions import (
     ActionConflict,
@@ -12,6 +15,7 @@ from v14.actions import (
     ActionReplay,
     ExternalOutcomeUnknown,
     IdempotencyConflict,
+    current_gateway_job_id,
 )
 
 
@@ -128,6 +132,57 @@ class ActionLedgerTests(unittest.TestCase):
             from v14.actions import IdempotencyExpired
             with self.assertRaises(IdempotencyExpired):
                 self.ledger.admit_request("owner", "POST /chat", "idem-exp", {"x": 1}, "job-2", ttl_seconds=1)
+
+    def test_exact_dispatch_replays_known_result_and_blocks_unknown_write(self):
+        try:
+            from gateway_security import current_device
+        except ModuleNotFoundError as exc:
+            if exc.name != "fastapi":
+                raise
+            import types
+            security = types.ModuleType("gateway_security")
+            security.current_device = ContextVar("test_gateway_device", default=None)
+            sys.modules["gateway_security"] = security
+            current_device = security.current_device
+
+        from v14.tools import install_exact_routing
+
+        definition = {"function": {"name": "inventory_lookup", "parameters": {
+            "type": "object", "properties": {"sku": {"type": "string"}}, "required": ["sku"]
+        }}}
+        runtime = SimpleNamespace(
+            get_all_mcp_tools=lambda force_refresh=False: [definition],
+            load_mcp_config=lambda: {"inventory": {}},
+            mcp_tool_metadata={"inventory_lookup": {"server": "inventory", "tool": "lookup"}},
+            mcp_cache_lock=threading.RLock(), mcp_tools_cache=[definition],
+            mcp_call=Mock(return_value={"ok": True}),
+            GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True,
+            durable_job_lock=threading.RLock(),
+            _durable_connect=lambda: sqlite3.connect(Path(self.temp.name) / "dispatch.db", timeout=5),
+        )
+        install_exact_routing(runtime)
+        token = current_device.set("owner")
+        job_token = current_gateway_job_id.set("job-1")
+        try:
+            first = runtime._execute_mcp_tool_single("inventory_lookup", {"sku": "A"}, call_id="stable")
+            second = runtime._execute_mcp_tool_single("inventory_lookup", {"sku": "A"}, call_id="stable")
+            third = runtime._execute_mcp_tool_single("inventory_lookup", {"sku": "A"}, call_id="fresh-provider-id")
+            self.assertEqual(first, second)
+            self.assertEqual(first, third)
+            runtime.mcp_call.assert_called_once()
+
+            runtime.mcp_call.reset_mock(side_effect=True, return_value=True)
+            runtime.mcp_call.side_effect = TimeoutError("response lost")
+            with self.assertRaises(TimeoutError):
+                runtime._execute_mcp_tool_single("inventory_lookup", {"sku": "B"}, call_id="uncertain")
+            with self.assertRaises(ExternalOutcomeUnknown):
+                runtime._execute_mcp_tool_single("inventory_lookup", {"sku": "B"}, call_id="fresh-provider-id")
+            with self.assertRaises(ExternalOutcomeUnknown):
+                runtime._execute_mcp_tool_single("inventory_lookup", {"sku": "C"}, call_id="different-action")
+            runtime.mcp_call.assert_called_once()
+        finally:
+            current_gateway_job_id.reset(job_token)
+            current_device.reset(token)
 
 
 if __name__ == "__main__":

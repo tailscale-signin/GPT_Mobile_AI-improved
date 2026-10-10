@@ -58,6 +58,12 @@ def canonical_json(value: object, *, maximum_bytes: int) -> tuple[str, str]:
     return encoded, hashlib.sha256(raw).hexdigest()
 
 
+def logical_action_id(job_id: str, binding: dict, arguments: object) -> str:
+    _, digest = canonical_json({"job": job_id, "binding": binding, "arguments": arguments},
+                               maximum_bytes=MAX_ACTION_ARGUMENT_BYTES + 16 * 1024)
+    return "logical_" + digest
+
+
 class ActionLedger:
     """Keep intent, frozen binding, arguments and result certainty in SQLite."""
 
@@ -81,6 +87,7 @@ class ActionLedger:
             binding_json TEXT NOT NULL,
             binding_digest TEXT NOT NULL,
             argument_digest TEXT NOT NULL,
+            model_call_id_digest TEXT,
             state TEXT NOT NULL CHECK(state IN ('dispatching','completed','completed_omitted','uncertain')),
             certainty TEXT NOT NULL CHECK(certainty IN ('known','unknown')),
             result_json TEXT,
@@ -89,6 +96,10 @@ class ActionLedger:
             PRIMARY KEY(principal_id, job_id, action_id)
         )""")
         db.execute("CREATE INDEX IF NOT EXISTS index_gateway_actions_updated ON gateway_actions(updated_at)")
+        columns = {row[1] for row in db.execute("PRAGMA table_info(gateway_actions)")}
+        if "model_call_id_digest" not in columns:
+            db.execute("ALTER TABLE gateway_actions ADD COLUMN model_call_id_digest TEXT")
+        db.execute("CREATE INDEX IF NOT EXISTS index_gateway_actions_call_id ON gateway_actions(principal_id,job_id,model_call_id_digest)")
 
     @staticmethod
     def _create_request_table(db):
@@ -149,11 +160,15 @@ class ActionLedger:
             finally:
                 db.close()
 
-    def begin(self, principal_id: str, job_id: str, action_id: str, binding: dict, arguments: object):
+    def begin(self, principal_id: str, job_id: str, action_id: str, binding: dict, arguments: object,
+              model_call_id: str | None = None):
         if not principal_id or principal_id == "unowned" or not job_id or not action_id:
             raise ActionLedgerUnavailable("A trusted principal, gateway job and tool call ID are required")
         binding_json, binding_digest = canonical_json(binding, maximum_bytes=16 * 1024)
         _, argument_digest = canonical_json(arguments, maximum_bytes=MAX_ACTION_ARGUMENT_BYTES)
+        if model_call_id is not None and len(str(model_call_id)) > 256:
+            raise ActionLedgerError("Provider tool call ID exceeds the durable ledger limit")
+        call_id_digest = hashlib.sha256(str(model_call_id).encode("utf-8")).hexdigest() if model_call_id else None
         lock = getattr(self.runtime, "durable_job_lock", None)
         if lock is None:
             raise ActionLedgerUnavailable("Durable action lock is unavailable")
@@ -163,6 +178,11 @@ class ActionLedger:
                 self._create_table(db)
                 with db:
                     db.execute("BEGIN IMMEDIATE")
+                    if call_id_digest:
+                        call_row = db.execute("SELECT binding_digest,argument_digest FROM gateway_actions WHERE principal_id=? AND job_id=? AND model_call_id_digest=?",
+                                              (principal_id, job_id, call_id_digest)).fetchone()
+                        if call_row and (call_row[0] != binding_digest or call_row[1] != argument_digest):
+                            raise ActionConflict("Model tool call ID was reused with different arguments or binding")
                     row = db.execute("SELECT binding_digest,argument_digest,state,certainty,result_json FROM gateway_actions WHERE principal_id=? AND job_id=? AND action_id=?",
                                      (principal_id, job_id, action_id)).fetchone()
                     if row:
@@ -174,12 +194,16 @@ class ActionLedger:
                         if state == "completed_omitted":
                             raise ActionResultUnavailable("The prior external result was recorded but exceeded the replay limit")
                         raise ExternalOutcomeUnknown("A prior dispatch has no safely replayable result")
+                    unresolved = db.execute("SELECT 1 FROM gateway_actions WHERE principal_id=? AND job_id=? AND state IN ('dispatching','uncertain') LIMIT 1",
+                                            (principal_id, job_id)).fetchone()
+                    if unresolved:
+                        raise ExternalOutcomeUnknown("This gateway job has an unresolved external action; reconcile it before further dispatch")
                     count = db.execute("SELECT COUNT(*) FROM gateway_actions").fetchone()[0]
                     if count >= MAX_ACTION_ROWS:
                         raise ActionLedgerUnavailable("Durable action ledger reached its configured capacity")
                     now = time.time()
-                    db.execute("INSERT INTO gateway_actions(principal_id,job_id,action_id,binding_json,binding_digest,argument_digest,state,certainty,result_json,created_at,updated_at) VALUES(?,?,?,?,?,?, 'dispatching','unknown',NULL,?,?)",
-                               (principal_id, job_id, action_id, binding_json, binding_digest, argument_digest, now, now))
+                    db.execute("INSERT INTO gateway_actions(principal_id,job_id,action_id,binding_json,binding_digest,argument_digest,model_call_id_digest,state,certainty,result_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?, 'dispatching','unknown',NULL,?,?)",
+                               (principal_id, job_id, action_id, binding_json, binding_digest, argument_digest, call_id_digest, now, now))
                 return None
             except ActionLedgerError:
                 raise

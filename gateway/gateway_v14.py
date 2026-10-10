@@ -20,6 +20,7 @@ from v14.identity import Admission
 from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
 from v14.errors import GatewayFailure
+from v14.deadlines import request_deadline
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
@@ -63,6 +64,11 @@ async def chat(request: Request):
     try:
         payload = await request.json()
         runtime.validate_chat_request(payload)
+        try:
+            request_deadline(payload)
+        except ValueError:
+            return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
+                                             "message": "The gateway run-control fields are unsupported or invalid.", "retryable": False}}, status_code=400)
         request._json = apply_client_recall(payload, runtime.LLAMA_BASE)
         response = await runtime.chat_completions(request)
         if isinstance(response, StreamingResponse):

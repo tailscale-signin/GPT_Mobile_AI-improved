@@ -22,12 +22,16 @@ class DeadlineTests(unittest.TestCase):
             deadline.require_time()
 
     def test_request_deadline_is_bounded_and_validated(self):
-        deadline = request_deadline({"gateway": {"budget": {"totalDeadlineMs": 5000}}})
+        deadline = request_deadline({"gateway": {"schema": "gptmobile.gateway-run.v1",
+                                                  "budget": {"totalDeadlineMs": 5000}}})
         self.assertGreater(deadline.remaining(), 4.9)
         with self.assertRaises(ValueError):
             request_deadline({"gateway": {"budget": {"totalDeadlineMs": 900001}}})
         with self.assertRaises(ValueError):
             request_deadline({"gateway": {"budget": {"totalDeadlineMs": True}}})
+        with self.assertRaises(ValueError):
+            request_deadline({"gateway": {"profileId": "client-controlled"}})
+        self.assertGreater(request_deadline({}).remaining(), 899)
 
     def test_deadline_watchdog_cancels_active_processing(self):
         from types import SimpleNamespace
@@ -56,7 +60,8 @@ class DeadlineTests(unittest.TestCase):
         service = ServiceState(max_workers=1)
         service.install(runtime)
         status, body = runtime.process_chat_payload(
-            {"gateway": {"budget": {"totalDeadlineMs": 100}}}, cancelled, None, hard_cancelled)
+            {"gateway": {"schema": "gptmobile.gateway-run.v1",
+                          "budget": {"totalDeadlineMs": 100}}}, cancelled, None, hard_cancelled)
         self.assertEqual(status, 408)
         self.assertEqual(body["error"]["code"], "deadline_exceeded")
         self.assertEqual(service.snapshot()["activeWorkers"], 0)

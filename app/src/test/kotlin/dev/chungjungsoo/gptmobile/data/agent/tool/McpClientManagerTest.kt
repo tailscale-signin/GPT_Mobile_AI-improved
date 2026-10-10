@@ -45,7 +45,13 @@ class McpClientManagerTest {
             val initial = requests
             assertTrue(runCatching { manager.listTools(config) }.isFailure)
             assertEquals(initial, requests)
-            assertTrue(runCatching { manager.listTools(config.copy(authorizationHeader = "Bearer replacement")) }.isFailure)
+            val replacementConfig = McpConnectionConfig(
+                "auth",
+                "https://example.com/mcp",
+                false,
+                "Bearer replacement"
+            )
+            assertTrue(runCatching { manager.listTools(replacementConfig) }.isFailure)
             assertTrue(requests > initial)
         } finally {
             manager.closeAll()

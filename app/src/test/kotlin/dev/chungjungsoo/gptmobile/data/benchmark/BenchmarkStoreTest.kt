@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -13,6 +14,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class)
 class BenchmarkStoreTest {
+    @Before
+    fun resetDatabase() {
+        ApplicationProvider.getApplicationContext<Context>().deleteDatabase("benchmark_v2.db")
+    }
+
     @Test
     fun `bad records do not disable benchmarks or discard recoverable history`() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -28,6 +34,7 @@ class BenchmarkStoreTest {
         store.save(valid.copy(id = "new"))
         assertEquals(2, store.history.value.size)
         assertEquals(original, prefs.getString("recovery_history", null))
+        store.close()
     }
 
     @Test
@@ -47,5 +54,8 @@ class BenchmarkStoreTest {
         val deleted = BenchmarkStore(context)
         deleted.load()
         assertTrue(deleted.history.value.isEmpty())
+        store.close()
+        restored.close()
+        deleted.close()
     }
 }

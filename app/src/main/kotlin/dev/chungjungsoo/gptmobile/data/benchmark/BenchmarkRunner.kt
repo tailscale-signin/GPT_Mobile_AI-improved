@@ -20,21 +20,30 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-data class BenchmarkCase(val id: String, val label: String, val category: String, val prompt: String)
+data class BenchmarkCase(
+    val id: String,
+    val label: String,
+    val category: String,
+    val prompt: String,
+    val expected: String? = null,
+    val warmup: Boolean = false,
+    val workload: String = "short",
+    val seed: Int = 0
+)
 
 fun benchmarkSuite(mode: BenchmarkMode): List<BenchmarkCase> = if (mode == BenchmarkMode.DELEGATION) {
     delegationBenchmarkSuite()
+} else if (mode == BenchmarkMode.QUICK) {
+    listOf(
+        BenchmarkCase("speed-0", "Delivery", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."),
+        BenchmarkCase("instruction", "Exact instruction", "task", "Reply with exactly BENCHMARK_READY and nothing else.", "BENCHMARK_READY"),
+        BenchmarkCase("json", "Structured JSON", "json", "Return only this JSON object: {\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}"),
+        BenchmarkCase("arithmetic", "Arithmetic", "task", "What is 17 * 23 + 9? Reply with only the integer.", "400"),
+        BenchmarkCase("context", "Conversation recall", "task", "What was the parcel code I gave you? Reply with only the code.", "ORCHID-742"),
+        BenchmarkCase("tool", "Tool readiness", "tools", "Call benchmark_lookup with key=\"parcel\". Reply with only the code returned by that tool. Do not guess.")
+    )
 } else {
-    buildList {
-        repeat(if (mode == BenchmarkMode.FULL) 3 else 1) { index ->
-            add(BenchmarkCase("speed-$index", "Generation ${index + 1}", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."))
-        }
-        add(BenchmarkCase("instruction", "Exact instruction", "task", "Reply with exactly BENCHMARK_READY and nothing else."))
-        add(BenchmarkCase("json", "Structured JSON", "json", "Return only this JSON object, without markdown or explanation: {\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}"))
-        add(BenchmarkCase("arithmetic", "Arithmetic", "task", "What is 17 * 23 + 9? Reply with only the integer."))
-        if (mode == BenchmarkMode.FULL) add(BenchmarkCase("context", "Conversation recall", "task", "What was the parcel code I gave you? Reply with only the code."))
-        add(BenchmarkCase("tool", "Tool round trip", "tools", "Call benchmark_lookup with key=\"parcel\". Reply with only the code returned by that tool. Do not guess."))
-    }
+    BenchmarkSuiteRegistry.standard(mode == BenchmarkMode.AGENT)
 }
 
 /** Runs only synthetic prompts and an in-memory fixture. No chat history, MCP or device tools. */
@@ -70,6 +79,7 @@ class BenchmarkRunner(
         val started = now()
         val text = StringBuilder()
         var first: Long? = null
+        var firstChunkCharacters = 0
         var lastChunk: Long? = null
         var longestGap: Long? = null
         var chunks = 0
@@ -90,7 +100,13 @@ class BenchmarkRunner(
             test.id, test.label, test.category, outcome, (now() - started).coerceAtLeast(0), first,
             tokens + if (roundAccounted) 0 else roundTokens ?: ((text.length - roundStart + 3) / 4),
             estimated || (!roundAccounted && roundTokens == null), text.length, chunks, longestGap, calls.size, successful.size,
-            text.take(1000).toString(), error, lastChunk?.let { it - started }, nativeMetrics, inputTokens + if (roundAccounted) 0 else roundInputTokens
+            text.take(1000).toString(), error, lastChunk?.let { it - started }, nativeMetrics, inputTokens + if (roundAccounted) 0 else roundInputTokens,
+            referenceTokens = ReferenceTextTokenizer.starts(text.toString()).size,
+            referenceDecodeTokens = ReferenceTextTokenizer.starts(text.toString()).count { it >= firstChunkCharacters },
+            tokenBasis = ReferenceTextTokenizer.VERSION,
+            warmup = test.warmup,
+            workload = test.workload,
+            firstChunkCharacters = firstChunkCharacters
         )
         try {
             val finished = withTimeoutOrNull(limitMs) {
@@ -114,7 +130,10 @@ class BenchmarkRunner(
                         when (event) {
                             is ProviderEvent.TextDelta -> if (event.text.isNotEmpty()) {
                                 val time = now()
-                                if (first == null) first = (time - started).coerceAtLeast(0)
+                                if (first == null) {
+                                    first = (time - started).coerceAtLeast(0)
+                                    firstChunkCharacters = event.text.length
+                                }
                                 lastChunk?.let { longestGap = maxOf(longestGap ?: 0, time - it) }
                                 lastChunk = time
                                 chunks++
@@ -174,15 +193,17 @@ class BenchmarkRunner(
             if (finished != true) return sample(BenchmarkOutcome.TIMED_OUT, "Exceeded ${limitMs / 1000}s remaining per-test limit")
             val answer = text.toString().trim()
             val passed = when (test.category) {
-                "speed" -> answer.length >= 100
-                "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement("{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
+                "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || ReferenceTextTokenizer.starts(answer).size >= 128)
+                "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
                 "tools" -> calls.isNotEmpty() && successful.size == calls.size && answer == code
-                else -> answer == when (test.id) {
-                    "instruction" -> "BENCHMARK_READY"
-                    "arithmetic" -> "400"
-                    "context" -> "ORCHID-742"
-                    else -> ""
-                }
+                else -> answer == (
+                    test.expected ?: when (test.id) {
+                        "instruction" -> "BENCHMARK_READY"
+                        "arithmetic" -> "400"
+                        "context" -> "ORCHID-742"
+                        else -> ""
+                    }
+                    )
             }
             return sample(if (passed) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED, if (passed) null else "Response did not meet the fixture's expected result.")
         } catch (cancel: CancellationException) {

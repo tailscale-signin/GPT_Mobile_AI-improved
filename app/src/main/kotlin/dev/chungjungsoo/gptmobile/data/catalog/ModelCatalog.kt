@@ -23,7 +23,12 @@ data class CatalogEntry(
     val minAppVersion: String = "0.0.0",
     val maxContextTokens: Int = 0,
     val socToModelFiles: Map<String, SocVariant> = emptyMap(),
-    val supportsMtp: Boolean = false
+    val supportsMtp: Boolean = false,
+    val manifestVersion: Int = 1,
+    val sha256: String = "",
+    val upstreamRevision: String = "",
+    val tokenizerFormat: String = "",
+    val runtimeRequirement: String = ""
 )
 
 @Serializable
@@ -49,7 +54,9 @@ data class SocVariant(
     val commitHash: String = "",
     val sizeInBytes: Long = 0L,
     val contextSize: Int = 0,
-    val quantization: String = ""
+    val quantization: String = "",
+    val sha256: String = "",
+    val runtimeRequirement: String = ""
 )
 
 /** MTP is multi-token prediction, not the MediaTek accelerator. */

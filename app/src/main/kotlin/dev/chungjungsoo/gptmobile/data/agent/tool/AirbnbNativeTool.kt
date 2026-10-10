@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
@@ -27,8 +28,8 @@ internal class AirbnbNativeTool(
         "airbnb",
         "Airbnb public listing search and details, running in the app without an OpenBnB account. " +
             "Use action=search with location, or action=details with a numeric listing id. Dates and guests are optional. " +
-            "Creates listing cards and photo galleries. Indexed fallback results do not confirm prices, dates or availability. Booking opens Airbnb.",
-        Json.parseToJsonElement("""{"type":"object","properties":{"action":{"type":"string","enum":["search","details"],"default":"search"},"location":{"type":"string","maxLength":200},"id":{"type":"string","pattern":"^[0-9]{1,30}$"},"checkin":{"type":"string"},"checkout":{"type":"string"},"adults":{"type":"integer","minimum":1,"maximum":50},"children":{"type":"integer","minimum":0,"maximum":50},"infants":{"type":"integer","minimum":0,"maximum":50},"pets":{"type":"integer","minimum":0,"maximum":20}},"additionalProperties":false}""") as JsonObject
+            "For nearby search supply observed origin_latitude, origin_longitude and radius_km. Distance is verified only for listings with coordinates; say nearest among verified returned listings. Creates listing cards and photo galleries. Indexed fallback results do not confirm prices, dates or availability. Booking opens Airbnb.",
+        Json.parseToJsonElement("""{"type":"object","properties":{"action":{"type":"string","enum":["search","details"],"default":"search"},"location":{"type":"string","maxLength":200},"id":{"type":"string","pattern":"^[0-9]{1,30}$"},"checkin":{"type":"string"},"checkout":{"type":"string"},"adults":{"type":"integer","minimum":1,"maximum":50},"children":{"type":"integer","minimum":0,"maximum":50},"infants":{"type":"integer","minimum":0,"maximum":50},"pets":{"type":"integer","minimum":0,"maximum":20},"origin_latitude":{"type":"number","minimum":-90,"maximum":90},"origin_longitude":{"type":"number","minimum":-180,"maximum":180},"radius_km":{"type":"number","minimum":0.1,"maximum":500}},"additionalProperties":false}""") as JsonObject
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -74,14 +75,22 @@ internal class AirbnbNativeTool(
                 AirbnbListings.normalize(JsonObject(mapOf("searchResults" to JsonArray(candidates))), arguments)
             }
             check(allowed()) { "Airbnb was disabled." }
+            val originLat = (arguments["origin_latitude"] as? JsonPrimitive)?.doubleOrNull
+            val originLon = (arguments["origin_longitude"] as? JsonPrimitive)?.doubleOrNull
+            val validatedListings = if (originLat != null && originLon != null) {
+                dev.chungjungsoo.gptmobile.data.airbnb.AirbnbGeography.filter(listings, originLat, originLon, (arguments["radius_km"] as? JsonPrimitive)?.doubleOrNull ?: 25.0)
+            } else {
+                listings
+            }
             val payload = JsonObject(
-                AirbnbListings.json(listings.map { it.copy(provider = if (fallback) "Public web index" else "Airbnb public page") }, "Android public browsing") + buildJsonObject {
+                AirbnbListings.json(validatedListings.map { it.copy(observedAtEpochMillis = System.currentTimeMillis(), provider = if (fallback) "Public web index" else "Airbnb public page") }, "Android public browsing") + buildJsonObject {
                     put("indexedFallback", fallback)
+                    put("geographyQualification", "Nearest among returned listings with verified coordinates only. Listings without coordinates have unverified distance; search coverage is incomplete.")
                     put("notice", if (fallback) "Public indexed listings. Dates, fees, prices and availability are unconfirmed; open listing details or Airbnb to verify." else "Public page observations only. Missing prices, fees and review text remain unknown. Confirm availability and final total on Airbnb.")
-                    if (listings.isEmpty()) put("error", "No public listings were returned. Try another location or open Airbnb.")
+                    if (validatedListings.isEmpty()) put("error", "No public listings were returned. Try another location or open Airbnb.")
                 }
             )
-            AgentToolResult(callId, ToolResultContent.Json(payload), listings.isEmpty())
+            AgentToolResult(callId, ToolResultContent.Json(payload), validatedListings.isEmpty())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -91,7 +100,7 @@ internal class AirbnbNativeTool(
     }
 
     internal fun validate(arguments: JsonObject) {
-        require(arguments.keys.all { it in setOf("action", "location", "id", "checkin", "checkout", "adults", "children", "infants", "pets") })
+        require(arguments.keys.all { it in setOf("action", "location", "id", "checkin", "checkout", "adults", "children", "infants", "pets", "origin_latitude", "origin_longitude", "radius_km") })
         for (key in listOf("action", "location", "id", "checkin", "checkout")) {
             arguments[key]?.let { require(it is JsonPrimitive && it.isString) }
         }
@@ -99,6 +108,14 @@ internal class AirbnbNativeTool(
         require(action in setOf("search", "details"))
         if (action == "search") require(text(arguments, "location")?.let { it.isNotBlank() && it.length <= 200 && it.none { char -> char.code < 32 } } == true)
         if (action == "details") require(text(arguments, "id")?.matches(Regex("[0-9]{1,30}")) == true)
+        val lat = (arguments["origin_latitude"] as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
+        val lon = (arguments["origin_longitude"] as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
+        require((arguments["origin_latitude"] == null) == (arguments["origin_longitude"] == null))
+        if (arguments["origin_latitude"] != null) require(lat != null && lat.isFinite() && lat in -90.0..90.0 && lon != null && lon.isFinite() && lon in -180.0..180.0)
+        arguments["radius_km"]?.let { value ->
+            val radius = (value as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
+            require(lat != null && radius != null && radius.isFinite() && radius in 0.1..500.0)
+        }
         val checkin = text(arguments, "checkin")?.let(LocalDate::parse)
         val checkout = text(arguments, "checkout")?.let(LocalDate::parse)
         require((checkin == null) == (checkout == null)) { "Supply both travel dates." }

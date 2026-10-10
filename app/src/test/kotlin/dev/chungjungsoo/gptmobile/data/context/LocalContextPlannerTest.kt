@@ -17,7 +17,7 @@ class LocalContextPlannerTest {
         assertTrue(plan.tools.isNotEmpty())
         assertTrue(plan.omittedTools > 0)
         assertTrue(plan.estimatedPromptTokens < 1024 - 256 - 128 - 128)
-        assertEquals(256, plan.toolResultBytes)
+        assertEquals(512, plan.toolResultBytes)
     }
 
     @Test
@@ -60,6 +60,48 @@ class LocalContextPlannerTest {
     fun `output preference never becomes the engine context size`() {
         val plan = LocalContextPlanner.plan(listOf(turn("x".repeat(2000))), "Hi", "", emptyList(), 8192, 100)
         assertFalse(plan.priorTurns.isEmpty())
+    }
+
+    @Test
+    fun requiredSearchCannotDisappearUnderContextPressure() {
+        val required = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val others = (1..20).map { AgentToolDefinition("a$it", "Unrelated ".repeat(80), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(emptyList(), "Research the latest weather", "", others + required, 1024, null)
+        assertTrue(plan.tools.any { it.name == "web_search" })
+    }
+
+    @Test
+    fun unrelatedSchemasCannotEvictDocumentHistory() {
+        val anchor = turn("Retained document observations " + "important ".repeat(12))
+        val tools = (1..30).map { AgentToolDefinition("unrelated$it", "Management ".repeat(20), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(listOf(anchor), "Summarize the document", "", tools, 1024, null)
+        assertEquals(listOf(anchor), plan.priorTurns)
+        assertTrue(plan.omittedTools > 0)
+    }
+
+    @Test
+    fun largerContextAllowsMoreThanTwoKilobytesOfEvidence() {
+        val tool = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        assertTrue(LocalContextPlanner.plan(emptyList(), "Search", "", listOf(tool), 8192, null).toolResultBytes > 2048)
+    }
+
+    @Test
+    fun optionalSchemasCannotStarveDocumentHistory() {
+        val anchor = turn("Attachment: first.pdf\nOriginal document")
+        val recent = turn("Attachment: recent.pdf\nRecent document")
+        val tools = (1..40).map { AgentToolDefinition("tool$it", "Optional description ".repeat(20), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(listOf(anchor, recent), "Summarize", "", tools, 1024, null)
+        assertEquals(listOf(anchor, recent), plan.priorTurns)
+        assertTrue(plan.omittedTools > 0)
+        assertTrue(plan.estimatedPromptTokens < 384)
+    }
+
+    @Test
+    fun requiredSchemasTakePrecedenceOverHistory() {
+        val search = AgentToolDefinition("web_search", "Search ".repeat(20), buildJsonObject {})
+        val plan = LocalContextPlanner.plan(listOf(turn("x".repeat(600))), "Search", "", listOf(search), 1024, null)
+        assertEquals(listOf(search), plan.tools)
+        assertTrue(plan.priorTurns.isEmpty())
     }
 
     private fun turn(text: String) = ConversationTurn(MessageV2(content = text, platformType = null), null, false)

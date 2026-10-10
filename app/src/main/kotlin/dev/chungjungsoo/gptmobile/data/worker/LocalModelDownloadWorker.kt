@@ -253,13 +253,20 @@ class LocalModelDownloadWorker @AssistedInject constructor(
             outputTmpFile.delete()
             throw IOException("Invalid local model download: ${validation.details}")
         }
+        val expectedDigest = inputData.getString(KEY_SHA256).orEmpty()
+        val actualDigest = try {
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.verify(outputTmpFile, expectedDigest)
+        } catch (error: IOException) {
+            outputTmpFile.delete()
+            throw error
+        }
         val originalFile = File(outputDir, fileName)
-        if (originalFile.exists() && !originalFile.delete()) {
-            throw IOException("Unable to replace existing Local Model file")
-        }
-        if (!outputTmpFile.renameTo(originalFile)) {
-            throw IOException("Unable to finalize Local Model file")
-        }
+        // Atomic replacement preserves the previous usable file until admission succeeds.
+        java.nio.file.Files.move(outputTmpFile.toPath(), originalFile.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        val digestRecord = File(outputDir, "$fileName.digest")
+        val stagingRecord = File(outputDir, "$fileName.digest.tmp")
+        stagingRecord.writeText(actualDigest + "\n" + if (expectedDigest.isBlank()) "identity-only" else "publisher-digest-verified")
+        java.nio.file.Files.move(stagingRecord.toPath(), digestRecord.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
         localModelDao.getById(catalogEntryId)?.let { row ->
             localModelDao.upsert(row.copy(totalBytes = originalFile.length()))
         }
@@ -329,6 +336,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
         const val KEY_DISPLAY_NAME = "display_name"
         const val KEY_DOWNLOAD_URL = "download_url"
         const val KEY_COMMIT_HASH = "commit_hash"
+        const val KEY_SHA256 = "sha256"
         const val KEY_FILE_NAME = "file_name"
         const val KEY_TOTAL_BYTES = "total_bytes"
         const val KEY_ACCESS_TOKEN = "access_token"

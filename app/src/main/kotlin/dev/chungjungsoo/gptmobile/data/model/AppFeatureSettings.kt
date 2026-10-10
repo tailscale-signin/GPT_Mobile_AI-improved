@@ -44,6 +44,7 @@ data class AppFeatureSettings(
     val localModelCache: Boolean = true,
     val localSpeculativeDecoding: SpeculativeDecodingMode = SpeculativeDecodingMode.AUTO,
     val localNativeMetrics: Boolean = false,
+    val localAssist: Boolean = false,
     val localIdleMinutes: Int = 10,
     /** Global service state. Amazon is opt-in; other built-in services preserve their defaults. */
     val pluginExecution: Map<String, PluginExecutionSettings> = emptyMap(),
@@ -70,6 +71,7 @@ data class AppFeatureSettings(
         AppFeature.GITHUB_BLOB_CACHE -> copy(githubBlobCache = enabled)
         AppFeature.LOCAL_MODEL_CACHE -> copy(localModelCache = enabled)
         AppFeature.LOCAL_NATIVE_METRICS -> copy(localNativeMetrics = enabled)
+        AppFeature.LOCAL_ASSIST -> copy(localAssist = enabled)
         AppFeature.BACKGROUND_GENERATION -> copy(backgroundGeneration = enabled)
         AppFeature.RESPONSE_NOTIFICATIONS -> copy(responseNotifications = enabled)
         AppFeature.AUTOMATIC_TITLES -> copy(automaticConversationTitles = enabled)
@@ -155,6 +157,7 @@ enum class AppFeature(
     GITHUB_CONDITIONAL_READS("GitHub Conditional Requests", "Reuse unchanged responses with ETag validation."),
     GITHUB_BLOB_CACHE("GitHub Immutable File Cache", "Reuse source files by their content hash."),
     LOCAL_MODEL_CACHE("Local Compiled-Model Cache", "Reuse compiled model resources between loads."),
+    LOCAL_ASSIST("Local Assist (Trial)", "Use a warm local worker to select complete research records before remote synthesis. Read-only, bounded, and off by default."),
     LOCAL_NATIVE_METRICS("Native Runtime Metrics", "Collect detailed LiteRT and QNN execution metrics."),
     BACKGROUND_GENERATION(
         "Background Generation",

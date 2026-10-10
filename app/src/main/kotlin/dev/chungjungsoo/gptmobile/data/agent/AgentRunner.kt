@@ -48,6 +48,10 @@ class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits()
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>): Flow<AgentRunEvent> = flow {
+        if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
+            emit(failed("Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
+            return@flow
+        }
         val toolByName = tools.associateBy { it.definition.name }
         var executableToolByName = toolByName
         var exposedDefinitions = tools.map { it.definition }

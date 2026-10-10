@@ -61,11 +61,11 @@ class LocalRuntimeRouterTest {
     @Test
     fun liteRtNpuFailurePreservesPackageGuidanceWithoutGpuRetry() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.LITERT_LM
-        liteRtRuntime.failLoadEngineIf = { IllegalStateException("context creation failed") }
+        qnnRuntime.failLoadEngineIf = { IllegalStateException("context creation failed") }
         val spec = testEngineSpec().copy(modelPath = "/models/gemma_SM8750.litertlm")
         val failure = runCatching { router.loadEngine(spec) }.exceptionOrNull()
         assertTrue(failure is LocalNpuPackageException)
-        assertEquals(listOf(LocalAccelerators.NPU), liteRtRuntime.loadEngineCalls.map { it.accelerator })
+        assertEquals(listOf(LocalAccelerators.NPU), qnnRuntime.loadEngineCalls.map { it.accelerator })
         assertEquals(null, router.loadedEngineSpec())
     }
 
@@ -140,7 +140,7 @@ class LocalRuntimeRouterTest {
         qnnRuntime.failLoadEngineIf = { IllegalStateException("HTP unavailable") }
         router.loadEngine(testEngineSpec())
         assertEquals(listOf(LocalAccelerators.GPU), liteRtRuntime.loadEngineCalls.map { it.accelerator })
-        assertEquals(LocalRuntimeBackend.LITERT_LM, fakeSettingRepository.backend)
+        assertEquals(LocalRuntimeBackend.QUALCOMM_QNN, fakeSettingRepository.backend)
         assertEquals(LocalAccelerators.GPU, router.state.value.engineSpec?.accelerator)
         assertTrue(router.isEngineLoaded(testEngineSpec()))
         assertTrue(qnnRuntime.unloadEngineCalls > 0)
@@ -200,9 +200,9 @@ class LocalRuntimeRouterTest {
         holder.loadEngine(spec)
         holder.createConversation(testConversationConfig())
         holder.sendMessage("new backend").toList()
-        assertTrue(qnnRuntime.sendMessageCalls.isEmpty())
-        assertEquals(listOf("new backend"), liteRtRuntime.sendMessageCalls)
-        assertFalse(qnnRuntime.hasOpenConversation())
+        // Direct LiteRT NPU selection uses the guarded QNN path as well.
+        assertEquals(listOf("new backend"), qnnRuntime.sendMessageCalls)
+        assertTrue(liteRtRuntime.sendMessageCalls.isEmpty())
     }
 
     @Test

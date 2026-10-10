@@ -2,12 +2,15 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.room.Room
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -22,13 +25,23 @@ import kotlinx.serialization.json.decodeFromJsonElement
 @Singleton
 class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Context) {
     private val preferences = context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE)
+    private val database = Room.databaseBuilder(context.applicationContext, BenchmarkDatabase::class.java, "benchmark_v2.db").build()
+    private val dao = database.dao()
+    private val mutableSnapshot = MutableStateFlow<BenchmarkScoreSnapshot?>(null)
+    internal val snapshot = mutableSnapshot.asStateFlow()
     private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
+    private var activeRevisions: Map<String, String>? = preferences.getString("active_revisions", null)?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
     private val mutableHistory = MutableStateFlow<List<BenchmarkRun>>(emptyList())
     val history = mutableHistory.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile private var writingMirror = false
+
+    @Volatile private var restoreRequested = false
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "history" || key == null) {
+        if (!writingMirror && (key == "history" || key == null)) {
+            restoreRequested = true
             scope.launch {
                 mutex.withLock {
                     loaded = false
@@ -43,13 +56,25 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
 
     init {
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
+        scope.launch {
+            while (true) {
+                delay(60_000)
+                mutex.withLock {
+                    if (loaded) {
+                        val current = mutableSnapshot.value
+                        val recalculated = DynamicScoreEngine.snapshot(mutableHistory.value, (current?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions)
+                        if (recalculated.rows != current?.rows) publish(mutableHistory.value)
+                    }
+                }
+            }
+        }
     }
 
     suspend fun load() = withContext(Dispatchers.IO) {
         mutex.withLock { loadLocked() }
     }
 
-    private fun loadLocked() {
+    private suspend fun loadLocked() {
         if (loaded) return
         val saved = preferences.getString("history", null)
         val recovered = saved?.let { raw ->
@@ -63,14 +88,33 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             }
             valid
         }.orEmpty()
-        mutableHistory.value = recovered.take(200)
+        val records = dao.runs()
+        val stored = records.mapNotNull { runCatching { json.decodeFromString<BenchmarkRun>(it.payload) }.getOrNull() }
+        val existing = dao.current()
+        // Room is authoritative after a crash between the transaction and backup mirror write.
+        val mirrorGeneration = preferences.getLong("snapshot_generation", 0)
+        val source = if (restoreRequested || existing == null || (saved != null && mirrorGeneration >= existing.generation)) recovered else stored
+        restoreRequested = false
+        mutableSnapshot.value = existing?.let { runCatching { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) }.getOrNull() }
+        if (source != stored || existing == null || DynamicScoreEngine.snapshot(source, 0, System.currentTimeMillis(), activeRevisions).rows != mutableSnapshot.value?.rows) publish(source)
+        mutableHistory.value = source
         loaded = true
+    }
+
+    internal suspend fun updateEnrollment(revisions: Map<String, String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (revisions == activeRevisions) return@withLock
+            activeRevisions = revisions.toMap()
+            check(preferences.edit().putString("active_revisions", json.encodeToString(revisions)).commit()) { "Could not save benchmark enrollment." }
+            loadLocked()
+            publish(mutableHistory.value)
+        }
     }
 
     suspend fun save(run: BenchmarkRun) = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadLocked()
-            persist((listOf(run) + mutableHistory.value.filterNot { it.id == run.id }).take(200))
+            persist((listOf(run) + mutableHistory.value.filterNot { it.id == run.id }))
         }
     }
 
@@ -81,8 +125,34 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         }
     }
 
-    private fun persist(runs: List<BenchmarkRun>) {
-        check(preferences.edit().putString("history", json.encodeToString(runs)).commit()) { "Could not save benchmark history. Check available storage." }
+    private suspend fun publish(runs: List<BenchmarkRun>) {
+        val previous = dao.current()?.generation ?: 0L
+        val next = DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis(), activeRevisions)
+        dao.publish(runs.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) }, BenchmarkSnapshotRecord(next.generation, next.createdAt, json.encodeToString(next)))
+        mutableSnapshot.value = next
+    }
+
+    fun close() {
+        preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
+        scope.cancel()
+        database.close()
+    }
+
+    suspend fun exportJson(): String = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadLocked()
+            json.encodeToString(mutableHistory.value)
+        }
+    }
+
+    private suspend fun persist(runs: List<BenchmarkRun>) {
+        publish(runs)
+        writingMirror = true
+        try {
+            check(preferences.edit().putString("history", json.encodeToString(runs)).putLong("snapshot_generation", mutableSnapshot.value?.generation ?: 0).commit()) { "Benchmark saved in Room, but backup mirror could not be updated. Check available storage." }
+        } finally {
+            writingMirror = false
+        }
         mutableHistory.value = runs
     }
 }

@@ -135,6 +135,7 @@ extensions.configure<ApplicationExtension> {
         require(hfClientId.all { it.isLetterOrDigit() || it in "-_" }) { "Invalid HF OAuth client ID" }
         require(hfRedirect.isEmpty() || Regex("[a-z][a-z0-9+.-]*://[A-Za-z0-9/_.-]+").matches(hfRedirect)) { "Invalid HF OAuth redirect URI" }
         manifestPlaceholders["appAuthRedirectScheme"] = hfRedirect.substringBefore(":").ifEmpty { "gptmobile-hf-unconfigured" }
+        buildConfigField("String", "APP_COMMIT", "\"${providers.environmentVariable("GITHUB_SHA").orElse(providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText.map { it.trim() }).getOrElse("unknown")}\"")
         buildConfigField("String", "LITERT_LM_VERSION", "\"${libs.versions.litertlm.get()}\"")
         buildConfigField("String", "QAIRT_VERSION", "\"${libs.versions.qnn.get()}\"")
         buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"$hfClientId\"")

@@ -53,16 +53,13 @@ class LiteRtLmAdapterTest {
         }
         val holder = LocalEngineHolder(fake, timeProvider = { 1000L })
         val adapter = adapter(holder)
-        assertEquals(null, adapter.summarizeActivity("Searching"))
+        assertEquals("Searching", adapter.summarizeActivity("Searching"))
         assertTrue(fake.loadEngineCalls.isEmpty())
         holder.loadEngine(dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec("/models/gemma.litertlm", LocalAccelerators.CPU, 1024))
-        assertEquals("Searching sources", adapter.summarizeActivity("Searching"))
+        assertEquals("Searching", adapter.summarizeActivity("Searching"))
         assertEquals(1, fake.loadEngineCalls.size)
-        val config = fake.createConversationCalls.single()
-        assertTrue(config.tools.isEmpty())
-        assertEquals(false, config.thinkingEnabled)
-        assertEquals(16, config.maxOutputTokens)
-        assertTrue(fake.closeConversationCalls > 0)
+        assertTrue(fake.createConversationCalls.isEmpty())
+        assertEquals(0, fake.closeConversationCalls)
     }
 
     @Test
@@ -175,7 +172,7 @@ class LiteRtLmAdapterTest {
             fallbackSystemPrompt = "Be concise"
         ).streamRound(emptyList(), emptyList()).toList()
 
-        assertEquals("Be concise", runtime.createConversationCalls.single().systemPrompt)
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().startsWith("Be concise"))
         assertEquals(listOf("hi"), runtime.sendMessageCalls)
         assertTrue(events.any { it is ProviderEvent.Notice && it.message.contains("optional memory") })
         assertEquals(ProviderEvent.Completed, events.last())
@@ -192,10 +189,29 @@ class LiteRtLmAdapterTest {
             localPlatform(),
             listOf(lookupTool { id, _ -> AgentToolResult(id, ToolResultContent.Text("x".repeat(50000)), false) })
         ).streamRound(emptyList(), emptyList()).toList()
-        assertTrue(runtime.toolExecutorResults.single().toByteArray().size <= 1024)
-        assertTrue(events.filterIsInstance<ProviderEvent.ToolResult>().single().result.outputBudgetExhausted)
+        assertTrue(runtime.toolExecutorResults.single().toByteArray().size <= 2048)
+        assertFalse(events.filterIsInstance<ProviderEvent.ToolResult>().single().result.outputBudgetExhausted)
         assertEquals(1, runtime.closeConversationCalls)
         assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `native repeated failures finish without registered tools or replaying actions`() = runBlocking {
+        var dispatched = 0
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.Done), listOf(LocalRuntimeEvent.TextDelta("No verified answer was obtained."), LocalRuntimeEvent.Done))
+            scriptedToolInvocations = listOf(List(3) { ScriptedToolInvocation("lookup", "{}", afterEventIndex = 0) })
+        }
+        val failing = lookupTool { id, _ ->
+            dispatched++
+            AgentToolResult(id, ToolResultContent.Text("Unavailable"), true)
+        }
+        val events = adapter(runtime, catalog = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 8192)))).openSession(turns("look up this result"), localPlatform(), listOf(failing)).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, dispatched)
+        assertTrue(runtime.createConversationCalls.last().tools.isEmpty())
+        assertEquals(2, runtime.sendMessageCalls.size)
+        assertTrue(events.any { it is ProviderEvent.Notice && it.message.contains("REPEATED_FAILURE") })
+        assertEquals(ProviderEvent.Completed, events.last())
     }
 
     @Test
@@ -265,7 +281,7 @@ class LiteRtLmAdapterTest {
         adapter.openSession(historyTurns, localPlatform()).streamRound(emptyList(), emptyList()).toList()
 
         val config = runtime.createConversationCalls.single()
-        assertEquals("Be concise", config.systemPrompt)
+        assertTrue(config.systemPrompt.orEmpty().startsWith("Be concise"))
         assertEquals(2, config.initialMessages.size)
         assertEquals(LocalHistoryRole.USER, config.initialMessages[0].role)
         assertEquals("first", config.initialMessages[0].text)
@@ -975,7 +991,7 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(listOf("lookup" to """{"query":"weather"}"""), runtime.toolExecutorCalls)
-        assertEquals(listOf("result-ok"), runtime.toolExecutorResults)
+        assertEquals("result-ok", ((kotlinx.serialization.json.Json.parseToJsonElement(runtime.toolExecutorResults.single()) as kotlinx.serialization.json.JsonObject)["data"] as kotlinx.serialization.json.JsonPrimitive).content)
         assertEquals(1, executedArgs.size)
         assertEquals("weather", executedArgs.single()["query"]?.toString()?.trim('"'))
         val toolCall = events.filterIsInstance<ProviderEvent.ToolCall>().single()
@@ -1263,7 +1279,7 @@ class LiteRtLmAdapterTest {
 
         val toolResult = events.filterIsInstance<ProviderEvent.ToolResult>().single()
         assertEquals(true, toolResult.result.isError)
-        assertEquals(ToolResultContent.Text("boom"), toolResult.result.content)
+        assertEquals("PROVIDER_UNAVAILABLE", toolResult.result.errorCode)
         assertFalse(events.any { it is ProviderEvent.Failed })
         assertEquals(
             listOf("before", "after"),
@@ -1554,10 +1570,8 @@ class LiteRtLmAdapterTest {
         // Anchor (first user & model message) must be preserved
         assertEquals("Anchor prompt setup instructions", config.initialMessages[0].text)
         assertEquals("Anchor reply confirmation", config.initialMessages[1].text)
-        // Recent step must be retained while middle turns are compacted out
-        assertEquals("Recent step question", config.initialMessages[2].text)
-        assertEquals("Recent step reply", config.initialMessages[3].text)
-        assertEquals(4, config.initialMessages.size)
+        // Required generation/template headroom takes priority over optional recent history.
+        assertEquals(2, config.initialMessages.size)
     }
 
     @Test

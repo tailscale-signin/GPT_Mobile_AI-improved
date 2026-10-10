@@ -91,7 +91,7 @@ class LocalEngineHolder(
         delegate.closeConversation()
     }
 
-    override suspend fun unloadEngine() {
+    override suspend fun unloadEngine() = InferenceAdmission.shared {
         delegate.cancelActive()
         withGenerationLock {
             delegate.closeConversation()
@@ -107,11 +107,11 @@ class LocalEngineHolder(
      * Returns true if the engine was unloaded due to inactivity, or false if it is still
      * active, already unloaded, or has not exceeded the idle threshold.
      */
-    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
+    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean = InferenceAdmission.tryShared {
         // Never cancel a running generation to enforce an idle timeout. Check the
         // timestamp and unload under the same lock as generation/model switching.
-        if (!mutex.tryLock()) return false
-        return try {
+        if (!mutex.tryLock()) return@tryShared false
+        try {
             val idleMs = timeProvider() - lastAccessedElapsedRealtimeMs
             if (loadedSpec == null || idleMs < idleThresholdMs) {
                 false
@@ -124,15 +124,15 @@ class LocalEngineHolder(
         } finally {
             mutex.unlock()
         }
-    }
+    } ?: false
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec && delegate.isEngineLoaded(spec)
 
     override fun hasOpenConversation(): Boolean = delegate.hasOpenConversation()
 
-    override suspend fun <T> tryRunExclusive(block: suspend LocalRuntime.() -> T): T? {
-        if (coroutineContext[GenerationLock] != null || !mutex.tryLock()) return null
-        return try {
+    override suspend fun <T> tryRunExclusive(block: suspend LocalRuntime.() -> T): T? = InferenceAdmission.tryShared {
+        if (coroutineContext[GenerationLock] != null || !mutex.tryLock()) return@tryShared null
+        try {
             withContext(GenerationLock()) { block(this@LocalEngineHolder) }
         } finally {
             mutex.unlock()
@@ -167,17 +167,17 @@ class LocalEngineHolder(
         } finally {
             if (locked) mutex.unlock()
         }
-    }
+    }.let { InferenceAdmission.sharedFlow(it) }
 
     private fun markAccessed() {
         lastAccessedElapsedRealtimeMs = timeProvider()
     }
 
-    private suspend fun <T> withGenerationLock(block: suspend () -> T): T {
+    private suspend fun <T> withGenerationLock(block: suspend () -> T): T = InferenceAdmission.shared {
         if (coroutineContext[GenerationLock] != null) {
-            return block()
+            return@shared block()
         }
-        return mutex.withLock {
+        mutex.withLock {
             withContext(GenerationLock()) { block() }
         }
     }

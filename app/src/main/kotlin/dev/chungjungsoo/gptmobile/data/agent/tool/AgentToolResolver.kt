@@ -310,7 +310,9 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        return resolved.distinctBy { it.modelToolName }
+        val collisions = resolved.groupBy { it.modelToolName }.filterValues { group -> group.map { it.connectionUid to it.realToolName }.distinct().size > 1 }.keys
+        if (collisions.isNotEmpty()) onConnectionError("Ambiguous tool aliases excluded: " + collisions.sorted().joinToString(", "))
+        return resolved.filterNot { it.modelToolName in collisions }.distinctBy { it.modelToolName }
             .filter { tool ->
                 if (tool.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) {
                     featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
@@ -852,6 +854,7 @@ private class McpAgentTool(
     private val clientManager: McpClientManager,
     private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null
 ) : AgentTool {
+    private val unknownCatalogRefreshed = java.util.concurrent.atomic.AtomicBoolean()
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val isFileTool = isFileReadingTool(remoteToolName)
         val startLine = if (isFileTool) {
@@ -890,6 +893,12 @@ private class McpAgentTool(
                 remoteArguments,
                 callId
             )
+        }
+        if (result.isError == true && result.content.toString().let { it.contains("unknown tool", true) || it.contains("tool not found", true) }) {
+            if (!unknownCatalogRefreshed.compareAndSet(false, true)) return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", "Tool remains unavailable after one catalog refresh. Stop repeating this call.", dispatched = true)
+            val catalog = clientManager.listTools(initialConfig, forceRefresh = true)
+            // Discovery refresh is read-only. Do not replay an action whose dispatch outcome is uncertain.
+            return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", if (catalog.any { it.name == remoteToolName }) "Catalog refreshed; tool exists but execution was rejected. Check arguments and connection." else "Catalog refreshed once; tool is absent. Stop repeating this call.", dispatched = true)
         }
         if (outputSchema != null && result.isError != true) {
             val schema = kotlinx.serialization.json.Json.encodeToJsonElement(io.modelcontextprotocol.kotlin.sdk.types.ToolSchema.serializer(), outputSchema) as JsonObject

@@ -68,6 +68,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     private val selectedUid = MutableStateFlow(savedState.get<String>("profileUid").orEmpty())
     val selected = combine(profiles, selectedUid) { list, uid -> list.firstOrNull { it.uid == uid } ?: list.firstOrNull() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    internal val scoreSnapshot = store.snapshot
     val history = store.history
     val localEnvironment = combine(settings.observeLocalRuntimeBackend(), settings.observeFeatureSettings()) { backend, features ->
         "$backend|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|" +
@@ -79,7 +80,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     val benchmarkCandidates = profiles.map { list -> list.filter { it.enabled && it.model.isNotBlank() } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val selectedBenchmarks = combine(benchmarkCandidates, selectedBenchmarkUids) { list, selected ->
-        val ids = selected ?: list.map { it.uid }.toSet()
+        val ids = selected ?: emptySet()
         list.filter { it.uid in ids }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -135,7 +136,40 @@ class ProfileBenchmarkViewModel @Inject constructor(
             }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private var interruptionReason: String? = null
+    private val application = context.applicationContext as? android.app.Application
+    private val foregroundCallbacks = object : android.app.Application.ActivityLifecycleCallbacks {
+        override fun onActivityStopped(activity: android.app.Activity) {
+            if (!activity.isChangingConfigurations && job?.isActive == true) {
+                interruptionReason = "App backgrounded; foreground-interactive benchmark interrupted."
+                job?.cancel()
+            }
+        }
+        override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) = Unit
+        override fun onActivityStarted(activity: android.app.Activity) = Unit
+        override fun onActivityResumed(activity: android.app.Activity) = Unit
+        override fun onActivityPaused(activity: android.app.Activity) = Unit
+        override fun onActivitySaveInstanceState(activity: android.app.Activity, state: android.os.Bundle) = Unit
+        override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+    }
+
+    override fun onCleared() {
+        application?.unregisterActivityLifecycleCallbacks(foregroundCallbacks)
+        super.onCleared()
+    }
+
     init {
+        application?.registerActivityLifecycleCallbacks(foregroundCallbacks)
+        viewModelScope.launch {
+            combine(profiles, localEnvironment) { list, environment -> list.filter { it.enabled }.associate { it.uid to benchmarkConfigKey(it, environment) } }.collect { enrollment ->
+                try {
+                    store.updateEnrollment(enrollment)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    mutableError.value = "Could not update benchmark eligibility: ${safeMessage(error)}"
+                }
+            }
+        }
         viewModelScope.launch {
             try {
                 store.load()
@@ -233,7 +267,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         val config = delegationSettings.value.copy(targetProfileUid = helper?.uid.orEmpty(), fallbackToAnotherProfile = false)
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating profile", 0, benchmarkSuite(mode).size)
-        job = viewModelScope.launch {
+        job = launchBenchmark {
             try {
                 chats.validateBenchmarkProfile(profile)
                 if (mode == BenchmarkMode.DELEGATION) {
@@ -248,13 +282,14 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 mutableProgress.value = null
                 if (error is CancellationException) throw error
                 mutableError.value = safeMessage(error)
-                return@launch
+                return@launchBenchmark
             }
             val suite = benchmarkSuite(mode)
             var run = BenchmarkRun(
                 UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                 profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
-                mode, System.currentTimeMillis(), finished = false, suiteVersion = if (mode == BenchmarkMode.DELEGATION) 2 else 1,
+                mode, System.currentTimeMillis(), finished = false, suiteVersion = 2,
+                plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                 engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
                 delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION }
@@ -268,6 +303,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                     suite = suite,
                     runCase = { index, test ->
                         currentTest = test
+                        if (profile.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                         mutableProgress.value = BenchmarkProgress(profile.name, test.label, index, suite.size)
                         if (mode == BenchmarkMode.DELEGATION) {
                             try {
@@ -302,7 +338,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 }
             } catch (_: CancellationException) {
                 val canceledSample = if (run.samples.any { it.testId == currentTest.id }) emptyList() else listOf(BenchmarkSample(currentTest.id, currentTest.label, currentTest.category, BenchmarkOutcome.CANCELED))
-                run = run.copy(canceled = true, samples = run.samples + canceledSample)
+                run = run.copy(canceled = true, stoppedReason = interruptionReason, samples = run.samples + canceledSample)
             } catch (error: Exception) {
                 mutableError.value = safeMessage(error)
                 run = run.copy(canceled = true)
@@ -323,7 +359,9 @@ class ProfileBenchmarkViewModel @Inject constructor(
 
     fun startStandardBatch(mode: BenchmarkMode) {
         require(mode != BenchmarkMode.DELEGATION)
-        val targets = selectedBenchmarks.value
+        val enrolledTargets = selectedBenchmarks.value
+        val completedBlocks = history.value.count { it.mode == mode && it.finished }
+        val targets = if (enrolledTargets.isEmpty()) enrolledTargets else (enrolledTargets.drop(completedBlocks % enrolledTargets.size) + enrolledTargets.take(completedBlocks % enrolledTargets.size)).let { if (completedBlocks % 2 == 0) it else it.asReversed() }
         if (job?.isActive == true || !mutableReady.value) return
         if (activeRequests.value) {
             mutableError.value = "Wait for active model requests to finish before benchmarking."
@@ -337,7 +375,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         val totalTests = suite.size * targets.size
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress("Batch benchmark", "Preparing models", 0, totalTests)
-        job = viewModelScope.launch {
+        job = launchBenchmark {
             val failures = mutableListOf<String>()
             try {
                 targets.forEachIndexed { profileIndex, target ->
@@ -345,7 +383,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
                     var run = BenchmarkRun(
                         UUID.randomUUID().toString(), target.uid, target.name, target.compatibleType.name,
                         target.model, benchmarkConfigKey(target, localEnvironment.value), target.compatibleType == ClientType.LITERT_LM,
-                        mode, System.currentTimeMillis(), finished = false, suiteVersion = 1,
+                        mode, System.currentTimeMillis(), finished = false, suiteVersion = 2,
+                        plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                         device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                         engineWasLoaded = target.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null
                     )
@@ -362,6 +401,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                             suite = suite,
                             runCase = { index, test ->
                                 currentTest = test
+                                if (target.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                                 mutableProgress.value = BenchmarkProgress(target.name, test.label, baseProgress + index, totalTests)
                                 BenchmarkRunner(openSession = { turns, tools ->
                                     chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}")
@@ -390,7 +430,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         } else {
                             listOf(BenchmarkSample(currentTest.id, currentTest.label, currentTest.category, BenchmarkOutcome.CANCELED))
                         }
-                        run = run.copy(canceled = true, samples = run.samples + canceledSample)
+                        run = run.copy(canceled = true, stoppedReason = interruptionReason, samples = run.samples + canceledSample)
                         throw cancelled
                     } catch (error: Exception) {
                         val reason = safeMessage(error)
@@ -446,7 +486,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         val totalTests = suite.size * helpers.size
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating delegation batch", 0, totalTests)
-        job = viewModelScope.launch {
+        job = launchBenchmark {
             val failures = mutableListOf<String>()
             val reviewer = if (baseConfig.reviewerEnabled) profiles.value.firstOrNull { it.uid == baseConfig.reviewerProfileUid } else null
             try {
@@ -463,7 +503,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 if (error is CancellationException) throw error
                 mutableError.value = safeMessage(error)
                 mutableProgress.value = null
-                return@launch
+                return@launchBenchmark
             }
             try {
                 helpers.forEachIndexed { helperIndex, helper ->
@@ -473,6 +513,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                         profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
                         BenchmarkMode.DELEGATION, System.currentTimeMillis(), finished = false, suiteVersion = 2,
+                        plannedTrials = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSuite().size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                         device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                         engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
                         delegationSettings = config
@@ -492,6 +533,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                             suite = suite,
                             runCase = { index, test ->
                                 currentTest = test
+                                if (helper.compatibleType == ClientType.LITERT_LM || profile.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                                 mutableProgress.value = BenchmarkProgress("${profile.name} → ${helper.name}", test.label, baseProgress + index, totalTests)
                                 try {
                                     chats.runDelegationBenchmark(profile, test, "benchmark-${run.id}-${test.id}", config)
@@ -521,7 +563,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("DelegationBenchmark", "BATCH_WORKER_COMPLETE · worker=${helper.uid} passed=${run.samples.count { it.outcome == BenchmarkOutcome.PASSED }}/${run.samples.size}")
                     } catch (cancelled: CancellationException) {
                         val canceledSample = if (run.samples.any { it.testId == currentTest.id }) emptyList() else listOf(BenchmarkSample(currentTest.id, currentTest.label, currentTest.category, BenchmarkOutcome.CANCELED))
-                        run = run.copy(canceled = true, samples = run.samples + canceledSample)
+                        run = run.copy(canceled = true, stoppedReason = interruptionReason, samples = run.samples + canceledSample)
                         throw cancelled
                     } catch (error: Exception) {
                         val reason = "Delegate ${helper.name} could not be benchmarked: ${safeMessage(error)}"
@@ -549,7 +591,23 @@ class ProfileBenchmarkViewModel @Inject constructor(
         }
     }
 
+    private fun launchBenchmark(block: suspend () -> Unit): Job = viewModelScope.launch {
+        interruptionReason = null
+        try {
+            dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.benchmark(block)
+        } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+            mutableError.value = "Benchmark could not acquire inference resources within 60 seconds. Stop active requests and try again."
+        } finally {
+            mutableProgress.value = null
+        }
+    }
+
     private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
+    private fun checkLocalConditions() {
+        check((battery() ?: 100) >= 15) { "Local benchmark stopped: battery is below 15%." }
+        check((thermal() ?: 0) < PowerManager.THERMAL_STATUS_SEVERE) { "Local benchmark stopped: severe thermal pressure." }
+    }
+
     private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
     private fun safeMessage(error: Exception) = DiagnosticRedactor.redact(error.message ?: "Unknown error").take(500)
 }

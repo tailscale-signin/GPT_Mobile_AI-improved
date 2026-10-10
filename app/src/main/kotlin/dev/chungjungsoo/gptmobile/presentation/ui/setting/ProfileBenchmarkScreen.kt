@@ -73,6 +73,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.time.Instant
 import java.time.ZoneId
@@ -87,6 +88,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val history by viewModel.history.collectAsStateWithLifecycle()
     val localEnvironment by viewModel.localEnvironment.collectAsStateWithLifecycle()
     val delegationSettings by viewModel.delegationSettings.collectAsStateWithLifecycle()
+    val snapshot by viewModel.scoreSnapshot.collectAsStateWithLifecycle()
+    val health by dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.state.collectAsStateWithLifecycle()
     val delegates by viewModel.delegates.collectAsStateWithLifecycle()
     val delegate by viewModel.delegate.collectAsStateWithLifecycle()
     val selectedDelegates by viewModel.selectedDelegates.collectAsStateWithLifecycle()
@@ -100,7 +103,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val everydayTools by viewModel.everydayTools.collectAsStateWithLifecycle()
     val days by viewModel.days.collectAsStateWithLifecycle()
     val rangeLabel = if (days == 0) "stored history" else "$days days"
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(2) }
     var mode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
     var typeFilter by rememberSaveable { mutableIntStateOf(0) }
     var performanceOrder by rememberSaveable { mutableStateOf(PerformanceOrder.LATENCY) }
@@ -112,7 +115,10 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val tint = benchmarkTint(local)
     val profileHistory = remember(history, selected?.uid) { history.filter { it.profileUid == selected?.uid } }
     val matching = remember(profileHistory, selected, mode, localEnvironment) { selected?.let { comparableRuns(profileHistory, it, mode, localEnvironment) }.orEmpty() }
-    val rating = remember(matching, local) { benchmarkRating(matching, local) }
+    val activeScore = snapshot?.rows?.firstOrNull { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(profile, localEnvironment) } && it.cohort.startsWith(mode.name + "|") }
+    val rating = remember(matching, local, activeScore) {
+        benchmarkRating(matching, local).copy(score = activeScore?.overall?.roundToInt(), medianSpeed = activeScore?.speed, estimatedSpeed = false)
+    }
     val detail = everyday.firstOrNull { it.key == detailKey }
     Scaffold(topBar = {
         if (!embedded) {
@@ -125,7 +131,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded tests · ${profiles.size} profiles") }
-            item { SettingsTabs(listOf("Overview", "Everyday", "Compare", "History", "Delegation"), tab) { tab = it } }
+            item { SettingsTabs(listOf("Results", "Run", "Delegation", "History"), listOf(2, 0, 4, 3).indexOf(tab).coerceAtLeast(0)) { tab = listOf(2, 0, 4, 3)[it] } }
             item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {
                 item {
@@ -305,11 +311,33 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
 
                     0 -> {
                         item {
+                            BenchmarkPanel("Local Tool Health") {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(health.lastStatus, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                    SettingsHelpIcon("App-side argument, budget and dispatch outcomes are distinct from model or provider failures. Omitted tools are unavailable in this request. This panel excludes arguments, precise locations and credentials.")
+                                }
+                                Text("Context ${health.contextTokens} · evidence ${health.evidenceBytes} bytes/result", style = MaterialTheme.typography.bodySmall)
+                                Text("Selected: ${health.selected.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall)
+                                if (health.omitted.isNotEmpty()) Text("Omitted for context: ${health.omitted.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                                Text("Payload ${health.retainedBytes} → admitted ${health.admittedBytes} bytes · supporting observations=${health.supportingEvidence}", style = MaterialTheme.typography.bodySmall)
+                                Text("Last: ${health.lastTool} · ${health.lastError ?: "no structured error"} · dispatched=${health.dispatched} · compacted=${health.compacted}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        item {
                             BenchmarkPanel("Run a benchmark") {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     BenchmarkMode.entries.filter { it != BenchmarkMode.DELEGATION }.forEach { option -> FilterChip(mode == option, { mode = option }, enabled = progress == null, label = { Text(option.label) }) }
                                 }
-                                Text(if (mode == BenchmarkMode.QUICK) "5 tests · speed, instructions, JSON, arithmetic and tools" else "8 tests · adds repeated speed trials and conversation recall", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    if (mode == BenchmarkMode.QUICK) {
+                                        "6 diagnostic trials · provisional only"
+                                    } else if (mode == BenchmarkMode.AGENT) {
+                                        "48 trials · 3 warm-ups · text quality and 12 tool contracts"
+                                    } else {
+                                        "36 trials · 3 warm-ups · 18 quality cases"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
                                 Text("Up to 512 output tokens per request and 90 seconds per test. Tools use a harmless in-memory fixture. Reasoning follows each model profile instead of being forcibly disabled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -439,52 +467,70 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     2 -> {
                         item {
                             BenchmarkPanel("Compare AI profiles") {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     BenchmarkMode.entries.filter { it != BenchmarkMode.DELEGATION }.forEach { option -> FilterChip(mode == option, { mode = option }, enabled = progress == null, label = { Text(option.label) }) }
                                 }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("All", "Local", "Remote").forEachIndexed { index, label -> FilterChip(typeFilter == index, { typeFilter = index }, label = { Text(label) }) }
                                 }
-                                Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote have separate target scales.", style = MaterialTheme.typography.bodySmall)
+                                Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote use separate verified cohort scales.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                        listOf(true, false).filter { typeFilter == 0 || it == (typeFilter == 1) }.forEach { groupLocal ->
-                            val ranking = profiles.filter { (it.compatibleType == ClientType.LITERT_LM) == groupLocal }.map { item ->
-                                val runs = comparableRuns(history, item, mode, localEnvironment)
-                                Triple(item, benchmarkRating(runs, groupLocal), runs.size)
-                            }.sortedByDescending { it.second.score ?: -1 }
+                        item {
+                            BenchmarkPanel("Adaptive scores") {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Scale updates across all eligible profiles", modifier = Modifier.weight(1f))
+                                    SettingsHelpIcon("Speed balances each workload band: 100 × its measured rate / its fastest verified compatible rate. Local weights Q/R/S/L/C = 40/25/10/10/15; Remote = 35/20/20/15/10. Overall is capped by quality and reliability. Hidden rows remain in the anchor. Quick and incomplete runs never establish anchors. Reference lexical4 tokenizer v1 is a comparison unit, not provider billing. Five timed trials per workload are required; p95 requires 20 samples.")
+                                }
+                                Text("Snapshot ${snapshot?.generation ?: 0} · 30-day freshness · Quick runs stay provisional", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        val rows = snapshot?.rows.orEmpty().filter { row -> typeFilter == 0 || row.cohort.contains("device:") == (typeFilter == 1) }
+                        rows.groupBy { it.cohort }.forEach { (cohort, cohortRows) ->
                             item {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    BenchmarkTypeBadge(groupLocal)
-                                    Text("${ranking.size} profiles", style = MaterialTheme.typography.labelMedium)
+                                BenchmarkPanel(
+                                    if (cohort.contains("device:")) {
+                                        "Local · this device"
+                                    } else if (cohort.contains("self-hosted:")) {
+                                        "Self-hosted"
+                                    } else {
+                                        "Remote · cloud"
+                                    }
+                                ) {
+                                    Text(cohort.substringBefore('|'), style = MaterialTheme.typography.labelSmall)
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Profile", modifier = Modifier.weight(1.3f))
+                                        Text("Speed /100", modifier = Modifier.weight(1f))
+                                        Text("Ref tok/s", modifier = Modifier.weight(1f))
+                                        Text("Overall", modifier = Modifier.weight(.8f))
+                                    }
                                 }
                             }
-                            items(ranking, key = { "rank-${it.first.uid}" }) { (item, score, count) ->
+                            items(cohortRows.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow> { it.overall ?: -1.0 }.thenByDescending { it.speed ?: -1.0 }), key = { "v2-${it.profileUid}-${it.cohort}-${it.sourceRunIds.firstOrNull()}" }) { row ->
+                                val item = profiles.firstOrNull { it.uid == row.profileUid }
                                 Card(onClick = {
-                                    viewModel.select(item)
-                                    tab = 0
-                                }, shape = RoundedCornerShape(20.dp)) {
-                                    Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(item.name, fontWeight = FontWeight.SemiBold)
-                                            Text(item.model, style = MaterialTheme.typography.bodySmall)
-                                            Text("$count runs · ${score.sampleCount} tests · ${score.measuredWeight}% coverage", style = MaterialTheme.typography.labelSmall)
+                                    if (item != null) {
+                                        viewModel.select(item)
+                                        tab = 0
+                                    }
+                                }, shape = RoundedCornerShape(16.dp)) {
+                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(item?.name ?: "Retained profile", modifier = Modifier.weight(1.3f), fontWeight = FontWeight.SemiBold)
+                                            Text(row.speedScore?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(1f))
+                                            Text(row.speed?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(1f))
+                                            Text(row.overall?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(.8f), color = MaterialTheme.colorScheme.primary)
                                         }
-                                        Text(score.score?.toString() ?: "—", style = MaterialTheme.typography.headlineMedium, color = benchmarkTint(groupLocal))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("${if (row.verified) "Verified" else "Provisional"} · ${row.sampleCount} samples · first ${row.firstTextMs?.let { "%.0f ms".format(it) } ?: "—"}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                                            SettingsHelpIcon(row.explanation)
+                                        }
                                     }
                                 }
                             }
                         }
-                        item {
-                            BenchmarkPanel("Everyday rankings · $rangeLabel") {
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    PerformanceOrder.entries.forEach { option -> FilterChip(performanceOrder == option, { performanceOrder = option }, label = { Text(option.label) }) }
-                                }
-                                Text("Observed requests, including previous models and deleted profiles. These are not controlled comparisons.", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                        val observed = rankPerformance(everyday.filter { typeFilter == 0 || (it.metrics.provider == ClientType.LITERT_LM.name) == (typeFilter == 1) }, performanceOrder)
-                        items(observed, key = { "observed-${it.key}" }) { row -> EverydayPerformanceCard(row, row.metrics.provider == ClientType.LITERT_LM.name) { detailKey = row.key } }
+                        if (rows.isEmpty()) item { Text("No v2 results yet. Open Run to start a Quick Check or a Standard plan.") }
+                        item { TextButton(onClick = { tab = 1 }) { Text("Open everyday Statistics") } }
                     }
                     3 -> {
                         item { Text("Saved runs · ${profileHistory.size}", style = MaterialTheme.typography.titleLarge) }

@@ -71,15 +71,23 @@ class LocalRuntimeRouter(
                     }
                     val actual = loadLiteRt(fallback)
                     activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, requested, actual, preferred, error.message)
-                    // Update the visible selection only after a working fallback exists.
-                    try {
-                        settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.LITERT_LM)
-                        preferenceAtLoad = LocalRuntimeBackend.LITERT_LM
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (persistenceError: Exception) {
-                        Log.w(TAG, "Could not save the active LiteRT-LM backend", persistenceError)
-                    }
+                    return
+                }
+            }
+            // Both UI routes use the same admission, environment and native-init guard.
+            if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
+                try {
+                    qnnRuntime.loadEngine(spec)
+                    activate(qnnRuntime, LocalRuntimeBackend.QUALCOMM_QNN, requested, spec, preferred)
+                    return
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    qnnRuntime.unloadEngine()
+                    if (!settingRepository.getFeatureSettings().qnnAutomaticFallback) throw LocalRuntimeFallbackDisabledException(error)
+                    if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) throw LocalNpuPackageException(error)
+                    val fallback = loadLiteRt(spec.copy(accelerator = LocalAccelerators.GPU, litertDispatchLibDir = null))
+                    activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, requested, fallback, preferred, "NPU initialization unavailable")
                     return
                 }
             }
@@ -145,7 +153,7 @@ class LocalRuntimeRouter(
         delegatedSpec = delegated
         preferenceAtLoad = preference
         tuningAtLoad = LocalEngineTuning(delegated.cpuThreads, delegated.cacheEnabled, delegated.speculativeDecoding, delegated.nativeMetricsEnabled)
-        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason)
+        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason, preference)
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {

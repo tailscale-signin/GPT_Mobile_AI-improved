@@ -9,8 +9,7 @@ class ToolProgressTracker {
         val names = recent.map { it.first.replace('_', ' ').take(64) }.distinct().take(4).joinToString(", ")
         val failures = recent.count { it.second }
         return "${completed.size} tool calls finished. Recent work: $names." +
-            (if (failures > 0) " $failures of the last $INTERVAL calls failed." else "") +
-            " Reviewing these results before the next step."
+            (if (failures > 0) " $failures of the last $INTERVAL calls failed." else "")
     }
     companion object {
         const val INTERVAL = 10

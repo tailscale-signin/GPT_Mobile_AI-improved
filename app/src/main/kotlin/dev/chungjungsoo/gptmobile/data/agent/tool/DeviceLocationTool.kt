@@ -113,6 +113,10 @@ class DeviceLocationTool @Inject constructor(
                 put("places_status", if (category == null) "Unsupported nearby category" else placesError ?: if (places.isEmpty()) "No matching places returned" else "Found ${places.size} nearby places")
             }
             put("timestamp", location.timestamp)
+            put("acquisition", location.acquisition)
+            put("permission", "granted_at_execution")
+            put("age_millis_at_observation", (System.currentTimeMillis() - location.timestamp).coerceAtLeast(0))
+            put("freshness", "recent observation; historical reuse is not a new location fix")
             location.provider?.let { put("provider", it) }
         }
 

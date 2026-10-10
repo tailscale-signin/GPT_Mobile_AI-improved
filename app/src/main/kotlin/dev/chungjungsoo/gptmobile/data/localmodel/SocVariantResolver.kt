@@ -8,7 +8,8 @@ data class ResolvedModelDownload(
     val downloadUrl: String,
     val commitHash: String,
     val sizeInBytes: Long,
-    val contextSize: Int = 0
+    val contextSize: Int = 0,
+    val sha256: String = ""
 )
 
 object SocVariantResolver {
@@ -27,7 +28,8 @@ object SocVariantResolver {
             fileName = LocalModelDownloadPaths.fileNameFromUrl(entry.downloadUrl),
             downloadUrl = entry.downloadUrl,
             commitHash = LocalModelDownloadPaths.commitHashFromUrl(entry.downloadUrl),
-            sizeInBytes = entry.sizeInBytes
+            sizeInBytes = entry.sizeInBytes,
+            sha256 = entry.sha256
         )
         val variant = matchingVariant(entry.socToModelFiles, deviceSocModel) ?: return default
         val fileName = variant.modelFile.ifBlank {
@@ -44,7 +46,8 @@ object SocVariantResolver {
             downloadUrl = downloadUrl,
             commitHash = commitHash,
             sizeInBytes = variant.sizeInBytes.takeIf { it > 0L } ?: default.sizeInBytes,
-            contextSize = variant.contextSize
+            contextSize = variant.contextSize,
+            sha256 = variant.sha256
         )
     }
 

@@ -408,6 +408,7 @@ class ChatRepositoryImplTest {
         }
         val repository = createRepository(
             localRuntime = runtime,
+            modelCatalogRepository = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 8192))),
             localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm"))
         )
         val document = ChatAttachment(

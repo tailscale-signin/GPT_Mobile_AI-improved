@@ -256,11 +256,50 @@ class ChatRepositoryImpl(
         ),
         modelCatalogRepository = modelCatalogRepository,
         deviceSocModel = deviceSocModel,
+        loadVerifiedEvidence = { prior, enabled, tokens ->
+            val runIds = prior.mapNotNull { it.assistantMessage?.let { message -> message.revisions.getOrNull(message.activeRevisionIndex)?.runId ?: message.currentRunId } }.takeLast(8)
+            if (runIds.isEmpty()) {
+                ""
+            } else {
+                val events = agentPersistenceDao.getToolEvents(runIds).filter {
+                    it.modelToolName in enabled &&
+                        it.status == "COMPLETED" &&
+                        !it.isError &&
+                        it.result != null &&
+                        (it.modelToolName != "device_location" || androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED || androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+                }.takeLast(6)
+                kotlinx.serialization.json.JsonArray(
+                    events.map { event ->
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("tool", kotlinx.serialization.json.JsonPrimitive(event.modelToolName))
+                            put("callId", kotlinx.serialization.json.JsonPrimitive(event.callId))
+                            put("observedAtEpochSeconds", kotlinx.serialization.json.JsonPrimitive(event.completedAt ?: 0))
+                            put("historical", kotlinx.serialization.json.JsonPrimitive(true))
+                            put("status", kotlinx.serialization.json.JsonPrimitive("success"))
+                            put("arguments", runCatching { kotlinx.serialization.json.Json.parseToJsonElement(event.arguments) }.getOrElse { kotlinx.serialization.json.JsonNull })
+                            put("source", kotlinx.serialization.json.JsonPrimitive("persisted dispatcher result; not assistant prose"))
+                            val raw = dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.read(event, "payload").orEmpty()
+                            val content = dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text(raw)
+                            put("data", dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(content, maxOf(128, tokens * 2 / maxOf(1, events.size)))))
+                        }
+                    }
+                ).toString()
+            }
+        },
         loadImageBytes = { attachment ->
             val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
             FileUtils.readImageBytesForLocalInference(context, filePath)
         }
     )
+
+    private suspend fun runtimeEligibleForAssist(target: PlatformV2): Boolean {
+        val state = localRuntime.state.value
+        val record = state.engineSpec ?: return false
+        val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull() ?: return false
+        return record.modelPath == selection.path &&
+            !localRuntime.hasOpenConversation() &&
+            !localRuntime.getHardwareState().isThrottlingRequired
+    }
 
     override suspend fun validateBenchmarkProfile(platform: PlatformV2) {
         check(platform.model.isNotBlank()) { "Choose a model in ${platform.name} first." }
@@ -1107,7 +1146,7 @@ class ChatRepositoryImpl(
                 } catch (_: Exception) {
                     null
                 }
-                if (summary != null && activity.get() == current) send(ApiState.ActivitySummary(summary, modelAuthored = true))
+                if (summary != null && activity.get() == current) send(ApiState.ActivitySummary(summary, modelAuthored = false))
             }
         }
         suspend fun generateDelegate(
@@ -1479,7 +1518,7 @@ class ChatRepositoryImpl(
                     "resultBytes=${toolBudgetLimits.maxToolOutputBytes} · localResearch=$localResearch"
             )
             val toolBudget = ToolExecutionBudget(toolBudgetLimits)
-            val boundedTools = taskRoutedTools.filter { resolved ->
+            val authorizedBoundedTools = taskRoutedTools.filter { resolved ->
                 (behavior.crawlersEnabled && resolved.selectionId() in behavior.crawlerToolIds) ||
                     resolved in connectedMemoryTools ||
                     localResearch ||
@@ -1498,6 +1537,20 @@ class ChatRepositoryImpl(
                         } ?: true
                     }
                 )
+            }
+            val assistTarget = settingRepository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() }
+            val assist = if (runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM && assistTarget != null) {
+                dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
+                    goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
+                    warmEligible = { runtimeEligibleForAssist(assistTarget) },
+                    selectEvidence = { task -> delegateToProfile(assistTarget, task, 128, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
+                    notice = { emit(ApiState.Notice(it)) }
+                )
+            } else {
+                null
+            }
+            val boundedTools = authorizedBoundedTools.map { resolved ->
+                if (assist != null && resolved.shareableReadOnly) resolved.copy(tool = assist.bind(resolved.tool)) else resolved
             }
             val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
             val delegationConfig = effectiveDelegationSettings()
@@ -1680,7 +1733,7 @@ class ChatRepositoryImpl(
         emit(ApiState.Error(classified.userMessage))
     }.onCompletion {
         emit(ApiState.Done)
-    }
+    }.let { dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.sharedFlow(it) }
 
     private fun streamPrimaryAnswer(
         platform: PlatformV2,
@@ -1938,7 +1991,7 @@ class ChatRepositoryImpl(
                             emit(ApiState.GatewayProgressChanged(providerProgress("response_started", "generating", "Writing the response…")))
                         }
                         progressParser.accept(providerEvent.text).forEach { (progress, text) ->
-                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
+                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = false)) else emit(ApiState.Success(text))
                         }
                     }
 
@@ -1998,7 +2051,7 @@ class ChatRepositoryImpl(
 
                     is ProviderEvent.ToolResult -> Unit
                     ProviderEvent.Completed -> progressParser.accept("", flush = true).forEach { (progress, text) ->
-                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
+                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = false)) else emit(ApiState.Success(text))
                     }
                 }
 

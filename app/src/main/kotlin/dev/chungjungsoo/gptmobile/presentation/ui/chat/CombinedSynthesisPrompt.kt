@@ -10,14 +10,19 @@ import kotlinx.serialization.json.put
 /** Every contributor is supplied in full. Context overflow must be visible, never silent source loss. */
 internal fun combinedSynthesisPrompt(request: String, sources: List<CombinedModelResponse>): String = buildJsonObject {
     put("original_request", request)
-    put("contributions", JsonArray(sources.mapIndexed { index, source ->
-        buildJsonObject {
-            put("id", "C${index + 1}")
-            put("profile", source.platformName)
-            put("model", source.modelName)
-            put("response", ConversationSubject.withoutMetadata(stripAssistantErrorNote(source.content)).trim())
-        }
-    }))
+    put(
+        "contributions",
+        JsonArray(
+            sources.mapIndexed { index, source ->
+                buildJsonObject {
+                    put("id", "C${index + 1}")
+                    put("profile", source.platformName)
+                    put("model", source.modelName)
+                    put("response", ConversationSubject.withoutMetadata(stripAssistantErrorNote(source.content)).trim())
+                }
+            }
+        )
+    )
 }.toString()
 
 internal const val COMBINED_SYNTHESIS_INSTRUCTION = """

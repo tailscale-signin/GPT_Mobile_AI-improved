@@ -18,11 +18,14 @@ internal fun structuredDiagnosticLine(line: String): String {
             put("tag", match.groupValues[3])
             val message = match.groupValues[4]
             put("message", message)
-            put("fields", buildJsonObject {
-                Regex("(?:^| · )([A-Za-z][A-Za-z0-9_]*)=([^·]*)").findAll(message).forEach { field ->
-                    put(field.groupValues[1], field.groupValues[2].trim())
+            put(
+                "fields",
+                buildJsonObject {
+                    Regex("(?:^| · )([A-Za-z][A-Za-z0-9_]*)=([^·]*)").findAll(message).forEach { field ->
+                        put(field.groupValues[1], field.groupValues[2].trim())
+                    }
                 }
-            })
+            )
         }
     }.toString()
 }

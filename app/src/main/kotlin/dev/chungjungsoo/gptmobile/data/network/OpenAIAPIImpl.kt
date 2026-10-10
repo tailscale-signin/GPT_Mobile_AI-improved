@@ -179,7 +179,9 @@ class OpenAIAPIImpl @Inject constructor(
 
                         val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                            "Provider", "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage", "E"
+                            "Provider",
+                            "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
+                            "E"
                         )
 
                         emit(
@@ -195,7 +197,8 @@ class OpenAIAPIImpl @Inject constructor(
                     }
 
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                        "Provider", "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${response.headers["X-Request-ID"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: "provider-default"} · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
+                        "Provider",
+                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${response.headers["X-Request-ID"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: "provider-default"} · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
                     )
                     // Capture Gateway headers from response
                     val gatewayJobId = response.headers["X-Gateway-Job-ID"]
@@ -252,9 +255,6 @@ class OpenAIAPIImpl @Inject constructor(
                     var reachedOutputLimit = false
                     var parseFailures = 0
 
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                        "Provider", "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
-                    )
                     // Success - read SSE stream
                     val channel = response.bodyAsChannel()
                     val terminalDrain = TerminalStreamDrain()
@@ -414,7 +414,9 @@ class OpenAIAPIImpl @Inject constructor(
 
                         val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                            "Provider", "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage", "E"
+                            "Provider",
+                            "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
+                            "E"
                         )
 
                         emit(ResponseErrorEvent(message = config.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
@@ -422,7 +424,8 @@ class OpenAIAPIImpl @Inject constructor(
                     }
 
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                        "Provider", "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
+                        "Provider",
+                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
                     )
                     // Success - read SSE stream
                     val channel = response.bodyAsChannel()

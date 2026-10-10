@@ -937,7 +937,8 @@ class ChatRepositoryImpl(
         val outputCapMismatch = hasOutputUsage && effectiveCap != null && maxRoundOutput > effectiveCap
         val outputCapReached = (hasOutputUsage && effectiveCap != null && maxRoundOutput >= effectiveCap) ||
             providerFailure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it) } == true
-        val likelyTruncated = (outputCapReached && usableText == null) || isLikelyDelegatedTruncation(rawText, outputCapReached) ||
+        val likelyTruncated = (outputCapReached && usableText == null) ||
+            isLikelyDelegatedTruncation(rawText, outputCapReached) ||
             providerFailure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it) } == true
 
         if (outputCapMismatch) {
@@ -1268,7 +1269,8 @@ class ChatRepositoryImpl(
                     }.getOrDefault(true)
                     val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
                     agentToolResolver.resolve(platform.uid, chatToolConfig, effectiveUserMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
-                        (taskRecovery?.primaryOnly == true && resolved.realToolName == "delegate_to_model") || privateConversation &&
+                        (taskRecovery?.primaryOnly == true && resolved.realToolName == "delegate_to_model") ||
+                            privateConversation &&
                             (
                                 resolved.connectionUid in factVault?.state?.value?.settings?.externalMemoryConnections.orEmpty() ||
                                     resolved.realToolName in setOf("memory", "create_entities", "create_relations", "add_observations", "search_nodes", "read_graph", "open_nodes") ||
@@ -1424,7 +1426,8 @@ class ChatRepositoryImpl(
                     if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
             }
             val memorySettings = factVault?.state?.value
-            val canRecallDocuments = !synthesisRun && !privateConversation &&
+            val canRecallDocuments = !synthesisRun &&
+                !privateConversation &&
                 memorySettings?.enabled == true &&
                 memorySettings.settings.recallEnabled &&
                 (platform.isPrivateDestination() || memorySettings.settings.allowCloudRecall) &&
@@ -1659,7 +1662,9 @@ class ChatRepositoryImpl(
                     previousAnswerWords = if (taskRecovery != null) {
                         assistantMessages.flatten().filter { it.platformType == platform.uid && it.linkedMessageId >= taskRecovery.sourceMessageId }
                             .distinctBy { it.id }.sumOf { dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(stripAssistantErrorNote(it.content)) }
-                    } else 0
+                    } else {
+                        0
+                    }
                 )
             )
         } finally {
@@ -1773,7 +1778,10 @@ class ChatRepositoryImpl(
             )
             // Recheck the growing answer against the configured context ceiling before dispatch.
             val continuationPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(
-                turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits
+                turns,
+                requestPlatform.systemPrompt.orEmpty(),
+                emptyList(),
+                limits
             )
             openPrimarySession(continuationPlan.turns, "output_limit_continuation", textOnly = true)
         }

@@ -259,7 +259,8 @@ internal class LocalResearchWorkflow(
                 while (
                     successfulReads < config.maxPages &&
                     fetchAttempts < maxFetchAttempts &&
-                    !toolsExhausted && collecting() &&
+                    !toolsExhausted &&
+                    collecting() &&
                     (queue.isNotEmpty() || standby.isNotEmpty())
                 ) {
                     if (queue.isEmpty() && standby.isNotEmpty()) queue += standby.removeFirst()

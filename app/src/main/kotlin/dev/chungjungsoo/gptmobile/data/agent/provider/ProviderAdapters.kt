@@ -424,10 +424,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                             topK = effectiveTopK,
                             maxTokens = effectiveOutputTokens,
                             reasoningEffort = if (isLlama && !constraints.allowReasoning) "none" else null,
-                            chatTemplateKwargs = if (isLlama && !constraints.allowReasoning) kotlinx.serialization.json.buildJsonObject {
-                                put("enable_thinking", JsonPrimitive(false))
-                                put("thinking", JsonPrimitive(false))
-                            } else null,
+                            chatTemplateKwargs = if (isLlama && !constraints.allowReasoning) {
+                                kotlinx.serialization.json.buildJsonObject {
+                                    put("enable_thinking", JsonPrimitive(false))
+                                    put("thinking", JsonPrimitive(false))
+                                }
+                            } else {
+                                null
+                            },
                             frequencyPenalty = effectiveFrequencyPenalty,
                             presencePenalty = effectivePresencePenalty,
                             repetitionPenalty = effectiveRepetitionPenalty,

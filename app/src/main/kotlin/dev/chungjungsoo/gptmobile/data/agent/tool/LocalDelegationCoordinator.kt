@@ -706,7 +706,8 @@ internal class LocalDelegationCoordinator(
         val shouldQuarantine =
             classified.authBlocked ||
                 classified.permanentlyUnavailable ||
-                classified.outputLimitFailure || nonRecoverable ||
+                classified.outputLimitFailure ||
+                nonRecoverable ||
                 (
                     allowFailover &&
                         (
@@ -742,7 +743,8 @@ internal class LocalDelegationCoordinator(
             budgetExhausted ||
                 classified.authBlocked ||
                 classified.permanentlyUnavailable ||
-                classified.outputLimitFailure || nonRecoverable
+                classified.outputLimitFailure ||
+                nonRecoverable
         val fallback = if (!budgetExhausted && (allowFailover || terminalForTarget) && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
             recoveryCandidates(latest, failedUid).firstOrNull()
         } else {

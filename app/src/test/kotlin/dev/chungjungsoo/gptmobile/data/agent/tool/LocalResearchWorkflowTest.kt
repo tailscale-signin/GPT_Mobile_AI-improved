@@ -24,7 +24,9 @@ class LocalResearchWorkflowTest {
         var saved: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
         val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {
             override suspend fun load() = saved
-            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) { saved = snapshot }
+            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) {
+                saved = snapshot
+            }
             override fun stopRequested() = false
         }
         val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"Chronology","url":"https://example.org/history","snippet":"French history"}]}""") }
@@ -67,7 +69,10 @@ class LocalResearchWorkflowTest {
     @Test fun `empty relevance selection does not crawl unrelated results`() = runTest {
         var reads = 0
         val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"Unrelated","url":"https://example.org/other","snippet":"Unrelated lead"}]}""") }
-        val reader = tool("read_url") { id, _ -> reads++; response(id, "{}") }
+        val reader = tool("read_url") { id, _ ->
+            reads++
+            response(id, "{}")
+        }
         LocalResearchWorkflow(config, listOf(search, reader), { prompt, _ ->
             when {
                 prompt.startsWith("Plan") -> """{"queries":["history"],"urls":[]}"""

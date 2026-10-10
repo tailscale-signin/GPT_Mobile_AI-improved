@@ -38,6 +38,7 @@ class CombinedSynthesisInputsTest {
         assertNull(inputs(listOf(lead, message("helper", "Old helper"))))
         assertEquals(listOf("Primary", "New helper"), inputs(listOf(lead, message("helper", "New helper")))?.map { it.content })
     }
+
     @Test fun failedOrCanceledSynthesisNeverAutomaticallyLoopsOnUnchangedSources() {
         val sources = listOf(CombinedModelResponse("lead", "AI", content = "Primary"), CombinedModelResponse("helper", "AI", content = "Helper"))
         val lead = message("lead", "").copy(currentRunId = "combined-synthesis:1", combinedSources = sources)
@@ -47,5 +48,4 @@ class CombinedSynthesisInputsTest {
             assertEquals(listOf("Primary", "Changed helper"), inputs(listOf(lead, message("helper", "Changed helper")), runs)?.map { it.content })
         }
     }
-
 }

@@ -65,8 +65,12 @@ internal class OutputLimitRecoverySession(
                 return@flow
             }
             if (continuations >= maxContinuations.coerceIn(0, 16) || answer.length >= MAX_ANSWER_CHARACTERS || continuing && novel.isBlank()) {
-                emit(ProviderEvent.Failed("The response is incomplete after bounded continuation (${LongResponsePolicy.countWords(answer.toString())} words" +
-                    (targetWords?.let { " of approximately $it requested" } ?: "") + "). The partial answer and completed evidence are saved; no tool actions were repeated."))
+                emit(
+                    ProviderEvent.Failed(
+                        "The response is incomplete after bounded continuation (${LongResponsePolicy.countWords(answer.toString())} words" +
+                            (targetWords?.let { " of approximately $it requested" } ?: "") + "). The partial answer and completed evidence are saved; no tool actions were repeated."
+                    )
+                )
                 return@flow
             }
             continuations++

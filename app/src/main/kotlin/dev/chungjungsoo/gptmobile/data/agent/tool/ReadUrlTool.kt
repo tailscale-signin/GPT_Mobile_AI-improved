@@ -174,7 +174,9 @@ class ReadUrlTool(
                             file.delete()
                         }
                     }
-                } else null
+                } else {
+                    null
+                }
                 val text = document?.text ?: if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
                 val normalizedText = normalizeWhitespace(text)
                 val plainText = truncateUtf8(normalizedText, outputCap)

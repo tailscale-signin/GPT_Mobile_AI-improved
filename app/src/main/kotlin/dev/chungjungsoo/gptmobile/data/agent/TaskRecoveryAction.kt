@@ -32,8 +32,9 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecover
     val sourceIndex = previous.indexOfLast { it.content.isNotBlank() && TaskRecoveryAction.fromText(it.content) == null }
     if (sourceIndex < 0) return null
     val source = previous[sourceIndex]
-    val primaryOnly = action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY || previous.drop(sourceIndex + 1).any {
-        TaskRecoveryAction.fromText(it.content) == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY
-    }
+    val primaryOnly = action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY ||
+        previous.drop(sourceIndex + 1).any {
+            TaskRecoveryAction.fromText(it.content) == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY
+        }
     return ResolvedTaskRecovery(action, source.id, source.content, primaryOnly)
 }

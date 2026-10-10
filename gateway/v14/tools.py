@@ -1,6 +1,11 @@
 """Exact catalog-bound dispatch; display labels and alias prefixes are not owners."""
 import collections
+import hashlib
+import json
 import re
+import uuid
+from gateway_security import current_device
+from v14.actions import ActionLedger, ActionReplay, ExternalOutcomeUnknown, current_gateway_job_id, current_gateway_tool_call_id
 from v14.contracts import SchemaValidationError, validate_arguments, validate_schema
 
 
@@ -9,6 +14,8 @@ class CatalogBindingError(ValueError):
 
 
 def install_exact_routing(runtime):
+    ledger = ActionLedger(runtime)
+    runtime.gateway_action_ledger = ledger
     original_catalog = runtime.get_all_mcp_tools
     def catalog(force_refresh=False):
         definitions = original_catalog(force_refresh)
@@ -40,7 +47,7 @@ def install_exact_routing(runtime):
             runtime.mcp_tools_cache = list(valid)
         return valid
 
-    def dispatch(name, arguments, progress_callback=None, cancel_event=None):
+    def dispatch(name, arguments, progress_callback=None, cancel_event=None, call_id=None):
         definitions = {item['function']['name']: item for item in catalog()}
         if name not in definitions:
             raise CatalogBindingError('Unknown, disabled, malformed or ambiguous gateway tool binding')
@@ -54,7 +61,23 @@ def install_exact_routing(runtime):
             raise CatalogBindingError('Tool arguments did not satisfy the admitted schema') from exc
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError('Tool canceled before dispatch')
-        return runtime.mcp_call(meta['server'], 'tools/call', {'name': meta['tool'], 'arguments': arguments},
-                                progress_callback=progress_callback, cancel_event=cancel_event)
+        schema_digest = hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).hexdigest()
+        binding = {'server': meta['server'], 'tool': meta['tool'], 'schemaDigest': schema_digest,
+                   'bindingRevision': 'gptmobile.tool-binding.v1'}
+        action_id = str(call_id or current_gateway_tool_call_id.get() or ('internal-' + uuid.uuid4().hex))
+        job_id = str(current_gateway_job_id.get() or action_id)
+        principal_id = str(current_device.get() or 'unowned')
+        admitted = ledger.begin(principal_id, job_id, action_id, binding, arguments)
+        if isinstance(admitted, ActionReplay):
+            return admitted.result
+        if admitted is not None:
+            raise ExternalOutcomeUnknown('Prior gateway action state is not replayable')
+        try:
+            result = runtime.mcp_call(meta['server'], 'tools/call', {'name': meta['tool'], 'arguments': arguments},
+                                      progress_callback=progress_callback, cancel_event=cancel_event)
+        except BaseException:
+            ledger.uncertain(principal_id, job_id, action_id)
+            raise
+        return ledger.finish(principal_id, job_id, action_id, result)
     runtime.get_all_mcp_tools = catalog
     runtime._execute_mcp_tool_single = dispatch

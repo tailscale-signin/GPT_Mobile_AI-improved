@@ -60,37 +60,50 @@ class GatewayAPIImpl @Inject constructor(
         jobId: String,
         afterSequence: Int,
         timeoutSeconds: Int,
-        config: ProviderRequestConfig
+        config: ProviderRequestConfig,
+        expectedGeneration: String?
     ): Flow<GatewayProgress> = flow {
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
-        val endpoint = config.buildEndpoint("gateway/jobs/$jobId/events?after_sequence=$afterSequence")
-        try {
-            networkClient().prepareGet(endpoint) {
-                applyPlatformStreamingTimeout(timeoutSeconds)
-                accept(ContentType.Text.EventStream)
-                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                config.extraHeaders.forEach { (key, value) -> header(key, value) }
-            }.execute { response ->
-                if (!response.status.isSuccess()) return@execute
-
-                val channel = response.bodyAsChannel()
-                while (!channel.isClosedForRead) {
-                    val line = channel.readLine() ?: break
-                    val data = SseUtils.extractSseData(line) ?: continue
-                    if (data == "[DONE]") break
-
-                    try {
-                        val progress = json.decodeFromString<GatewayProgress>(data)
-                        emit(progress)
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (_: Exception) {
-                        // Skip unparseable events
-                    }
-                }
+        require(expectedGeneration == null || expectedGeneration.matches(Regex("[A-Za-z0-9_-]{1,128}"))) {
+            "Invalid Gateway generation identifier."
+        }
+        val generationQuery = expectedGeneration?.let { "&generation=$it" }.orEmpty()
+        val endpoint = config.buildEndpoint("gateway/jobs/$jobId/events?after_sequence=$afterSequence$generationQuery")
+        var lastSequence = afterSequence.coerceAtLeast(0)
+        var activeGeneration: String? = null
+        networkClient().prepareGet(endpoint) {
+            applyPlatformStreamingTimeout(timeoutSeconds)
+            accept(ContentType.Text.EventStream)
+            config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+            config.extraHeaders.forEach { (key, value) -> header(key, value) }
+        }.execute { response ->
+            if (!response.status.isSuccess()) {
+                throw GatewayEventReplayException("Gateway event replay failed with HTTP ${response.status.value}.")
             }
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
+
+            val channel = response.bodyAsChannel()
+            while (!channel.isClosedForRead) {
+                val line = channel.readLine() ?: break
+                val data = SseUtils.extractSseData(line) ?: continue
+                if (data == "[DONE]") break
+
+                val progress = try {
+                    json.decodeFromString<GatewayProgress>(data)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Exception) {
+                    throw GatewayEventReplayException("Gateway returned an unreadable replay event.", failure)
+                }
+                val generation = progress.generation
+                if (generation != null && activeGeneration != null && generation != activeGeneration) {
+                    throw GatewayEventReplayException("Gateway event generation changed during replay.")
+                }
+                if (generation != null) activeGeneration = generation
+                val sequence = progress.sequence
+                if (sequence != null && sequence <= lastSequence && progress.generationChanged != true) continue
+                if (sequence != null) lastSequence = maxOf(lastSequence, sequence)
+                emit(progress)
+            }
         }
     }.flowOn(Dispatchers.IO)
 
@@ -165,3 +178,6 @@ class GatewayAPIImpl @Inject constructor(
         const val RECOVERY_REQUEST_TIMEOUT_MS = 10_000L
     }
 }
+
+class GatewayEventReplayException(message: String, cause: Throwable? = null) :
+    IllegalStateException(message, cause)

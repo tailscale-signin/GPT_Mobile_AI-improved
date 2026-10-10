@@ -2038,9 +2038,13 @@ class ChatRepositoryImpl(
                     is ProviderEvent.GatewayMetadataCaptured -> providerEvent.metadata.jobId?.let { agentRunDao.bindGatewayJob(runId, it, platform.apiUrl) }
                     is ProviderEvent.GatewayProgressUpdate -> {
                         gatewayTelemetrySeen = true
-                        providerEvent.progress.sequence?.let { agentRunDao.advanceGatewaySequence(runId, it) }
+                        val gatewayToolEvent = trace.gateway(providerEvent.progress)
+                        if (gatewayToolEvent != null) {
+                            // Persist the tool projection before acknowledging its replay cursor.
+                            providerEvent.progress.sequence?.let { agentRunDao.advanceGatewaySequence(runId, it) }
+                        }
                         emit(ApiState.GatewayProgressChanged(providerEvent.progress))
-                        trace.gateway(providerEvent.progress)?.let { gatewayToolEvent ->
+                        gatewayToolEvent?.let {
                             emit(gatewayToolEvent)
                             val progress = providerEvent.progress
                             if (progress.event in setOf("tool_completed", "tool_failed", "tool_finished")) {

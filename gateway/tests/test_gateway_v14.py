@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -225,15 +226,26 @@ class ExactToolTests(unittest.TestCase):
     def runtime(self, definitions):
         from types import SimpleNamespace
         from unittest.mock import Mock
-        return SimpleNamespace(get_all_mcp_tools=lambda refresh=False: definitions,
+        temp = tempfile.TemporaryDirectory()
+        runtime = SimpleNamespace(get_all_mcp_tools=lambda refresh=False: definitions,
             load_mcp_config=lambda: {'a':{},'a_b':{}}, mcp_tool_metadata={'a_b_read':{'server':'a','tool':'b_read'}},
-            mcp_cache_lock=threading.RLock(), mcp_tools_cache=definitions, mcp_call=Mock(return_value={'ok':True}))
+            mcp_cache_lock=threading.RLock(), mcp_tools_cache=definitions, mcp_call=Mock(return_value={'ok':True}),
+            GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True, durable_job_lock=threading.RLock(),
+            _durable_connect=lambda: sqlite3.connect(Path(temp.name)/'actions.db', timeout=5), _action_temp=temp)
+        return runtime
+
+    def dispatch(self, runtime, name='a_b_read', arguments=None, call_id='call-1'):
+        token = current_device.set('local:test')
+        try:
+            return runtime._execute_mcp_tool_single(name, arguments or {}, call_id=call_id)
+        finally:
+            current_device.reset(token)
 
     def test_exact_metadata_beats_longest_prefix_guess(self):
         from v14.tools import install_exact_routing
         runtime=self.runtime([{'function':{'name':'a_b_read','parameters':{'type':'object','properties':{},'required':[]}}}])
         install_exact_routing(runtime)
-        runtime._execute_mcp_tool_single('a_b_read',{})
+        self.dispatch(runtime)
         self.assertEqual(runtime.mcp_call.call_args.args[0],'a')
         self.assertEqual(runtime.mcp_call.call_args.args[2]['name'],'b_read')
 
@@ -243,7 +255,7 @@ class ExactToolTests(unittest.TestCase):
         runtime=self.runtime([tool,tool])
         install_exact_routing(runtime)
         self.assertEqual(runtime.get_all_mcp_tools(),[])
-        with self.assertRaises(CatalogBindingError): runtime._execute_mcp_tool_single('a_b_read',{})
+        with self.assertRaises(CatalogBindingError): self.dispatch(runtime)
         runtime.mcp_call.assert_not_called()
 
     def test_malformed_catalog_entries_do_not_hide_healthy_tools(self):
@@ -253,7 +265,37 @@ class ExactToolTests(unittest.TestCase):
                               {'function': {'name':'a_b_read'}}])
         install_exact_routing(runtime)
         self.assertEqual(len(runtime.get_all_mcp_tools()), 1)
-        runtime._execute_mcp_tool_single('a_b_read', {})
+        self.dispatch(runtime)
+        runtime.mcp_call.assert_called_once()
+
+    def test_same_call_id_replays_recorded_result_without_second_dispatch(self):
+        from v14.tools import install_exact_routing
+        runtime = self.runtime([{'function': {'name':'a_b_read','parameters': {'type':'object','properties':{},'required':[]}}}])
+        install_exact_routing(runtime)
+        first = self.dispatch(runtime, call_id='stable-call')
+        second = self.dispatch(runtime, call_id='stable-call')
+        self.assertEqual(first, second)
+        runtime.mcp_call.assert_called_once()
+
+    def test_call_id_cannot_be_rebound_to_different_arguments(self):
+        from v14.tools import install_exact_routing
+        from v14.actions import ActionConflict
+        definitions = [{'function': {'name':'a_b_read','parameters': {'type':'object','properties': {'q': {'type':'string'}},'required':['q']}}}]
+        runtime = self.runtime(definitions)
+        install_exact_routing(runtime)
+        self.dispatch(runtime, arguments={'q':'first'}, call_id='stable-call')
+        with self.assertRaises(ActionConflict):
+            self.dispatch(runtime, arguments={'q':'second'}, call_id='stable-call')
+        runtime.mcp_call.assert_called_once()
+
+    def test_uncertain_external_outcome_is_never_replayed(self):
+        from v14.tools import install_exact_routing
+        from v14.actions import ExternalOutcomeUnknown
+        runtime = self.runtime([{'function': {'name':'a_b_read','parameters': {'type':'object','properties':{},'required':[]}}}])
+        install_exact_routing(runtime)
+        runtime.mcp_call.side_effect = [TimeoutError('lost response'), {'ok': True}]
+        with self.assertRaises(TimeoutError): self.dispatch(runtime, call_id='uncertain-call')
+        with self.assertRaises(ExternalOutcomeUnknown): self.dispatch(runtime, call_id='uncertain-call')
         runtime.mcp_call.assert_called_once()
 
 

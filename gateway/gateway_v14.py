@@ -21,6 +21,8 @@ from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
 from v14.errors import GatewayFailure
 from v14.deadlines import request_deadline
+from v14.actions import IdempotencyConflict, IdempotencyExpired
+from v14.events import replay_snapshot
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
@@ -35,6 +37,7 @@ runtime.AUTO_MEMORY_STORE = False
 runtime.AUTO_LEARN_FROM_TOOL_RESULTS = False
 runtime.MEMORY_BEHAVIOR_PROMPT = "Personal memory is client-authoritative. Do not invent recalled facts or store a competing vault."
 runtime.run_searches = run_searches
+runtime.gateway_replay_snapshot = replay_snapshot
 install_terminal_guard(runtime)
 _old_config = runtime.load_mcp_config
 
@@ -90,6 +93,12 @@ async def chat(request: Request):
                                          "message": "The gateway could not durably commit this run.", "retryable": True}}, status_code=503)
     except GatewayFailure as exc:
         return JSONResponse(exc.payload(), status_code=exc.status_code)
+    except IdempotencyConflict as exc:
+        return JSONResponse({"error": {"code": "idempotency_conflict", "failureCode": "invalid_request",
+                                         "message": str(exc), "retryable": False}}, status_code=409)
+    except IdempotencyExpired as exc:
+        return JSONResponse({"error": {"code": "idempotency_expired", "failureCode": "invalid_request",
+                                         "message": str(exc), "retryable": False}}, status_code=409)
     except PermissionError:
         return JSONResponse({"error": {"code": "principal_or_destination_denied", "failureCode": "permission_denied",
                                          "message": "The gateway principal is not permitted to run this request.", "retryable": False}}, status_code=403)

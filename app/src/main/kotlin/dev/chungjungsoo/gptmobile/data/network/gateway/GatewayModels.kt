@@ -115,8 +115,15 @@ data class GatewayProgress(
     @SerialName("request_id")
     val requestId: String? = null,
 
+    val generation: String? = null,
+
     val sequence: Int? = null,
     val event: String? = null,
+    val replayGap: Boolean? = null,
+    val generationChanged: Boolean? = null,
+    val previousGeneration: String? = null,
+    val resultAvailable: Boolean? = null,
+    val recovery: String? = null,
     val status: String? = null,
     val stage: String? = null,
     val message: String? = null,

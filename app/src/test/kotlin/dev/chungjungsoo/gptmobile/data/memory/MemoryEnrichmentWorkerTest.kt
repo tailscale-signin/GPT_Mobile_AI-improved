@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MemoryEnrichmentWorkerTest {
-    @Test fun `missing model and deterministic output failures cannot retry indefinitely`() {
+    @Test fun `generation retry limits exclude model prerequisites and bound invalid output`() {
         assertEquals(0, enrichmentRetryLimit("NO_LOADED_MODEL"))
         assertEquals(0, enrichmentRetryLimit("SOURCE_CHANGED"))
         assertEquals(1, enrichmentRetryLimit("INVALID_OUTPUT"))

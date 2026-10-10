@@ -177,12 +177,12 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        val errorMessage = try {
-                            val errorResponse = NetworkClient.openAIJson.decodeFromString<OpenAIErrorResponse>(errorBody)
-                            errorResponse.error.message
-                        } catch (_: Exception) {
-                            "HTTP ${response.status.value}: $errorBody"
-                        }
+                        val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                            "Provider",
+                            "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
+                            "E"
+                        )
 
                         emit(
                             ChatCompletionChunk(
@@ -196,6 +196,10 @@ class OpenAIAPIImpl @Inject constructor(
                         return@execute
                     }
 
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                        "Provider",
+                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${response.headers["X-Request-ID"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: "provider-default"} · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
+                    )
                     // Capture Gateway headers from response
                     val gatewayJobId = response.headers["X-Gateway-Job-ID"]
                     val gatewayRequestId = response.headers["X-Gateway-Request-ID"]
@@ -286,7 +290,7 @@ class OpenAIAPIImpl @Inject constructor(
                             receivedGatewayToolActivity = true
                         }
                         val chunk = decoded.error?.let { error ->
-                            decoded.copy(error = error.copy(message = config.readableProviderError(error.message, error.code)))
+                            decoded.copy(error = error.copy(message = config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)))
                         } ?: decoded
                         receivedTerminal = receivedTerminal || chunk.error != null || chunk.choices.orEmpty().any { it.finishReason != null }
                         if (receivedTerminal) terminalDrain.markTerminal()
@@ -408,17 +412,21 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        val errorMessage = try {
-                            val errorResponse = NetworkClient.openAIJson.decodeFromString<OpenAIErrorResponse>(errorBody)
-                            errorResponse.error.message
-                        } catch (_: Exception) {
-                            "HTTP ${response.status.value}: $errorBody"
-                        }
+                        val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                            "Provider",
+                            "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
+                            "E"
+                        )
 
                         emit(ResponseErrorEvent(message = config.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
                         return@execute
                     }
 
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                        "Provider",
+                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
+                    )
                     // Success - read SSE stream
                     val channel = response.bodyAsChannel()
                     while (!channel.isClosedForRead) {
@@ -436,7 +444,7 @@ class OpenAIAPIImpl @Inject constructor(
                             continue
                         }
                         val streamEvent = if (decoded is ResponseErrorEvent) {
-                            decoded.copy(message = config.readableProviderError(decoded.message, decoded.code))
+                            decoded.copy(message = config.readableProviderError(providerErrorDetails(data, decoded.message, config.token), decoded.code))
                         } else {
                             decoded
                         }

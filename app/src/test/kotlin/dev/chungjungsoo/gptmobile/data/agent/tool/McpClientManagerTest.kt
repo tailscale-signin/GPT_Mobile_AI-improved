@@ -29,6 +29,36 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class McpClientManagerTest {
+    @Test fun `authentication failure stops repeat discovery until credentials change`() = runBlocking {
+        var requests = 0
+        val client = HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                requests++
+                respond("Not authorized", io.ktor.http.HttpStatusCode.Unauthorized)
+            }
+        ) { install(SSE) }
+        val manager = McpClientManager(client)
+        val config = McpConnectionConfig("auth", "https://example.com/mcp", false, "Bearer expired")
+        try {
+            assertTrue(runCatching { manager.listTools(config) }.isFailure)
+            assertEquals(McpConnectionHealthState.AUTHENTICATION_REQUIRED, manager.healthSnapshot("auth").state)
+            val initial = requests
+            assertTrue(runCatching { manager.listTools(config) }.isFailure)
+            assertEquals(initial, requests)
+            val replacementConfig = McpConnectionConfig(
+                "auth",
+                "https://example.com/mcp",
+                false,
+                "Bearer replacement"
+            )
+            assertTrue(runCatching { manager.listTools(replacementConfig) }.isFailure)
+            assertTrue(requests > initial)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
     @Test fun googleApiKeyIsSentOnlyToItsOfficialHttpsEndpoint() = runBlocking {
         var requests = 0
         val client = HttpClient(

@@ -33,8 +33,7 @@ internal fun combinedSynthesisInputs(
     }
     if (sources.isEmpty()) return null
     if (synthesis != null &&
-        synthesis.content.isNotBlank() &&
-        runs[synthesis.currentRunId]?.status == AgentRunStatus.COMPLETED &&
+        runs[synthesis.currentRunId]?.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) &&
         synthesis.combinedSources.map { it.platformUid to it.content.trim() } == sources.map { it.platformUid to it.content.trim() }
     ) {
         return null

@@ -6,6 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test
+    fun `TLS record errors permit bounded retry but trust failures never do`() {
+        assertTrue(ResilientStreamingClient.isRetryable(javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC")))
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", javax.net.ssl.SSLPeerUnverifiedException("hostname mismatch"))))
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", java.security.cert.CertificateException("expired"))))
+    }
 
     @Test
     fun `premature Ktor HTTP close is classified through wrapped cause`() {

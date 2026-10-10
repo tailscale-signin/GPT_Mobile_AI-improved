@@ -209,7 +209,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             } finally {
                 withContext(NonCancellable) {
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${output == null}", if (status == "COMPLETED") "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${output == null}", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             dao.save(

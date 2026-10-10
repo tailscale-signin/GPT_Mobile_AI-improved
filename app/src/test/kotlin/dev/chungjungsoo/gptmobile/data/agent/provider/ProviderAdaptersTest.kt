@@ -1243,6 +1243,8 @@ class ProviderAdaptersTest {
                 if (type == ClientType.LLAMA) {
                     assertEquals(cap.toString(), api.configs.single().extraHeaders["X-Gateway-Intermediate-Max-Tokens"])
                     assertEquals("none", api.configs.single().extraHeaders["X-Gateway-Reasoning-Effort"])
+                    assertEquals("none", request["reasoning_effort"]?.jsonPrimitive?.content)
+                    assertEquals("false", request["chat_template_kwargs"]?.jsonObject?.get("enable_thinking")?.jsonPrimitive?.content)
                     assertEquals("true", api.configs.single().extraHeaders["X-Gateway-Delegated-Worker"])
                 }
                 assertEquals("none", request["tool_choice"]?.jsonPrimitive?.content)

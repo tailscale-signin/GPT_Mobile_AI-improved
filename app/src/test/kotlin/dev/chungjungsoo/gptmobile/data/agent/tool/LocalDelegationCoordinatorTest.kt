@@ -20,6 +20,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun `unavailable reviewer preserves evidence without a rejected verdict`() = runTest {
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = "missing-reviewer") },
+            { listOf(target) },
+            { _, _, _ -> "Useful retained evidence [S1]." }
+        )
+        val result = coordinator.executeTask(target, "French history", 512).orEmpty()
+        assertEquals(DelegateReviewState.UNAVAILABLE, delegateReviewState(result))
+        assertFalse(result.contains("REVIEW_REJECTED"))
+        assertTrue(result.contains("Useful retained evidence"))
+        assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
+    }
+
+    @Test fun `reasoning only output limit charges all observed failed usage and stops unchanged dispatch`() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, localRetryLimit = 5) },
+            { listOf(target) },
+            { _, _, _ ->
+                calls++
+                throw DelegateGenerationException(DelegateFailureKind.OUTPUT_LIMIT, "reached its output limit", 381, 2956, 3337, true)
+            }
+        )
+        assertNull(coordinator.executeTask(target, "French history", 2048))
+        assertEquals(1, calls)
+        assertEquals(3337L, coordinator.computeStats().failedTokens)
+    }
+
     @Test
     fun `automatic shopping preparation uses product capable worker at partial ownership`() = runTest {
         var calls = 0
@@ -144,8 +174,8 @@ class LocalDelegationCoordinatorTest {
             }
         )
         assertEquals("recovered", coordinator.executeTask(target, "Read evidence", 128))
-        assertEquals(6, dispatched.count { it == target.uid })
-        assertEquals(6, dispatched.count { it == second.uid })
+        assertEquals(2, dispatched.count { it == target.uid })
+        assertEquals(2, dispatched.count { it == second.uid })
         assertEquals(1, dispatched.count { it == third.uid })
         assertEquals(third.uid, dispatched.last())
     }
@@ -166,7 +196,7 @@ class LocalDelegationCoordinatorTest {
             inputBudget = { profile, _ -> if (profile.uid == unavailable.uid) 100 else 4000 }
         )
         assertEquals("recovered", coordinator.executeTask(target, "Read evidence", 128))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(2, dispatched.count { it == target.uid })
         assertEquals(0, dispatched.count { it == unavailable.uid })
         assertEquals(1, dispatched.count { it == available.uid })
         assertEquals(available.uid, dispatched.last())
@@ -440,7 +470,7 @@ class LocalDelegationCoordinatorTest {
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(third?.message.orEmpty().contains("CANCELED_NO_RESULT"))
-        assertEquals(6, calls)
+        assertEquals(2, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -461,7 +491,7 @@ class LocalDelegationCoordinatorTest {
             val failure = runCatching { coordinator.delegate(target, "task", 128, emptyList(), "timeout-$it") }.exceptionOrNull()
             assertTrue(failure?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         }
-        assertEquals(6, calls)
+        assertEquals(2, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -482,7 +512,7 @@ class LocalDelegationCoordinatorTest {
         assertEquals("recovered", coordinator.delegate(target, "first", 128, emptyList(), "first"))
         assertEquals("recovered", coordinator.delegate(target, "second", 128, emptyList(), "second"))
         assertEquals("recovered", coordinator.delegate(target, "third", 128, emptyList(), "third"))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(2, dispatched.count { it == target.uid })
         assertEquals(3, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -507,7 +537,7 @@ class LocalDelegationCoordinatorTest {
         assertEquals(8, calls)
     }
 
-    @Test fun `connection abort quarantines worker immediately`() = runTest {
+    @Test fun `repeated connection abort quarantines worker`() = runTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
             source,
@@ -522,11 +552,11 @@ class LocalDelegationCoordinatorTest {
         repeat(2) {
             assertTrue(runCatching { coordinator.delegate(target, "task", 128, emptyList(), "abort-$it") }.isFailure)
         }
-        assertEquals(6, calls)
+        assertEquals(2, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
-    @Test fun `socket timeout quarantines worker immediately and uses fallback`() = runTest {
+    @Test fun `repeated socket timeout quarantines worker and uses fallback`() = runTest {
         val fallback = target.copy(uid = "fallback")
         val dispatched = mutableListOf<String>()
         val coordinator = LocalDelegationCoordinator(
@@ -542,7 +572,7 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.executeTask(target, "first", 128))
         assertEquals("recovered", coordinator.executeTask(target, "second", 128))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(2, dispatched.count { it == target.uid })
         assertEquals(2, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -867,7 +897,7 @@ class LocalDelegationCoordinatorTest {
         assertFalse(coordinator.researchAvailable())
     }
 
-    @Test fun `same delegate gets five one second retries before fallback`() = runTest {
+    @Test fun `identical failures stop after one retry and use fallback`() = runTest {
         val fallback = target.copy(uid = "retry-fallback", model = "fallback-model")
         val targetAttemptTimes = mutableListOf<Long>()
         val dispatched = mutableListOf<String>()
@@ -887,8 +917,8 @@ class LocalDelegationCoordinatorTest {
         )
 
         assertEquals("recovered after retries", coordinator.executeTask(target, "retry spacing", 128))
-        assertEquals(listOf(0L, 1000L, 2000L, 3000L, 4000L, 5000L), targetAttemptTimes)
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(listOf(0L, 1000L), targetAttemptTimes)
+        assertEquals(2, dispatched.count { it == target.uid })
         assertEquals(1, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -1128,7 +1158,7 @@ class LocalDelegationCoordinatorTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(preparationTimeoutSeconds = 30) },
+            { config.copy(researchEnabled = true, preparationTimeoutSeconds = 30) },
             { listOf(target) },
             { _, _, _ ->
                 calls++

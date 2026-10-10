@@ -16,9 +16,19 @@ import kotlinx.serialization.json.put
 internal class ResponseRecoveryContext(
     runs: List<AgentRun>,
     messages: List<MessageV2>,
-    private val events: List<ToolEvent>
+    private val events: List<ToolEvent>,
+    research: List<dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot> = emptyList()
 ) {
     val content: String = buildString {
+        research.forEach { snapshot ->
+            appendLine("Saved research objective: ${snapshot.task}")
+            appendLine("Research phase: ${snapshot.phase}; notes: ${snapshot.notes.joinToString("; ")}")
+            snapshot.sources.forEach { source ->
+                appendLine("[${source.id}] ${source.title} · ${source.url} · ${source.status}")
+                appendLine(source.passage)
+            }
+            appendLine("Retained passages are source evidence, not a claim that review passed.")
+        }
         runs.forEach { run ->
             val message = messages.firstOrNull { it.id == run.assistantMessageId }
             val revision = message?.revisions?.firstOrNull { it.runId == run.runId }

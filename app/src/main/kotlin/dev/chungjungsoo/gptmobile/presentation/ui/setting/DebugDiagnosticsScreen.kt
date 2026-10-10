@@ -101,6 +101,12 @@ fun DebugDiagnosticsScreen(
                                     }
                                     MetricLine("Active model requests / tools", "${activeRequests.size} / ${activeTools.size}")
                                     MetricLine("Recent runs / failed", "${state.recentRuns.size} / ${state.failedRuns}")
+                                    MetricLine("Interrupted / canceled runs", "${state.recentRuns.count { it.status == AgentRunStatus.INTERRUPTED }} / ${state.recentRuns.count { it.status == AgentRunStatus.CANCELED }}")
+                                    MetricLine("Provider completions", "${state.invocations.count { it.status == "COMPLETED" }} / ${state.invocations.size} recent requests")
+                                    MetricLine("Memory queued / active", "${state.memoryQueued} / ${state.memoryRunning}")
+                                    MetricLine("Memory waiting for local model", state.memoryWaiting.toString())
+                                    MetricLine("Recent memory enrichments", state.memoryCompleted.toString())
+                                    Text("Request completion and task completion are separate. Review and partial-output details remain attached to each response. Memory work waits for an on-device model and battery readiness.", style = MaterialTheme.typography.labelSmall)
                                     Text("Live values update once per second. Hardware samples every two seconds while this screen is visible.", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
@@ -189,6 +195,7 @@ internal fun HardwareDiagnostic(snapshot: DiagnosticsTelemetryProvider.Diagnosti
     MetricLine("Processor", snapshot.socModel)
     MetricLine("Available / total device RAM", "${snapshot.availableRamMb} MB / ${snapshot.totalRamGb} GB")
     MetricLine("App PSS / Java heap", "${snapshot.processMemoryMb} / ${snapshot.javaHeapMb} MB")
+    MetricLine("Native heap allocated", "${snapshot.nativeHeapMb} MB")
     MetricLine("Thermal state", snapshot.thermalStatus)
     MetricLine("Battery", "${snapshot.batteryPct.takeIf { it >= 0 }?.let { "$it%" } ?: "Unknown"}${if (snapshot.isCharging) " · charging" else ""}")
     if (showNetwork) MetricLine("Network transport", snapshot.network)

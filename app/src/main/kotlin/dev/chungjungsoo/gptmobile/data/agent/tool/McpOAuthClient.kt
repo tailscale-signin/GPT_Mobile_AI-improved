@@ -334,6 +334,8 @@ class McpOAuthClient internal constructor(
             val errorCode = runCatching {
                 (NetworkClient.json.parseToJsonElement(body.decodeToString()) as? JsonObject)?.string("error")
             }.getOrNull()
+            val safeCode = errorCode?.takeIf { it.matches(Regex("[a-zA-Z0-9_]{1,64}")) } ?: "unknown"
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("OAuth", "$label · status=${status.value} · code=$safeCode", "W")
             if (label == "OAuth token request" && errorCode in setOf("invalid_grant", "invalid_client", "unauthorized_client", "invalid_token")) {
                 // Never expose server descriptions, echoed credentials or response bodies.
                 throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)

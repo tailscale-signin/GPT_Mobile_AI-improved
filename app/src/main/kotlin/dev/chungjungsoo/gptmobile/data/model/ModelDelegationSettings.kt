@@ -213,7 +213,7 @@ data class ModelDelegationSettings(
             maxPageCharacters = maxPageCharacters.coerceIn(1000, 96000),
             handoffTokens = handoffTokens.coerceIn(128, 8192),
             compactionThresholdCharacters = compactionThresholdCharacters.coerceIn(256, 48000),
-            localRetryLimit = localRetryLimit.coerceIn(5, 10),
+            localRetryLimit = localRetryLimit.coerceIn(0, 10),
             lowBatteryThresholdPercent = lowBatteryThresholdPercent.coerceIn(0, 50),
             remoteSynthesisOutputTokens = remoteSynthesisOutputTokens.coerceIn(256, 4096),
             primaryReplayTokens = primaryReplayTokens.coerceIn(1024, 16000),

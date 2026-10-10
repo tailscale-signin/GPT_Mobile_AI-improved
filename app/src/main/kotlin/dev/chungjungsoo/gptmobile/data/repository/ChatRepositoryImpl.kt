@@ -930,13 +930,16 @@ class ChatRepositoryImpl(
         val resolution = resolveDelegatedChildResult(rawText, toolFallbacks, extractionFailed, providerFailure)
         val usableText = resolution.text
         val status = resolution.status
-        val reasoningOnly = status == DelegatedChildStatus.COMPLETED_EMPTY && providerFailure == null && reasoningChars > 0
+        val reasoningOnly = usableText == null && reasoningChars > 0
         val directUsableChars = rawText.trim().takeIf { it.length >= MIN_DELEGATED_USEFUL_CHARS && '\u0000' !in it }?.length ?: 0
         val recoveredToolChars = if (directUsableChars == 0) usableText?.length ?: 0 else 0
         val effectiveCap = effectiveProviderOutputCap ?: constraints.outputLimit(target.maxTokens)
         val outputCapMismatch = hasOutputUsage && effectiveCap != null && maxRoundOutput > effectiveCap
-        val outputCapReached = hasOutputUsage && effectiveCap != null && maxRoundOutput >= effectiveCap
-        val likelyTruncated = (outputCapReached && usableText == null) || isLikelyDelegatedTruncation(rawText, outputCapReached)
+        val outputCapReached = (hasOutputUsage && effectiveCap != null && maxRoundOutput >= effectiveCap) ||
+            providerFailure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it) } == true
+        val likelyTruncated = (outputCapReached && usableText == null) ||
+            isLikelyDelegatedTruncation(rawText, outputCapReached) ||
+            providerFailure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it) } == true
 
         if (outputCapMismatch) {
             AppLogRecorder.record(
@@ -950,7 +953,7 @@ class ChatRepositoryImpl(
         }
         AppLogRecorder.record(
             "Delegation",
-            "Child parsed · parentRun=$parentRunId · target=${target.uid} · status=$status · directChars=$directUsableChars · recoveredToolChars=$recoveredToolChars · reasoningChars=$reasoningChars · reasoningOnly=$reasoningOnly"
+            "Child parsed · parentRun=$parentRunId · target=${target.uid} · status=$status · contentState=${dev.chungjungsoo.gptmobile.data.agent.tool.delegateContentState(usableText != null, reasoningChars, outputCapReached)} · directChars=$directUsableChars · recoveredToolChars=$recoveredToolChars · reasoningChars=$reasoningChars · reasoningOnly=$reasoningOnly"
         )
         val accountedInputTokens = if (hasInputUsage) {
             usageInputTokens
@@ -1003,11 +1006,22 @@ class ChatRepositoryImpl(
                 requestRole = requestRole
             )
         }
-        if (status == DelegatedChildStatus.FAILED) {
-            providerFailure?.let { error("DELEGATION_FAILED: $it") }
-        }
-        if (reasoningOnly) {
-            error("REASONING_ONLY_RESPONSE: delegated provider produced reasoning tokens but no usable final answer after one final-answer repair attempt.")
+        if (status == DelegatedChildStatus.FAILED || reasoningOnly || usableText == null) {
+            val kind = when {
+                outputCapReached -> dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT
+                reasoningOnly -> dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.REASONING_ONLY
+                providerFailure?.let { Regex("(?i)\\b(401|403)\\b|authentication|invalid api key|incorrect api key").containsMatchIn(it) } == true -> dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE
+                providerFailure != null -> dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE
+                else -> dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.EMPTY_OUTPUT
+            }
+            throw dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
+                kind,
+                providerFailure ?: if (reasoningOnly) "REASONING_ONLY_RESPONSE after final-answer repair" else "EMPTY_RESPONSE",
+                accountedInputTokens,
+                accountedOutputTokens,
+                accountedTotalTokens,
+                !hasTotalUsage
+            )
         }
         if (status == DelegatedChildStatus.COMPLETED && providerFailure != null) {
             AppLogRecorder.record(
@@ -1032,7 +1046,26 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = channelFlow {
         suspend fun emit(state: ApiState) = send(state)
-        val followUps = followUpInbox(this, platform, userMessages.lastOrNull(), runId, chatToolConfig, userMessages)
+        val recoveryAction = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(userMessages.lastOrNull()?.content.orEmpty())
+        val savedUserTurns = if (recoveryAction != null) {
+            userMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
+                agentPersistenceDao.getMessages(latest.chatId).filter { it.platformType == null && it.id <= latest.id }
+            }?.takeIf { it.isNotEmpty() } ?: userMessages
+        } else {
+            userMessages
+        }
+        val taskRecovery = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns)
+        if (recoveryAction != null && taskRecovery == null) {
+            emit(ApiState.Error("There is no saved task to resume. Send the original request before using Continue or Retry."))
+            return@channelFlow
+        }
+        val effectiveUserMessages = if (taskRecovery != null) {
+            AppLogRecorder.record("Recovery", "TASK_ACTION · action=${taskRecovery.action} · sourceMessage=${taskRecovery.sourceMessageId} · primaryOnly=${taskRecovery.primaryOnly} · run=$runId")
+            userMessages.mapIndexed { index, message -> if (index == userMessages.lastIndex) message.copy(content = taskRecovery.prompt()) else message }
+        } else {
+            userMessages
+        }
+        val followUps = followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
         val activity = AtomicReference("Preparing response")
         val traceSequences = java.util.concurrent.atomic.AtomicInteger()
         var delegatedTools = emptyList<ResolvedAgentTool>()
@@ -1092,7 +1125,7 @@ class ChatRepositoryImpl(
             send(ApiState.DelegationText(invocation, traceProfile, "", !target.isPrivateDestination()))
             val delegateText = StringBuilder()
             try {
-                return delegateToProfile(target, task, cap, runId, userMessages.lastOrNull()?.let { "${it.chatId}:${it.id}" } ?: runId, inputCap, { event ->
+                return delegateToProfile(target, task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${it.id}" } ?: runId, inputCap, { event ->
                     progress(event)
                     if (event.kind == DelegateProgressKind.TOOL_ACTIVITY) activity.set("Using helper tools")
                     event.textDelta?.let {
@@ -1113,7 +1146,7 @@ class ChatRepositoryImpl(
         try {
             if (platform.compatibleType == ClientType.FREE) {
                 check(FreeAiProvider.requireFor(platform).isAvailable) { "LLM7 is awaiting provider approval for app integration. Choose another Free provider." }
-                require(userMessages.all { it.attachments.isEmpty() } && assistantMessages.flatten().all { it.attachments.isEmpty() }) {
+                require(effectiveUserMessages.all { it.attachments.isEmpty() } && assistantMessages.flatten().all { it.attachments.isEmpty() }) {
                     "Free profiles support public text only. Start a chat without attachments, or select another platform."
                 }
                 emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))
@@ -1127,26 +1160,34 @@ class ChatRepositoryImpl(
                     emit(ApiState.Notice("Memory is unavailable for this response.", persistent = true))
                 }
             }
-            val exclusions = workspace?.exclusions(userMessages.lastOrNull()?.chatId ?: 0) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
+            val exclusions = workspace?.exclusions(effectiveUserMessages.lastOrNull()?.chatId ?: 0) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
             val recovery = if (runId.startsWith("combined-synthesis:")) {
                 null
             } else {
-                userMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
-                    val userIds = userMessages.takeLast(2).map { it.id }.filter { it > 0 }
-                    val runs = agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds).filter { it.runId != runId }
-                    if (runs.isEmpty()) {
+                effectiveUserMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
+                    val userIds = (if (taskRecovery != null) savedUserTurns.dropWhile { it.id != taskRecovery.sourceMessageId } else effectiveUserMessages.takeLast(2))
+                        .map { it.id }.distinct().filter { it > 0 }
+                    val completedRecoveryRuns = if (taskRecovery != null) agentPersistenceDao.getCompletedRuns(latest.chatId).filter { it.userMessageId in userIds } else emptyList()
+                    val runs = (agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds) + completedRecoveryRuns)
+                        .filter { it.runId != runId }.distinctBy { it.runId }.sortedBy { it.createdAt }
+                    researchSessions?.loadChat(latest.chatId)
+                    val retainedResearch = researchSessions?.sessions?.value?.values.orEmpty().filter {
+                        it.chatId == latest.chatId && (it.runId in runs.map { run -> run.runId } || taskRecovery?.originalRequest?.let { request -> it.snapshot.task.endsWith(request) } == true)
+                    }.map { it.snapshot }
+                    if (runs.isEmpty() && retainedResearch.isEmpty()) {
                         null
                     } else {
                         dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext(
                             runs,
                             agentPersistenceDao.getMessages(latest.chatId),
-                            agentPersistenceDao.getToolEvents(runs.map { it.runId })
+                            agentPersistenceDao.getToolEvents(runs.map { it.runId }),
+                            retainedResearch
                         )
                     }
                 }
             }
             var contextTurns = withContext(Dispatchers.Default) {
-                buildContextTurns(userMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform).also { turns ->
+                buildContextTurns(effectiveUserMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
@@ -1176,12 +1217,13 @@ class ChatRepositoryImpl(
             } else {
                 profileBudget
             }
-            val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
+            val turnKey = effectiveUserMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
                 val defaults = settingRepository.getFeatureSettings().delegationFor(platform.uid)
-                return chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
+                val resolved = chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
+                return if (taskRecovery?.primaryOnly == true) resolved.copy(enabled = false, automaticResearch = false, researchEnabled = false, reviewerEnabled = false, processingOwnership = 100) else resolved
             }
-            val researchChatId = userMessages.lastOrNull()?.chatId ?: -1
+            val researchChatId = effectiveUserMessages.lastOrNull()?.chatId ?: -1
             val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
             val localDelegation = LocalDelegationCoordinator(
                 platform,
@@ -1206,7 +1248,7 @@ class ChatRepositoryImpl(
                 },
                 onRecoveryRequired = delegationRecovery?.let { recovery ->
                     { failed, candidates, reason ->
-                        recovery.request(userMessages.lastOrNull()?.chatId ?: -1, runId, platform.uid, failed, candidates, reason)
+                        recovery.request(effectiveUserMessages.lastOrNull()?.chatId ?: -1, runId, platform.uid, failed, candidates, reason)
                     }
                 }
             )
@@ -1216,7 +1258,7 @@ class ChatRepositoryImpl(
                 ClientType.LITERT_LM -> localModelSupportsTools(platform)
                 else -> true
             }
-            val memoryBoundary = userMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
+            val memoryBoundary = effectiveUserMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
             val privateConversation = memoryBoundary?.isTemporary == true
             val resolvedTools = (
                 if (platform.disableAllTools || !supportsTools) {
@@ -1226,8 +1268,9 @@ class ChatRepositoryImpl(
                         settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
                     }.getOrDefault(true)
                     val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
-                    agentToolResolver.resolve(platform.uid, chatToolConfig, userMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
-                        privateConversation &&
+                    agentToolResolver.resolve(platform.uid, chatToolConfig, effectiveUserMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
+                        (taskRecovery?.primaryOnly == true && resolved.realToolName == "delegate_to_model") ||
+                            privateConversation &&
                             (
                                 resolved.connectionUid in factVault?.state?.value?.settings?.externalMemoryConnections.orEmpty() ||
                                     resolved.realToolName in setOf("memory", "create_entities", "create_relations", "add_observations", "search_nodes", "read_graph", "open_nodes") ||
@@ -1252,11 +1295,11 @@ class ChatRepositoryImpl(
                 }
             )
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
-            val latestUser = userMessages.lastOrNull()
+            val latestUser = effectiveUserMessages.lastOrNull()
             val synthesisRun = runId.startsWith("combined-synthesis:")
             val routingTask = dev.chungjungsoo.gptmobile.data.agent.tool.repositoryRoutingTask(
                 latestUser?.content.orEmpty(),
-                userMessages.dropLast(1).map { it.content }
+                effectiveUserMessages.dropLast(1).map { it.content }
             )
             val taskRoutedTools = synthesisSafeTools(
                 preferNativeGitHubForTask(
@@ -1273,7 +1316,7 @@ class ChatRepositoryImpl(
                 )
             }
             val recalled = try {
-                if (latestUser == null || platform.excludesMemory()) {
+                if (latestUser == null || synthesisRun || platform.excludesMemory()) {
                     FactRecall()
                 } else {
                     // Automatic local memory capture/recall is independent from the
@@ -1284,7 +1327,7 @@ class ChatRepositoryImpl(
                         latestUser.chatId,
                         latestUser.id,
                         isLocal = platform.isPrivateDestination(),
-                        previousContext = userMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
+                        previousContext = effectiveUserMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
                     ) ?: FactRecall()
                     if (factVault?.state?.value?.settings?.localModelLearning == true) {
                         try {
@@ -1349,7 +1392,7 @@ class ChatRepositoryImpl(
                 ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
             val responseFeatures = settingRepository.getFeatureSettings()
             val quickRepliesEnabled = responseFeatures.smartSuggestions
-            val subjectInstruction = if (responseFeatures.automaticConversationTitles && userMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
+            val subjectInstruction = if (responseFeatures.automaticConversationTitles && effectiveUserMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
             fun baseSystemPrompt(): String {
                 val progressInstruction = if (resolvedTools.isNotEmpty()) {
                     "\nBefore the first tool call and after every 10 completed tool calls, " +
@@ -1359,7 +1402,7 @@ class ChatRepositoryImpl(
                 }
                 val delegationInstruction = if (localResearch) {
                     val ownershipInstruction = if (processingOwnership == 0) {
-                        "Delegation is set to 100%. The delegate owns task preparation and authorized tool work, followed by independent review. Your role is only to write the final response from the reviewed handoff. Do not restart research or perform direct tool actions."
+                        "Delegation is set to 100%. The delegate owns task preparation and authorized tool work, followed by independent review. Your role is to write the final response from the retained handoff, honoring its explicit review status. Never describe unverified evidence as reviewed. Do not restart research or perform direct tool actions."
                     } else if (processingOwnership <= 25) {
                         "This profile is configured Local-first. Prefer delegate_to_model for research, repository inspection, document reading, result analysis, and other read-only multi-step work. Let the helper use its enabled tools and return a compact brief. Use the enabled primary GitHub integration for repository writes/actions and to recover when a helper lacks GitHub access. A helper capability error describes only that helper, not the primary tool catalog. Call the available integration to complete authorized actions; do not substitute git/gh commands for execution. Use other direct primary tools mainly for writes/actions, user-visible side effects, or when the delegate explicitly reports that the needed capability is unavailable or a delegate-specific limit was reached while shared tool capacity remains. Do not repeat work already completed by the helper."
                     } else {
@@ -1383,7 +1426,8 @@ class ChatRepositoryImpl(
                     if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
             }
             val memorySettings = factVault?.state?.value
-            val canRecallDocuments = !privateConversation &&
+            val canRecallDocuments = !synthesisRun &&
+                !privateConversation &&
                 memorySettings?.enabled == true &&
                 memorySettings.settings.recallEnabled &&
                 (platform.isPrivateDestination() || memorySettings.settings.allowCloudRecall) &&
@@ -1519,6 +1563,7 @@ class ChatRepositoryImpl(
                 if (brief.isNotBlank()) appendPreparedEvidence(brief)
             }
             var preparedEvidenceComplete = false
+            var preparedEvidenceReviewed = false
             if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && (processingOwnership == 0 || !isGitHubTask(latestUser.content)) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
                 emit(ApiState.Notice("Local model is planning research and preparing evidence…", persistent = false))
                 val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })
@@ -1545,6 +1590,10 @@ class ChatRepositoryImpl(
                     throw cancelled
                 }
                 preparedEvidenceComplete = research.outcome == dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.SUCCESS
+                preparedEvidenceReviewed = dev.chungjungsoo.gptmobile.data.agent.tool.delegateReviewState(research.handoff) == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateReviewState.PASSED
+                if (preparedEvidenceComplete && delegationConfig.reviewerEnabled && !preparedEvidenceReviewed) {
+                    emit(ApiState.Notice("Evidence was retained, but independent review was unavailable or timed out. The answer must identify unverified claims.", persistent = true))
+                }
                 val content = ToolResultContent.Text(research.handoff.ifBlank { "No external research was needed for this task." })
                 val preparationFailed = research.outcome in setOf(
                     dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.FAILED,
@@ -1584,7 +1633,7 @@ class ChatRepositoryImpl(
                 }
                 requestPlatform = requestPlatform.copy(
                     systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt() +
-                        if (preparedEvidenceComplete && processingOwnership == 0) "\nThe delegate has completed preparation and independent review. Write the final answer from that reviewed handoff. Do not start tools, more research, or another delegate." else ""
+                        if (preparedEvidenceComplete && processingOwnership == 0) "\nThe delegate has completed preparation. Independent review status: ${if (preparedEvidenceReviewed) "passed" else "unverified"}. Write from the retained handoff, flag unverified claims and gaps, and never claim unavailable verification completed. Do not start tools, more research, or another delegate." else ""
                 )
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             }
@@ -1609,7 +1658,13 @@ class ChatRepositoryImpl(
                     platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
                     budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
                     resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
-                    localResearch, processingOwnership, reservedFinalToolCalls, followUps
+                    localResearch, processingOwnership, reservedFinalToolCalls, followUps,
+                    previousAnswerWords = if (taskRecovery != null) {
+                        assistantMessages.flatten().filter { it.platformType == platform.uid && it.linkedMessageId >= taskRecovery.sourceMessageId }
+                            .distinctBy { it.id }.sumOf { dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(stripAssistantErrorNote(it.content)) }
+                    } else {
+                        0
+                    }
                 )
             )
         } finally {
@@ -1650,14 +1705,18 @@ class ChatRepositoryImpl(
         localResearch: Boolean,
         processingOwnership: Int,
         reservedFinalToolCalls: Int,
-        followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?
+        followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
+        previousAnswerWords: Int = 0
     ): Flow<ApiState> = channelFlow {
         val requestedOutputTokens = contextPlan.outputTokens
         // Delegation saves input/replay tokens. Its brief budget must never cap the
         // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
         val effectiveOutputCap = requestedOutputTokens
+        val editorialPass = runId.startsWith("combined-synthesis:")
         val requestConstraints = RequestConstraints(
-            maxOutputTokens = effectiveOutputCap
+            maxOutputTokens = effectiveOutputCap,
+            allowTools = !editorialPass,
+            allowGatewayLocalTools = false
         )
         if (localResearch) {
             AppLogRecorder.record(
@@ -1694,14 +1753,37 @@ class ChatRepositoryImpl(
                 profileUid = platform.uid
             ) ?: guarded
         }
-        val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(openPrimarySession(contextPlan.turns)) { draft, exchanges ->
+        val wordGoal = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.requestedWords(
+            if (runId.startsWith("combined-synthesis:")) {
+                runCatching { kotlinx.serialization.json.Json.parseToJsonElement(latestUser?.content.orEmpty()).let { it as? kotlinx.serialization.json.JsonObject }?.get("original_request").let { it as? kotlinx.serialization.json.JsonPrimitive }?.content }.getOrNull().orEmpty()
+            } else {
+                latestUser?.content.orEmpty()
+            }
+        )
+        val remainingWordGoal = wordGoal?.let { (it - previousAnswerWords).coerceAtLeast(0) }
+        val continuationLimit = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
+        val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
+            openPrimarySession(contextPlan.turns),
+            maxContinuations = continuationLimit,
+            targetWords = remainingWordGoal
+        ) { draft, exchanges ->
             val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                 contextPlan.turns,
-                "\n\nThe previous answer hit its output cap. Finish the remaining requirements concisely, using completed evidence only. Do not repeat text already shown or repeat any tool action. If evidence is missing, say so. End within this request's output budget.",
+                "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. " +
+                    "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
+                    (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
+                    "If evidence is missing, state the gap. Start with a paragraph break only when the previous paragraph is complete.",
                 draft,
                 exchanges
             )
-            openPrimarySession(turns, "output_limit_continuation", textOnly = true)
+            // Recheck the growing answer against the configured context ceiling before dispatch.
+            val continuationPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(
+                turns,
+                requestPlatform.systemPrompt.orEmpty(),
+                emptyList(),
+                limits
+            )
+            openPrimarySession(continuationPlan.turns, "output_limit_continuation", textOnly = true)
         }
         val session = if (followUps != null && latestUser != null) {
             dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(initialSession, followUps) { handoff, draft, exchanges ->

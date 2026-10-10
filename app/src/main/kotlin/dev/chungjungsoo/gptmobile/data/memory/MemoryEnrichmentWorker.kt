@@ -101,7 +101,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             }
             finish(reason)
         } catch (cancelled: CancellationException) {
-            AppLogRecorder.record("Memory", "ENRICHMENT_CANCELLED · attempt=$runAttemptCount · stage=$reason", "W")
+            AppLogRecorder.record("Memory", "ENRICHMENT_CANCELLED · attempt=$runAttemptCount · stage=$reason")
             throw cancelled
         } catch (failure: Exception) {
             logFailure(failure)
@@ -112,18 +112,24 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
         }
     }
 
-    private fun finish(reason: String): Result = when {
-        reason in setOf("NO_LOADED_MODEL", "NO_ELIGIBLE_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
+    private suspend fun finish(reason: String): Result = when {
+        reason == "NO_LOADED_MODEL" -> {
+            MemoryEnrichmentQueue.markWaiting(applicationContext, inputData)
+            setProgress(androidx.work.workDataOf("outcome" to "WAITING_FOR_MODEL", "reason" to reason))
+            outcome("RETRY", reason)
+        }
+        reason in setOf("NO_ELIGIBLE_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
         reason == "ENRICHED" -> outcome("SUCCESS", reason)
         runAttemptCount < enrichmentRetryLimit(reason) -> outcome("RETRY", reason)
         else -> outcome("FAILED", "$reason:RETRIES_EXHAUSTED")
     }
 
     private fun outcome(status: String, reason: String): Result {
+        if (reason != "NO_LOADED_MODEL") MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
         AppLogRecorder.record(
             "Memory",
             "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason",
-            if (status in setOf("FAILED", "RETRY")) "W" else "I"
+            if (status == "FAILED" || (status == "RETRY" && reason != "NO_LOADED_MODEL")) "W" else "I"
         )
         val data = androidx.work.workDataOf("outcome" to status, "reason" to reason)
         return when (status) {
@@ -150,6 +156,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
     }
 }
 
+/** Waiting for a model is persistent prerequisite work, handled before generation retry limits. */
 internal fun enrichmentRetryLimit(reason: String): Int = when (reason) {
     "RUNTIME_BUSY", "INFERENCE_TIMEOUT", "RUNTIME_ERROR", "EXCEPTION" -> 3
     "INVALID_OUTPUT" -> 1

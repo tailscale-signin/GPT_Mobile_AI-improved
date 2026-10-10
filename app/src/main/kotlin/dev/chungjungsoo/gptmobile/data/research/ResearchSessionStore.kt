@@ -37,8 +37,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     fun journal(runId: String, chatId: Int, persistent: Boolean): ResearchJournal = object : ResearchJournal {
         override fun stopRequested() = runId in stops || chatId in deletedChats
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
-            if (!persistent || chatId in deletedChats) return@withContext null
-            lock.withLock { read(file(runId))?.takeIf { it.chatId == chatId }?.snapshot }
+            if (chatId in deletedChats) return@withContext null
+            lock.withLock {
+                mutable.value[runId]?.takeIf { it.chatId == chatId }?.snapshot
+                    ?: if (persistent) read(file(runId))?.takeIf { it.chatId == chatId }?.snapshot else null
+            }
         }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {

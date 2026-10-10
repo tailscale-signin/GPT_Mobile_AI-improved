@@ -471,7 +471,7 @@ class WebSearchToolTest {
         assertTrue(result.isError)
         assertTrue(message.contains("Perplexity"))
         assertTrue(message.contains("HTTP 401"))
-        assertTrue(message.contains("Tool Connections"))
+        assertTrue(message.contains("Plugins/Tools"))
         assertTrue(message.contains("configured separately"))
         assertTrue(!message.contains("perplexity-key"))
     }

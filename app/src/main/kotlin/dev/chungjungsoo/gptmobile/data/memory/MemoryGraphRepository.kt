@@ -19,6 +19,7 @@ class MemoryGraphRepository @Inject constructor(
     private val dao get() = database.memoryGraphDao()
     private val mutex = Mutex()
     private var ftsAvailable: Boolean? = null
+    private var fts4Index = false
     private var ftsNeedsRebuild = false
     private var lastVaultFingerprint: String? = null
 
@@ -256,33 +257,33 @@ class MemoryGraphRepository @Inject constructor(
     private fun ensureFtsLocked(): Boolean {
         ftsAvailable?.let { return it }
         val readable = database.openHelper.readableDatabase
-        // Android vendors can omit compile-option diagnostics while still shipping
-        // FTS5. Inspect registered modules without calling an optional SQL function.
-        val hasFts5Module = runCatching {
-            readable.query("PRAGMA module_list").use { cursor ->
-                var available = false
-                while (cursor.moveToNext()) {
-                    if (cursor.getString(0).equals("fts5", ignoreCase = true)) {
-                        available = true
-                        break
-                    }
-                }
-                available
-            }
-        }.getOrDefault(false)
-        if (!hasFts5Module) {
-            ftsAvailable = false
-            AppLogRecorder.record("Memory", "SQLite FTS5 is unavailable on this Android build; memory graph search is using the portable LIKE fallback.", "W")
-            return false
+        val existingDefinition = readable.query("SELECT sql FROM sqlite_master WHERE name = 'memory_graph_fts'").use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
         }
-        val available = runCatching {
-            ftsNeedsRebuild = !readable.query("SELECT name FROM sqlite_master WHERE name = 'memory_graph_fts'").use { it.moveToFirst() }
-            database.openHelper.writableDatabase.execSQL(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS memory_graph_fts USING fts5(entity_id UNINDEXED, scope UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')"
-            )
-        }.onFailure {
-            AppLogRecorder.record("Memory", "FTS5 initialization failed; memory graph search is using the portable LIKE fallback.", "W")
-        }.isSuccess
+        ftsNeedsRebuild = existingDefinition == null
+        if (existingDefinition != null) {
+            val engine = Regex("(?i)USING\\s+(fts[45])\\b").find(existingDefinition)?.groupValues?.get(1)?.lowercase() ?: "LIKE"
+            fts4Index = engine == "fts4"
+            val usable = engine != "LIKE" && runCatching { readable.query("SELECT count(*) FROM memory_graph_fts").use { it.moveToFirst() } }.getOrDefault(false)
+            ftsAvailable = usable
+            AppLogRecorder.record("Memory", "SEARCH_INDEX_READY · engine=${if (usable) engine else "LIKE"} · rebuild=false")
+            return usable
+        }
+        // Try actual capabilities; module_list itself is optional on vendor SQLite builds.
+        val definitions = listOf(
+            "fts5(entity_id UNINDEXED, scope UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')",
+            "fts4(entity_id, scope, text, notindexed=entity_id, notindexed=scope, tokenize=unicode61)"
+        )
+        var available = false
+        for (definition in definitions) {
+            if (runCatching { database.openHelper.writableDatabase.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS memory_graph_fts USING $definition") }.isSuccess) {
+                available = true
+                fts4Index = definition.startsWith("fts4(")
+                AppLogRecorder.record("Memory", "SEARCH_INDEX_READY · engine=${definition.substringBefore('(')} · rebuild=$ftsNeedsRebuild")
+                break
+            }
+        }
+        if (!available) AppLogRecorder.record("Memory", "SEARCH_INDEX_READY · engine=LIKE · fullTextUnavailable=true")
         ftsAvailable = available
         return available
     }
@@ -325,7 +326,7 @@ class MemoryGraphRepository @Inject constructor(
 
     private fun searchFtsLocked(query: String, scope: String, limit: Int): List<String> {
         if (!ensureFtsLocked()) return emptyList()
-        val match = ftsQuery(query) ?: return emptyList()
+        val match = ftsQuery(query, fts4Index) ?: return emptyList()
         return runCatching {
             val cursor = database.openHelper.readableDatabase.query(
                 SimpleSQLiteQuery(
@@ -344,14 +345,17 @@ class MemoryGraphRepository @Inject constructor(
         }
     }
 
-    internal fun ftsQuery(query: String): String? {
+    internal fun ftsQuery(query: String, fts4: Boolean = false): String? {
         val tokens = normalize(query)
             .split(Regex("[^\\p{L}\\p{N}_-]+"))
             .filter { it.length >= 2 }
             .distinct()
             .take(12)
         if (tokens.isEmpty()) return null
-        return tokens.joinToString(" AND ") { token -> "\"${token.replace("\"", "\"\"")}\"*" }
+        return tokens.joinToString(" AND ") { token ->
+            val escaped = token.replace("\"", "\"\"")
+            if (fts4) "\"$escaped*\"" else "\"$escaped\"*"
+        }
     }
 
     private fun normalize(value: String): String =

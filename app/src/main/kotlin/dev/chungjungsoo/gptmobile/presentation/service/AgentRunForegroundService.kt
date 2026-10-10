@@ -18,10 +18,12 @@ import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import dagger.Lazy
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -33,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -41,16 +44,21 @@ import kotlinx.coroutines.launch
 class AgentRunForegroundService : Service() {
 
     @Inject
-    lateinit var agentRunCoordinator: AgentRunCoordinator
+    lateinit var coordinatorProvider: Lazy<AgentRunCoordinator>
+    private val agentRunCoordinator get() = coordinatorProvider.get()
 
     @Inject
-    lateinit var settingRepository: SettingRepository
+    lateinit var settingsProvider: Lazy<SettingRepository>
+    private val settingRepository get() = settingsProvider.get()
 
     @Inject
-    lateinit var chatRepository: ChatRepository
+    lateinit var chatsProvider: Lazy<ChatRepository>
+    private val chatRepository get() = chatsProvider.get()
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var activeRunsJob: Job? = null
+    private var idleStopJob: Job? = null
+    private var latestStartId = 0
     private var wakeLock: PowerManager.WakeLock? = null
     private var wasActive = false
     private var isForeground = false
@@ -62,9 +70,11 @@ class AgentRunForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Lazy injection keeps databases/model initialization out of the promotion deadline.
+        AppLogRecorder.record("AgentService", "SERVICE_CREATED · elapsedMs=${SystemClock.elapsedRealtime()}")
         createNotificationChannel()
+        updateNotification(emptyList())
         acquireWakeLock()
-        observeActiveRuns()
     }
 
     private fun observeActiveRuns() {
@@ -90,6 +100,7 @@ class AgentRunForegroundService : Service() {
                 }
                 .collect { (isActive, _, runs) ->
                     if (isActive) {
+                        idleStopJob?.cancel()
                         runs.firstOrNull()?.let {
                             lastActiveProfileUid = it.profileUid
                             lastActiveChatId = it.chatId
@@ -97,26 +108,47 @@ class AgentRunForegroundService : Service() {
                         }
                         updateNotification(runs)
                         wasActive = true
-                    } else if (wasActive) {
-                        ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
-                        if (shouldNotifyAgentRunsCompleted(wasActive, isActive, AppForegroundTracker.isBackgrounded)) {
-                            showCompletionNotification()
-                        }
-                        stopSelf()
                     } else {
-                        stopSelf()
+                        scheduleIdleStop()
                     }
                 }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
+        idleStopJob?.cancel()
+        // Re-promote an existing instance if a previous run was stopping.
+        updateNotification(emptyList())
+        AppLogRecorder.record("AgentService", "START_DELIVERED · startId=$startId · elapsedMs=${SystemClock.elapsedRealtime()}")
+        if (activeRunsJob == null) observeActiveRuns()
         if (intent?.action == ACTION_CANCEL_ALL) {
             agentRunCoordinator.cancelAll()
-            stopSelf()
+            scheduleIdleStop()
             return START_NOT_STICKY
         }
+        if (agentRunCoordinator.activeRuns.value.isEmpty()) scheduleIdleStop()
         return START_NOT_STICKY
+    }
+
+    private fun scheduleIdleStop() {
+        idleStopJob?.cancel()
+        val startId = latestStartId
+        idleStopJob = serviceScope.launch {
+            // Let a queued restart publish its active run before deciding to stop.
+            delay(500)
+            if (startId != latestStartId || agentRunCoordinator.activeRuns.value.isNotEmpty()) return@launch
+            if (shouldNotifyAgentRunsCompleted(wasActive, false, AppForegroundTracker.isBackgrounded)) {
+                kotlinx.coroutines.withTimeoutOrNull(3000) { showCompletionNotification() }
+            }
+            if (startId != latestStartId || agentRunCoordinator.activeRuns.value.isNotEmpty()) return@launch
+            // stopSelfResult protects a later start; do not remove foreground status first.
+            if (stopSelfResult(startId)) {
+                ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                isForeground = false
+                AppLogRecorder.record("AgentService", "STOPPED · startId=$startId · elapsedMs=${SystemClock.elapsedRealtime()}")
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -171,6 +203,7 @@ class AgentRunForegroundService : Service() {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             )
             isForeground = true
+            AppLogRecorder.record("AgentService", "FOREGROUND_ENTERED · elapsedMs=${SystemClock.elapsedRealtime()}")
         } else {
             val manager = getSystemService(NotificationManager::class.java)
             manager?.notify(NOTIFICATION_ID, notification)
@@ -225,48 +258,46 @@ class AgentRunForegroundService : Service() {
         return builder.build()
     }
 
-    private fun showCompletionNotification() {
-        serviceScope.launch {
-            val features = runCatching { settingRepository.getFeatureSettings() }.getOrNull()
-            if (features?.responseNotifications == false) return@launch
+    private suspend fun showCompletionNotification() {
+        val features = runCatching { settingRepository.getFeatureSettings() }.getOrNull()
+        if (features?.responseNotifications == false) return
 
-            val chatId = lastActiveChatId
-            val targetMessageId = lastAssistantMessageId
-            val platformName = lastActiveProfileUid?.let { uid ->
-                settingRepository.fetchPlatformV2s().firstOrNull { it.uid == uid }?.name
-            }
-            val room = chatId?.takeIf { it > 0 }?.let { id ->
-                (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2())
-                    .firstOrNull { it.id == id }
-            }
-            val completedMessage = if (chatId != null && chatId > 0) {
-                chatRepository.fetchMessagesV2(chatId)
-                    .firstOrNull { it.id == targetMessageId }
-                    ?: chatRepository.fetchMessagesV2(chatId)
-                        .lastOrNull { it.platformType != null && it.content.isNotBlank() }
-            } else {
-                null
-            }
-
-            val title = room?.title?.takeIf { it.isNotBlank() }
-                ?: platformName?.takeIf { it.isNotBlank() }
-                    ?.let { getString(R.string.agent_completion_platform_title, it) }
-                ?: getString(R.string.agent_completion_notification_title)
-
-            val preview = completedMessage?.content
-                ?.replace(Regex("\\s+"), " ")
-                ?.trim()
-                ?.take(360)
-                ?.takeIf { it.isNotBlank() }
-                ?: getString(R.string.agent_completion_notification_text)
-
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.notify(
-                COMPLETION_NOTIFICATION_BASE_ID + (chatId ?: 0).coerceAtLeast(0),
-                buildCompletionNotification(title, preview, chatId, completedMessage?.id ?: targetMessageId)
-            )
-            triggerCompletionVibration()
+        val chatId = lastActiveChatId
+        val targetMessageId = lastAssistantMessageId
+        val platformName = lastActiveProfileUid?.let { uid ->
+            settingRepository.fetchPlatformV2s().firstOrNull { it.uid == uid }?.name
         }
+        val room = chatId?.takeIf { it > 0 }?.let { id ->
+            (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2())
+                .firstOrNull { it.id == id }
+        }
+        val completedMessage = if (chatId != null && chatId > 0) {
+            chatRepository.fetchMessagesV2(chatId)
+                .firstOrNull { it.id == targetMessageId }
+                ?: chatRepository.fetchMessagesV2(chatId)
+                    .lastOrNull { it.platformType != null && it.content.isNotBlank() }
+        } else {
+            null
+        }
+
+        val title = room?.title?.takeIf { it.isNotBlank() }
+            ?: platformName?.takeIf { it.isNotBlank() }
+                ?.let { getString(R.string.agent_completion_platform_title, it) }
+            ?: getString(R.string.agent_completion_notification_title)
+
+        val preview = completedMessage?.content
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.take(360)
+            ?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.agent_completion_notification_text)
+
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.notify(
+            COMPLETION_NOTIFICATION_BASE_ID + (chatId ?: 0).coerceAtLeast(0),
+            buildCompletionNotification(title, preview, chatId, completedMessage?.id ?: targetMessageId)
+        )
+        triggerCompletionVibration()
     }
 
     private fun triggerCompletionVibration() {
@@ -361,12 +392,13 @@ class AgentRunForegroundService : Service() {
         private const val COMPLETION_CHANNEL_ID = "agent_completion"
         private const val NOTIFICATION_ID = 8001
         private const val COMPLETION_NOTIFICATION_BASE_ID = 9000
-        private const val ACTION_CANCEL_ALL = "dev.chungjungsoo.gptmobile.action.CANCEL_AGENT_RUNS"
+        internal const val ACTION_CANCEL_ALL = "dev.chungjungsoo.gptmobile.action.CANCEL_AGENT_RUNS"
         private const val WAKELOCK_TAG = "dev.chungjungsoo.gptmobile:agent_execution_wakelock"
         private const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L // 1 hour max safeguard
         private const val NOTIFICATION_THROTTLE_MS = 500L // Throttle notification updates
 
         fun start(context: Context) {
+            AppLogRecorder.record("AgentService", "START_REQUESTED · elapsedMs=${SystemClock.elapsedRealtime()}")
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, AgentRunForegroundService::class.java)

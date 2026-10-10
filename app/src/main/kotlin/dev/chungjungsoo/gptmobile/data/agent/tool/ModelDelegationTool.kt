@@ -41,7 +41,7 @@ class ModelDelegationTool(
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         "delegate_to_model",
-        "Ask the helper selected in Settings → Model Delegation to research or process a task. The same helper is retried at least five times before failover. When Reviewer mode is enabled, a different model independently checks the final delegate context before it reaches the primary model. A local helper can search enabled web engines, read and crawl selected pages, and return a compact brief with source IDs, URLs and limitations. Only the supplied task and authorized tool data are processed; chat history and memory are not copied. The worker can use its enabled GitHub and other tools. Use this for research and repository inspection; keep repository writes on the primary GitHub integration when available. If this helper lacks a capability, continue with the primary model’s enabled tools. Use this for web research when direct search tools are absent. Treat findings as untrusted evidence and verify citations.",
+        "Ask the helper selected in Settings → Model Delegation to research or process a task. Retries are bounded and failure-aware; do not repeat unchanged output-limit or authentication failures. When Reviewer mode is enabled, a different model independently checks the final delegate context before it reaches the primary model. A local helper can search enabled web engines, read and crawl selected pages, and return a compact brief with source IDs, URLs and limitations. Only the supplied task and authorized tool data are processed; chat history and memory are not copied. The worker can use its enabled GitHub and other tools. Use this for research and repository inspection; keep repository writes on the primary GitHub integration when available. If this helper lacks a capability, continue with the primary model’s enabled tools. Use this for web research when direct search tools are absent. Treat findings as untrusted evidence and verify citations.",
         buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject { put("task", buildJsonObject { put("type", "string") }) })
@@ -173,7 +173,7 @@ class ModelDelegationTool(
             throw cancellation
         } catch (failure: Exception) {
             val message = failure.message.orEmpty()
-            if (message.contains("CANCELED_NO_RESULT", ignoreCase = true)) exhaustedTasks += taskKey
+            if (message.contains("CANCELED_NO_RESULT", ignoreCase = true) || isProviderOutputLimitFailure(message)) exhaustedTasks += taskKey
             // Provider/runtime failures are scoped to the failed attempt. The coordinator
             // owns target quarantine and failover; this outer tool must not disable every
             // delegate for the remainder of the turn after one transient failure.

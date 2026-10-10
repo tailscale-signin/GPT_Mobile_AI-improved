@@ -17,6 +17,10 @@ import kotlinx.coroutines.flow.stateIn
 
 data class DebugAnalyticsState(
     val recentRuns: List<AgentRun> = emptyList(),
+    val memoryQueued: Int = 0,
+    val memoryRunning: Int = 0,
+    val memoryWaiting: Int = 0,
+    val memoryCompleted: Int = 0,
     val recentToolEvents: List<ToolEvent> = emptyList(),
     val completedRuns: Int = 0,
     val failedRuns: Int = 0,
@@ -40,7 +44,8 @@ class DebugDiagnosticsViewModel @Inject constructor(
     agentRunDao: AgentRunDao,
     agentPersistenceDao: AgentPersistenceDao,
     ledger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger,
-    settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+    settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
 ) : ViewModel() {
     val analytics: StateFlow<DebugAnalyticsState> = combine(
         agentRunDao.observeRecent(250),
@@ -84,5 +89,13 @@ class DebugDiagnosticsViewModel @Inject constructor(
         )
     }.combine(ledger.diagnostics) { state, invocations -> state.copy(invocations = invocations) }
         .combine(settings.observePlatformV2s()) { state, profiles -> state.copy(profileNames = profiles.associate { it.uid to it.name }) }
+        .combine(androidx.work.WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment")) { state, work ->
+            state.copy(
+                memoryQueued = work.count { it.state == androidx.work.WorkInfo.State.ENQUEUED },
+                memoryRunning = work.count { it.state == androidx.work.WorkInfo.State.RUNNING },
+                memoryWaiting = dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.waitingStore(context).all.size,
+                memoryCompleted = work.count { it.state == androidx.work.WorkInfo.State.SUCCEEDED && it.outputData.getString("reason") == "ENRICHED" }
+            )
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DebugAnalyticsState())
 }

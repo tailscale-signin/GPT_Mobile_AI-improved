@@ -252,22 +252,25 @@ internal fun ToolServiceCircleIcon(
     modifier: Modifier = Modifier,
     sizeDp: Int = 24
 ) {
+    val iconRes = when {
+        info.isGateway -> info.iconRes
+        info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor -> R.drawable.ic_github
+        else -> null
+    }
     Box(
         modifier = modifier.size(sizeDp.dp).clip(CircleShape).background(if (info.isGateway) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            painter = painterResource(
-                id = when {
-                    info.isGateway && info.iconRes != null -> info.iconRes
-                    info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor -> R.drawable.ic_github
-                    else -> R.drawable.ic_gpt_mobile_foreground
-                }
-            ),
-            contentDescription = if (info.isGateway) "Gateway tool" else null,
-            tint = if (info.isGateway) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.size((sizeDp * 0.7).dp)
-        )
+        if (iconRes == null) {
+            dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size((sizeDp * 0.76).dp))
+        } else {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = if (info.isGateway) "Gateway tool" else null,
+                tint = if (info.isGateway) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size((sizeDp * 0.7).dp)
+            )
+        }
     }
 }
 

@@ -521,7 +521,7 @@ internal class LocalDelegationCoordinator(
         val emptyResponse: Boolean,
         val reasoningOnly: Boolean,
         val malformedTool: Boolean,
-        val outputCapViolation: Boolean
+        val outputLimitFailure: Boolean
     ) {
         val softEmpty: Boolean get() = emptyResponse || reasoningOnly || malformedTool
     }
@@ -586,7 +586,7 @@ internal class LocalDelegationCoordinator(
             emptyResponse = containsAny("EMPTY_RESPONSE"),
             reasoningOnly = containsAny("REASONING_ONLY_RESPONSE"),
             malformedTool = containsAny("Tool arguments were not valid JSON", "incomplete function call"),
-            outputCapViolation = containsAny("OUTPUT_CAP_EXCEEDED", "DELEGATION_OUTPUT_CAP_NOT_ENFORCED")
+            outputLimitFailure = containsAny("OUTPUT_CAP_EXCEEDED", "DELEGATION_OUTPUT_CAP_NOT_ENFORCED") || isProviderOutputLimitFailure(message)
         )
     }
 
@@ -692,7 +692,7 @@ internal class LocalDelegationCoordinator(
         val shouldQuarantine =
             classified.authBlocked ||
                 classified.permanentlyUnavailable ||
-                classified.outputCapViolation ||
+                classified.outputLimitFailure ||
                 (
                     allowFailover &&
                         (
@@ -728,7 +728,7 @@ internal class LocalDelegationCoordinator(
             budgetExhausted ||
                 classified.authBlocked ||
                 classified.permanentlyUnavailable ||
-                classified.outputCapViolation
+                classified.outputLimitFailure
         val fallback = if (!budgetExhausted && (allowFailover || terminalForTarget) && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
             recoveryCandidates(latest, failedUid).firstOrNull()
         } else {
@@ -736,7 +736,7 @@ internal class LocalDelegationCoordinator(
         }
         AppLogRecorder.record(
             "Delegation",
-            "Worker failed · target=$failedUid · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · observedInputTokens=$observedForFailure · emptyResponse=${classified.emptyResponse} · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · failedCalls=$failures · reasoningOnly=${classified.reasoningOnly} · authBlocked=${classified.authBlocked} · permanentlyUnavailable=${classified.permanentlyUnavailable} · connectionUnavailable=${classified.connectionUnavailable} · outputCapViolation=${classified.outputCapViolation} · quarantined=$shouldQuarantine · fallback=${fallback?.uid}",
+            "Worker failed · target=$failedUid · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · observedInputTokens=$observedForFailure · emptyResponse=${classified.emptyResponse} · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · failedCalls=$failures · reasoningOnly=${classified.reasoningOnly} · authBlocked=${classified.authBlocked} · permanentlyUnavailable=${classified.permanentlyUnavailable} · connectionUnavailable=${classified.connectionUnavailable} · outputLimitFailure=${classified.outputLimitFailure} · quarantined=$shouldQuarantine · fallback=${fallback?.uid}",
             "E"
         )
         logComputeTotals()

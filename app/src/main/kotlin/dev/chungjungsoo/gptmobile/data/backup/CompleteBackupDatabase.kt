@@ -12,7 +12,7 @@ internal object CompleteBackupDatabase {
             copy.execSQL("DROP TABLE IF EXISTS android_metadata")
             copy.beginTransaction()
             try {
-                source.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search_%' AND name NOT LIKE 'knowledge_chunks_fts%' AND name NOT LIKE 'memory_graph_fts%'").use { cursor ->
+                source.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'gpt_internal_%' AND name NOT LIKE 'messages_search_%' AND name NOT LIKE 'knowledge_chunks_fts%' AND name NOT LIKE 'memory_graph_fts%'").use { cursor ->
                     while (cursor.moveToNext()) copy.execSQL(cursor.getString(0))
                 }
                 tables(source, includeMetadata = true).filterNot { it in AMAZON_OPERATIONAL }.forEach { table ->
@@ -218,7 +218,7 @@ internal object CompleteBackupDatabase {
     }
 
     private fun tables(db: SupportSQLiteDatabase, includeMetadata: Boolean = false): List<String> = db.query(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search%' AND name NOT LIKE 'knowledge_chunks_fts%' AND name NOT LIKE 'memory_graph_fts%' ORDER BY name"
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'gpt_internal_%' AND name NOT LIKE 'messages_search%' AND name NOT LIKE 'knowledge_chunks_fts%' AND name NOT LIKE 'memory_graph_fts%' ORDER BY name"
     ).use { cursor ->
         buildList {
             while (cursor.moveToNext()) {

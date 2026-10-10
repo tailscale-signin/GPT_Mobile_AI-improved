@@ -6,7 +6,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 data class CompletedGeneration(
     val runId: String,
@@ -26,32 +25,48 @@ class GenerationCompletionStore @Inject constructor(
     private val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val _items = MutableStateFlow(load())
     val items = _items.asStateFlow()
+    private val mutationLock = Any()
 
     fun record(runId: String, chatId: Int, assistantMessageId: Int, completedAt: Long) {
         if (runId.isBlank() || chatId <= 0 || assistantMessageId <= 0) return
-        _items.update { current ->
-            listOf(CompletedGeneration(runId, chatId, assistantMessageId, completedAt))
+        synchronized(mutationLock) {
+            val current = _items.value
+            val updated = listOf(CompletedGeneration(runId, chatId, assistantMessageId, completedAt))
                 .plus(current.filterNot { it.runId == runId })
                 .sortedByDescending { it.completedAt }
                 .take(MAX_ITEMS)
+            if (updated == current) return
+            _items.value = updated
+            persist()
         }
-        persist()
     }
 
     fun consume(runId: String) {
-        _items.update { current -> current.filterNot { it.runId == runId } }
-        persist()
+        synchronized(mutationLock) {
+            val updated = _items.value.filterNot { it.runId == runId }
+            if (updated == _items.value) return
+            _items.value = updated
+            persist()
+        }
     }
 
     fun clearChat(chatId: Int) {
         if (chatId <= 0) return
-        _items.update { current -> current.filterNot { it.chatId == chatId } }
-        persist()
+        synchronized(mutationLock) {
+            val updated = _items.value.filterNot { it.chatId == chatId }
+            if (updated == _items.value) return
+            _items.value = updated
+            persist()
+        }
     }
 
     fun removeMissingChats(validChatIds: Set<Int>) {
-        _items.update { current -> current.filter { it.chatId in validChatIds } }
-        persist()
+        synchronized(mutationLock) {
+            val updated = _items.value.filter { it.chatId in validChatIds }
+            if (updated == _items.value) return
+            _items.value = updated
+            persist()
+        }
     }
 
     private fun load(): List<CompletedGeneration> =
@@ -61,11 +76,9 @@ class GenerationCompletionStore @Inject constructor(
             .take(MAX_ITEMS)
 
     private fun persist() {
-        check(
-            preferences.edit()
-                .putStringSet(KEY_ITEMS, _items.value.mapTo(mutableSetOf(), ::encode))
-                .commit()
-        ) { "Could not persist completed-generation inbox." }
+        preferences.edit()
+            .putStringSet(KEY_ITEMS, _items.value.mapTo(mutableSetOf(), ::encode))
+            .apply()
     }
 
     private fun encode(item: CompletedGeneration): String =

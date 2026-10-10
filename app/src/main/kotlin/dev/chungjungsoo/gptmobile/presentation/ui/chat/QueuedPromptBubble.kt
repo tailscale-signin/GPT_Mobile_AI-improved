@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -40,7 +41,7 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun QueuedPromptBubble(
     prompt: PendingPrompt,
-    onEdit: (String, String) -> Unit,
+    onEdit: (String, String, Boolean) -> Unit,
     onRemove: (String) -> Unit,
     onPause: (String, Boolean) -> Unit,
     progress: FollowUpProgress? = null
@@ -72,6 +73,11 @@ internal fun QueuedPromptBubble(
         IconButton(enabled = canChange, onClick = { onRemove(prompt.id) }) {
             Icon(Icons.Rounded.Stop, contentDescription = "Stop queued message")
         }
+        if (prompt.paused) {
+            IconButton(onClick = { onPause(prompt.id, false) }) {
+                Icon(Icons.Rounded.PlayArrow, contentDescription = "Resume queued message")
+            }
+        }
         IconButton(enabled = canChange, onClick = { editing = true }) {
             Icon(Icons.Rounded.Edit, contentDescription = "Edit queued message")
         }
@@ -89,6 +95,13 @@ internal fun QueuedPromptBubble(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(preview.ifBlank { "Attached document" }, style = MaterialTheme.typography.bodyLarge)
+                if (prompt.paused) {
+                    Text(
+                        "Paused. Check the selected profile and spend settings, then resume.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 if (deadline != null) {
                     LinearProgressIndicator(
                         progress = { 1f - remaining.toFloat() / FollowUpInbox.GRACE_MS },
@@ -119,7 +132,7 @@ internal fun QueuedPromptBubble(
             },
             confirmButton = {
                 TextButton(enabled = canChange && (text.isNotBlank() || attachments.isNotEmpty()), onClick = {
-                    onEdit(prompt.id, text)
+                    onEdit(prompt.id, text, attachments.isNotEmpty())
                     editing = false
                 }) { Text("Save") }
             },

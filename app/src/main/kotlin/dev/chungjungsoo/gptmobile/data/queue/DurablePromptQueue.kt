@@ -119,8 +119,8 @@ class DurablePromptQueue @Inject constructor(
     suspend fun remove(id: String) {
         if (FollowUpProgressStore.canChange(id)) dao.delete(id)
     }
-    suspend fun edit(id: String, text: String) {
-        require(text.isNotBlank())
+    suspend fun edit(id: String, text: String, hasAttachments: Boolean) {
+        require(text.isNotBlank() || hasAttachments) { "Add a message or keep an attachment before saving." }
         if (FollowUpProgressStore.canChange(id)) dao.edit(id, text)
     }
     suspend fun pause(id: String, paused: Boolean) {

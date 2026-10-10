@@ -55,7 +55,11 @@ class CompleteBackupManager @Inject constructor(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
-    private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)), context.noBackupFilesDir)
+    private fun files() = CompleteBackupFiles(
+        mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)),
+        context.noBackupFilesDir,
+        File(context.noBackupFilesDir, RESTORE_JOURNAL_FILE)
+    )
     fun getBackupStatus() = legacy.getBackupStatus()
 
     fun recentBackups(): List<RecentBackup> {
@@ -462,7 +466,8 @@ class CompleteBackupManager @Inject constructor(
             val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
             val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
             val oldProtection = savedProtection()
-            val replacement = storage.replacement(staging, selectedPaths)
+            val restoreTransactionId = UUID.randomUUID().toString()
+            val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
 
             try {
                 database.withTransaction {
@@ -475,6 +480,12 @@ class CompleteBackupManager @Inject constructor(
                         )
                     }
                     if (selectedPaths.isNotEmpty()) replacement.apply()
+                    if (selectedPaths.isNotEmpty()) {
+                        database.openHelper.writableDatabase.execSQL(
+                            "INSERT OR REPLACE INTO $RESTORE_MARKER_TABLE(singleton, transaction_id) VALUES (1, ?)",
+                            arrayOf(restoreTransactionId)
+                        )
+                    }
                     if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
                     if (restorePreferences) {
                         preferences.replace(if (restoreSettings) manifest.preferences else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
@@ -494,6 +505,7 @@ class CompleteBackupManager @Inject constructor(
             }
 
             if (selectedPaths.isNotEmpty()) replacement.cleanup()
+            clearRestoreMarker()
             settings.invalidatePlatformCache()
         } finally {
             snapshot?.close()
@@ -800,6 +812,7 @@ class CompleteBackupManager @Inject constructor(
         mutex.withLock {
             val work = File(context.cacheDir, "complete-backup-${UUID.randomUUID()}")
             try {
+                recoverInterruptedRestore()
                 check(work.mkdirs()) { "Could not create temporary backup storage." }
                 block(work)
             } catch (error: CancellationException) {
@@ -817,12 +830,30 @@ class CompleteBackupManager @Inject constructor(
         }
     }
 
+    private fun recoverInterruptedRestore() {
+        val db = database.openHelper.writableDatabase
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS $RESTORE_MARKER_TABLE (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), transaction_id TEXT NOT NULL)"
+        )
+        val committed = db.query("SELECT transaction_id FROM $RESTORE_MARKER_TABLE WHERE singleton = 1").use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+        files().recoverInterruptedRestore(committed)
+        clearRestoreMarker()
+    }
+
+    private fun clearRestoreMarker() {
+        database.openHelper.writableDatabase.execSQL("DELETE FROM $RESTORE_MARKER_TABLE")
+    }
+
     private companion object {
         const val RESERVE = 16L * 1024 * 1024
         const val BACKUP_KEY_BYTES = 32
         const val BACKUP_PASSWORD_REF = "complete_backup_password_v1"
         const val BACKUP_UI_PREFS = "complete_backup_ui_v1"
         const val RECENT_BACKUP_HISTORY_LIMIT = 12
+        const val RESTORE_JOURNAL_FILE = "complete-backup-restore-v1.json"
+        const val RESTORE_MARKER_TABLE = "gpt_internal_restore_commit"
 
         // Restore-only compatibility for retired GPTFULL2 backups. New backups never use this key.
         const val BACKUP_KEY_REF = "complete_backup_master_v2"

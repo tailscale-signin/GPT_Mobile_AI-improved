@@ -86,6 +86,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
@@ -209,6 +211,8 @@ fun HomeScreen(
     val selectedChat = chatListState.chats.filterIndexed { index, _ -> chatListState.selectedChats.getOrElse(index) { false } }.singleOrNull()
     val duplicatedChatMessage = stringResource(R.string.duplicated_chat)
     val deletedChatsMessage = stringResource(R.string.deleted_chats, selectedChatCount)
+    val archiveSnackbarState = remember { SnackbarHostState() }
+    val homeScope = rememberCoroutineScope()
 
     var selectedDetailMessage by remember { mutableStateOf<MessageV2?>(null) }
     var showAddGroupDialog by remember { mutableStateOf(false) }
@@ -278,6 +282,7 @@ fun HomeScreen(
         modifier = modifier.then(backFade.modifier)
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(archiveSnackbarState) },
         topBar = {
             HomeTopBar(
                 chatListState = chatListState,
@@ -441,7 +446,16 @@ fun HomeScreen(
                                                 // Swipe Right -> Archive
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 homeViewModel.archiveChat(chatRoom)
-                                                Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
+                                                homeScope.launch {
+                                                    val result = archiveSnackbarState.showSnackbar(
+                                                        message = "Conversation archived",
+                                                        actionLabel = "Undo",
+                                                        withDismissAction = true
+                                                    )
+                                                    if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                                                        homeViewModel.unarchiveChat(chatRoom)
+                                                    }
+                                                }
                                                 false
                                             }
                                             SwipeToDismissBoxValue.EndToStart -> {

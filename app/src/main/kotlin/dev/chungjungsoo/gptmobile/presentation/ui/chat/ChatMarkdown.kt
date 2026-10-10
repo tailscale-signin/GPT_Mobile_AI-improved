@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalUriHandler
@@ -109,7 +109,7 @@ fun ChatMarkdown(
     streaming: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val isDarkTheme = isSystemInDarkTheme()
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val parsed = remember(content) { parseChatMarkdown(dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)) }
@@ -417,7 +417,7 @@ fun ChatMarkdown(
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalUriHandler provides sourceHandler) {
-        key(contentIdentity, highlightSentence, (highlightProgress * 100).toInt()) {
+        key(contentIdentity, highlightSentence) {
             val markdownState = rememberMarkdownState(
                 content = combinedMarkdown,
                 retainState = true

@@ -187,7 +187,7 @@ fun CompleteBackupDialog(
 
                 if (state.isWorking) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(stringResource(R.string.complete_backup_working), style = MaterialTheme.typography.bodySmall)
+                    Text(state.workingMessage, style = MaterialTheme.typography.bodySmall)
                 }
                 state.message?.let {
                     Text(

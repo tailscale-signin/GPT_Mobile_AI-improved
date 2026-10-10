@@ -129,6 +129,27 @@ class ToolConnectionsViewModelTest {
     }
 
     @Test
+    fun `editing connection metadata preserves its saved tool permission policy`() {
+        val stored = ToolConnection(
+            connectionUid = "policy-edit",
+            name = "Docs",
+            alias = "docs",
+            type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.org/mcp",
+            authType = ToolConnectionAuthType.NONE,
+            secretRef = null,
+            oauthClientId = null,
+            toolPolicy = "ASK_ALWAYS",
+            approvedReadTools = "search_docs,read_page"
+        )
+        val edited = stored.copy(name = "Updated docs").preservingPolicyFrom(stored)
+
+        assertEquals("Updated docs", edited.name)
+        assertEquals("ASK_ALWAYS", edited.toolPolicy)
+        assertEquals("search_docs,read_page", edited.approvedReadTools)
+    }
+
+    @Test
     fun `normalizeAlias keeps aliases lowercase model safe and validates boundaries`() {
         assertEquals("fire_crawl_1", ToolConnectionsViewModel.normalizeAlias(" Fire-Crawl 1 "))
 

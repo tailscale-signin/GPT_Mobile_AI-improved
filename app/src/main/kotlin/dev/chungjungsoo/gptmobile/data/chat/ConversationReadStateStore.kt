@@ -6,7 +6,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 @Singleton
 class ConversationReadStateStore @Inject constructor(
@@ -20,17 +19,26 @@ class ConversationReadStateStore @Inject constructor(
             .toSet()
     )
     val unreadChatIds = _unreadChatIds.asStateFlow()
+    private val mutationLock = Any()
 
     fun markUnread(chatId: Int) {
         if (chatId <= 0) return
-        _unreadChatIds.update { it + chatId }
-        persist()
+        synchronized(mutationLock) {
+            val current = _unreadChatIds.value
+            if (chatId in current) return
+            _unreadChatIds.value = current + chatId
+            persist()
+        }
     }
 
     fun markViewed(chatId: Int) {
         if (chatId <= 0) return
-        _unreadChatIds.update { it - chatId }
-        persist()
+        synchronized(mutationLock) {
+            val current = _unreadChatIds.value
+            if (chatId !in current) return
+            _unreadChatIds.value = current - chatId
+            persist()
+        }
     }
 
     fun remove(chatId: Int) {
@@ -38,11 +46,9 @@ class ConversationReadStateStore @Inject constructor(
     }
 
     private fun persist() {
-        check(
-            preferences.edit()
-                .putStringSet(KEY_UNREAD_IDS, _unreadChatIds.value.mapTo(mutableSetOf(), Int::toString))
-                .commit()
-        ) { "Could not persist conversation read state." }
+        preferences.edit()
+            .putStringSet(KEY_UNREAD_IDS, _unreadChatIds.value.mapTo(mutableSetOf(), Int::toString))
+            .apply()
     }
 
     private companion object {

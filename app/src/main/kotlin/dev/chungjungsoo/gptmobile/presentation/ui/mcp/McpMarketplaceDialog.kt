@@ -114,6 +114,7 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionHealthStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -361,6 +362,7 @@ fun McpMarketplaceScreen(
                     val native = entry?.let(NativeMarketplaceCatalog::supports) == true
                     val installation = installations[preset.id]
                     val connection = connectionsState.connections.firstOrNull { it.alias == preset.alias }
+                    val connectionHealth = connection?.let { connectionsState.connectionHealth[it.connectionUid] }
                     val builtinId = when (preset.id) {
                         "airbnb-native" -> ToolPluginId.AIRBNB
                         "builtin-memory" -> ToolPluginId.LOCAL_MEMORY
@@ -381,6 +383,7 @@ fun McpMarketplaceScreen(
                         }, download = entry?.takeIf { it.runtime == MarketplaceRuntime.NATIVE },
                         downloaded = native && installation != null,
                         downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
+                        connectionStatus = connectionHealth?.let(::marketplaceConnectionStatus),
                         error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
                         onExport = {
                             exportId = preset.id
@@ -556,6 +559,13 @@ fun ServiceIcon(iconName: String, category: McpCategory, modifier: Modifier = Mo
     }
 }
 
+private fun marketplaceConnectionStatus(status: dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel.ToolConnectionHealth): String = when (status.status) {
+    ToolConnectionHealthStatus.CHECKING -> "Checking…"
+    ToolConnectionHealthStatus.ONLINE -> "Online"
+    ToolConnectionHealthStatus.LIMITED -> "Authentication needed"
+    ToolConnectionHealthStatus.OFFLINE -> "Offline"
+}
+
 @Composable
 fun McpMarketplaceDetailCard(preset: McpPreset, isInstalled: Boolean, onAddClick: () -> Unit) {
     MarketplacePackageCard(preset, isInstalled, onAddClick)
@@ -581,7 +591,8 @@ private fun MarketplacePackageCard(
     onEnabledChange: (Boolean) -> Unit = {},
     onRemoveConnection: (() -> Unit)? = null,
     nativeSettings: (@Composable () -> Unit)? = null,
-    needsSetup: Boolean = false
+    needsSetup: Boolean = false,
+    connectionStatus: String? = null
 ) {
     val context = LocalContext.current
     var expanded by rememberSaveable(preset.id) { mutableStateOf(false) }
@@ -608,7 +619,16 @@ private fun MarketplacePackageCard(
                         "MCP connection"
                     }
                 )
-                if (downloaded || isInstalled) MarketplaceBadge(if (needsSetup) "Setup required" else "Ready")
+                if (downloaded || isInstalled) {
+                    MarketplaceBadge(
+                        connectionStatus ?: when {
+                            needsSetup -> "Setup required"
+                            downloaded && enabled == true -> "Enabled"
+                            downloaded -> "Installed"
+                            else -> "Connection saved"
+                        }
+                    )
+                }
             }
             Text(preset.description, style = MaterialTheme.typography.bodyMedium)
             if (downloading) {
@@ -642,31 +662,29 @@ private fun MarketplacePackageCard(
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
                 }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (preset.websiteLink.isNotBlank()) {
-                    TextButton(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteLink))) }
-                    }) {
-                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (preset.isPreinstalled) "Project website" else "Provider website")
-                    }
-                }
-                if (download != null) {
-                    TextButton(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubMarketplaceCatalog.SOURCE_DIRECTORY))) }
-                    }) { Text("GitHub source") }
-                }
-            }
             if (nativeSettings != null && (needsSetup || expanded)) nativeSettings()
             if (expanded) {
                 HorizontalDivider()
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (preset.websiteLink.isNotBlank()) {
+                        TextButton(onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteLink))) }
+                        }) {
+                            Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (preset.isPreinstalled) "Project website" else "Provider website")
+                        }
+                    }
+                    if (download != null) {
+                        TextButton(onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubMarketplaceCatalog.SOURCE_DIRECTORY))) }
+                        }) { Text("GitHub source") }
+                    }
+                    if (download != null) OutlinedButton(onClick = onExport, enabled = downloaded && !removing) { Text("Export package") }
+                }
                 download?.let { Text(it.serviceNotice, style = MaterialTheme.typography.bodySmall) }
                 preset.toolCapabilities.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 if (preset.setupInstructions.isNotBlank()) Text(preset.setupInstructions, style = MaterialTheme.typography.bodySmall)
-                if (download != null) {
-                    OutlinedButton(onClick = onExport, enabled = downloaded && !removing) { Text("Export package") }
-                }
             }
         }
     }

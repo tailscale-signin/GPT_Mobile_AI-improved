@@ -10,7 +10,10 @@ import org.junit.Assert.assertThrows
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class CompleteBackupArchiveTest {
     @get:Rule val temp = TemporaryFolder()
 
@@ -70,5 +73,45 @@ class CompleteBackupArchiveTest {
         assertEquals("original", existing.readText())
         assertEquals("live preferences", datastore.readText())
         assertFalse(File(internal, "new/child.txt").exists())
+    }
+
+    @Test
+    fun interruptedRestoreRecoversFilesWhenDatabaseDidNotCommit() {
+        val internal = temp.newFolder("journal-internal")
+        val external = temp.newFolder("journal-external")
+        val journal = File(temp.root, "restore-journal.json")
+        val original = File(internal, "attachment.bin").apply { writeText("original") }
+        val staging = temp.newFolder("journal-stage")
+        File(staging, "internal/attachment.bin").apply {
+            parentFile!!.mkdirs()
+            writeText("restored")
+        }
+        val storage = CompleteBackupFiles(mapOf("internal" to internal, "external" to external), transactionJournal = journal)
+
+        storage.replacement(staging, setOf("internal/attachment.bin"), "interrupted").apply()
+        assertEquals("restored", original.readText())
+        storage.recoverInterruptedRestore(committedTransactionId = null)
+
+        assertEquals("original", original.readText())
+        assertFalse(journal.exists())
+    }
+
+    @Test
+    fun committedRestoreRecoveryKeepsNewFilesAndCleansJournal() {
+        val internal = temp.newFolder("committed-internal")
+        val external = temp.newFolder("committed-external")
+        val journal = File(temp.root, "committed-restore-journal.json")
+        val staging = temp.newFolder("committed-stage")
+        File(staging, "internal/new.bin").apply {
+            parentFile!!.mkdirs()
+            writeText("restored")
+        }
+        val storage = CompleteBackupFiles(mapOf("internal" to internal, "external" to external), transactionJournal = journal)
+
+        storage.replacement(staging, setOf("internal/new.bin"), "committed").apply()
+        storage.recoverInterruptedRestore(committedTransactionId = "committed")
+
+        assertEquals("restored", File(internal, "new.bin").readText())
+        assertFalse(journal.exists())
     }
 }

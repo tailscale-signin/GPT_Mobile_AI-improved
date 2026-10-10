@@ -16,12 +16,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 data class MarketplaceUiState(
     val downloadedIds: Set<String> = emptySet(),
     val downloadingIds: Set<String> = emptySet(),
     val removingIds: Set<String> = emptySet(),
     val errors: Map<String, String> = emptyMap(),
+    val registryNeedsRepair: Boolean = false,
+    val changingIds: Set<String> = emptySet(),
     val message: String? = null
 )
 
@@ -33,7 +36,8 @@ class MarketplaceViewModel @Inject constructor(
     private val connections: ToolConnectionRepository,
     private val mcpClientManager: dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager? = null,
     private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
-    private val freeConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
+    private val freeConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
+    private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null
 ) : ViewModel() {
     private val _uninstallRequest = MutableStateFlow<GitHubMarketplacePackage?>(null)
     val uninstallRequest = _uninstallRequest.asStateFlow()
@@ -49,11 +53,19 @@ class MarketplaceViewModel @Inject constructor(
         try {
             registry.load()
             val ids = store.downloadedIds()
+            val removals = store.pendingRemovalIds()
+            // A verified package left behind after process death can safely recover disabled registration.
+            (ids - removals).forEach { id ->
+                dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id)?.takeIf(NativeMarketplaceCatalog::supports)?.let { registry.install(it) }
+            }
             _uiState.update { it.copy(downloadedIds = ids) }
+            removals.forEach { id -> dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id)?.let(::remove) }
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceRegistryRepairRequired) {
+            _uiState.update { it.copy(registryNeedsRepair = true, message = "Plugin registry needs repair. Rebuild registrations from verified packages; recovered plugins stay disabled.") }
         } catch (_: Exception) {
-            showMessage("Unable to check downloaded packages. You can retry a download.")
+            showMessage("Unable to read installed packages. Check available storage, then reopen Marketplace.")
         }
     }
 
@@ -71,14 +83,53 @@ class MarketplaceViewModel @Inject constructor(
 
     suspend fun exportBytes(entry: GitHubMarketplacePackage): ByteArray = store.exportBytes(entry)
 
-    fun setEnabled(entry: GitHubMarketplacePackage, enabled: Boolean) {
+    fun repairRegistry() {
         viewModelScope.launch {
             try {
-                registry.setEnabled(entry, enabled)
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    val ids = store.downloadedIds() - store.pendingRemovalIds()
+                    registry.repairFromVerifiedPackages(ids)
+                    _uiState.update { it.copy(registryNeedsRepair = false, downloadedIds = ids, message = "Registrations repaired. Review settings, add credentials and enable each plugin when ready.") }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                showMessage("Complete the required plugin settings before enabling.")
+                showMessage("Repair could not finish. Check storage and retry; your damaged registry has been preserved.")
+            }
+        }
+    }
+
+    fun setEnabled(entry: GitHubMarketplacePackage, enabled: Boolean) {
+        if (entry.id in _uiState.value.changingIds || entry.id in jobs) return
+        _uiState.update { it.copy(changingIds = it.changingIds + entry.id) }
+        viewModelScope.launch {
+            try {
+                initialization.join()
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    // Validate the registration/key before changing any global gates. Profile choices remain intact.
+                    if (enabled) registry.configuration(entry, requireEnabled = false)
+                    registry.setEnabled(entry, false)
+                    if (enabled) {
+                        settings?.let { repository ->
+                            val previous = repository.getFeatureSettings()
+                            val updated = previous.withToolPluginEnabled(entry.id, true)
+                                .withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forPackage(entry).id, true)
+                            repository.updateFeatureSettings(updated)
+                            try {
+                                registry.setEnabled(entry, true)
+                            } catch (error: Exception) {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { repository.updateFeatureSettings(previous) }
+                                throw error
+                            }
+                        } ?: registry.setEnabled(entry, true)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showMessage(dev.chungjungsoo.gptmobile.data.marketplace.marketplaceFailureMessage(error))
+            } finally {
+                _uiState.update { it.copy(changingIds = it.changingIds - entry.id) }
             }
         }
     }
@@ -86,12 +137,14 @@ class MarketplaceViewModel @Inject constructor(
     fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean, endpoints: Map<String, String> = emptyMap(), disabledOperations: Set<String> = emptySet(), onSaved: () -> Unit) {
         viewModelScope.launch {
             try {
-                registry.configure(entry, endpoint, key, maxResults, dailyLimit, clearKey, endpoints, disabledOperations)
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    registry.configure(entry, endpoint, key, maxResults, dailyLimit, clearKey, endpoints, disabledOperations)
+                }
                 onSaved()
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
-                showMessage("Could not save settings. Check the required fields and try again.")
+            } catch (error: Exception) {
+                showMessage(dev.chungjungsoo.gptmobile.data.marketplace.marketplaceFailureMessage(error))
             }
         }
     }
@@ -102,27 +155,27 @@ class MarketplaceViewModel @Inject constructor(
             try {
                 // Do not let an older startup scan overwrite a new download/removal.
                 initialization.join()
-                if (removing) {
-                    if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
-                    toolTrust?.revoke(entry.id)
-                    freeConsent?.revokeConnection(entry.id)
-                    connections.listConnections().filter { it.alias == entry.preset.alias && it.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.MCP }.forEach {
-                        mcpClientManager?.close(it.connectionUid)
-                        toolTrust?.revoke(it.connectionUid)
-                        freeConsent?.revokeConnection(it.connectionUid)
-                        connections.deleteConnection(it.connectionUid)
-                    }
-                    store.remove(entry)
-                    if (entry.provider == "openstreetmap") {
-                        dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
-                            store.remove(legacy)
-                            toolTrust?.revoke(legacy.id)
-                            freeConsent?.revokeConnection(legacy.id)
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    if (removing) {
+                        store.beginRemoval(entry)
+                        if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
+                        toolTrust?.revoke(entry.id)
+                        freeConsent?.revokeConnection(entry.id)
+                        // Native registrations do not own similarly named MCP connections. Remove a
+                        // connection only from its own editor until an origin UID is available.
+                        store.remove(entry)
+                        if (entry.provider == "openstreetmap") {
+                            dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
+                                store.remove(legacy)
+                                toolTrust?.revoke(legacy.id)
+                                freeConsent?.revokeConnection(legacy.id)
+                            }
                         }
+                    } else {
+                        store.download(entry)
+                        if (NativeMarketplaceCatalog.supports(entry)) registry.install(entry)
                     }
-                } else {
-                    store.download(entry)
-                    if (NativeMarketplaceCatalog.supports(entry)) registry.install(entry)
+                    if (removing) store.finishRemoval(entry)
                 }
                 _uiState.update {
                     it.copy(downloadedIds = if (removing) it.downloadedIds - entry.id else it.downloadedIds + entry.id)
@@ -132,8 +185,8 @@ class MarketplaceViewModel @Inject constructor(
                     _uiState.update { it.copy(errors = it.errors + (entry.id to "Download cancelled. Retry when ready.")) }
                 }
                 throw cancelled
-            } catch (_: Exception) {
-                val message = if (removing) "Unable to remove the package. Retry when ready." else "Download or integrity check failed. Retry when ready."
+            } catch (error: Exception) {
+                val message = dev.chungjungsoo.gptmobile.data.marketplace.marketplaceFailureMessage(error, removing)
                 _uiState.update { it.copy(errors = it.errors + (entry.id to message)) }
             }
         }

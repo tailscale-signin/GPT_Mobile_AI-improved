@@ -3,8 +3,10 @@ package dev.chungjungsoo.gptmobile.data.repository
 import android.content.Context
 import android.util.Log
 import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
@@ -17,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelLocator
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelReconciler
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelTransferGuard
 import dev.chungjungsoo.gptmobile.data.localmodel.ReconcileAction
 import dev.chungjungsoo.gptmobile.data.localmodel.SocVariantResolver
 import dev.chungjungsoo.gptmobile.data.worker.LocalModelDownloadWorker
@@ -27,6 +30,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -52,10 +56,7 @@ class LocalModelRepositoryImpl(
     override suspend fun resolveDownloadedPath(catalogEntryId: String): String? = withContext(ioDispatcher) {
         val model = localModelDao.getById(catalogEntryId) ?: return@withContext null
         if (model.status != LocalModelStatus.READY) return@withContext null
-        val file = File(
-            storageRoot(),
-            LocalModelDownloadPaths.relativeFilePath(model.catalogEntryId, model.commitHash, model.fileName)
-        )
+        val file = storedFile(LocalModelDownloadPaths.relativeFilePath(model.catalogEntryId, model.commitHash, model.fileName))
         if (!file.isFile ||
             !file.canRead() ||
             file.length() <= 0L ||
@@ -69,75 +70,89 @@ class LocalModelRepositoryImpl(
 
     override suspend fun startDownload(entry: CatalogEntry) {
         withContext(ioDispatcher) {
-            val existing = localModelDao.getById(entry.id)
-            if (existing?.status == LocalModelStatus.DOWNLOADING && entry.id in activeDownloadIds()) {
-                return@withContext
+            LocalModelTransferGuard.mutex(entry.id).withLock {
+                val existing = localModelDao.getById(entry.id)
+                if (existing?.status == LocalModelStatus.DOWNLOADING && entry.id in activeDownloadIds()) {
+                    return@withLock
+                }
+                val resolved = SocVariantResolver.resolveForRuntime(entry, deviceSocModel)
+                LocalModelDownloadPaths.requireValidPathSegments(entry.id, resolved.commitHash, resolved.fileName)
+                val relativeDirectory = LocalModelDownloadPaths.relativeDirectory(entry.id, resolved.commitHash)
+                val root = roots().firstOrNull { File(it, relativeDirectory).exists() } ?: storageRoot()
+                val generation = LocalModelTransferGuard.begin(context.noBackupFilesDir, entry.id)
+                dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.save(File(root, relativeDirectory), entry)
+                val now = System.currentTimeMillis() / 1000
+                localModelDao.upsert(
+                    LocalModel(
+                        catalogEntryId = entry.id,
+                        commitHash = resolved.commitHash,
+                        fileName = resolved.fileName,
+                        relativeDirectory = relativeDirectory,
+                        totalBytes = resolved.sizeInBytes,
+                        status = LocalModelStatus.DOWNLOADING,
+                        createdAt = existing?.createdAt ?: now,
+                        updatedAt = now
+                    )
+                )
+
+                val inputData = Data.Builder()
+                    .putString(LocalModelDownloadWorker.KEY_GENERATION, generation)
+                    .putBoolean(LocalModelDownloadWorker.KEY_INTERNAL_STORAGE, root.canonicalFile == context.filesDir.canonicalFile)
+                    .putString(LocalModelDownloadWorker.KEY_CATALOG_ENTRY_ID, entry.id)
+                    .putString(LocalModelDownloadWorker.KEY_DISPLAY_NAME, entry.displayName)
+                    .putString(LocalModelDownloadWorker.KEY_DOWNLOAD_URL, resolved.downloadUrl)
+                    .putString(LocalModelDownloadWorker.KEY_COMMIT_HASH, resolved.commitHash)
+                    .putString(LocalModelDownloadWorker.KEY_SHA256, resolved.sha256)
+                    .putString(LocalModelDownloadWorker.KEY_FILE_NAME, resolved.fileName)
+                    .putLong(LocalModelDownloadWorker.KEY_TOTAL_BYTES, resolved.sizeInBytes)
+                    .putBoolean(LocalModelDownloadWorker.KEY_REQUIRES_HF_AUTH, entry.isGated)
+                    .build()
+
+                val request = OneTimeWorkRequestBuilder<LocalModelDownloadWorker>()
+                    .setConstraints(
+                        Constraints.Builder().setRequiredNetworkType(
+                            if (context.getSharedPreferences("local-model-downloads", Context.MODE_PRIVATE).getBoolean("wifiOnly", false)) NetworkType.UNMETERED else NetworkType.CONNECTED
+                        ).build()
+                    )
+                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    .setBackoffCriteria(
+                        BackoffPolicy.EXPONENTIAL,
+                        LocalModelDownloadWorker.INITIAL_BACKOFF_SECONDS,
+                        TimeUnit.SECONDS
+                    )
+                    .setInputData(inputData)
+                    .addTag(LocalModelDownloadWorker.WORK_TAG)
+                    .addTag(LocalModelDownloadWorker.idTag(entry.id))
+                    .build()
+
+                workManager.enqueueUniqueWork(
+                    LocalModelDownloadPaths.uniqueWorkName(entry.id),
+                    ExistingWorkPolicy.REPLACE,
+                    request
+                )
             }
-            val resolved = SocVariantResolver.resolveForRuntime(entry, deviceSocModel)
-            LocalModelDownloadPaths.requireValidPathSegments(entry.id, resolved.commitHash, resolved.fileName)
-            val relativeDirectory = LocalModelDownloadPaths.relativeDirectory(entry.id, resolved.commitHash)
-            dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.save(File(storageRoot(), relativeDirectory), entry)
-            val now = System.currentTimeMillis() / 1000
-            localModelDao.upsert(
-                LocalModel(
-                    catalogEntryId = entry.id,
-                    commitHash = resolved.commitHash,
-                    fileName = resolved.fileName,
-                    relativeDirectory = relativeDirectory,
-                    totalBytes = resolved.sizeInBytes,
-                    status = LocalModelStatus.DOWNLOADING,
-                    createdAt = existing?.createdAt ?: now,
-                    updatedAt = now
-                )
-            )
-
-            val inputData = Data.Builder()
-                .putString(LocalModelDownloadWorker.KEY_CATALOG_ENTRY_ID, entry.id)
-                .putString(LocalModelDownloadWorker.KEY_DISPLAY_NAME, entry.displayName)
-                .putString(LocalModelDownloadWorker.KEY_DOWNLOAD_URL, resolved.downloadUrl)
-                .putString(LocalModelDownloadWorker.KEY_COMMIT_HASH, resolved.commitHash)
-                .putString(LocalModelDownloadWorker.KEY_SHA256, resolved.sha256)
-                .putString(LocalModelDownloadWorker.KEY_FILE_NAME, resolved.fileName)
-                .putLong(LocalModelDownloadWorker.KEY_TOTAL_BYTES, resolved.sizeInBytes)
-                .putBoolean(LocalModelDownloadWorker.KEY_REQUIRES_HF_AUTH, entry.isGated)
-                .build()
-
-            val request = OneTimeWorkRequestBuilder<LocalModelDownloadWorker>()
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .setBackoffCriteria(
-                    BackoffPolicy.EXPONENTIAL,
-                    LocalModelDownloadWorker.INITIAL_BACKOFF_SECONDS,
-                    TimeUnit.SECONDS
-                )
-                .setInputData(inputData)
-                .addTag(LocalModelDownloadWorker.WORK_TAG)
-                .addTag(LocalModelDownloadWorker.idTag(entry.id))
-                .build()
-
-            workManager.enqueueUniqueWork(
-                LocalModelDownloadPaths.uniqueWorkName(entry.id),
-                ExistingWorkPolicy.REPLACE,
-                request
-            )
         }
     }
 
     override suspend fun cancelDownload(catalogEntryId: String) {
         withContext(ioDispatcher) {
             workManager.cancelUniqueWork(LocalModelDownloadPaths.uniqueWorkName(catalogEntryId))
-            val row = localModelDao.getById(catalogEntryId) ?: return@withContext
-            val plan = LocalModelReconciler.planUserCancel()
-            if (plan.deleteFiles) {
-                File(storageRoot(), row.relativeDirectory).deleteRecursively()
-            }
-            if (plan.deleteRow) {
-                localModelDao.deleteById(catalogEntryId)
-            } else if (row.status == LocalModelStatus.DOWNLOADING) {
-                localModelDao.updateStatus(
-                    catalogEntryId = catalogEntryId,
-                    status = plan.newStatus,
-                    updatedAt = System.currentTimeMillis() / 1000
-                )
+            LocalModelTransferGuard.mutex(catalogEntryId).withLock {
+                LocalModelTransferGuard.begin(context.noBackupFilesDir, catalogEntryId)
+                val row = localModelDao.getById(catalogEntryId) ?: return@withLock
+                val plan = LocalModelReconciler.planUserCancel()
+                if (plan.deleteFiles) {
+                    roots().forEach { root -> check(File(root, row.relativeDirectory).deleteRecursively()) { "Model files could not be deleted. Retry cleanup." } }
+                }
+                if (plan.deleteRow) {
+                    localModelDao.deleteById(catalogEntryId)
+                } else if (row.status == LocalModelStatus.DOWNLOADING) {
+                    localModelDao.updateStatus(
+                        catalogEntryId = catalogEntryId,
+                        status = plan.newStatus,
+                        updatedAt = System.currentTimeMillis() / 1000
+                    )
+                }
             }
         }
     }
@@ -146,16 +161,15 @@ class LocalModelRepositoryImpl(
         withContext(ioDispatcher) {
             LocalModelDownloadPaths.requireValidPathSegments(catalogEntryId)
             workManager.cancelUniqueWork(LocalModelDownloadPaths.uniqueWorkName(catalogEntryId))
-            val row = localModelDao.getById(catalogEntryId)
-            if (row != null) {
-                File(storageRoot(), row.relativeDirectory).deleteRecursively()
+            LocalModelTransferGuard.mutex(catalogEntryId).withLock {
+                LocalModelTransferGuard.begin(context.noBackupFilesDir, catalogEntryId)
+                roots().forEach { root ->
+                    val directory = File(File(root, LocalModelDownloadPaths.MODELS_DIR), catalogEntryId)
+                    check(directory.deleteRecursively()) { "Model files could not be deleted. Retry cleanup." }
+                }
                 localModelDao.deleteById(catalogEntryId)
-                File(storageRoot(), LocalModelDownloadPaths.MODELS_DIR)
-                    .resolve(catalogEntryId)
-                    .takeIf { it.isDirectory && it.list().isNullOrEmpty() }
-                    ?.delete()
+                dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
             }
-            dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
         }
     }
 
@@ -190,16 +204,13 @@ class LocalModelRepositoryImpl(
     }
 
     override suspend fun totalStorageUsed(): Long = withContext(ioDispatcher) {
-        localModelDao.getAll()
-            .filter { it.status == LocalModelStatus.READY }
-            .sumOf { diskBytes(it) }
+        roots().sumOf { root ->
+            File(root, LocalModelDownloadPaths.MODELS_DIR).walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        }
     }
 
     override fun diskPartialBytes(record: LocalModel): Long {
-        val file = File(
-            storageRoot(),
-            LocalModelDownloadPaths.relativePartialFilePath(record.catalogEntryId, record.commitHash, record.fileName)
-        )
+        val file = storedFile(LocalModelDownloadPaths.relativePartialFilePath(record.catalogEntryId, record.commitHash, record.fileName))
         return file.takeIf { it.exists() }?.length() ?: 0L
     }
 
@@ -225,7 +236,7 @@ class LocalModelRepositoryImpl(
                         updatedAt = now
                     )
 
-                    is ReconcileAction.DeleteFile -> File(storageRoot(), action.relativePath).delete()
+                    is ReconcileAction.DeleteFile -> roots().forEach { File(it, action.relativePath).delete() }
                 }
             }
         }
@@ -259,15 +270,14 @@ class LocalModelRepositoryImpl(
     private fun workInfosFlow(): Flow<List<WorkInfo>> = workInfos?.invoke()
         ?: WorkManager.getInstance(context).getWorkInfosByTagFlow(LocalModelDownloadWorker.WORK_TAG)
 
-    private fun listModelFiles(): Set<String> {
-        val root = storageRoot()
-        val modelsDir = File(root, LocalModelDownloadPaths.MODELS_DIR)
-        if (!modelsDir.exists()) return emptySet()
-        return modelsDir.walkTopDown()
-            .filter { it.isFile }
-            .map { it.relativeTo(root).invariantSeparatorsPath }
-            .toSet()
-    }
+    private fun listModelFiles(): Set<String> = roots().flatMap { root ->
+        File(root, LocalModelDownloadPaths.MODELS_DIR).walkTopDown().filter { it.isFile }
+            .map { it.relativeTo(root).invariantSeparatorsPath }.toList()
+    }.toSet()
+
+    private fun roots(): List<File> = listOfNotNull(context.filesDir, externalStorageRoot()).distinctBy { it.canonicalPath }
+
+    private fun storedFile(relativePath: String): File = roots().map { File(it, relativePath) }.firstOrNull { it.isFile } ?: File(storageRoot(), relativePath)
 
     private suspend fun activeDownloadIds(): Set<String> {
         val infos = runCatching { workInfosFlow().first() }.getOrDefault(emptyList())
@@ -277,11 +287,6 @@ class LocalModelRepositoryImpl(
                 info.tags.firstNotNullOfOrNull(LocalModelDownloadWorker::catalogEntryIdFromTag)
             }
             .toSet()
-    }
-
-    private fun diskBytes(model: LocalModel): Long {
-        val file = File(storageRoot(), LocalModelDownloadPaths.relativeFilePath(model.catalogEntryId, model.commitHash, model.fileName))
-        return if (file.exists()) file.length() else model.totalBytes
     }
 
     private companion object {

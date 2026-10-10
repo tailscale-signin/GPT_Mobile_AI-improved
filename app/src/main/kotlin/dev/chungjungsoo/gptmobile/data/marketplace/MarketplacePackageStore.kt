@@ -119,6 +119,30 @@ class MarketplacePackageStore @Inject constructor(@ApplicationContext context: C
         }
     }
 
+    suspend fun pendingRemovalIds(): Set<String> = withContext(Dispatchers.IO) {
+        GitHubMarketplaceCatalog.packages.filter { File(directory, "${it.id}.removing").isFile }.mapTo(mutableSetOf()) { it.id }
+    }
+
+    suspend fun beginRemoval(entry: GitHubMarketplacePackage) = withContext(Dispatchers.IO) {
+        requireKnown(entry)
+        check(directory.mkdirs() || directory.isDirectory)
+        val journal = AtomicFile(File(directory, "${entry.id}.removing"))
+        val output = journal.startWrite()
+        try {
+            output.write(entry.id.toByteArray())
+            journal.finishWrite(output)
+        } catch (error: Exception) {
+            journal.failWrite(output)
+            throw error
+        }
+    }
+
+    suspend fun finishRemoval(entry: GitHubMarketplacePackage) = withContext(Dispatchers.IO) {
+        requireKnown(entry)
+        AtomicFile(File(directory, "${entry.id}.removing")).delete()
+        check(!File(directory, "${entry.id}.removing").exists()) { "Removal needs to be resumed." }
+    }
+
     suspend fun exportBytes(entry: GitHubMarketplacePackage): ByteArray = withContext(Dispatchers.IO) {
         requireKnown(entry)
         locks.getValue(entry.id).withLock { readVerified(entry) ?: throw IOException("Download the package again before exporting.") }

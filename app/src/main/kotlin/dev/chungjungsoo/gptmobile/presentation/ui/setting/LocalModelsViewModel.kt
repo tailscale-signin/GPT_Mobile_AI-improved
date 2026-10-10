@@ -135,7 +135,8 @@ class LocalModelsViewModel @Inject constructor(
             source = discovery.source,
             huggingFaceItems = hfItems,
             isSearchingHuggingFace = discovery.huggingFaceSearch.isLoading,
-            huggingFaceSearchError = discovery.huggingFaceSearch.error
+            huggingFaceSearchError = discovery.huggingFaceSearch.error,
+            huggingFaceSearchNotice = discovery.huggingFaceSearch.notice
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, LocalModelsUiState())
 
@@ -223,9 +224,10 @@ class LocalModelsViewModel @Inject constructor(
             if (!immediate) delay(HUGGING_FACE_SEARCH_DEBOUNCE_MS)
             huggingFaceEntries.value = emptyList()
             huggingFaceSearchState.value = HuggingFaceSearchState(isLoading = true)
-            runCatching { if (npuOnly) client.searchNpu(query, deviceSocModel) else client.search(query) }
-                .onSuccess { results ->
-                    huggingFaceEntries.value = results.map { it.toCatalogEntry() }.filter { entry ->
+            runCatching { if (npuOnly) client.searchNpuOutcome(query, deviceSocModel) else client.searchOutcome(query) }
+                .onSuccess { outcome ->
+                    val installed = localListState.value.items.filter { it.status == LocalModelItemStatus.READY }.map { it.entry }
+                    huggingFaceEntries.value = outcome.results.map { dev.chungjungsoo.gptmobile.data.huggingface.preserveInstalledHubIdentity(it.toCatalogEntry(), installed) }.filter { entry ->
                         !downloadGuards.belowRamRequirement(entry) &&
                             if (entry.supportedAccelerators.any { it.equals("npu", true) }) {
                                 dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(entry.supportedAccelerators, entry.socToModelFiles, deviceSocModel)
@@ -233,7 +235,7 @@ class LocalModelsViewModel @Inject constructor(
                                 !npuOnly && entry.supportedAccelerators.any { it.equals("gpu", true) }
                             }
                     }
-                    huggingFaceSearchState.value = HuggingFaceSearchState()
+                    huggingFaceSearchState.value = HuggingFaceSearchState(notice = outcome.notice)
                 }
                 .onFailure { error ->
                     if (error is kotlinx.coroutines.CancellationException) throw error
@@ -373,6 +375,7 @@ class LocalModelsViewModel @Inject constructor(
 }
 
 private data class HuggingFaceSearchState(
+    val notice: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null
 )

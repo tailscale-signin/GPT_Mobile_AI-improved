@@ -25,6 +25,7 @@ import dev.chungjungsoo.gptmobile.data.localmodel.DownloadProgress
 import dev.chungjungsoo.gptmobile.data.localmodel.HuggingFaceDownloadAuth
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelDownloadPaths
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelTransferGuard
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
 import java.io.File
@@ -33,6 +34,8 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 @HiltWorker
@@ -67,7 +70,14 @@ class LocalModelDownloadWorker @AssistedInject constructor(
             fileName = fileName,
             totalBytes = totalBytes
         )
-        runCatching { setForeground(createForegroundInfo(progress = seededPercent, modelName = displayName)) }
+        try {
+            setForeground(createForegroundInfo(progress = seededPercent, modelName = displayName))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            markStatus(catalogEntryId, LocalModelStatus.FAILED)
+            return Result.failure(Data.Builder().putString(KEY_ERROR_MESSAGE, "Android could not start the download notification. Open the app and retry.").build())
+        }
 
         return withContext(Dispatchers.IO) {
             try {
@@ -82,8 +92,14 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                     accessToken = accessToken
                 )
                 markStatus(catalogEntryId, LocalModelStatus.READY)
-                dev.chungjungsoo.gptmobile.data.agent.tool.LocalDelegationCoordinator.onLocalModelInstalled()
-                runCatching { pendingLocalPlatformActivator.onModelsBecameReady(setOf(catalogEntryId)) }
+                withCurrent(catalogEntryId) {
+                    dev.chungjungsoo.gptmobile.data.agent.tool.LocalDelegationCoordinator.onLocalModelInstalled()
+                    try {
+                        pendingLocalPlatformActivator.onModelsBecameReady(setOf(catalogEntryId))
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) { /* Installation remains usable even if profile activation needs a retry. */ }
+                }
                 Result.success()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -98,7 +114,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                 )
             } catch (error: IOException) {
                 Log.e(TAG, error.message, error)
-                val hadProgress = hadPartialProgress(catalogEntryId, commitHash, fileName)
+                val hadProgress = runCatching { hadPartialProgress(catalogEntryId, commitHash, fileName) }.getOrDefault(false)
                 val classification = DownloadErrorClassifier.classify(error, hadProgress)
                 if (DownloadErrorClassifier.shouldRetry(classification, runAttemptCount)) {
                     Result.retry()
@@ -111,6 +127,9 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                             .build()
                     )
                 }
+            } catch (_: Exception) {
+                markStatus(catalogEntryId, LocalModelStatus.FAILED)
+                Result.failure(Data.Builder().putString(KEY_ERROR_MESSAGE, "Download could not finish. Check storage and retry from the app.").build())
             }
         }
     }
@@ -136,10 +155,10 @@ class LocalModelDownloadWorker @AssistedInject constructor(
         accessToken: String?
     ) {
         LocalModelDownloadPaths.requireValidPathSegments(catalogEntryId, commitHash, fileName)
-        val storageRoot = applicationContext.getExternalFilesDir(null) ?: applicationContext.filesDir
+        val storageRoot = transferRoot()
         val outputDir = File(storageRoot, LocalModelDownloadPaths.relativeDirectory(catalogEntryId, commitHash))
-        if (!outputDir.exists() && !outputDir.mkdirs()) {
-            throw IOException("Unable to create Local Model directory")
+        withCurrent(catalogEntryId) {
+            if (!outputDir.exists() && !outputDir.mkdirs()) throw IOException("Unable to create Local Model directory")
         }
 
         val outputTmpFile = File(outputDir, LocalModelDownloadPaths.partialFileName(fileName))
@@ -174,7 +193,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
             }
 
             val contentRange = connection.getHeaderField("Content-Range")
-            val append = LocalModelDownloadPaths.shouldAppendToPartial(partialLength, contentRange)
+            val append = responseCode == HttpURLConnection.HTTP_PARTIAL && LocalModelDownloadPaths.shouldAppendToPartial(partialLength, contentRange)
             if (responseCode == HttpURLConnection.HTTP_PARTIAL &&
                 !append &&
                 LocalModelDownloadPaths.contentRangeStart(contentRange.orEmpty()) != 0L
@@ -192,8 +211,8 @@ class LocalModelDownloadWorker @AssistedInject constructor(
             val bytesReadLatencyBuffer = mutableListOf<Long>()
 
             connection.inputStream.use { inputStream ->
-                FileOutputStream(outputTmpFile, append).use { outputStream ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                withCurrent(catalogEntryId) { FileOutputStream(outputTmpFile, append) }.use { outputStream ->
+                    val buffer = ByteArray(256 * 1024)
                     var bytesRead: Int
                     var lastSetProgressTs = 0L
                     var deltaBytes = 0L
@@ -201,7 +220,14 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                         if (isStopped) {
                             throw CancellationException("Local Model download cancelled")
                         }
-                        outputStream.write(buffer, 0, bytesRead)
+                        currentCoroutineContext().ensureActive()
+                        if (expectedTotalBytes > 0 && bytesRead > expectedTotalBytes - downloadedBytes) {
+                            throw IOException("Model response exceeds the expected artifact size.")
+                        }
+                        if (expectedTotalBytes <= 0 && downloadedBytes + bytesRead > 16L * 1024 * 1024 * 1024) {
+                            throw IOException("Unknown-size model exceeds the download limit.")
+                        }
+                        withCurrent(catalogEntryId) { outputStream.write(buffer, 0, bytesRead) }
                         downloadedBytes += bytesRead
                         deltaBytes += bytesRead
 
@@ -221,20 +247,22 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                                 bytesPerMs = bytesReadSizeBuffer.sum().toFloat() / bytesReadLatencyBuffer.sum()
                             }
 
+                            if (outputDir.usableSpace < 64L * 1024 * 1024) throw IOException("Storage is nearly full. Free space before resuming this download.")
                             var remainingMs = 0f
-                            if (bytesPerMs > 0f && totalBytes > 0L) {
-                                remainingMs = (totalBytes - downloadedBytes) / bytesPerMs
+                            if (bytesPerMs > 0f && expectedTotalBytes > 0L) {
+                                remainingMs = (expectedTotalBytes - downloadedBytes).coerceAtLeast(0) / bytesPerMs
                             }
 
                             setProgress(
                                 Data.Builder()
+                                    .putLong(KEY_TOTAL_BYTES, expectedTotalBytes)
                                     .putLong(KEY_RECEIVED_BYTES, downloadedBytes)
                                     .putLong(KEY_DOWNLOAD_RATE, (bytesPerMs * 1000).toLong())
                                     .putLong(KEY_REMAINING_MS, remainingMs.toLong())
                                     .build()
                             )
-                            val percent = if (totalBytes > 0L) (downloadedBytes * 100 / totalBytes).toInt() else 0
-                            runCatching { setForeground(createForegroundInfo(progress = percent, modelName = displayName)) }
+                            val percent = DownloadProgress.percent(downloadedBytes, expectedTotalBytes)
+                            setForeground(createForegroundInfo(progress = percent, modelName = displayName))
                             lastSetProgressTs = curTs
                         }
                     }
@@ -248,29 +276,47 @@ class LocalModelDownloadWorker @AssistedInject constructor(
             throw IOException("Incomplete Local Model download")
         }
 
-        val validation = dev.chungjungsoo.gptmobile.data.localruntime.LocalModelValidator.validate(outputTmpFile.absolutePath)
-        if (validation is dev.chungjungsoo.gptmobile.data.localruntime.ModelValidationResult.Invalid) {
-            outputTmpFile.delete()
-            throw IOException("Invalid local model download: ${validation.details}")
-        }
-        val expectedDigest = inputData.getString(KEY_SHA256).orEmpty()
-        val actualDigest = try {
-            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.verify(outputTmpFile, expectedDigest)
-        } catch (error: IOException) {
-            outputTmpFile.delete()
-            throw error
-        }
-        val originalFile = File(outputDir, fileName)
-        // Atomic replacement preserves the previous usable file until admission succeeds.
-        java.nio.file.Files.move(outputTmpFile.toPath(), originalFile.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        val digestRecord = File(outputDir, "$fileName.digest")
-        val stagingRecord = File(outputDir, "$fileName.digest.tmp")
-        stagingRecord.writeText(actualDigest + "\n" + if (expectedDigest.isBlank()) "identity-only" else "publisher-digest-verified")
-        java.nio.file.Files.move(stagingRecord.toPath(), digestRecord.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        localModelDao.getById(catalogEntryId)?.let { row ->
-            localModelDao.upsert(row.copy(totalBytes = originalFile.length()))
+        withCurrent(catalogEntryId) {
+            setProgress(Data.Builder().putLong(KEY_RECEIVED_BYTES, outputTmpFile.length()).putLong(KEY_TOTAL_BYTES, expectedTotalBytes).putBoolean(KEY_VERIFYING, true).build())
+            val validation = dev.chungjungsoo.gptmobile.data.localruntime.LocalModelValidator.validate(outputTmpFile.absolutePath)
+            if (validation is dev.chungjungsoo.gptmobile.data.localruntime.ModelValidationResult.Invalid) {
+                outputTmpFile.delete()
+                throw IOException("Invalid local model download: ${validation.details}")
+            }
+            val expectedDigest = inputData.getString(KEY_SHA256).orEmpty()
+            val actualDigest = try {
+                dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.verify(outputTmpFile, expectedDigest)
+            } catch (error: IOException) {
+                outputTmpFile.delete()
+                throw error
+            }
+            currentCoroutineContext().ensureActive()
+            if (isStopped) throw CancellationException("Model activation cancelled")
+            val originalFile = File(outputDir, fileName)
+            // Atomic replacement preserves the previous usable file until admission succeeds.
+            java.nio.file.Files.move(outputTmpFile.toPath(), originalFile.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            val digestRecord = File(outputDir, "$fileName.digest")
+            val stagingRecord = File(outputDir, "$fileName.digest.tmp")
+            stagingRecord.writeText(actualDigest + "\n" + if (expectedDigest.isBlank()) "identity-only" else "publisher-digest-verified")
+            java.nio.file.Files.move(stagingRecord.toPath(), digestRecord.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            localModelDao.getById(catalogEntryId)?.let { row ->
+                localModelDao.upsert(row.copy(totalBytes = originalFile.length()))
+            }
         }
     }
+
+    private fun transferRoot(): File = if (inputData.getBoolean(KEY_INTERNAL_STORAGE, false)) {
+        applicationContext.filesDir
+    } else {
+        applicationContext.getExternalFilesDir(null) ?: throw IOException("Model storage is unavailable. Reconnect storage before resuming.")
+    }
+
+    private suspend fun <T> withCurrent(catalogEntryId: String, action: suspend () -> T): T = LocalModelTransferGuard.withCurrent(
+        applicationContext.noBackupFilesDir,
+        catalogEntryId,
+        inputData.getString(KEY_GENERATION).orEmpty(),
+        action
+    )
 
     private suspend fun resolveAccessToken(): String? {
         if (inputData.getBoolean(KEY_REQUIRES_HF_AUTH, false)) {
@@ -280,8 +326,10 @@ class LocalModelDownloadWorker @AssistedInject constructor(
     }
 
     private suspend fun markStatus(catalogEntryId: String, status: String) {
-        localModelDao.updateStatus(catalogEntryId, status, System.currentTimeMillis() / 1000)
-        if (status == LocalModelStatus.READY) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
+        withCurrent(catalogEntryId) {
+            localModelDao.updateStatus(catalogEntryId, status, System.currentTimeMillis() / 1000)
+            if (status == LocalModelStatus.READY) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
+        }
     }
 
     private fun ensureNotificationChannel() {
@@ -332,6 +380,9 @@ class LocalModelDownloadWorker @AssistedInject constructor(
     companion object {
         const val WORK_TAG = "local_model_download"
         const val ID_TAG_PREFIX = "local_model_id:"
+        const val KEY_GENERATION = "generation"
+        const val KEY_INTERNAL_STORAGE = "internal_storage"
+        const val KEY_VERIFYING = "verifying"
         const val KEY_CATALOG_ENTRY_ID = "catalog_entry_id"
         const val KEY_DISPLAY_NAME = "display_name"
         const val KEY_DOWNLOAD_URL = "download_url"
@@ -366,13 +417,13 @@ class LocalModelDownloadWorker @AssistedInject constructor(
         totalBytes: Long
     ): Int {
         if (catalogEntryId.isNullOrBlank() || commitHash.isNullOrBlank() || fileName.isNullOrBlank()) return 0
-        return DownloadProgress.percent(partialFileBytes(catalogEntryId, commitHash, fileName), totalBytes)
+        return DownloadProgress.percent(runCatching { partialFileBytes(catalogEntryId, commitHash, fileName) }.getOrDefault(0L), totalBytes)
     }
 
     private fun hadPartialProgress(catalogEntryId: String, commitHash: String, fileName: String): Boolean = partialFileBytes(catalogEntryId, commitHash, fileName) > 0L
 
     private fun partialFileBytes(catalogEntryId: String, commitHash: String, fileName: String): Long {
-        val storageRoot = applicationContext.getExternalFilesDir(null) ?: applicationContext.filesDir
+        val storageRoot = transferRoot()
         val file = File(storageRoot, LocalModelDownloadPaths.relativePartialFilePath(catalogEntryId, commitHash, fileName))
         return file.takeIf { it.exists() }?.length() ?: 0L
     }
@@ -387,7 +438,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                 .putLong(KEY_REMAINING_MS, 0L)
                 .build()
         )
-        runCatching { setForeground(createForegroundInfo(progress = percent, modelName = displayName)) }
+        setForeground(createForegroundInfo(progress = percent, modelName = displayName))
     }
 
     private fun messageResFor(kind: DownloadFailureKind): Int = when (kind) {

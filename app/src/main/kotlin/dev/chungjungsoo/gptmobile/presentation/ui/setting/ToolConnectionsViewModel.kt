@@ -79,7 +79,7 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     val features = settingRepository.observeFeatureSettings().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
-    private val pluginMutex = kotlinx.coroutines.sync.Mutex()
+    private val pluginMutex = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex
     fun configurePlugin(id: String, config: dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings) {
         viewModelScope.launch {
             pluginMutex.lock()

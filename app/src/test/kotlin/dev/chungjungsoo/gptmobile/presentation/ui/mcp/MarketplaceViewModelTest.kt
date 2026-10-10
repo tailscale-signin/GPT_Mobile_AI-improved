@@ -42,6 +42,9 @@ class MarketplaceViewModelTest {
         every { registry.state } returns MutableStateFlow<Map<String, NativePluginInstallation>>(emptyMap())
         coEvery { connections.listConnections() } returns emptyList()
         coEvery { store.downloadedIds() } returns emptySet()
+        coEvery { store.pendingRemovalIds() } returns emptySet()
+        coEvery { store.beginRemoval(any()) } returns Unit
+        coEvery { store.finishRemoval(any()) } returns Unit
         coEvery { store.download(any()) } returns Unit
         coEvery { store.remove(any()) } returns Unit
     }
@@ -157,5 +160,48 @@ class MarketplaceViewModelTest {
         model.download(entry)
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
+    }
+
+    @Test
+    fun bothEnableEntryPointsUseTheRegistryAndFeatureGates() = runTest(dispatcher) {
+        val settings = mockk<dev.chungjungsoo.gptmobile.data.repository.SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+        val model = MarketplaceViewModel(store, registry, connections, settings = settings)
+        viewModels.put("marketplace", model)
+        model.setEnabled(entry, true)
+        runCurrent()
+        coVerify { registry.configuration(entry, false) }
+        coVerify { registry.setEnabled(entry, true) }
+        coVerify {
+            settings.updateFeatureSettings(
+                match {
+                    it.isToolPluginEnabled(entry.id) && it.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forPackage(entry).id)
+                }
+            )
+        }
+    }
+
+    @Test
+    fun failedRegistryValidationCannotChangeFeatureGates() = runTest(dispatcher) {
+        val settings = mockk<dev.chungjungsoo.gptmobile.data.repository.SettingRepository>(relaxed = true)
+        coEvery { registry.configuration(entry, false) } throws IllegalStateException("missing key")
+        val model = MarketplaceViewModel(store, registry, connections, settings = settings)
+        viewModels.put("marketplace", model)
+        model.setEnabled(entry, true)
+        runCurrent()
+        coVerify(exactly = 0) { settings.updateFeatureSettings(any()) }
+        assertTrue(model.uiState.value.changingIds.isEmpty())
+    }
+
+    @Test
+    fun interruptedRemovalResumesBeforeRecoveringRegistration() = runTest(dispatcher) {
+        coEvery { store.downloadedIds() } returns setOf(entry.id)
+        coEvery { store.pendingRemovalIds() } returns setOf(entry.id)
+        val model = model()
+        runCurrent()
+        coVerify(exactly = 0) { registry.install(entry) }
+        coVerify { registry.uninstall(entry) }
+        coVerify { store.finishRemoval(entry) }
+        assertTrue(model.uiState.value.downloadedIds.isEmpty())
     }
 }

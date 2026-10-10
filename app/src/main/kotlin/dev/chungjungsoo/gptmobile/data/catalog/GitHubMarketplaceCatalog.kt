@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.catalog
 
 /** A downloadable connection package is not an Android executable plugin. */
 enum class MarketplaceRuntime(val label: String) {
-    NATIVE("Runs in app"),
+    NATIVE("In-app adapter"),
     COMPANION("Computer-hosted MCP"),
     HOSTED("Hosted MCP"),
     GUIDE("Setup guide only")

@@ -38,7 +38,8 @@ fun NativePluginSettings(
     entry: GitHubMarketplacePackage,
     installation: NativePluginInstallation,
     viewModel: MarketplaceViewModel,
-    busy: Boolean = false
+    busy: Boolean = false,
+    showEnableSwitch: Boolean = true
 ) {
     var endpoint by remember(entry.id, installation.endpoint) { mutableStateOf(installation.endpoint) }
     var disabledOperations by remember(entry.id, installation.disabledOperations) { mutableStateOf(installation.disabledOperations) }
@@ -56,10 +57,21 @@ fun NativePluginSettings(
     val red = MaterialTheme.colorScheme.error
     val fieldColors = OutlinedTextFieldDefaults.colors(errorBorderColor = red, errorLabelColor = red, errorSupportingTextColor = red, errorCursorColor = red)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (installation.enabled) "Enabled" else "Disabled", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-            Switch(checked = installation.enabled, enabled = !busy && (installation.enabled || installation.ready(entry)), onCheckedChange = { viewModel.setEnabled(entry, it) })
+        if (showEnableSwitch) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (installation.enabled) "Enabled" else "Disabled", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                Switch(checked = installation.enabled, enabled = !busy && (installation.enabled || installation.ready(entry)), onCheckedChange = { viewModel.setEnabled(entry, it) })
+            }
         }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Connection & usage", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon(
+                title = "Plugin availability",
+                description = "Save required settings before enabling. Both enable controls update the same registration and service gates. Each AI profile keeps its own permissions. A saved API key does not prove provider access; provider failures and cooldowns are returned when a tool runs."
+            )
+        }
+        val usedToday = if (installation.usageDay == java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()) installation.usageCount else 0
+        Text("$usedToday / ${installation.dailyLimit} requests today · resets at 00:00 UTC", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (needsKey) {
             OutlinedTextField(
                 value = key,
@@ -153,12 +165,13 @@ fun InstalledNativePluginsPanel(search: String = "", viewModel: MarketplaceViewM
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(entry.preset.name, style = MaterialTheme.typography.titleMedium)
-                NativePluginSettings(entry, installation, viewModel, id in state.removingIds)
+                NativePluginSettings(entry, installation, viewModel, id in state.removingIds || id in state.changingIds)
                 state.errors[id]?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 TextButton(enabled = id !in state.removingIds, onClick = { viewModel.requestUninstall(entry) }) { Text("Uninstall") }
             }
         }
     }
+    if (state.registryNeedsRepair) TextButton(onClick = viewModel::repairRegistry) { Text("Repair plugin registry") }
     state.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     NativePluginUninstallDialog(viewModel)
 }

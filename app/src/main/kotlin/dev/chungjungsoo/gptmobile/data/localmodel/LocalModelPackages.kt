@@ -19,6 +19,7 @@ object LocalModelPackages {
                         displayName = "${entry.displayName} · NPU",
                         downloadUrl = resolved.downloadUrl,
                         sizeInBytes = resolved.sizeInBytes,
+                        sha256 = resolved.sha256,
                         supportedAccelerators = listOf("npu")
                     )
                 )

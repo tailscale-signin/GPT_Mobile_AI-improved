@@ -111,7 +111,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
-import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionHealth
@@ -182,6 +181,14 @@ fun McpMarketplaceScreen(
     val features by connectionsViewModel.features.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var section by rememberSaveable { mutableStateOf(MarketplaceSection.PLUGINS) }
+    var statusFilter by rememberSaveable { mutableStateOf("All states") }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            now = System.currentTimeMillis()
+        }
+    }
     var sort by rememberSaveable { mutableStateOf(MarketplaceSort.RECOMMENDED) }
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf<McpCategory?>(null) }
@@ -209,8 +216,16 @@ fun McpMarketplaceScreen(
         preset.alias in installedAliases ||
         ToolConnectionsViewModel.normalizeAlias(preset.alias) in installedAliases
     val addedIds = presets.filter(::added).map { it.id }.toSet() + downloaded + installations.keys
-    val filtered = remember(presets, section, query, category, pricing, sort, addedIds) {
-        MarketplacePresentation.filterAndSort(presets, section, query, category, pricing, sort, addedIds)
+    val filtered = remember(presets, section, query, category, pricing, sort, addedIds, statusFilter, installations, packageState) {
+        MarketplacePresentation.filterAndSort(presets, section, query, category, pricing, sort, addedIds).filter { preset ->
+            val entry = GitHubMarketplaceCatalog.find(preset.id)
+            when (statusFilter) {
+                "Installed" -> preset.id in addedIds
+                "Needs attention" -> preset.id in packageState.errors || (entry != null && installations[preset.id]?.ready(entry) == false)
+                "Downloading" -> preset.id in packageState.downloadingIds
+                else -> true
+            }
+        }
     }
     LaunchedEffect(downloaded, packageState.errors) {
         pendingHostedSetup?.let { id ->
@@ -227,7 +242,7 @@ fun McpMarketplaceScreen(
     }
     LaunchedEffect(Unit) {
         // Keep each tab's position, including restored state after rotation.
-        snapshotFlow { listOf(query, category, pricing, sort) }.drop(1).collect {
+        snapshotFlow { listOf(query, category, pricing, sort, statusFilter) }.drop(1).collect {
             pluginScroll.scrollToItem(0)
             mcpScroll.scrollToItem(0)
         }
@@ -275,13 +290,17 @@ fun McpMarketplaceScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(30.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Your toolkit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("Find your next tool", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            "Plugins & MCP tools",
+                            "${installations.size} in-app integrations · ${connectionsState.connections.size} connections",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon(
+                        title = "How marketplace tools work",
+                        description = "In-app adapters run in Android and use the internet for provider data. Hosted services run on the provider’s servers. Your-server tools need a separate running server. Installing an integration does not grant it access to every AI profile; review profile tool permissions separately."
+                    )
                 }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
@@ -311,6 +330,7 @@ fun McpMarketplaceScreen(
                 }
             }
             FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarketplaceDropdown(statusFilter, listOf("All states", "Installed", "Needs attention", "Downloading"), statusFilter, { it }) { statusFilter = it }
                 MarketplaceDropdown("Sort: ${sort.label}", MarketplaceSort.entries.toList(), sort, { it.label }) { sort = it }
                 MarketplaceDropdown(
                     category?.displayName ?: "All categories",
@@ -331,6 +351,9 @@ fun McpMarketplaceScreen(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (packageState.registryNeedsRepair) {
+                TextButton(onClick = marketplaceViewModel::repairRegistry, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Repair plugin registry") }
+            }
             packageState.message?.let { message ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
@@ -353,6 +376,7 @@ fun McpMarketplaceScreen(
                                     query = ""
                                     category = null
                                     pricing = null
+                                    statusFilter = "All states"
                                 }) { Text("Clear filters") }
                             }
                         }
@@ -384,7 +408,8 @@ fun McpMarketplaceScreen(
                         }, download = entry?.takeIf { it.runtime == MarketplaceRuntime.NATIVE },
                         downloaded = native && installation != null,
                         downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
-                        connectionStatus = connectionHealth?.let(::marketplaceConnectionStatus),
+                        changing = preset.id in packageState.changingIds,
+                        connectionStatus = if (native && entry != null) dev.chungjungsoo.gptmobile.data.marketplace.nativeMarketplaceAvailability(entry, installation, features, now) else connectionHealth?.let(::marketplaceConnectionStatus),
                         error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
                         onExport = {
                             exportId = preset.id
@@ -394,7 +419,6 @@ fun McpMarketplaceScreen(
                         onEnabledChange = { value ->
                             if (native && entry != null) {
                                 marketplaceViewModel.setEnabled(entry, value)
-                                if (value) connectionsViewModel.setPluginsEnabled(setOf(entry.id, ToolServiceCatalog.forPackage(entry).id), true)
                             } else {
                                 (connection?.let { ToolPluginId.connection(it.connectionUid) } ?: builtinId)?.let { id ->
                                     connectionsViewModel.setPluginsEnabled(if (preset.id == "builtin-web") setOf(id, ToolPluginId.READ_URL) else setOf(id), value)
@@ -403,7 +427,7 @@ fun McpMarketplaceScreen(
                         },
                         onRemoveConnection = connection?.let { { removingConnection = it } },
                         nativeSettings = if (native && entry != null && installation != null) {
-                            { NativePluginSettings(entry, installation, marketplaceViewModel, preset.id in packageState.removingIds) }
+                            { NativePluginSettings(entry, installation, marketplaceViewModel, preset.id in packageState.removingIds || preset.id in packageState.changingIds, showEnableSwitch = false) }
                         } else {
                             null
                         },
@@ -417,12 +441,12 @@ fun McpMarketplaceScreen(
         AlertDialog(
             onDismissRequest = { approving = null },
             icon = { Icon(Icons.Rounded.Download, null) },
-            title = { Text("Download and install ${entry.preset.name}?") },
+            title = { Text("Add ${entry.preset.name}?") },
             text = {
                 Text(
                     "Download a pinned, checksum-checked package from ${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}. " +
                         "GitHub receives this download request; no provider keys are sent. " +
-                        (if (entry.runtime == MarketplaceRuntime.NATIVE) "Installs the Android adapter. Enable it after installation and any required setup. " else "Installs a hosted MCP connection package. Complete its connection setup. ") +
+                        (if (entry.runtime == MarketplaceRuntime.NATIVE) "Registers an adapter already included in this app. Internet access is required for provider data. Review setup, then enable it. " else "Installs a hosted MCP connection package. Complete its connection setup. ") +
                         entry.serviceNotice
                 )
             },
@@ -431,7 +455,7 @@ fun McpMarketplaceScreen(
                     approving = null
                     if (entry.runtime == MarketplaceRuntime.HOSTED) pendingHostedSetup = entry.id
                     marketplaceViewModel.download(entry)
-                }) { Text("Download & install") }
+                }) { Text("Add integration") }
             },
             dismissButton = { TextButton(onClick = { approving = null }) { Text("Cancel") } }
         )
@@ -582,6 +606,7 @@ private fun MarketplacePackageCard(
     downloaded: Boolean = false,
     downloading: Boolean = false,
     removing: Boolean = false,
+    changing: Boolean = false,
     error: String? = null,
     onDownload: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -617,7 +642,7 @@ private fun MarketplacePackageCard(
                     } else if (preset.documentationOnly) {
                         "Companion / guide"
                     } else {
-                        "MCP connection"
+                        if (preset.verifiedRemote) "Hosted service" else "Your server / MCP"
                     }
                 )
                 if (downloaded || isInstalled) {
@@ -631,7 +656,14 @@ private fun MarketplacePackageCard(
                     )
                 }
             }
-            Text(preset.description, style = MaterialTheme.typography.bodyMedium)
+            Text(preset.description, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (download != null) {
+                Text(
+                    if (NativeMarketplaceCatalog.requiresKey(download)) "Internet required · Provider API key" else "Internet required · No provider API key",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (downloading) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -645,17 +677,27 @@ private fun MarketplacePackageCard(
                     download != null && !downloaded -> Button(onClick = onDownload, enabled = !downloading, shape = RoundedCornerShape(12.dp)) {
                         Icon(Icons.Rounded.Download, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (error == null) "Download & install" else "Retry install")
+                        Text(if (error == null) "Add integration" else "Retry setup")
                     }
                     download != null -> {
                         if (download.runtime != MarketplaceRuntime.NATIVE && download.canConnect && !isInstalled) Button(onClick = onAddClick, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Set up connection") }
                         TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
                     }
                     preset.integratedTool != null || preset.isPreinstalled -> Button(onClick = onAddClick) { Text("Configure") }
-                    !preset.documentationOnly -> Button(onClick = onAddClick) { Text(if (isInstalled) "Manage connection" else "Connect") }
+                    !preset.documentationOnly -> Button(onClick = onAddClick) {
+                        Text(
+                            if (isInstalled) {
+                                "Manage connection"
+                            } else if (preset.verifiedRemote) {
+                                "Connect service"
+                            } else {
+                                "Configure server"
+                            }
+                        )
+                    }
                 }
                 enabled?.let { value ->
-                    Button(onClick = { onEnabledChange(!value) }, enabled = !removing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
+                    Button(onClick = { onEnabledChange(!value) }, enabled = !removing && !changing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
                 }
                 if (download == null && onRemoveConnection != null) TextButton(onClick = onRemoveConnection) { Text("Uninstall") }
                 TextButton(onClick = { expanded = !expanded }) {

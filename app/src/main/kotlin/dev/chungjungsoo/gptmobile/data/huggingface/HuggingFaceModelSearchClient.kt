@@ -5,17 +5,17 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.get
 import io.ktor.client.request.parameter
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.request.prepareGet
 import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.JsonArray
@@ -33,22 +33,14 @@ data class HuggingFaceLiteRtResult(
     val sizeInBytes: Long,
     val downloads: Long,
     val gated: Boolean,
-    val tags: List<String>
+    val tags: List<String>,
+    val sha256: String = ""
 ) {
     val fileName: String get() = filePath.substringAfterLast('/')
     val displayName: String get() = repoId.substringAfter('/')
 
     fun toCatalogEntry(): CatalogEntry {
-        val stableId = buildString {
-            append("hf_")
-            append(
-                (repoId + "_" + filePath)
-                    .lowercase()
-                    .replace(Regex("[^a-z0-9._-]+"), "_")
-                    .trim('_')
-                    .take(110)
-            )
-        }
+        val stableId = hubArtifactId(repoId, filePath)
         val revision = sha.ifBlank { "main" }
         val encodedPath = filePath.split('/').joinToString("/") { segment ->
             java.net.URLEncoder.encode(segment, Charsets.UTF_8.name()).replace("+", "%20")
@@ -62,6 +54,8 @@ data class HuggingFaceLiteRtResult(
             displayName = displayName,
             downloadUrl = url,
             sizeInBytes = sizeInBytes,
+            sha256 = sha256,
+            upstreamRevision = revision,
             minRamGb = estimateMinRamGb(sizeInBytes),
             maxContextTokens = LocalModelCompatibility.validatedContextTokens(repoId, filePath) ?: 0,
             isGated = gated,
@@ -81,6 +75,7 @@ data class HuggingFaceLiteRtResult(
                         downloadUrl = url,
                         commitHash = revision,
                         sizeInBytes = sizeInBytes,
+                        sha256 = sha256,
                         contextSize = Regex("(?i)(?:ctx|ekv)([0-9]+)").find(fileName)?.groupValues?.get(1)?.toIntOrNull() ?: 1024
                     )
                 )
@@ -102,6 +97,8 @@ data class HuggingFaceLiteRtResult(
     }
 }
 
+data class HubSearchOutcome(val results: List<HuggingFaceLiteRtResult>, val notice: String? = null)
+
 /**
  * Searches the Hugging Face Hub using its public model listing API and keeps only
  * repositories that expose LiteRT-LM package files consumable by this app.
@@ -114,67 +111,96 @@ class HuggingFaceModelSearchClient @Inject constructor(
     private val networkClient: NetworkClient,
     private val tokenStore: HuggingFaceTokenStore
 ) {
-    suspend fun searchNpu(query: String, deviceSoc: String): List<HuggingFaceLiteRtResult> {
-        if (dev.chungjungsoo.gptmobile.data.localruntime.QualcommSocSupport.htpVersion(deviceSoc) == null) return emptyList()
+    private val permits = Semaphore(4)
+
+    suspend fun searchNpu(query: String, deviceSoc: String): List<HuggingFaceLiteRtResult> = searchNpuOutcome(query, deviceSoc).results
+
+    suspend fun searchNpuOutcome(query: String, deviceSoc: String): HubSearchOutcome {
+        if (dev.chungjungsoo.gptmobile.data.localruntime.QualcommSocSupport.htpVersion(deviceSoc) == null) return HubSearchOutcome(emptyList(), "No supported Qualcomm runtime for this chip.")
         val requested = query.trim()
-        val candidates = coroutineScope {
+        val outcomes = supervisorScope {
             listOf(requested.ifBlank { "litert" }, deviceSoc.lowercase(), "litert").distinct().map { term ->
-                async { search(term, MAX_LIMIT) }
-            }.awaitAll().flatten()
+                async {
+                    try {
+                        searchOutcome(term, MAX_LIMIT)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        HubSearchOutcome(emptyList(), "One Hub search failed; retry to refresh partial results.")
+                    }
+                }
+            }.awaitAll()
         }
-        return candidates.distinctBy { it.repoId to it.filePath }.filter { result ->
+        val candidates = outcomes.flatMap { it.results }
+        val results = candidates.distinctBy { it.repoId to it.filePath }.filter { result ->
             val entry = result.toCatalogEntry()
             dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(entry.supportedAccelerators, entry.socToModelFiles, deviceSoc) &&
                 (requested.isBlank() || (result.repoId + " " + result.filePath).contains(requested, true))
         }.take(DEFAULT_LIMIT)
+        return HubSearchOutcome(results, outcomes.mapNotNull { it.notice }.distinct().joinToString(" "))
     }
 
-    suspend fun search(query: String, limit: Int = DEFAULT_LIMIT): List<HuggingFaceLiteRtResult> {
+    suspend fun search(query: String, limit: Int = DEFAULT_LIMIT): List<HuggingFaceLiteRtResult> = searchOutcome(query, limit).results
+
+    suspend fun searchOutcome(query: String, limit: Int = DEFAULT_LIMIT): HubSearchOutcome {
         val normalized = query.trim()
         val token = tokenStore.readAccessToken()
-        val response = networkClient().get(MODELS_API) {
-            parameter("search", normalized.ifBlank { DEFAULT_DISCOVERY_QUERY })
-            parameter("sort", "downloads")
-            parameter("direction", "-1")
-            parameter("limit", limit.coerceIn(1, MAX_LIMIT))
-            parameter("full", "true")
-            timeout { requestTimeoutMillis = REQUEST_TIMEOUT_MS }
-            token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+        if (normalized.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*"))) {
+            val results = parseCompatibleFiles(requestJson("$MODELS_API/$normalized", token, mapOf("blobs" to "true")))
+                .filter { it.sizeInBytes > 0 && it.sha.matches(Regex("[a-fA-F0-9]{40}")) }
+            return HubSearchOutcome(results, "Direct repository lookup; capabilities still require device testing.")
         }
-        check(response.status.isSuccess()) {
-            "Hugging Face search failed: HTTP ${response.status.value}"
-        }
-
-        val root = NetworkClient.json.parseToJsonElement(response.bodyAsText())
-        val models = root as? JsonArray ?: return emptyList()
+        val root = requestJson(
+            MODELS_API,
+            token,
+            mapOf(
+                "search" to normalized.ifBlank { DEFAULT_DISCOVERY_QUERY },
+                "sort" to "downloads",
+                "direction" to "-1",
+                "limit" to limit.coerceIn(1, MAX_LIMIT).toString(),
+                "full" to "true"
+            )
+        )
+        val models = root as? JsonArray ?: return HubSearchOutcome(emptyList(), "Hub returned no repository list.")
+        val failures = java.util.concurrent.atomic.AtomicInteger()
         // Listing siblings omit sizes. Resolve metadata at the pinned revision before
         // showing a package as suitable for the phone's memory budget.
-        val permits = Semaphore(4)
-        val files = coroutineScope {
-            models.filter { parseCompatibleFiles(it).isNotEmpty() }.map { model ->
+        val files = supervisorScope {
+            models.map { model ->
                 async {
-                    permits.withPermit {
-                        val obj = model as JsonObject
-                        val repo = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                        val revision = obj["sha"]?.jsonPrimitive?.contentOrNull?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
-                            ?: return@withPermit emptyList<HuggingFaceLiteRtResult>()
-                        val metadata = networkClient().get("$MODELS_API/$repo/revision/$revision") {
-                            parameter("blobs", "true")
-                            timeout { requestTimeoutMillis = REQUEST_TIMEOUT_MS }
-                            token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    isolatedHubRequest(onFailure = { failures.incrementAndGet() }) {
+                        if (parseCompatibleFiles(model).isEmpty()) return@isolatedHubRequest emptyList()
+                        run {
+                            val obj = model as JsonObject
+                            val repo = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            val revision = obj["sha"]?.jsonPrimitive?.contentOrNull?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
+                                ?: return@run emptyList<HuggingFaceLiteRtResult>()
+                            val metadata = requestJson("$MODELS_API/$repo/revision/$revision", token, mapOf("blobs" to "true"))
+                            parseCompatibleFiles(metadata).filter { it.sizeInBytes > 0 && it.sha == revision && it.repoId == repo }
                         }
-                        if (!metadata.status.isSuccess()) return@withPermit emptyList<HuggingFaceLiteRtResult>()
-                        parseCompatibleFiles(NetworkClient.json.parseToJsonElement(metadata.bodyAsText()))
-                            .filter { it.sizeInBytes > 0 }
                     }
                 }
             }.awaitAll().flatten()
         }
-        return files.sortedWith(
+        val sorted = files.sortedWith(
             compareByDescending<HuggingFaceLiteRtResult> { it.downloads }
                 .thenBy { it.repoId.lowercase() }
                 .thenBy { it.filePath.lowercase() }
         )
+        val notice = "Scanned ${models.size} repositories from the first search page. Use owner/repository to look up a specific model." +
+            if (failures.get() > 0) " ${failures.get()} metadata requests failed; showing partial results." else ""
+        return HubSearchOutcome(sorted, notice)
+    }
+
+    private suspend fun requestJson(url: String, token: String?, parameters: Map<String, String>): kotlinx.serialization.json.JsonElement = permits.withPermit {
+        networkClient().prepareGet(url) {
+            parameters.forEach { (name, value) -> parameter(name, value) }
+            timeout { requestTimeoutMillis = REQUEST_TIMEOUT_MS }
+            token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+        }.execute { response ->
+            check(response.status.isSuccess()) { "Hugging Face request failed: HTTP ${response.status.value}" }
+            NetworkClient.json.parseToJsonElement(response.boundedMetadata())
+        }
     }
 
     private fun parseCompatibleFiles(element: kotlinx.serialization.json.JsonElement): List<HuggingFaceLiteRtResult> {
@@ -208,7 +234,9 @@ class HuggingFaceModelSearchClient @Inject constructor(
                 sizeInBytes = size,
                 downloads = downloads,
                 gated = gated,
-                tags = tags
+                tags = tags,
+                sha256 = (sibling["lfs"] as? JsonObject)?.get("sha256")?.jsonPrimitive?.contentOrNull
+                    ?.takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) }.orEmpty()
             )
         }
     }

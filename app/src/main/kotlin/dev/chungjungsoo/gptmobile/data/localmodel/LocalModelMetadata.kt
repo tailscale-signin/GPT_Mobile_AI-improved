@@ -19,8 +19,8 @@ internal object LocalModelMetadata {
     }
 
     fun read(context: Context): List<CatalogEntry> {
-        val root = context.getExternalFilesDir(null) ?: context.filesDir
-        return File(root, "models").listFiles().orEmpty().filter { it.isDirectory }.flatMap { model ->
+        val roots = listOfNotNull(context.filesDir, context.getExternalFilesDir(null)).distinctBy { it.canonicalPath }
+        return roots.flatMap { File(it, "models").listFiles().orEmpty().toList() }.filter { it.isDirectory }.flatMap { model ->
             model.listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { revision ->
                 val file = File(revision, FILE_NAME)
                 if (!file.isFile || file.length() > 256 * 1024) return@mapNotNull null

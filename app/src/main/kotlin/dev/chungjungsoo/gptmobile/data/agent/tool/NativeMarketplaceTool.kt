@@ -26,20 +26,6 @@ class NativeMarketplaceTool(
     private val registry: NativeMarketplaceRegistry,
     private val fetch: suspend (Request) -> JsonElement
 ) : AgentTool {
-    private fun boundedResult(data: JsonElement, limit: Int): JsonElement = when (data) {
-        is JsonArray -> JsonArray(data.take(limit))
-        is JsonObject -> JsonObject(
-            data.mapValues { (name, value) ->
-                when {
-                    value is JsonArray && name in setOf("results", "records", "businesses", "events", "candidates", "places", "elements", "features") -> JsonArray(value.take(limit))
-                    value is JsonObject && name in setOf("result", "_embedded") -> boundedResult(value, limit)
-                    else -> value
-                }
-            }
-        )
-        else -> data
-    }
-
     private fun redactCredential(data: JsonElement, key: String): JsonElement {
         if (key.isEmpty()) return data
         val encoded = URLEncoder.encode(key, "UTF-8")
@@ -59,24 +45,28 @@ class NativeMarketplaceTool(
             val configuration = registry.configuration(entry)
             val request = NativeMarketplaceRequests.build(entry, operation, arguments, configuration)
             registry.reserve(entry)
-            val data = redactCredential(boundedResult(fetch(request), configuration.installation.maxResults), configuration.apiKey)
+            val evidence = dev.chungjungsoo.gptmobile.data.marketplace.boundMarketplaceEvidence(fetch(request), configuration.installation.maxResults)
+            val data = redactCredential(evidence.data, configuration.apiKey)
             val result = buildJsonObject {
                 put("source", entry.preset.websiteUrl)
                 put("provider", entry.preset.name)
                 put("retrievedAt", Instant.now().toString())
                 put("maxResults", configuration.installation.maxResults)
                 put("coverage", "Bounded first response; missing access, fees, opening and accessibility attributes remain unknown.")
+                put("truncated", evidence.truncated)
+                if (evidence.truncated) put("continuation", "Narrow the request or retrieve details by a retained identifier. Omitted fields are unknown.")
                 put("data", data)
             }
-            if (result.toString().length > 100_000) throw NativeMarketplaceFailure("Result exceeds the output limit. Narrow the request.")
             return AgentToolResult(callId, ToolResultContent.Json(result), false)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: NativeMarketplaceFailure) {
-            if (error.status == 429) registry.rateLimited(entry)
+            if (error.status == 429) registry.rateLimited(entry, error.retryAfterMs ?: 60_000)
             return AgentToolResult(callId, ToolResultContent.Text(error.message.orEmpty()), true)
-        } catch (_: Exception) {
-            return AgentToolResult(callId, ToolResultContent.Text("Tool unavailable. Check arguments, installation, enable state, required fields and daily allowance in Marketplace."), true)
+        } catch (error: IllegalArgumentException) {
+            return AgentToolResult(callId, ToolResultContent.Text("Invalid tool arguments. Check the required fields and coordinate ranges in the tool schema."), true)
+        } catch (error: Exception) {
+            return AgentToolResult(callId, ToolResultContent.Text(dev.chungjungsoo.gptmobile.data.marketplace.marketplaceFailureMessage(error)), true)
         }
     }
 }

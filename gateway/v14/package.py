@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 
-REQUIRED = {"gateway.py", "gateway_v14.py", "gateway_v13.py", "gateway_v13_runtime.py", "gateway_v13_transport.py", "gateway_security.py", "gateway_multisearch.py", "requirements.txt", "v14/__init__.py", "v14/config.py", "v14/identity.py", "v14/package.py", "v14/research.py", "v14/jobs.py", "v14/memory.py", "v14/tools.py"}
+REQUIRED = {"gateway.py", "gateway_v14.py", "gateway_v13.py", "gateway_v13_runtime.py", "gateway_v13_transport.py", "gateway_security.py", "gateway_multisearch.py", "requirements.txt", "v14/__init__.py", "v14/config.py", "v14/identity.py", "v14/package.py", "v14/research.py", "v14/jobs.py", "v14/memory.py", "v14/tools.py", "v14/browser.py", "v14/browser-bootstrap.js"}
 
 
 def validate_package(root):

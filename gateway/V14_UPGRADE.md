@@ -14,7 +14,7 @@ Loopback is a single-user local-machine boundary. Local processes are trusted. J
 
 Set `GATEWAY_AUTH_MODE=trusted_proxy` on a dedicated loopback listener behind Tailscale Serve. Set `GATEWAY_ALLOWED_HOSTS` to a JSON array of exact HTTP authorities (including port when non-default), and `GATEWAY_ALLOWED_ORIGINS` to a JSON array of exact origins. Set `GATEWAY_TRUSTED_USERS` to a JSON mapping, for example `{"approved@example.com":{"principalId":"emanuel","scopes":["chat","jobs","tools"]}}`. Serve must strip incoming identity headers and inject its verified `Tailscale-User-Login`. Tagged devices without user identity fail closed. Do not use public Funnel or unrestricted LAN exposure. Uvicorn proxy header rewriting is disabled so admission checks the actual socket peer.
 
-One approved user has one principal; two phones for that user share its state. This is not verified per-device isolation. The retained runtime automatically selects tools, so chat requires both chat and tools grants; a tool-free limited-user mode is not advertised. Remote access is limited to models, chat, capabilities, readiness, approved inventory and owned jobs. Administrative/configuration/debug/backend proxy surfaces are local-only. Direct browser mutations require an approved Origin and the `X-Gateway-CSRF` token obtained from GET /gateway/session. UI pages must use this token for writes; the legacy upstream web UI is not certified for browser mutations yet.
+One approved user has one principal; two phones for that user share its state. This is not verified per-device isolation. The retained runtime automatically selects tools, so chat requires both chat and tools grants; a tool-free limited-user mode is not advertised. Remote access is limited to models, chat, capabilities, readiness, approved inventory and owned jobs. Administrative/configuration/debug/backend proxy surfaces are local-only. Direct browser mutations require an approved Origin and the `X-Gateway-CSRF` token obtained from GET /gateway/session. The loopback llama.cpp UI now receives a bootstrap script before its app bundles; its same-origin fetch mutations obtain and send this token automatically. Other browser clients must send the token themselves. Cross-origin writes remain rejected, and the trusted-proxy browser/admin surface stays disabled.
 
 ## State and rollback
 
@@ -52,3 +52,9 @@ python -m unittest discover -s gateway/tests -p 'test_gateway_v14*.py' -v
 ```
 
 Use `build_v14_package.py` only from the reviewed source checkout; rebuilding the manifest trusts the current source. Distribution hashes detect incomplete/mixed/modified packages, not publisher identity. Review the source commit and provenance separately. Do not regenerate a manifest merely to bypass a failed downloaded-package check.
+
+## Browser 403 fix (October 9)
+
+Earlier v14 packages served the llama.cpp UI but did not attach its required CSRF header. This blocked POST /tools, POST /v1/streams/lookup and POST /v1/chat/completions before backend dispatch. The browser bootstrap corrects that integration, preserving the original request body, headers, signal and streaming response. Tokens stay in page memory and are stripped before forwarding to llama.cpp. One refresh/retry is allowed only after an explicit gateway admission rejection; upstream/network failures never trigger write replay.
+
+Update the complete gateway package, restart it, then reload the browser page so it loads the bridge. No gateway API key is needed. Existing MCP processes and personal memory files do not require changes. The MCP notification warning in the supplied log did not prevent discovery; all 102 tools were discovered.

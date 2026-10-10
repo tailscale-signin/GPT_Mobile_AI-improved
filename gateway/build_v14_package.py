@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parent
 source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
 # Include the characterized runtime, tests, fixtures, dependency lock and guides;
 # never include databases, local configurations, credentials or generated logs.
-paths = [p for p in root.rglob("*") if p.is_file() and (p.suffix in {".py", ".md", ".ps1", ".json"} or p.name in {"requirements.txt", "requirements.in"}) and "__pycache__" not in p.parts and p.name not in {"manifest-v14.json", "gateway_settings.json", "mcp_config.json"}]
+paths = [p for p in root.rglob("*") if p.is_file() and (p.suffix in {".py", ".md", ".ps1", ".json", ".js", ".mjs"} or p.name in {"requirements.txt", "requirements.in"}) and "__pycache__" not in p.parts and p.name not in {"manifest-v14.json", "gateway_settings.json", "mcp_config.json"}]
 base_commit = "a66155dfdc0cf647dd368019f605d91689d48583"
 manifest = {"baseCommit": base_commit, "version": "14.0.0", "schemaVersion": 1, "sourceCommit": source_commit,
             "files": {str(p.relative_to(root)).replace('\\', '/'): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(paths)}}

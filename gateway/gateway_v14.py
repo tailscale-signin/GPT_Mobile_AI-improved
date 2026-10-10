@@ -21,6 +21,7 @@ from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
+from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -41,6 +42,7 @@ def approved_mcp_config():
 
 runtime.load_mcp_config = approved_mcp_config
 install_exact_routing(runtime)
+install_browser_proxy(runtime, config)
 app = FastAPI(title="Private Gateway v14", version=VERSION, lifespan=runtime.gateway_lifespan,
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(Admission, config=config)
@@ -83,7 +85,8 @@ def capabilities():
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                    "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
-                                    modernMcp=False, clientMemoryAuthority=True, packageValidation=True)})
+                                    modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
+                                    loopbackBrowserCsrf=config.mode == "loopback")})
     return result
 
 
@@ -119,6 +122,12 @@ def connections():
 @app.api_route("/mcp", methods=["GET", "POST", "DELETE"])
 def disabled_facade():
     return JSONResponse({"error": {"code": "mcp_facade_disabled", "message": "Configure the existing external MCP bridge; v14 facade is not certified"}}, status_code=404)
+
+
+@app.get(BOOTSTRAP_PATH)
+def browser_bootstrap():
+    return Response(Path(__file__).with_name("v14").joinpath("browser-bootstrap.js").read_text(encoding="utf-8"),
+                    media_type="application/javascript", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/sw.js")
@@ -165,6 +174,8 @@ def main():
         return
     import uvicorn
     # Forwarded headers cannot rewrite the socket identity used for admission.
+    runtime.logger.info("Gateway %s: mode=%s, key-free access, source=%s, browser bridge=%s",
+                        VERSION, config.mode, manifest["sourceCommit"][:12], config.mode == "loopback")
     uvicorn.run(app, host=config.host, port=config.port, proxy_headers=False)
 
 

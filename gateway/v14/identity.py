@@ -57,7 +57,7 @@ class Admission:
                 await send({"type": "websocket.close", "code": 1008})
             return  # WebSockets are not an admitted gateway surface.
         async def deny(code, status=403):
-            await JSONResponse({"error": {"code": code}}, status_code=status, headers={"Cache-Control": "no-store"})(scope, receive, send)
+            await JSONResponse({"error": {"code": code}}, status_code=status, headers={"Cache-Control": "no-store", "X-Gateway-Admission-Error": code})(scope, receive, send)
         pairs = [(k.decode("latin1").lower(), v.decode("latin1")) for k, v in scope.get("headers", [])]
         sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf"}
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):

@@ -73,6 +73,7 @@ object LocalModelPackages {
     }
 
     fun forInstalledFile(entry: CatalogEntry, fileName: String): CatalogEntry {
+        if (fileName == "manifest.json" && entry.variantLabel.startsWith("GENIEX_")) return entry
         if (!isNpuFile(fileName)) {
             return entry.copy(
                 supportedAccelerators = entry.supportedAccelerators.filterNot { it.equals("npu", true) }.ifEmpty { listOf("gpu", "cpu") },

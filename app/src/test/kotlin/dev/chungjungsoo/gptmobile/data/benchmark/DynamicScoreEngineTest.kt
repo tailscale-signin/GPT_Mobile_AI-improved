@@ -16,7 +16,7 @@ class DynamicScoreEngineTest {
                     durationMs = 1100, firstTextMs = 100, lastTextMs = 1100, chunks = 2, outputTokens = speed, referenceTokens = speed + 1, referenceDecodeTokens = speed, tokenBasis = ReferenceTextTokenizer.VERSION, warmup = case.warmup, workload = case.workload
                 )
             },
-            suiteVersion = 2, measurementVersion = 2, plannedTrials = suite.size, device = "fixture-device"
+            suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION, measurementVersion = 2, plannedTrials = suite.size, device = "fixture-device"
         )
     }
 

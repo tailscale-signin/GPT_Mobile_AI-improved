@@ -59,7 +59,7 @@ internal object DynamicScoreEngine {
     ).joinToString("|")
 
     fun snapshot(history: List<BenchmarkRun>, generation: Long, now: Long, activeRevisions: Map<String, String>? = null): BenchmarkScoreSnapshot {
-        val fresh = history.filter { it.suiteVersion == 2 && it.measurementVersion == 2 && it.mode != BenchmarkMode.DELEGATION && now - it.startedAt in 0..FRESHNESS_MS }
+        val fresh = history.filter { it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION && it.measurementVersion == 2 && it.mode != BenchmarkMode.DELEGATION && now - it.startedAt in 0..FRESHNESS_MS }
         // The most recently enrolled revision is active; previous revisions remain in history.
         val revisions = activeRevisions ?: fresh.groupBy { it.profileUid }.mapValues { (_, runs) -> runs.maxBy { it.startedAt }.configKey }
         val compatible = fresh.filter { revisions[it.profileUid] == it.configKey }

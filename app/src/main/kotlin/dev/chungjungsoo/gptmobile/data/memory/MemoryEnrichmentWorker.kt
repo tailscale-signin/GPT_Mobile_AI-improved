@@ -113,23 +113,32 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
     }
 
     private suspend fun finish(reason: String): Result = when {
-        reason == "NO_LOADED_MODEL" -> {
+        reason in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY") -> {
             MemoryEnrichmentQueue.markWaiting(applicationContext, inputData)
-            setProgress(androidx.work.workDataOf("outcome" to "WAITING_FOR_MODEL", "reason" to reason))
+            setProgress(androidx.work.workDataOf("outcome" to if (reason == "RUNTIME_BUSY") "WAITING_FOR_IDLE" else "WAITING_FOR_MODEL", "reason" to reason))
             outcome("RETRY", reason)
         }
         reason in setOf("NO_ELIGIBLE_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
         reason == "ENRICHED" -> outcome("SUCCESS", reason)
-        runAttemptCount < enrichmentRetryLimit(reason) -> outcome("RETRY", reason)
+        nextInferenceFailure() <= enrichmentRetryLimit(reason) -> outcome("RETRY", reason)
         else -> outcome("FAILED", "$reason:RETRIES_EXHAUSTED")
     }
 
+    private val failureAttempts by lazy { applicationContext.getSharedPreferences("memory-enrichment-failures", Context.MODE_PRIVATE) }
+
+    private fun nextInferenceFailure(): Int {
+        val count = failureAttempts.getInt(id.toString(), 0) + 1
+        failureAttempts.edit().putInt(id.toString(), count).apply()
+        return count
+    }
+
     private fun outcome(status: String, reason: String): Result {
-        if (reason != "NO_LOADED_MODEL") MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
+        if (status != "RETRY") failureAttempts.edit().remove(id.toString()).apply()
+        if (reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY")) MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
         AppLogRecorder.record(
             "Memory",
             "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason",
-            if (status == "FAILED" || (status == "RETRY" && reason != "NO_LOADED_MODEL")) "W" else "I"
+            if (status == "FAILED" || (status == "RETRY" && reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY"))) "W" else "I"
         )
         val data = androidx.work.workDataOf("outcome" to status, "reason" to reason)
         return when (status) {

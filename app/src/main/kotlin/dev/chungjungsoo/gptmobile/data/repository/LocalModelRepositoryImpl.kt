@@ -178,12 +178,35 @@ class LocalModelRepositoryImpl(
         fileName: String
     ): LocalModelImportResult = withContext(ioDispatcher) {
         val root = storageRoot()
-        val result = LocalModelLocator.importModel(
-            inputStream = inputStream,
-            fileName = fileName,
-            targetModelsRootDir = root
-        )
+        val result = if (fileName.endsWith(".localmodel", true) && dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
+            dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root)
+        } else {
+            LocalModelLocator.importModel(
+                inputStream = inputStream,
+                fileName = fileName,
+                targetModelsRootDir = root
+            )
+        }
         if (result is LocalModelImportResult.Success) {
+            if (result.record.fileName == "manifest.json") {
+                val file = File(result.absoluteFilePath)
+                val artifact = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(file)
+                dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.save(
+                    checkNotNull(file.parentFile),
+                    CatalogEntry(
+                        id = result.record.catalogEntryId,
+                        displayName = artifact.familyId + " · GenieX Preview",
+                        sizeInBytes = result.sizeBytes,
+                        familyId = artifact.familyId,
+                        variantLabel = artifact.runtime.name,
+                        precision = artifact.weightPrecision.orEmpty(),
+                        supportedAccelerators = artifact.supportedBackends.toList(),
+                        maxContextTokens = artifact.contextTokens,
+                        defaultConfig = dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig(topK = 20, topP = .8f, temperature = .7f, maxTokens = minOf(512, artifact.contextTokens / 4)),
+                        socToModelFiles = artifact.soc?.let { mapOf(it to dev.chungjungsoo.gptmobile.data.catalog.SocVariant(modelFile = "manifest.json", contextSize = artifact.contextTokens)) }.orEmpty()
+                    )
+                )
+            }
             val now = System.currentTimeMillis() / 1000
             val existing = localModelDao.getById(result.record.catalogEntryId)
             localModelDao.upsert(

@@ -15,7 +15,8 @@ import kotlinx.coroutines.withContext
 class LocalRuntimeRouter(
     private val settingRepository: SettingRepository,
     private val qnnRuntime: LocalRuntime,
-    private val liteRtRuntime: LocalRuntime
+    private val liteRtRuntime: LocalRuntime,
+    private val artifactRuntime: LocalRuntime? = null
 ) : LocalRuntime {
     override val handlesEngineFallback = true
     private val _state = MutableStateFlow(LocalRuntimeState())
@@ -26,6 +27,12 @@ class LocalRuntimeRouter(
     private var delegatedSpec: LocalEngineSpec? = null
     private var preferenceAtLoad: LocalRuntimeBackend? = null
     private var tuningAtLoad: LocalEngineTuning? = null
+
+    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = if (modelPath.endsWith("manifest.json")) {
+        checkNotNull(artifactRuntime) { "This model requires the separate GenieX preview build. LiteRT cannot load a compiled GenieX bundle." }.inspectModel(modelPath)
+    } else {
+        liteRtRuntime.inspectModel(modelPath)
+    }
 
     override val deviceRamGb: Long get() = (activeLoadedRuntime ?: liteRtRuntime).deviceRamGb
     override fun getHardwareState(): DeviceHardwareState = (activeLoadedRuntime ?: liteRtRuntime).getHardwareState()
@@ -45,6 +52,13 @@ class LocalRuntimeRouter(
         val preferred = settingRepository.getLocalRuntimeBackend()
         unloadEngine()
         try {
+            if (spec.modelPath.endsWith("manifest.json")) {
+                val runtime = checkNotNull(artifactRuntime) { "Install the GenieX preview build to run this artifact" }
+                runtime.loadEngine(spec)
+                val family = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(spec.modelPath)).runtime
+                activate(runtime, if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.GENIEX_QAIRT) LocalRuntimeBackend.GENIEX_QAIRT else LocalRuntimeBackend.GENIEX_LLAMA_CPP, requested, spec, preferred)
+                return
+            }
             if (preferred == LocalRuntimeBackend.QUALCOMM_QNN && LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
                 try {
                     qnnRuntime.loadEngine(spec)
@@ -192,6 +206,7 @@ class LocalRuntimeRouter(
         preferenceAtLoad = null
         tuningAtLoad = null
         _state.value = LocalRuntimeState()
+        artifactRuntime?.unloadEngine()
         try {
             qnnRuntime.unloadEngine()
         } finally {

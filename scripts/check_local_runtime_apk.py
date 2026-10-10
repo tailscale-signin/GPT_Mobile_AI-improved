@@ -52,7 +52,11 @@ def check_apk(apk_path, manifest):
             for name in names if name.startswith("lib/") and name.endswith(".so")
         )
         forbidden = {"libLiteRtCompilerPlugin_Qualcomm.so", "libqnn_delegate_jni.so", "libQnnTFLiteDelegate.so", "libQnnIr.so", "libQnnSaver.so"}
-        assert not any(Path(name).name in forbidden for name in names), "Unexpected second QNN integration/compiler payload"
+        if manifest.get("geniexVersion"):
+            assert abis == {"arm64-v8a"}, "GenieX preview is arm64 only"
+            assert "lib/arm64-v8a/libLiteRtDispatch_Qualcomm.so" not in names, "Do not combine LiteRT dispatch and GenieX QAIRT"
+        else:
+            assert not any(Path(name).name in forbidden for name in names), "Unexpected second QNN integration/compiler payload"
         check_bindings(apk, apk_path.name)
         check_objectbox_bindings(apk, apk_path.name)
         print(f"{apk_path.name}: {checked} pinned runtime libraries verified; {aligned} Android host libraries passed 16KB LOAD alignment")
@@ -60,10 +64,12 @@ def check_apk(apk_path, manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--native-stack", choices=("litert", "geniex"), default="litert")
     parser.add_argument("apks", nargs="+", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
-    manifest = json.loads((root / "docs/audits/local-runtime-native-libraries.json").read_text())
+    manifest_name = "geniex-preview-native-libraries.json" if args.native_stack == "geniex" else "local-runtime-native-libraries.json"
+    manifest = json.loads((root / "docs/audits" / manifest_name).read_text())
     for apk in args.apks:
         check_apk(apk, manifest)
 

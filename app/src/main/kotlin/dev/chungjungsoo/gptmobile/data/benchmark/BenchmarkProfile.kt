@@ -36,8 +36,10 @@ internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean): Platfor
     }
     return profile.copy(
         model = benchmarkModel,
-        // Preserve the profile's reasoning preference. Some providers expose models whose
-        // endpoints require reasoning and reject an explicit "off" override.
+        // This suite measures Quick mode under one fixed completion budget.
+        // Models requiring reasoning are incompatible with this cohort; never let
+        // hidden thought consume all 512 tokens and masquerade as decode speed.
+        reasoning = false,
         disableAllTools = !allowTools, temperature = 0f, maxTokens = 512, stream = true,
         openRouterRouting = openRouter, ollamaOptions = ollama, batchMode = false,
         systemPrompt = "Follow the benchmark instruction exactly. Use only the provided fixture tool when requested."

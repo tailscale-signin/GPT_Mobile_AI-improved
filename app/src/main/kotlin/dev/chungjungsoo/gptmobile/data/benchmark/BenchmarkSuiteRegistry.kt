@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 /** Versioned isolated fixtures. Validation labels are never included in model context. */
 internal object BenchmarkSuiteRegistry {
-    const val VERSION = 2
+    const val VERSION = 3
     private val textSuite by lazy { createStandard(false) }
     private val agentSuite by lazy { createStandard(true) }
     fun standard(agent: Boolean): List<BenchmarkCase> = if (agent) agentSuite else textSuite

@@ -7,7 +7,9 @@ package dev.chungjungsoo.gptmobile.data.model
  */
 enum class LocalRuntimeBackend(val displayName: String) {
     QUALCOMM_QNN("Qualcomm QNN · NPU"),
-    LITERT_LM("LiteRT-LM");
+    LITERT_LM("LiteRT-LM"),
+    GENIEX_QAIRT("GenieX · QAIRT (Preview)"),
+    GENIEX_LLAMA_CPP("GenieX · GGUF (Preview)");
 
     companion object {
         val DEFAULT = QUALCOMM_QNN

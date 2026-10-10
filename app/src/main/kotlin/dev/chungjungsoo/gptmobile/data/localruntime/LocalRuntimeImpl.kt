@@ -27,7 +27,6 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -43,6 +42,7 @@ import kotlinx.serialization.json.put
 /** Production [LocalRuntime] implementation wrapping LiteRT-LM. */
 class LocalRuntimeImpl(
     private val context: Context,
+    private val inspectMetadata: (String) -> LocalModelCapabilities? = LiteRtModelInspector::inspect,
     private val createEngine: (EngineConfig) -> Engine = { Engine(it) }
 ) : LocalRuntime {
     private var engine: Engine? = null
@@ -52,6 +52,7 @@ class LocalRuntimeImpl(
     private var loadedAccelerator: String = LocalAccelerators.CPU
     private var loadedSpec: LocalEngineSpec? = null
     private val policyStabilizer = AdaptivePolicyStabilizer()
+    private var capabilities: LocalModelCapabilities? = null
 
     private val activityManager: ActivityManager? by lazy {
         context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -87,6 +88,10 @@ class LocalRuntimeImpl(
 
     override fun loadedEngineSpec(): LocalEngineSpec? = loadedSpec
 
+    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = withContext(Dispatchers.IO) {
+        inspectMetadata(modelPath)
+    }
+
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         withContext(Dispatchers.IO) {
             require(spec.modelPath.endsWith(".litertlm", ignoreCase = true)) {
@@ -119,6 +124,8 @@ class LocalRuntimeImpl(
             require(spec.maxTokens > 0) { "Local context size must be positive" }
             // Fallback belongs to the router/adapter so it can honor settings and report
             // the real accelerator. Never silently mutate the caller's context budget.
+            val inspected = inspectModel(spec.modelPath)
+            inspected?.validate(spec)
             unloadEngine()
             val nextEngine = createEngine(
                 EngineConfig(
@@ -139,6 +146,7 @@ class LocalRuntimeImpl(
                 engine = nextEngine
                 loadedAccelerator = LocalAccelerators.normalize(spec.accelerator)
                 loadedSpec = spec
+                capabilities = inspected
             } catch (error: Throwable) {
                 if (nextEngine.isInitialized()) runCatching { nextEngine.close() }
                 throw error
@@ -150,6 +158,13 @@ class LocalRuntimeImpl(
     override suspend fun createConversation(config: LocalConversationConfig) {
         withContext(Dispatchers.IO) {
             val currentEngine = engine ?: error("LiteRT-LM engine is not loaded")
+            capabilities?.let { supported ->
+                require(config.tools.isEmpty() || supported.tools != false) { "This export does not support native tool calling. Use chat only or choose a tools-capable artifact." }
+                require(config.thinkingEnabled != true || supported.thinking != false) { "This export does not support thinking mode." }
+            }
+            require(config.maxOutputTokens == null || config.maxOutputTokens in 1 until (loadedSpec?.maxTokens ?: Int.MAX_VALUE)) {
+                "The output budget must leave room for the prompt within this export's context."
+            }
             closeConversation()
             yield() // Cooperative yield checkpoint before creating conversation and allocating KV-cache
             val toolProviders = config.tools.map { descriptor ->
@@ -194,7 +209,7 @@ class LocalRuntimeImpl(
         }
     }
 
-    @OptIn(ExperimentalApi::class)
+    @OptIn(ExperimentalApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class)
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = callbackFlow {
         val activeConversation = conversation
         if (activeConversation == null) {
@@ -203,6 +218,18 @@ class LocalRuntimeImpl(
             return@callbackFlow
         }
 
+        fun offer(event: LocalRuntimeEvent): Boolean {
+            if (trySend(event).isSuccess) return true
+            // The binding has no suspendable callback. Fail explicitly rather than
+            // dropping text or growing a queue without bounds. Accepted deltas drain.
+            close(IllegalStateException("Local output buffering limit reached. Generation stopped without replaying tools; retry with a shorter output budget."))
+            return false
+        }
+        fun offerText(text: String, thinking: Boolean) {
+            for (chunk in text.chunked(4096)) {
+                if (!offer(if (thinking) LocalRuntimeEvent.ThinkingDelta(chunk) else LocalRuntimeEvent.TextDelta(chunk))) break
+            }
+        }
         val requestJob = coroutineContext[Job]
         activeRequestJob = requestJob
 
@@ -211,6 +238,8 @@ class LocalRuntimeImpl(
 
         val startTimeMs = SystemClock.elapsedRealtime()
         val firstTokenTimeMs = AtomicLong(0L)
+        val firstVisibleTimeMs = AtomicLong(0L)
+        val segmentId = java.util.UUID.randomUUID().toString()
         val chunkCount = AtomicInteger(0)
         val totalCharacters = AtomicInteger(0)
         val finished = AtomicBoolean(false)
@@ -220,24 +249,26 @@ class LocalRuntimeImpl(
                 contentsOf(text, images),
                 object : MessageCallback {
                     override fun onMessage(message: Message) {
+                        if (finished.get() || isClosedForSend) return
                         val now = SystemClock.elapsedRealtime()
                         if (firstTokenTimeMs.compareAndSet(0L, now)) {
-                            trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
+                            offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
                         }
 
                         message.channels[THOUGHT_CHANNEL]?.takeIf { it.isNotEmpty() }?.let { thought ->
-                            trySend(LocalRuntimeEvent.ThinkingDelta(thought))
+                            offerText(thought, thinking = true)
                         }
                         val visibleText = message.visibleText()
                         if (visibleText.isNotEmpty()) {
+                            firstVisibleTimeMs.compareAndSet(0L, now)
                             chunkCount.incrementAndGet()
                             totalCharacters.addAndGet(visibleText.length)
-                            trySend(LocalRuntimeEvent.TextDelta(visibleText))
+                            offerText(visibleText, thinking = false)
                         }
                     }
 
                     override fun onDone() {
-                        finished.set(true)
+                        if (isClosedForSend || !finished.compareAndSet(false, true)) return
                         val finishTimeMs = SystemClock.elapsedRealtime()
                         val totalDuration = finishTimeMs - startTimeMs
                         val ttft = if (firstTokenTimeMs.get() > 0L) firstTokenTimeMs.get() - startTimeMs else totalDuration
@@ -253,6 +284,9 @@ class LocalRuntimeImpl(
                             totalCharacters = chars,
                             estimatedTokens = estimatedTokens,
                             tokensPerSecond = tps,
+                            firstVisibleAnswerMs = firstVisibleTimeMs.get().takeIf { it > 0L }?.minus(startTimeMs),
+                            decodeDurationMs = firstTokenTimeMs.get().takeIf { it > 0L }?.let { finishTimeMs - it },
+                            segmentId = segmentId,
                             native = if (loadedSpec?.nativeMetricsEnabled == true) {
                                 // Instrumentation failure must never turn a completed answer into an error.
                                 runCatching {
@@ -268,8 +302,8 @@ class LocalRuntimeImpl(
                                 null
                             }
                         )
-                        trySend(LocalRuntimeEvent.Metrics(metrics))
-                        trySend(LocalRuntimeEvent.Done)
+                        offer(LocalRuntimeEvent.Metrics(metrics.copy(metricSource = if (metrics.native != null) "native_segment" else "estimated_characters")))
+                        offer(LocalRuntimeEvent.Done)
                         close()
                     }
 
@@ -279,7 +313,7 @@ class LocalRuntimeImpl(
                             close(throwable)
                             return
                         } else {
-                            trySend(
+                            offer(
                                 LocalRuntimeEvent.Error(
                                     message = throwable.message ?: "Local inference failed",
                                     cause = throwable
@@ -296,7 +330,7 @@ class LocalRuntimeImpl(
             if (!finished.get()) runCatching { activeConversation.cancelProcess() }
             if (activeRequestJob === requestJob) activeRequestJob = null
         }
-    }.buffer(Channel.UNLIMITED)
+    }.buffer(64)
 
     override fun cancelActive() {
         activeRequestJob?.cancel()
@@ -321,6 +355,7 @@ class LocalRuntimeImpl(
             runCatching { engine?.close() }
             engine = null
             loadedSpec = null
+            capabilities = null
             loadedAccelerator = LocalAccelerators.CPU
         }
     }

@@ -34,6 +34,9 @@ plugins {
     alias(libs.plugins.objectbox)
 }
 
+// Separate preview APK: the two QAIRT distributions must never be merged with pickFirst.
+val geniexRuntime = providers.gradleProperty("geniexRuntime").orNull == "true"
+
 /** Keep on-device embeddings while removing the SDK's remote statistics implementation. */
 @CacheableTransform
 abstract class PrivateMemoryRuntime : TransformAction<TransformParameters.None> {
@@ -117,8 +120,11 @@ extensions.configure<ApplicationExtension> {
     compileSdk = 37
     buildToolsVersion = "37.0.0"
 
+    // AGP's built-in Kotlin compiler does not consume Kotlin files added to Java source roots.
+    sourceSets.getByName("main").kotlin.directories += if (geniexRuntime) "src/geniex/kotlin" else "src/litertOnly/kotlin"
     defaultConfig {
-        applicationId = "dev.melo.gptmobile.improved"
+        applicationId = if (geniexRuntime) "dev.melo.gptmobile.improved.geniex" else "dev.melo.gptmobile.improved"
+        buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())
         minSdk = 31
         targetSdk = 37
         versionCode = 109
@@ -137,7 +143,7 @@ extensions.configure<ApplicationExtension> {
         manifestPlaceholders["appAuthRedirectScheme"] = hfRedirect.substringBefore(":").ifEmpty { "gptmobile-hf-unconfigured" }
         buildConfigField("String", "APP_COMMIT", "\"${providers.environmentVariable("GITHUB_SHA").orElse(providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText.map { it.trim() }).getOrElse("unknown")}\"")
         buildConfigField("String", "LITERT_LM_VERSION", "\"${libs.versions.litertlm.get()}\"")
-        buildConfigField("String", "QAIRT_VERSION", "\"${libs.versions.qnn.get()}\"")
+        buildConfigField("String", "QAIRT_VERSION", "\"${if (geniexRuntime) "bundled-geniex-0.8.0" else libs.versions.qnn.get()}\"")
         buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"$hfClientId\"")
         buildConfigField("String", "HF_OAUTH_REDIRECT_URI", "\"$hfRedirect\"")
         // App owner confirmed LLM7 integration approval on 2026-09-26.
@@ -146,7 +152,7 @@ extensions.configure<ApplicationExtension> {
 
         ndk {
             // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += if (geniexRuntime) listOf("arm64-v8a") else listOf("arm64-v8a", "x86_64")
         }
     }
 
@@ -154,7 +160,7 @@ extensions.configure<ApplicationExtension> {
         abi {
             isEnable = providers.gradleProperty("enableAbiSplits").orNull != "false"
             reset()
-            include("arm64-v8a", "x86_64")
+            include(*(if (geniexRuntime) arrayOf("arm64-v8a") else arrayOf("arm64-v8a", "x86_64")))
             isUniversalApk = true
         }
     }
@@ -258,6 +264,7 @@ extensions.configure<ApplicationExtension> {
             // libQnnHtpPrepare is part of Qualcomm's documented LiteRT dispatch
             // runtime, including for precompiled contexts, and must be packaged.
             excludes += setOf("**/libQnnDsp*.so", "**/libQnnGpu.so")
+            if (geniexRuntime) excludes += "**/libLiteRtDispatch_Qualcomm.so"
         }
     }
 }
@@ -444,7 +451,11 @@ dependencies {
     implementation(libs.litertlm)
 
     // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.
-    implementation(libs.qnn.runtime)
+    if (geniexRuntime) {
+        implementation("com.qualcomm.qti:geniex-android:0.8.0")
+    } else {
+        implementation(libs.qnn.runtime)
+    }
 
     // License page UI
     implementation(libs.auto.license.core)

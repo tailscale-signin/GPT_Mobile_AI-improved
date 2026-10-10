@@ -108,22 +108,24 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         _status.value = if (runtime.unloadIfIdle(0L)) "Idle model memory released" else "No idle model to release; active responses are kept running"
     }
     fun createProfile(entry: CatalogEntry, onCreated: (String) -> Unit) = perform {
-        check(models.resolveDownloadedPath(entry.id) != null) { "Download this model first" }
+        val modelPath = checkNotNull(models.resolveDownloadedPath(entry.id)) { "Download this model first" }
         val existing = repository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.model == entry.id }
         if (existing != null) {
             onCreated(existing.uid)
             return@perform
         }
         check(LocalAccelerators.selectable(entry.supportedAccelerators, entry.socToModelFiles, soc).isNotEmpty()) { "This package does not match this phone. Choose a compatible download in the marketplace." }
+        val capabilities = runtime.inspectModel(modelPath)
         val profile = PlatformV2(
             name = entry.displayName,
             compatibleType = ClientType.LITERT_LM,
             model = entry.id,
             accelerator = LocalAccelerators.defaultFrom(entry.supportedAccelerators, entry.socToModelFiles, soc),
-            maxTokens = null,
-            temperature = 0.7f,
-            topP = 0.95f,
-            topK = 40
+            maxTokens = entry.defaultConfig.maxTokens,
+            temperature = entry.defaultConfig.temperature,
+            topP = entry.defaultConfig.topP,
+            topK = entry.defaultConfig.topK,
+            disableAllTools = capabilities?.tools == false
         )
         repository.addPlatformV2(profile)
         _status.value = "AI profile created"

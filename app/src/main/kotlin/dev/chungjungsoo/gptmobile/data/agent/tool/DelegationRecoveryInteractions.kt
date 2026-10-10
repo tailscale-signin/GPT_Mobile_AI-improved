@@ -118,7 +118,7 @@ class DelegationRecoveryInteractions @Inject constructor(
         .filter {
             it.mode == BenchmarkMode.DELEGATION &&
                 it.profileUid == primaryProfileUid &&
-                it.suiteVersion == 2 &&
+                it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION &&
                 it.finished &&
                 !it.canceled
         }

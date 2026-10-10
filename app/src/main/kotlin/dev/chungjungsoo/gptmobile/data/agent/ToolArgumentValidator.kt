@@ -33,7 +33,11 @@ internal object ToolArgumentValidator {
             else -> emptyList()
         }
         if (types.isNotEmpty() && types.none(::matches)) return listOf("$path: expected ${types.joinToString(" or ")}")
-        (schema["enum"] as? JsonArray)?.let { if (value !in it) errors += "$path: unsupported value" }
+        (schema["enum"] as? JsonArray)?.let { allowed ->
+            if (value !in allowed) {
+                errors += "$path: unsupported value; allowed: ${allowed.take(20).joinToString().take(500)}"
+            }
+        }
         schema["const"]?.let { if (value != it) errors += "$path: must equal the declared constant" }
         for (kind in listOf("allOf", "anyOf", "oneOf")) {
             (schema[kind] as? JsonArray)?.filterIsInstance<JsonObject>()?.let { options ->

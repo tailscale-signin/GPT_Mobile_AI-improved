@@ -22,7 +22,7 @@ class BenchmarkProfileTest {
         assertEquals("true", options.getValue("stream").jsonPrimitive.content)
         assertEquals("512", options.getValue("max_tokens").jsonPrimitive.content)
         assertEquals("latency", options.getValue("provider").jsonObject.getValue("sort").jsonPrimitive.content)
-        assertTrue(bounded.reasoning)
+        assertFalse(bounded.reasoning)
         assertFalse(bounded.disableAllTools)
         assertTrue(bounded.stream)
         assertNull(original.maxTokens)

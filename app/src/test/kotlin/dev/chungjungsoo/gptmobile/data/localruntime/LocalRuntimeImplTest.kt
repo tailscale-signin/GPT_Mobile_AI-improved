@@ -47,7 +47,7 @@ class LocalRuntimeImplTest {
     fun sdkReceivesTheExactBudgetAndVisionBackend() = runTest {
         val engine = mockk<Engine>(relaxed = true)
         val configs = mutableListOf<EngineConfig>()
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) {
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) {
             configs += it
             engine
         }
@@ -64,7 +64,7 @@ class LocalRuntimeImplTest {
     fun cpuLanguageModelKeepsGpuVisionForMultimodalPackages() = runTest {
         val engine = mockk<Engine>(relaxed = true)
         val configs = mutableListOf<EngineConfig>()
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) {
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) {
             configs += it
             engine
         }
@@ -93,7 +93,7 @@ class LocalRuntimeImplTest {
         val engine = mockk<Engine>(relaxed = true)
         every { engine.initialize() } throws IllegalStateException("GPU unavailable")
         val configs = mutableListOf<EngineConfig>()
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) {
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) {
             configs += it
             engine
         }
@@ -108,7 +108,7 @@ class LocalRuntimeImplTest {
         val engine = mockk<Engine>(relaxed = true)
         every { engine.initialize() } throws CancellationException("cancelled")
         every { engine.isInitialized() } returns true
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) { engine }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
         val requested = spec()
         assertTrue(runCatching { runtime.loadEngine(requested) }.exceptionOrNull() is CancellationException)
         verify(exactly = 1) { engine.close() }
@@ -123,7 +123,7 @@ class LocalRuntimeImplTest {
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } answers {
             secondArg<MessageCallback>().onError(CancellationException("cancelled by native runtime"))
         }
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) { engine }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
         runtime.loadEngine(spec("cpu"))
         runtime.createConversation(LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), null, emptyList()))
         val events = mutableListOf<LocalRuntimeEvent>()
@@ -137,7 +137,7 @@ class LocalRuntimeImplTest {
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } throws IllegalStateException("send failed")
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) { engine }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
         runtime.loadEngine(spec("cpu"))
         runtime.createConversation(LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), null, emptyList()))
         assertTrue(runCatching { runtime.sendMessage("first").toList() }.isFailure)
@@ -152,7 +152,7 @@ class LocalRuntimeImplTest {
         val engine = mockk<Engine>(relaxed = true)
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation andThenThrows IllegalStateException("KV cache")
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) { engine }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
         runtime.loadEngine(spec("cpu"))
         val config = LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), null, emptyList())
         runtime.createConversation(config)
@@ -170,7 +170,7 @@ class LocalRuntimeImplTest {
         every { engine.createConversation(any()) } returns conversation
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } answers { secondArg<MessageCallback>().onDone() }
         every { conversation.getBenchmarkInfo() } returns BenchmarkInfo(0.0, .1, 20, 10, 100.0, 25.0)
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) { engine }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
         val requested = spec("cpu")
         val config = LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), null, emptyList())
         runtime.loadEngine(requested)
@@ -193,7 +193,7 @@ class LocalRuntimeImplTest {
         every { engine.createConversation(any()) } returns conversation
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } answers { secondArg<MessageCallback>().onDone() }
         every { conversation.getBenchmarkInfo() } throws IllegalStateException("Counters unavailable")
-        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication()) { engine }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
         runtime.loadEngine(spec("cpu").copy(nativeMetricsEnabled = true))
         runtime.createConversation(LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), null, emptyList()))
         val events = runtime.sendMessage("hello").toList()

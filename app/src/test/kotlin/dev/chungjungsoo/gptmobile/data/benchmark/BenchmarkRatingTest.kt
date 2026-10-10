@@ -14,7 +14,7 @@ class BenchmarkRatingTest {
     private fun sample(category: String = "speed", outcome: BenchmarkOutcome = BenchmarkOutcome.PASSED, first: Long = 500, tokens: Int = 80) = BenchmarkSample(
         category, category, category, outcome, first + 1000, first, tokens, false, 320, 5
     )
-    private fun run(samples: List<BenchmarkSample>) = BenchmarkRun("run", profile.uid, profile.name, profile.compatibleType.name, profile.model, benchmarkConfigKey(profile), false, BenchmarkMode.QUICK, 10, samples, suiteVersion = 2)
+    private fun run(samples: List<BenchmarkSample>) = BenchmarkRun("run", profile.uid, profile.name, profile.compatibleType.name, profile.model, benchmarkConfigKey(profile), false, BenchmarkMode.QUICK, 10, samples, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION)
 
     @Test
     fun `rating normalizes missing dimensions instead of penalizing unavailable tools`() {

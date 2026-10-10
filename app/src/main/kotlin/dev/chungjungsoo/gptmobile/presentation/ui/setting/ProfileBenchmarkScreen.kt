@@ -115,7 +115,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val tint = benchmarkTint(local)
     val profileHistory = remember(history, selected?.uid) { history.filter { it.profileUid == selected?.uid } }
     val matching = remember(profileHistory, selected, mode, localEnvironment) { selected?.let { comparableRuns(profileHistory, it, mode, localEnvironment) }.orEmpty() }
-    val activeScore = snapshot?.rows?.firstOrNull { it.profileUid == selected?.uid && it.cohort.startsWith(mode.name + "|") }
+    val activeScore = snapshot?.rows?.firstOrNull { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(profile, localEnvironment) } && it.cohort.startsWith(mode.name + "|") }
     val rating = remember(matching, local, activeScore) {
         benchmarkRating(matching, local).copy(score = activeScore?.overall?.roundToInt(), medianSpeed = activeScore?.speed, estimatedSpeed = false)
     }
@@ -319,6 +319,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Text("Context ${health.contextTokens} · evidence ${health.evidenceBytes} bytes/result", style = MaterialTheme.typography.bodySmall)
                                 Text("Selected: ${health.selected.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall)
                                 if (health.omitted.isNotEmpty()) Text("Omitted for context: ${health.omitted.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                                Text("Payload ${health.retainedBytes} → admitted ${health.admittedBytes} bytes · supporting observations=${health.supportingEvidence}", style = MaterialTheme.typography.bodySmall)
                                 Text("Last: ${health.lastTool} · ${health.lastError ?: "no structured error"} · dispatched=${health.dispatched} · compacted=${health.compacted}", style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -472,14 +473,14 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("All", "Local", "Remote").forEachIndexed { index, label -> FilterChip(typeFilter == index, { typeFilter = index }, label = { Text(label) }) }
                                 }
-                                Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote have separate target scales.", style = MaterialTheme.typography.bodySmall)
+                                Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote use separate verified cohort scales.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         item {
                             BenchmarkPanel("Adaptive scores") {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Scale updates across all eligible profiles", modifier = Modifier.weight(1f))
-                                    SettingsHelpIcon("Speed = 100 × measured standardized rate / fastest verified compatible rate. Local weights Q/R/S/L/C = 40/25/10/10/15; Remote = 35/20/20/15/10. Overall is capped by quality and reliability. Hidden rows remain in the anchor. Quick and incomplete runs never establish anchors. Reference lexical tokenizer v1 is a comparison unit, not provider billing. Five timed trials per workload are required; p95 requires 20 samples.")
+                                    SettingsHelpIcon("Speed balances each workload band: 100 × its measured rate / its fastest verified compatible rate. Local weights Q/R/S/L/C = 40/25/10/10/15; Remote = 35/20/20/15/10. Overall is capped by quality and reliability. Hidden rows remain in the anchor. Quick and incomplete runs never establish anchors. Reference lexical4 tokenizer v1 is a comparison unit, not provider billing. Five timed trials per workload are required; p95 requires 20 samples.")
                                 }
                                 Text("Snapshot ${snapshot?.generation ?: 0} · 30-day freshness · Quick runs stay provisional", style = MaterialTheme.typography.labelSmall)
                             }

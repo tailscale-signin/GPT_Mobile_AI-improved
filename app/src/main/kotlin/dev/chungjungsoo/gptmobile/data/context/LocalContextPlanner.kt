@@ -83,7 +83,14 @@ internal object LocalContextPlanner {
         val lower = prompt.lowercase()
         val required = mutableSetOf<String>()
         fun select(word: String) {
-            tools.firstOrNull { it.name == word }?.let { required += it.name }
+            val matching = tools.firstOrNull { it.name == word } ?: tools.firstOrNull {
+                when (word) {
+                    "web_search" -> it.name.endsWith("web_search")
+                    "read_url" -> it.name.endsWith("read_url") || it.name.endsWith("fetch_url")
+                    else -> it.name.endsWith("__$word")
+                }
+            }
+            matching?.let { required += it.name }
         }
         if (Regex("nearby|nearest|closest|my location|current location").containsMatchIn(lower)) select("device_location")
         if ("airbnb" in lower) select("airbnb")

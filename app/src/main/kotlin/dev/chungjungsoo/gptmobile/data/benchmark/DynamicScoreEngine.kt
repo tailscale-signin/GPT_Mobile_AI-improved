@@ -58,13 +58,24 @@ internal object DynamicScoreEngine {
         "warm-serial-v1"
     ).joinToString("|")
 
-    fun snapshot(history: List<BenchmarkRun>, generation: Long, now: Long): BenchmarkScoreSnapshot {
-        val fresh = history.filter { it.suiteVersion == 2 && it.mode != BenchmarkMode.DELEGATION && now - it.startedAt in 0..FRESHNESS_MS }
+    fun snapshot(history: List<BenchmarkRun>, generation: Long, now: Long, activeRevisions: Map<String, String>? = null): BenchmarkScoreSnapshot {
+        val fresh = history.filter { it.suiteVersion == 2 && it.measurementVersion == 2 && it.mode != BenchmarkMode.DELEGATION && now - it.startedAt in 0..FRESHNESS_MS }
         // The most recently enrolled revision is active; previous revisions remain in history.
-        val revisions = fresh.groupBy { it.profileUid }.mapValues { (_, runs) -> runs.maxBy { it.startedAt }.configKey }
+        val revisions = activeRevisions ?: fresh.groupBy { it.profileUid }.mapValues { (_, runs) -> runs.maxBy { it.startedAt }.configKey }
         val compatible = fresh.filter { revisions[it.profileUid] == it.configKey }
         val aggregated = compatible.groupBy { listOf(it.profileUid, it.configKey, cohort(it), it.backend.orEmpty(), it.accelerator.orEmpty()) }.values.map { group ->
-            val complete = group.filter { it.finished && !it.canceled && it.stoppedReason == null && it.samples.size == it.plannedTrials && it.plannedTrials == benchmarkSuite(it.mode).size }.sortedByDescending { it.startedAt }.take(5)
+            val complete = group.filter { block ->
+                val manifest = benchmarkSuite(block.mode).associateBy { it.id }
+                block.finished &&
+                    !block.canceled &&
+                    block.stoppedReason == null &&
+                    block.samples.size == block.plannedTrials &&
+                    block.plannedTrials == manifest.size &&
+                    block.samples.map { it.testId }.toSet() == manifest.keys &&
+                    block.samples.all { sample ->
+                        manifest[sample.testId]?.let { case -> sample.category == case.category && sample.workload == case.workload && sample.warmup == case.warmup && sample.tokenBasis == ReferenceTextTokenizer.VERSION } == true
+                    }
+            }.sortedByDescending { it.startedAt }.take(5)
             val run = group.maxBy { it.startedAt }
             val source = complete.ifEmpty { listOf(run) }
             val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome == BenchmarkOutcome.CANCELED }

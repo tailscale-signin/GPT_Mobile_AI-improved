@@ -65,6 +65,16 @@ class DynamicScoreEngineTest {
     }
 
     @Test
+    fun duplicateTrialsAndInactiveProfilesCannotEstablishAnchors() {
+        val valid = run("good", 150)
+        val duplicate = run("duplicate", 900).let { it.copy(samples = it.samples.dropLast(1) + it.samples.first()) }
+        val rows = DynamicScoreEngine.snapshot(listOf(valid, duplicate), 1, 2000).rows
+        assertEquals(100.0, rows.first { it.profileUid == "good" }.speedScore!!, .0001)
+        assertNull(rows.first { it.profileUid == "duplicate" }.overall)
+        assertTrue(DynamicScoreEngine.snapshot(listOf(valid), 2, 2000, mapOf("good" to "changed-revision")).rows.isEmpty())
+    }
+
+    @Test
     fun invalidValuesHaveNoScores() {
         assertNull(DynamicScoreEngine.higher(Double.NaN, 1.0))
         assertNull(DynamicScoreEngine.higher(Double.POSITIVE_INFINITY, 1.0))

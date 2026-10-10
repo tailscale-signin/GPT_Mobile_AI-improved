@@ -31,6 +31,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     internal val snapshot = mutableSnapshot.asStateFlow()
     private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
+    private var activeRevisions: Map<String, String>? = preferences.getString("active_revisions", null)?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
     private val mutableHistory = MutableStateFlow<List<BenchmarkRun>>(emptyList())
     val history = mutableHistory.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -61,7 +62,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 mutex.withLock {
                     if (loaded) {
                         val current = mutableSnapshot.value
-                        val recalculated = DynamicScoreEngine.snapshot(mutableHistory.value, (current?.generation ?: 0) + 1, System.currentTimeMillis())
+                        val recalculated = DynamicScoreEngine.snapshot(mutableHistory.value, (current?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions)
                         if (recalculated.rows != current?.rows) publish(mutableHistory.value)
                     }
                 }
@@ -95,9 +96,19 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         val source = if (restoreRequested || existing == null || (saved != null && mirrorGeneration >= existing.generation)) recovered else stored
         restoreRequested = false
         mutableSnapshot.value = existing?.let { runCatching { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) }.getOrNull() }
-        if (source != stored || existing == null) publish(source)
+        if (source != stored || existing == null || DynamicScoreEngine.snapshot(source, 0, System.currentTimeMillis(), activeRevisions).rows != mutableSnapshot.value?.rows) publish(source)
         mutableHistory.value = source
         loaded = true
+    }
+
+    internal suspend fun updateEnrollment(revisions: Map<String, String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (revisions == activeRevisions) return@withLock
+            activeRevisions = revisions.toMap()
+            check(preferences.edit().putString("active_revisions", json.encodeToString(revisions)).commit()) { "Could not save benchmark enrollment." }
+            loadLocked()
+            publish(mutableHistory.value)
+        }
     }
 
     suspend fun save(run: BenchmarkRun) = withContext(Dispatchers.IO) {
@@ -116,7 +127,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
 
     private suspend fun publish(runs: List<BenchmarkRun>) {
         val previous = dao.current()?.generation ?: 0L
-        val next = DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis())
+        val next = DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis(), activeRevisions)
         dao.publish(runs.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) }, BenchmarkSnapshotRecord(next.generation, next.createdAt, json.encodeToString(next)))
         mutableSnapshot.value = next
     }

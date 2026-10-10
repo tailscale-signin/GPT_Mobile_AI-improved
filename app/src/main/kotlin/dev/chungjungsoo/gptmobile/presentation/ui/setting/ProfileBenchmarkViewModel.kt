@@ -161,6 +161,16 @@ class ProfileBenchmarkViewModel @Inject constructor(
     init {
         application?.registerActivityLifecycleCallbacks(foregroundCallbacks)
         viewModelScope.launch {
+            combine(profiles, localEnvironment) { list, environment -> list.filter { it.enabled }.associate { it.uid to benchmarkConfigKey(it, environment) } }.collect { enrollment ->
+                try {
+                    store.updateEnrollment(enrollment)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    mutableError.value = "Could not update benchmark eligibility: ${safeMessage(error)}"
+                }
+            }
+        }
+        viewModelScope.launch {
             try {
                 store.load()
                 mutableError.value = store.loadWarning

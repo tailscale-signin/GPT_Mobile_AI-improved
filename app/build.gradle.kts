@@ -120,7 +120,8 @@ extensions.configure<ApplicationExtension> {
     compileSdk = 37
     buildToolsVersion = "37.0.0"
 
-    sourceSets.getByName("main").java.srcDir(if (geniexRuntime) "src/geniex/kotlin" else "src/litertOnly/kotlin")
+    // AGP's built-in Kotlin compiler does not consume Kotlin files added to Java source roots.
+    sourceSets.getByName("main").kotlin.directories += if (geniexRuntime) "src/geniex/kotlin" else "src/litertOnly/kotlin"
     defaultConfig {
         applicationId = if (geniexRuntime) "dev.melo.gptmobile.improved.geniex" else "dev.melo.gptmobile.improved"
         buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())

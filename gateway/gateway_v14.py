@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from v14.identity import Admission
 from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
+from v14.errors import GatewayFailure
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
@@ -79,11 +80,16 @@ async def chat(request: Request):
             response.body_iterator = admitted_stream()
         return response
     except DurableCommitError:
-        return JSONResponse({"error": {"code": "durable_commit_failed"}}, status_code=503)
+        return JSONResponse({"error": {"code": "durable_commit_failed", "failureCode": "persistence_failed",
+                                         "message": "The gateway could not durably commit this run.", "retryable": True}}, status_code=503)
+    except GatewayFailure as exc:
+        return JSONResponse(exc.payload(), status_code=exc.status_code)
     except PermissionError:
-        return JSONResponse({"error": {"code": "principal_or_destination_denied"}}, status_code=403)
-    except (ValueError, runtime.GatewayContractError) as exc:
-        return JSONResponse({"error": {"code": "invalid_v14_request", "message": str(exc)}}, status_code=400)
+        return JSONResponse({"error": {"code": "principal_or_destination_denied", "failureCode": "permission_denied",
+                                         "message": "The gateway principal is not permitted to run this request.", "retryable": False}}, status_code=403)
+    except (ValueError, runtime.GatewayContractError):
+        return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
+                                         "message": "The request does not satisfy the gateway contract.", "retryable": False}}, status_code=400)
 
 
 @app.post("/gateway/jobs/{job_id}/cancel")
@@ -93,7 +99,10 @@ def cancel(job_id: str):
     with runtime.job_registry_lock:
         job = runtime.job_registry.get(job_id)
         if job and job.get("status") in TERMINAL:
-            return {"job_id": job_id, "canceled": job["status"] in {"cancelled", "canceled"}, "status": job["status"], "message": "Job already terminal"}
+            canceled = job["status"] in {"cancelled", "canceled"}
+            return {"job_id": job_id, "canceled": canceled, "cancellationRequested": False,
+                    "cancellationOutcome": "confirmed" if canceled else "not_canceled",
+                    "status": job["status"], "message": "Job already terminal"}
         return runtime.cancel_gateway_job(job_id)
 
 

@@ -85,8 +85,21 @@ data class GatewayCancelResult(
     @SerialName("job_id")
     val jobId: String,
     val canceled: Boolean,
-    val message: String? = null
-)
+    val status: String? = null,
+    val message: String? = null,
+    val cancellationRequested: Boolean = false,
+    val cancellationOutcome: String? = null
+) {
+    val outcome: GatewayCancellationOutcome
+        get() = when ((cancellationOutcome ?: status)?.lowercase()) {
+            "confirmed", "cancelled", "canceled" -> GatewayCancellationOutcome.CONFIRMED
+            "requested", "cancellation_requested", "cancel_requested" -> GatewayCancellationOutcome.REQUESTED
+            "not_canceled", "completed", "failed", "interrupted" -> GatewayCancellationOutcome.NOT_CANCELED
+            else -> GatewayCancellationOutcome.UNKNOWN
+        }
+}
+
+enum class GatewayCancellationOutcome { REQUESTED, CONFIRMED, NOT_CANCELED, UNKNOWN }
 
 /**
  * Gateway progress event from SSE stream.

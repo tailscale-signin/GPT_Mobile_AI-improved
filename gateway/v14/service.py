@@ -6,6 +6,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi.responses import JSONResponse
+from v14.deadlines import DeadlineExceeded, request_deadline
 
 
 class ServiceState:
@@ -28,14 +29,35 @@ class ServiceState:
         original = runtime.process_chat_payload
         def bounded(payload, cancel_event=None, progress_callback=None, hard_cancel_event=None):
             key = uuid.uuid4().hex
+            try:
+                deadline = request_deadline(payload)
+                remaining = deadline.require_time()
+            except (ValueError, DeadlineExceeded):
+                return 400, {'error': {'code': 'invalid_request', 'message': 'Invalid gateway run deadline'}}
+            if isinstance(payload, dict):
+                # Gateway control metadata is consumed at admission and must not
+                # be forwarded as a model-provider parameter.
+                payload.pop('gateway', None)
             with self.lock:
                 if self.draining or len(self.workers) >= self.max_workers:
                     self.rejected += 1
                     return 503, {'error': {'code': 'gateway_busy', 'message': 'Gateway capacity is occupied; retry later'}}
                 self.workers[key] = (cancel_event, hard_cancel_event)
+            expired = threading.Event()
+            def expire_run():
+                expired.set()
+                for signal in (cancel_event, hard_cancel_event):
+                    if signal is not None:
+                        signal.set()
+            timer = threading.Timer(remaining, expire_run)
+            timer.daemon = True
+            timer.start()
             try:
                 return original(payload, cancel_event, progress_callback, hard_cancel_event)
             finally:
+                timer.cancel()
+                if expired.is_set():
+                    runtime.logger.warning('Gateway run deadline expired; cancellation signals were sent')
                 with self.lock:
                     self.workers.pop(key, None)
         runtime.process_chat_payload = bounded

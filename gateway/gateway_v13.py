@@ -18418,7 +18418,11 @@ def cancel_gateway_job(
 
     return {
         "job_id": job_id,
-        "canceled": True,
+        # Setting the signal proves only that cancellation was requested. An
+        # active model or external tool can still finish or have an unknown effect.
+        "canceled": False,
+        "cancellationRequested": True,
+        "cancellationOutcome": "requested",
         "message": "Cancellation requested",
         "status": "cancellation_requested",
     }

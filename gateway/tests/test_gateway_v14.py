@@ -206,7 +206,10 @@ class RuntimeTests(unittest.TestCase):
         r.update_gateway_job('done',{'status':'failed','message':'late'})
         self.assertEqual(r.job_registry['done']['status'],'completed')
         self.assertEqual(r.job_registry['done']['_result'],result)
-        self.assertEqual(self.client.post('/gateway/jobs/done/cancel').json()['status'],'completed')
+        cancel = self.client.post('/gateway/jobs/done/cancel').json()
+        self.assertEqual(cancel['status'], 'completed')
+        self.assertEqual(cancel['cancellationOutcome'], 'not_canceled')
+        self.assertFalse(cancel['canceled'])
 
     def test_distribution_detects_missing_companion(self):
         root=Path(__file__).resolve().parents[1]

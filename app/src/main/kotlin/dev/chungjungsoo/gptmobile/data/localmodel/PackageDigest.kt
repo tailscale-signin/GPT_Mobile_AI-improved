@@ -54,9 +54,9 @@ internal object PackageDigest {
         val key = sha256(canonical.toByteArray())
         val cache = File(cacheDirectory, "model-identity-$key")
         val cached = cache.takeIf { it.isFile && it.length() <= 512 }?.readLines().orEmpty()
-        if (cached.size == 5 && cached[0] == canonical && cached[1] == size.toString()
-            && cached[2] == modified.toString() && cached[3] == fileKey
-            && cached[4].matches(Regex("[a-fA-F0-9]{64}"))
+        if (cached.size == 5 && cached[0] == canonical && cached[1] == size.toString() &&
+            cached[2] == modified.toString() && cached[3] == fileKey &&
+            cached[4].matches(Regex("[a-fA-F0-9]{64}"))
         ) {
             return cached[4]
         }

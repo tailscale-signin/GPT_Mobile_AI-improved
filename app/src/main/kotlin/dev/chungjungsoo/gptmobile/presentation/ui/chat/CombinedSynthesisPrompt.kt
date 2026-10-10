@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.research.ResearchCorpus
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -24,6 +25,10 @@ internal fun combinedSynthesisPrompt(
                     put("id", "C${index + 1}")
                     put("profile", source.platformName)
                     put("model", source.modelName)
+                    put("completion_status", source.completionStatus)
+                    put("quality_score", source.qualityScore.coerceIn(0, 100))
+                    put("source_ids", JsonArray(source.sourceIds.distinct().take(120).map(::JsonPrimitive)))
+                    put("evidence_refs", JsonArray(source.evidenceRefs.distinct().take(120).map(::JsonPrimitive)))
                     put("response", ConversationSubject.withoutMetadata(stripAssistantErrorNote(source.content)).trim())
                 }
             }

@@ -105,9 +105,14 @@ def capabilities():
                    "identityScope": "user" if config.mode == "trusted_proxy" else "local-machine",
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
+                   "contracts": {
+                       "gatewayProgress": [runtime.GATEWAY_PROGRESS_PROTOCOL],
+                       "toolArguments": ["gptmobile.tool-arguments.v1"]
+                   },
                    "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
+                                    validatedToolArguments=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True)})
     return result

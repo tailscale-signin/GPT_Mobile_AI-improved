@@ -56,8 +56,10 @@ class MarketplaceViewModel @Inject constructor(
             val ids = store.downloadedIds()
             val removals = store.pendingRemovalIds()
             // A verified package left behind after process death can safely recover disabled registration.
-            (ids - removals).forEach { id ->
-                dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id)?.takeIf(NativeMarketplaceCatalog::supports)?.let { registry.install(it) }
+            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                (ids - removals).forEach { id ->
+                    dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id)?.takeIf(NativeMarketplaceCatalog::supports)?.let { registry.install(it) }
+                }
             }
             _uiState.update { it.copy(downloadedIds = ids) }
             removals.forEach { id -> dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id)?.let(::remove) }
@@ -161,29 +163,26 @@ class MarketplaceViewModel @Inject constructor(
                     dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                         store.beginRemoval(entry)
                         if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
-                    }
-                    toolTrust?.revoke(entry.id)
-                    freeConsent?.revokeConnection(entry.id)
-                    // A marketplace-created MCP registration is owned by its persisted provider identity;
-                    // similarly named user-created connections are never removed as a side effect.
-                    connections.listConnections()
-                        .filter { it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == entry.id }
-                        .forEach { owned ->
-                            mcpClientManager?.close(owned.connectionUid)
-                            toolTrust?.revoke(owned.connectionUid)
-                            freeConsent?.revokeConnection(owned.connectionUid)
-                            connections.deleteConnection(owned.connectionUid)
+                        toolTrust?.revoke(entry.id)
+                        freeConsent?.revokeConnection(entry.id)
+                        // A marketplace-created MCP registration is owned by its persisted provider identity;
+                        // similarly named user-created connections are never removed as a side effect.
+                        connections.listConnections()
+                            .filter { it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == entry.id }
+                            .forEach { owned ->
+                                mcpClientManager?.close(owned.connectionUid)
+                                toolTrust?.revoke(owned.connectionUid)
+                                freeConsent?.revokeConnection(owned.connectionUid)
+                                connections.deleteConnection(owned.connectionUid)
+                            }
+                        store.remove(entry)
+                        if (entry.provider == "openstreetmap") {
+                            dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
+                                store.remove(legacy)
+                                toolTrust?.revoke(legacy.id)
+                                freeConsent?.revokeConnection(legacy.id)
+                            }
                         }
-                    // Package disk work is protected by its package lock and does not hold the global settings lock.
-                    store.remove(entry)
-                    if (entry.provider == "openstreetmap") {
-                        dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages.forEach { legacy ->
-                            store.remove(legacy)
-                            toolTrust?.revoke(legacy.id)
-                            freeConsent?.revokeConnection(legacy.id)
-                        }
-                    }
-                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
                         store.finishRemoval(entry)
                     }
                 } else {

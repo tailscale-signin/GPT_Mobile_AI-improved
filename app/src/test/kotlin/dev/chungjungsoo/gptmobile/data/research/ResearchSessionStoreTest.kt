@@ -3,6 +3,10 @@ package dev.chungjungsoo.gptmobile.data.research
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -34,6 +38,35 @@ class ResearchSessionStoreTest {
         ResearchSessionStore(context).journal("run", 1, true).save(ResearchSnapshot("task"))
         assertEquals("task", ResearchSessionStore(context).journal("run", 1, true).load()?.task)
         assertNull(ResearchSessionStore(context).journal("run", 2, true).load())
+    }
+
+    @Test fun relatedProfileRunsReuseFreshResearchForTheSameTask() = runBlocking {
+        val store = ResearchSessionStore(context)
+        val original = store.journal("profile-a", 1, true)
+        original.save(ResearchSnapshot("What changed in the latest release?", complete = true))
+
+        val related = store.journal("profile-b", 1, true)
+        assertEquals("What changed in the latest release?", related.load("  WHAT changed in the latest   release? ")?.task)
+    }
+
+    @Test fun taskScopedResearchLockSerializesSiblingProfiles() = runBlocking {
+        val store = ResearchSessionStore(context)
+        val first = store.journal("profile-a", 1, true)
+        val second = store.journal("profile-b", 1, true)
+        val active = AtomicInteger()
+        val peak = AtomicInteger()
+        coroutineScope {
+            listOf(first, second).map { journal ->
+                async {
+                    journal.withTaskLock("same task") {
+                        peak.updateAndGet { maxOf(it, active.incrementAndGet()) }
+                        delay(25)
+                        active.decrementAndGet()
+                    }
+                }
+            }.forEach { it.await() }
+        }
+        assertEquals(1, peak.get())
     }
 
     @Test fun temporaryChatsNeverWriteToDisk() = runBlocking {

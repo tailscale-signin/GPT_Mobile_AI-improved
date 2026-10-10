@@ -171,11 +171,17 @@ class RuntimeTests(unittest.TestCase):
     def test_actual_capabilities_ready_and_facade(self):
         cap=self.client.get('/v1/gateway/capabilities').json()
         fixture=json.loads((Path(__file__).resolve().parents[1]/'contracts/v14/capabilities.json').read_text(encoding="utf-8"))
-        for key,value in fixture.items(): self.assertEqual(cap[key],value)
+        for key,value in fixture.items():
+            if key == "features":
+                for feature, supported in value.items(): self.assertEqual(cap["features"].get(feature), supported)
+            else:
+                self.assertEqual(cap[key],value)
         self.assertFalse(cap['auth']['apiKeyRequired'])
         self.assertEqual(cap['gatewayVersion'],'14.1.0')
         self.assertEqual(cap['memory']['authority'],'client')
         self.assertFalse(cap['features']['mcpFacade'])
+        self.assertEqual(cap['contracts']['toolArguments'], ['gptmobile.tool-arguments.v1'])
+        self.assertTrue(cap['features']['validatedToolArguments'])
         self.assertEqual(self.client.post('/mcp',json={}).status_code,404)
         self.assertFalse(self.gateway.runtime.AUTO_MEMORY_STORE)
 

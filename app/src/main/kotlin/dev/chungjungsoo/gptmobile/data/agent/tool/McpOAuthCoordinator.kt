@@ -33,7 +33,7 @@ class McpOAuthCoordinator @Inject constructor(
         )
         val start = oauthClient.beginAuthorization(discovery, redirectUri, connection.oauthClientId)
         if (start.pending.clientId != connection.oauthClientId) {
-            connectionRepository.upsertConnection(connection.copy(oauthClientId = start.pending.clientId))
+            persistConnection(connection.copy(oauthClientId = start.pending.clientId))
         }
         storePending(start.pending.copy(connectionUid = connectionUid))
         return start.authorizationUri
@@ -46,7 +46,7 @@ class McpOAuthCoordinator @Inject constructor(
             ?: throw McpOAuthException("OAuth authorization is no longer pending.")
         if (pending.connectionUid != connectionUid) throw McpOAuthException("OAuth pending connection did not match.")
         val credential = oauthClient.completeAuthorization(pending, callbackUri)
-        connectionRepository.upsertConnection(
+        persistConnection(
             connection.copy(oauthClientId = credential.clientId),
             credential = NetworkClient.json.encodeToString(credential).encodeToByteArray()
         )
@@ -87,14 +87,14 @@ class McpOAuthCoordinator @Inject constructor(
                         rejectedCredentials[connection.connectionUid] = fingerprint
                         // Store the rejection with the encrypted credential so app restarts
                         // do not replay an invalid refresh grant indefinitely.
-                        connectionRepository.upsertConnection(
+                        persistConnection(
                             connection,
                             credential = NetworkClient.json.encodeToString(credential.copy(requiresReauthorization = true)).encodeToByteArray()
                         )
                     }
                     throw error
                 }
-                connectionRepository.upsertConnection(
+                persistConnection(
                     connection.copy(oauthClientId = credential.clientId),
                     credential = NetworkClient.json.encodeToString(credential).encodeToByteArray()
                 )
@@ -114,6 +114,13 @@ class McpOAuthCoordinator @Inject constructor(
             throw McpOAuthException("Connection is not configured for MCP OAuth.")
         }
         return connection
+    }
+
+    private suspend fun persistConnection(
+        connection: ToolConnection,
+        credential: ByteArray? = null
+    ) = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+        connectionRepository.upsertConnection(connection, credential = credential)
     }
 
     private suspend fun storePending(pending: McpOAuthPending) {

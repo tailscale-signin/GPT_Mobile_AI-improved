@@ -78,7 +78,11 @@ data class CombinedModelResponse(
     val platformUid: String,
     val platformName: String,
     val modelName: String = "",
-    val content: String
+    val content: String,
+    val completionStatus: String = "COMPLETED",
+    val qualityScore: Int = 100,
+    val sourceIds: List<String> = emptyList(),
+    val evidenceRefs: List<String> = emptyList()
 )
 
 @Serializable

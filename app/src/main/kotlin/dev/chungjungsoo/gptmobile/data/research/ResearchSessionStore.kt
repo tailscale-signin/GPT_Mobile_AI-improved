@@ -26,6 +26,7 @@ data class ResearchSession(val runId: String, val chatId: Int, val snapshot: Res
 class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context) {
     private val directory = File(context.filesDir, "research-history")
     private val lock = Mutex()
+    private val taskLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
     private val deletedChats = ConcurrentHashMap.newKeySet<Int>()
     private val mutable = MutableStateFlow<Map<String, ResearchSession>>(emptyMap())
@@ -42,6 +43,23 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 mutable.value[runId]?.takeIf { it.chatId == chatId }?.snapshot
                     ?: if (persistent) read(file(runId))?.takeIf { it.chatId == chatId }?.snapshot else null
             }
+        }
+        override suspend fun load(task: String): ResearchSnapshot? = withContext(Dispatchers.IO) {
+            if (chatId in deletedChats) return@withContext null
+            val taskKey = normalizedTask(task)
+            lock.withLock {
+                val persisted = if (persistent) directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read) else emptyList()
+                (persisted + mutable.value.values.filter { it.chatId == chatId })
+                    .asSequence()
+                    .filter { it.chatId == chatId && normalizedTask(it.snapshot.task) == taskKey }
+                    .maxByOrNull { it.snapshot.updatedAt }
+                    ?.snapshot
+            }
+        }
+        override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
+            val key = "$chatId:${researchHash(normalizedTask(task))}"
+            val taskLock = taskLocks[(key.hashCode() and Int.MAX_VALUE) % taskLocks.size]
+            return taskLock.withLock { block() }
         }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
@@ -97,6 +115,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
 
     private fun file(runId: String) = File(directory, researchHash(runId) + ".json")
+    private fun normalizedTask(task: String) = task.trim().replace(Regex("\\s+"), " ").take(8_000).lowercase()
     private fun read(file: File): ResearchSession? = runCatching {
         val bytes = AtomicFile(file).openRead().use { stream ->
             require(stream.channel.size() in 1..512 * 1024)

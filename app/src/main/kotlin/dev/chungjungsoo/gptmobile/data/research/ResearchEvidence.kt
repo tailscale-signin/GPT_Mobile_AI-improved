@@ -220,8 +220,10 @@ data class ResearchSnapshot(
 
 interface ResearchJournal {
     suspend fun load(): ResearchSnapshot?
+    suspend fun load(task: String): ResearchSnapshot? = load()
     suspend fun save(snapshot: ResearchSnapshot)
     fun stopRequested(): Boolean
+    suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T = block()
 }
 
 fun JsonObject.text(key: String): String = (this[key] as? JsonPrimitive)?.contentOrNull.orEmpty()

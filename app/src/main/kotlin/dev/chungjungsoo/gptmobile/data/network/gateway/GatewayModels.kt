@@ -35,10 +35,16 @@ data class GatewayCapabilities(
     val contractVersion: Int? = null,
     val auth: GatewayAuthCapabilities? = null,
     val identityScope: String? = null,
-    val memory: GatewayMemoryCapabilities? = null
+    val memory: GatewayMemoryCapabilities? = null,
+    val contracts: Map<String, List<String>> = emptyMap(),
+    val features: Map<String, Boolean> = emptyMap()
 ) {
     val supportsKeyFreeConnection: Boolean
         get() = contractVersion == 1 && gatewayVersion?.startsWith("14.") == true && auth?.apiKeyRequired == false
+
+    fun supportsContract(name: String, version: String): Boolean = contracts[name]?.contains(version) == true
+
+    fun supportsFeature(name: String): Boolean = features[name] == true
 }
 
 @Serializable

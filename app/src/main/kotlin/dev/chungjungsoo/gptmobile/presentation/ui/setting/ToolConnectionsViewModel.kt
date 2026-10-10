@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 enum class ToolConnectionHealthStatus {
     CHECKING,
@@ -194,7 +195,9 @@ class ToolConnectionsViewModel @Inject constructor(
     fun savePolicy(connection: ToolConnection, policy: String, reads: String) {
         viewModelScope.launch {
             try {
-                toolConnectionRepository.upsertConnection(connection.copy(toolPolicy = policy, approvedReadTools = reads.take(16000)))
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    toolConnectionRepository.upsertConnection(connection.copy(toolPolicy = policy, approvedReadTools = reads.take(16000)))
+                }
                 refresh()
             } catch (e: Exception) {
                 showError(e)
@@ -271,20 +274,22 @@ class ToolConnectionsViewModel @Inject constructor(
                     credential = credential,
                     clearCredential = clearCredential
                 )
-                toolConnectionRepository.upsertConnection(
-                    connection = connection,
-                    credential = credentialBytes,
-                    clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
-                )
-                if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
-                    pluginMutex.lock()
-                    try {
-                        val latest = settingRepository.getFeatureSettings()
-                        val updated = latest.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
-                        settingRepository.updateFeatureSettings(updated)
-                        _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
-                    } finally {
-                        pluginMutex.unlock()
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    toolConnectionRepository.upsertConnection(
+                        connection = connection,
+                        credential = credentialBytes,
+                        clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
+                    )
+                    if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
+                        pluginMutex.lock()
+                        try {
+                            val latest = settingRepository.getFeatureSettings()
+                            val updated = latest.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
+                            settingRepository.updateFeatureSettings(updated)
+                            _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
+                        } finally {
+                            pluginMutex.unlock()
+                        }
                     }
                 }
             }.onSuccess {
@@ -301,7 +306,9 @@ class ToolConnectionsViewModel @Inject constructor(
             runCatching {
                 mcpClientManager.close(connectionUid)
                 revokeToolGrants(connectionUid)
-                toolConnectionRepository.deleteConnection(connectionUid)
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    toolConnectionRepository.deleteConnection(connectionUid)
+                }
             }
                 .onSuccess { refresh() }
                 .onFailure(::showError)

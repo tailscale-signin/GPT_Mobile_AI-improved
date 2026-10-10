@@ -28,8 +28,20 @@ internal fun combinedSynthesisInputs(
         val uid = message.platformType ?: return@mapNotNull null
         val original = message.combinedSources.firstOrNull { it.platformUid == uid }
         val content = stripAssistantErrorNote(original?.content ?: message.content).trim()
-        if (content.isBlank() || isAssistantErrorMessage(content)) return@mapNotNull null
-        CombinedModelResponse(uid, names[uid] ?: original?.platformName ?: "AI", models[uid] ?: original?.modelName.orEmpty(), content)
+        if (isAssistantErrorMessage(content)) return@mapNotNull null
+        val status = runs[message.currentRunId]?.status ?: original?.completionStatus ?: AgentRunStatus.COMPLETED
+        val assessment = CombinedContributionQuality.assess(status, content)
+        if (!assessment.admitted) return@mapNotNull null
+        CombinedModelResponse(
+            platformUid = uid,
+            platformName = names[uid] ?: original?.platformName ?: "AI",
+            modelName = models[uid] ?: original?.modelName.orEmpty(),
+            content = content,
+            completionStatus = status,
+            qualityScore = assessment.qualityScore,
+            sourceIds = original?.sourceIds.orEmpty(),
+            evidenceRefs = original?.evidenceRefs.orEmpty()
+        )
     }
     if (sources.isEmpty()) return null
     if (synthesis != null &&

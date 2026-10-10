@@ -27,6 +27,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.Callback
@@ -38,6 +43,87 @@ import okhttp3.Response
 object MarketplaceDownloadPolicy {
     const val MAX_ASSET_BYTES = 96 * 1024
     const val MAX_PACKAGE_BYTES = 256 * 1024
+    const val PACKAGE_MANIFEST_VERSION = 2
+
+    enum class Verification { CURRENT, LEGACY_TRUSTED }
+
+    /** Immutable package identity. User-facing catalog copy is intentionally excluded. */
+    fun manifest(entry: GitHubMarketplacePackage): ByteArray {
+        val assets = expectedAssets(entry)
+        return buildJsonObject {
+            put("schemaVersion", PACKAGE_MANIFEST_VERSION)
+            put("packageId", entry.id)
+            put("providerId", entry.provider)
+            put("runtime", entry.runtime.name)
+            put("sourceRepository", GitHubMarketplaceCatalog.SOURCE_REPOSITORY)
+            put("sourceCommit", GitHubMarketplaceCatalog.SOURCE_COMMIT)
+            put("packageRevision", 1)
+            put("assets", buildJsonObject { assets.forEach { (name, sha) -> put(name, sha) } })
+        }.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    fun expectedAssets(entry: GitHubMarketplacePackage): Map<String, String> = buildMap {
+        put("README.md", GitHubMarketplaceCatalog.GUIDE_SHA256)
+        if (entry.runtime == MarketplaceRuntime.COMPANION) put("location_mcp.py", GitHubMarketplaceCatalog.COMPANION_SHA256)
+    }
+
+    /** Verify trust against hashes embedded in this APK, never hashes supplied by the archive. */
+    fun verifyPackage(entry: GitHubMarketplacePackage, bytes: ByteArray): Verification {
+        require(bytes.isNotEmpty() && bytes.size <= MAX_PACKAGE_BYTES) { "Package size is invalid." }
+        val files = linkedMapOf<String, ByteArray>()
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+            while (true) {
+                val item = zip.nextEntry ?: break
+                require(!item.isDirectory && item.name.matches(Regex("[A-Za-z0-9._-]{1,80}")) && item.name !in files) { "Package file list is invalid." }
+                val data = ByteArrayOutputStream()
+                val chunk = ByteArray(4096)
+                while (true) {
+                    val count = zip.read(chunk)
+                    if (count < 0) break
+                    require(data.size() + count <= MAX_ASSET_BYTES) { "Package asset size is invalid." }
+                    data.write(chunk, 0, count)
+                }
+                files[item.name] = data.toByteArray()
+                require(files.size <= 8) { "Package has too many files." }
+            }
+        }
+        val expected = expectedAssets(entry)
+        expected.forEach { (name, digest) ->
+            val content = files[name] ?: error("Package is missing a trusted asset.")
+            verify(content, digest)
+        }
+        val manifestBytes = files["manifest.json"]
+        if (manifestBytes != null) {
+            require(files.keys == expected.keys + "manifest.json") { "Package has untrusted files." }
+            val actual = Json.parseToJsonElement(manifestBytes.toString(Charsets.UTF_8)).jsonObject
+            require(actual.keys == setOf("schemaVersion", "packageId", "providerId", "runtime", "sourceRepository", "sourceCommit", "packageRevision", "assets")) {
+                "Package manifest fields are invalid."
+            }
+            require(actual["schemaVersion"]?.jsonPrimitive?.intOrNull == PACKAGE_MANIFEST_VERSION)
+            require(actual["packageRevision"]?.jsonPrimitive?.intOrNull == 1)
+            require(actual["packageId"]?.jsonPrimitive?.contentOrNull == entry.id)
+            require(actual["providerId"]?.jsonPrimitive?.contentOrNull == entry.provider)
+            require(actual["runtime"]?.jsonPrimitive?.contentOrNull == entry.runtime.name)
+            require(actual["sourceRepository"]?.jsonPrimitive?.contentOrNull == GitHubMarketplaceCatalog.SOURCE_REPOSITORY)
+            require(actual["sourceCommit"]?.jsonPrimitive?.contentOrNull == GitHubMarketplaceCatalog.SOURCE_COMMIT)
+            val manifestAssets = actual["assets"]?.jsonObject?.mapValues { it.value.jsonPrimitive.contentOrNull.orEmpty() }
+            require(manifestAssets == expected) { "Package manifest does not match the APK trust catalog." }
+            return Verification.CURRENT
+        }
+
+        // V1 stored setup text in setup.json. Validate only immutable identity fields;
+        // presentation copy is not part of the trust decision.
+        val setup = files["setup.json"] ?: error("Package manifest is missing.")
+        require(files.keys == expected.keys + "setup.json") { "Legacy package has untrusted files." }
+        val legacy = Json.parseToJsonElement(setup.toString(Charsets.UTF_8)).jsonObject
+        require(legacy["schemaVersion"]?.jsonPrimitive?.intOrNull == 1)
+        require(legacy["id"]?.jsonPrimitive?.contentOrNull == entry.id)
+        require(legacy["provider"]?.jsonPrimitive?.contentOrNull == entry.provider)
+        require(legacy["runtime"]?.jsonPrimitive?.contentOrNull == entry.runtime.name)
+        require(legacy["sourceRepository"]?.jsonPrimitive?.contentOrNull == GitHubMarketplaceCatalog.SOURCE_REPOSITORY)
+        require(legacy["sourceCommit"]?.jsonPrimitive?.contentOrNull == GitHubMarketplaceCatalog.SOURCE_COMMIT)
+        return Verification.LEGACY_TRUSTED
+    }
 
     fun assetUrl(file: String): String {
         require(file in setOf("README.md", "location_mcp.py")) { "Unapproved package asset." }
@@ -91,7 +177,7 @@ class MarketplacePackageStore @Inject constructor(@ApplicationContext context: C
         locks.getValue(entry.id).withLock {
             if (readVerified(entry) != null) return@withLock
             onPhase(MarketplaceOperationPhase.DOWNLOADING)
-            val files = linkedMapOf("setup.json" to descriptor(entry))
+            val files = linkedMapOf("manifest.json" to MarketplaceDownloadPolicy.manifest(entry))
             files["README.md"] = fetchAsset("README.md", GitHubMarketplaceCatalog.GUIDE_SHA256)
             if (entry.runtime == MarketplaceRuntime.COMPANION) {
                 files["location_mcp.py"] = fetchAsset("location_mcp.py", GitHubMarketplaceCatalog.COMPANION_SHA256)
@@ -169,21 +255,6 @@ class MarketplacePackageStore @Inject constructor(@ApplicationContext context: C
 
     private fun packageFile(entry: GitHubMarketplacePackage): AtomicFile = AtomicFile(File(directory, "${entry.id}.zip"))
 
-    private fun descriptor(entry: GitHubMarketplacePackage): ByteArray = buildJsonObject {
-        put("schemaVersion", 1)
-        put("id", entry.id)
-        put("provider", entry.provider)
-        put("runtime", entry.runtime.name)
-        put("sourceRepository", GitHubMarketplaceCatalog.SOURCE_REPOSITORY)
-        put("sourceCommit", GitHubMarketplaceCatalog.SOURCE_COMMIT)
-        put("endpoint", entry.preset.defaultEndpoint)
-        put("authType", entry.preset.suggestedAuthType)
-        put("credentialVariable", entry.credentialVariable)
-        put("setup", entry.preset.setupInstructions)
-        put("serviceNotice", entry.serviceNotice)
-        put("enabled", false)
-    }.toString().toByteArray(Charsets.UTF_8)
-
     private fun readVerified(entry: GitHubMarketplacePackage): ByteArray? = runCatching {
         val bytes = packageFile(entry).openRead().use { input ->
             // readBytes() alone would allow an oversized/corrupt local package to exhaust memory.
@@ -203,29 +274,8 @@ class MarketplacePackageStore @Inject constructor(@ApplicationContext context: C
     }.getOrNull()
 
     private fun verifyPackage(entry: GitHubMarketplacePackage, bytes: ByteArray): Boolean = runCatching {
-        require(bytes.size <= MarketplaceDownloadPolicy.MAX_PACKAGE_BYTES)
-        val expected = mutableMapOf(
-            "setup.json" to MarketplaceDownloadPolicy.sha256(descriptor(entry)),
-            "README.md" to GitHubMarketplaceCatalog.GUIDE_SHA256
-        )
-        if (entry.runtime == MarketplaceRuntime.COMPANION) expected["location_mcp.py"] = GitHubMarketplaceCatalog.COMPANION_SHA256
-        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
-            while (true) {
-                val item = zip.nextEntry ?: break
-                require(!item.isDirectory)
-                val digest = expected.remove(item.name) ?: error("Unexpected or duplicate ZIP entry.")
-                val data = ByteArrayOutputStream()
-                val chunk = ByteArray(4096)
-                while (true) {
-                    val count = zip.read(chunk)
-                    if (count < 0) break
-                    require(data.size() + count <= MarketplaceDownloadPolicy.MAX_ASSET_BYTES)
-                    data.write(chunk, 0, count)
-                }
-                MarketplaceDownloadPolicy.verify(data.toByteArray(), digest)
-            }
-        }
-        expected.isEmpty()
+        MarketplaceDownloadPolicy.verifyPackage(entry, bytes)
+        true
     }.getOrDefault(false)
 
     private suspend fun fetchAsset(file: String, expected: String): ByteArray = suspendCancellableCoroutine { continuation ->

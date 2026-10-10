@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.catalog
 
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceDownloadPolicy
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -138,5 +141,76 @@ class GitHubMarketplaceCatalogTest {
                 // Expected; no untrusted content should be written as an installed package.
             }
         }
+    }
+
+    @Test
+    fun packageManifestDoesNotBindMutablePresentationCopy() {
+        val entry = packages.first { it.runtime == MarketplaceRuntime.NATIVE }
+        val changedCopy = entry.copy(
+            preset = entry.preset.copy(setupInstructions = "Updated setup copy", description = "Updated description"),
+            serviceNotice = "Updated notice"
+        )
+        val first = MarketplaceDownloadPolicy.manifest(entry)
+        val second = MarketplaceDownloadPolicy.manifest(changedCopy)
+
+        assertEquals(first.toList(), second.toList())
+        val json = first.toString(Charsets.UTF_8)
+        assertTrue(json.contains("\"schemaVersion\":2"))
+        assertTrue(json.contains("\"packageRevision\":1"))
+        assertFalse(json.contains("setupInstructions"))
+        assertFalse(json.contains("serviceNotice"))
+    }
+
+    @Test
+    fun packageVerificationAcceptsTrustedLegacyIdentityButRejectsUnlistedFiles() {
+        val entry = packages.first { it.runtime == MarketplaceRuntime.NATIVE }
+        val setup = """{"schemaVersion":1,"id":"${entry.id}","provider":"${entry.provider}","runtime":"${entry.runtime.name}","sourceRepository":"${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}","sourceCommit":"${GitHubMarketplaceCatalog.SOURCE_COMMIT}","setup":"old user facing copy"}"""
+        val trusted = zipOf(
+            "setup.json" to setup.toByteArray(),
+            "README.md" to java.io.File("mcp/marketplace/README.md").readBytes()
+        )
+        assertEquals(MarketplaceDownloadPolicy.Verification.LEGACY_TRUSTED, MarketplaceDownloadPolicy.verifyPackage(entry, trusted))
+
+        val withUnlistedFile = zipOf(
+            "setup.json" to setup.toByteArray(),
+            "README.md" to java.io.File("mcp/marketplace/README.md").readBytes(),
+            "payload.txt" to "untrusted".toByteArray()
+        )
+        try {
+            MarketplaceDownloadPolicy.verifyPackage(entry, withUnlistedFile)
+            fail("Unlisted package content was accepted")
+        } catch (_: IllegalArgumentException) {
+            // Archive contents must match the exact APK-pinned allowlist.
+        }
+    }
+
+    @Test
+    fun currentManifestRequiresTheExactContractFields() {
+        val entry = packages.first { it.runtime == MarketplaceRuntime.NATIVE }
+        val manifest = MarketplaceDownloadPolicy.manifest(entry)
+        val readme = java.io.File("mcp/marketplace/README.md").readBytes()
+        assertEquals(
+            MarketplaceDownloadPolicy.Verification.CURRENT,
+            MarketplaceDownloadPolicy.verifyPackage(entry, zipOf("manifest.json" to manifest, "README.md" to readme))
+        )
+
+        val extended = (manifest.toString(Charsets.UTF_8).dropLast(1) + ",\"untrusted\":true}").toByteArray()
+        try {
+            MarketplaceDownloadPolicy.verifyPackage(entry, zipOf("manifest.json" to extended, "README.md" to readme))
+            fail("Unexpected manifest field was accepted")
+        } catch (_: IllegalArgumentException) {
+            // The V2 package contract is closed and versioned.
+        }
+    }
+
+    private fun zipOf(vararg entries: Pair<String, ByteArray>): ByteArray = ByteArrayOutputStream().use { bytes ->
+        ZipOutputStream(bytes).use { zip ->
+            entries.forEach { (name, content) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content)
+                zip.closeEntry()
+            }
+        }
+        bytes.toByteArray()
     }
 }

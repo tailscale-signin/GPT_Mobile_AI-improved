@@ -196,6 +196,9 @@ class CompleteBackupManager @Inject constructor(
 
         val storage = files()
         val sources = linkedMapOf<String, File>()
+        val lockToolState = selected.includes(CompleteBackupSection.TOOLS)
+        if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
+        try {
         val databaseSelected = selected.sections.any(::isDatabaseSection)
 
         if (databaseSelected) {
@@ -251,6 +254,9 @@ class CompleteBackupManager @Inject constructor(
                 val snapshot = File(work, "plugin-registry.json").apply { writeBytes(bytes) }
                 sources["internal/plugin-installations/native-marketplace-v1.json"] = snapshot
             }
+        }
+        } finally {
+            if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
         }
 
         val manifest = CompleteBackupManifest(
@@ -429,6 +435,9 @@ class CompleteBackupManager @Inject constructor(
         require(selectedPaths.map(storage::target).toSet().size == selectedPaths.size) {
             "Conflicting backup file locations."
         }
+        if (CompleteBackupSection.TOOLS in effective.sections) {
+            validateMarketplaceRestore(staging, selectedPaths, selectedSecrets.keys)
+        }
 
         val snapshot = if (restoreDatabase) {
             prepareSnapshot(File(staging, "database.sqlite"))
@@ -440,6 +449,10 @@ class CompleteBackupManager @Inject constructor(
             val source = snapshot?.openHelper?.writableDatabase
             if (source != null) {
                 CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
+
+                if (CompleteBackupSection.TOOLS in effective.sections) {
+                    clearMissingToolSecrets(source, selectedSecrets.keys)
+                }
 
                 if (CompleteBackupSection.CONVERSATIONS in effective.sections) {
                     if (restoreAttachments) {
@@ -462,6 +475,9 @@ class CompleteBackupManager @Inject constructor(
                 }
             }
 
+            val lockToolState = effective.includes(CompleteBackupSection.TOOLS)
+            if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
+            try {
             val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
             val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
             val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
@@ -506,6 +522,9 @@ class CompleteBackupManager @Inject constructor(
 
             if (selectedPaths.isNotEmpty()) replacement.cleanup()
             clearRestoreMarker()
+            } finally {
+                if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
+            }
             settings.invalidatePlatformCache()
         } finally {
             snapshot?.close()
@@ -662,6 +681,52 @@ class CompleteBackupManager @Inject constructor(
                 if (rows.getString(2) == "READY") {
                     require("internal/$path" in paths || "external/$path" in paths) { "A downloaded model is missing. Remove it or download it again before backing up." }
                 }
+            }
+        }
+    }
+
+    private fun validateMarketplaceRestore(staging: File, paths: Set<String>, importedSecretRefs: Set<String>) {
+        val packagePrefix = "internal/plugin-installations/optional_marketplace_v1/"
+        paths.filter { it.startsWith(packagePrefix) }.forEach { path ->
+            val id = path.removePrefix(packagePrefix).removeSuffix(".zip")
+            val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id)
+                ?: error("Backup contains an unknown marketplace package. Remove it from the archive and retry.")
+            val packageFile = File(staging, path)
+            require(packageFile.length() in 1..dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceDownloadPolicy.MAX_PACKAGE_BYTES.toLong()) {
+                "Backup marketplace package exceeds its size limit."
+            }
+            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceDownloadPolicy.verifyPackage(entry, packageFile.readBytes())
+        }
+
+        val registryPath = "internal/plugin-installations/native-marketplace-v1.json"
+        if (registryPath !in paths) return
+        val registryFile = File(staging, registryPath)
+        val records = json.decodeFromString<Map<String, dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation>>(registryFile.readText())
+        val catalogIds = (dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages +
+            dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages).mapTo(mutableSetOf()) { it.id }
+        require(records.keys.all { it in catalogIds }) { "Backup registry references an unknown marketplace package." }
+        val safeRecords = records.mapValues { (_, record) ->
+            if (record.credentialRef != null && record.credentialRef !in importedSecretRefs) {
+                record.copy(enabled = false, credentialRef = null)
+            } else {
+                record
+            }
+        }
+        registryFile.writeText(json.encodeToString(safeRecords))
+    }
+
+    private fun clearMissingToolSecrets(db: SupportSQLiteDatabase, importedSecretRefs: Set<String>) {
+        val refs = importedSecretRefs.filter { it.matches(Regex("[A-Za-z0-9_-]{1,128}")) }
+        listOf("tool_connections", "platform_v2").forEach { table ->
+            val columns = db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }
+            }
+            if ("secret_ref" !in columns) return@forEach
+            if (refs.isEmpty()) {
+                db.execSQL("UPDATE `$table` SET secret_ref = NULL WHERE secret_ref IS NOT NULL")
+            } else {
+                val placeholders = refs.joinToString(",") { "?" }
+                db.execSQL("UPDATE `$table` SET secret_ref = NULL WHERE secret_ref IS NOT NULL AND secret_ref NOT IN ($placeholders)", arrayOf<Any>(*refs.toTypedArray()))
             }
         }
     }

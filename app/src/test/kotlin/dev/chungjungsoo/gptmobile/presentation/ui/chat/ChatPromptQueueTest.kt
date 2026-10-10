@@ -143,14 +143,16 @@ class ChatPromptQueueTest {
         assertTrue(starts.isEmpty())
 
         synthesisGate.complete(Unit)
-        synthesisMerged.await()
         combinedSynthesisStarted.await()
+        synthesisMerged.complete(Unit)
         runCurrent()
         assertTrue(submissions.isEmpty())
         assertTrue(starts.single().any { it.runId.startsWith("combined-") })
 
         synthesisCompletionGate!!.complete(Unit)
-        runs.value = runs.value.map { if (it.runId.startsWith("combined-")) it.copy(status = AgentRunStatus.COMPLETED) else it }
+        val combinedRunId = starts.single().single().runId
+        messages.value = messages.value.map { if (it.currentRunId == combinedRunId) it.copy(content = "Combined response") else it }
+        runs.value = runs.value.map { if (it.runId == combinedRunId) it.copy(status = AgentRunStatus.COMPLETED) else it }
         activeRuns.value = emptyMap()
         runCurrent()
         queuedTurnStarted.await()

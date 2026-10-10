@@ -1326,12 +1326,13 @@ internal class LocalDelegationCoordinator(
         } else {
             null
         }
-        if (result != null) return result
-        val saved = retained ?: savedResearchResult(task, config, "Preparation deadline reached; these passages are unverified.")
+        val elapsed = nowMs() - preparationStartedAt.get()
+        if (result != null && elapsed < config.preparationTimeoutSeconds * 1000L) return result
+        val saved = retained ?: result ?: savedResearchResult(task, config, "Preparation deadline reached; these passages are unverified.")
         return (saved ?: LocalResearchResult("", 0, 0, 0)).copy(
             handoff = "[PREPARATION_TIMEOUT][UNVERIFIED] Research/review time budget reached. Retained context is unverified; the primary must recover independently.\n" + saved?.handoff.orEmpty(),
-            outcome = if (saved?.handoff?.isNotBlank() == true) LocalResearchOutcome.SUCCESS else LocalResearchOutcome.FAILED
-        ).also { AppLogRecorder.record("Delegation", "PREPARATION_DEADLINE · call=$callId · allowanceMs=${config.preparationTimeoutSeconds * 1000L} · elapsedMs=${nowMs() - preparationStartedAt.get()} · remainingMs=${(config.preparationTimeoutSeconds * 1000L - (nowMs() - preparationStartedAt.get())).coerceAtLeast(0)} · retainedPages=${it.pagesRead}", "W") }
+            outcome = if (saved?.let { it.outcome == LocalResearchOutcome.SUCCESS && it.handoff.isNotBlank() } == true) LocalResearchOutcome.SUCCESS else LocalResearchOutcome.FAILED
+        ).also { AppLogRecorder.record("Delegation", "PREPARATION_DEADLINE · call=$callId · allowanceMs=${config.preparationTimeoutSeconds * 1000L} · elapsedMs=$elapsed · remainingMs=${(config.preparationTimeoutSeconds * 1000L - elapsed).coerceAtLeast(0)} · retainedPages=${it.pagesRead}", "W") }
     }
 
     private suspend fun savedResearchResult(task: String, config: ModelDelegationSettings, reason: String): LocalResearchResult? {

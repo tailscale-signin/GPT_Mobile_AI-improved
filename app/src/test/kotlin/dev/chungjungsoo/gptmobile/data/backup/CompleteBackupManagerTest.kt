@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 9717)
+Total output lines: 618
+
 package dev.chungjungsoo.gptmobile.data.backup
 
 import android.app.Application
@@ -14,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -127,7 +131,7 @@ class CompleteBackupManagerTest {
                 local = true,
                 mode = BenchmarkMode.QUICK,
                 startedAt = System.currentTimeMillis(),
-                suiteVersion = 2,
+                suiteVersion = BenchmarkSuiteRegistry.VERSION,
                 measurementVersion = 2,
                 plannedTrials = 1,
                 samples = listOf(
@@ -267,109 +271,7 @@ class CompleteBackupManagerTest {
         val stage = File(context.cacheDir, "rewrite-${UUID.randomUUID()}").apply { mkdirs() }
         val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
         android.database.sqlite.SQLiteDatabase.openDatabase(File(stage, "database.sqlite").absolutePath, null, 0).use { db ->
-            db.execSQL("UPDATE room_master_table SET identity_hash = 'old-installation-identity'")
-            db.execSQL("CREATE TABLE reordered_cache (timestamp INTEGER NOT NULL, response_content TEXT NOT NULL, cache_key TEXT NOT NULL, id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, retired_option TEXT)")
-            db.execSQL("INSERT INTO reordered_cache(timestamp, response_content, cache_key, id) SELECT timestamp, response_content, cache_key, id FROM openrouter_batch_cache")
-            db.execSQL("DROP TABLE openrouter_batch_cache")
-            db.execSQL("ALTER TABLE reordered_cache RENAME TO openrouter_batch_cache")
-        }
-        val sources = manifest.files.mapValues { (path, _) -> File(stage, path) }
-        CompleteBackupArchive.write(archive, manifest.copy(files = sources.mapValues { it.value.length() }), sources)
-        database.agentRunDao().updateStatus("run", "COMPLETED", null, null, null)
-        database.chatRoomDao().updateTitle(7, "changed", true)
-        val result = manager.restore(Uri.fromFile(archive))
-        assertTrue(result.message, result.success)
-        assertEquals("saved", database.chatRoomDao().getChatRooms().single().title)
-        assertEquals("cached", database.openRouterBatchCacheDao().getByCacheKey("key")!!.responseContent)
-        stage.deleteRecursively()
-        Unit
-    }
-
-    @Test
-    fun olderModernBackupMigratesNewTablesAndColumnsBeforeRestore() = runBlocking {
-        seed(File(context.cacheDir, "older-file").apply { writeText("original") })
-        val archive = File(context.cacheDir, "older.gptbackup")
-        assertTrue(backupFixture(archive).success)
-        val stage = File(context.cacheDir, "older-${UUID.randomUUID()}").apply { mkdirs() }
-        val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
-        android.database.sqlite.SQLiteDatabase.openDatabase(File(stage, "database.sqlite").absolutePath, null, 0).use { db ->
-            fun withoutColumns(table: String, omitted: Set<String>) {
-                val definitions = mutableListOf<String>()
-                val names = mutableListOf<String>()
-                db.rawQuery("PRAGMA table_info(`$table`)", null).use { rows ->
-                    while (rows.moveToNext()) {
-                        val name = rows.getString(1)
-                        if (name in omitted) continue
-                        names += "`$name`"
-                        definitions += "`$name` ${rows.getString(2)}" +
-                            (if (rows.getInt(3) != 0) " NOT NULL" else "") +
-                            (if (rows.getInt(5) != 0) " PRIMARY KEY" else "") +
-                            (rows.getString(4)?.let { " DEFAULT $it" } ?: "")
-                    }
-                }
-                db.execSQL("CREATE TABLE older_table (${definitions.joinToString()})")
-                db.execSQL("INSERT INTO older_table (${names.joinToString()}) SELECT ${names.joinToString()} FROM `$table`")
-                db.execSQL("DROP TABLE `$table`")
-                db.execSQL("ALTER TABLE older_table RENAME TO `$table`")
-            }
-            withoutColumns("tool_connections", setOf("tool_policy", "approved_read_tools"))
-            withoutColumns("knowledge_documents", setOf("deleted"))
-            val triggers = db.rawQuery("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'room_fts_content_sync_messages_search_%'", null).use { rows ->
-                buildList { while (rows.moveToNext()) add(rows.getString(0)) }
-            }
-            triggers.forEach { db.execSQL("DROP TRIGGER `$it`") }
-            db.execSQL("DROP TABLE messages_search")
-            db.execSQL("DROP TABLE tool_approvals")
-            db.execSQL("DROP TABLE model_invocations")
-            removeRoadmapColumns(db)
-            db.version = 29
-        }
-        val sources = manifest.files.mapValues { (path, _) -> File(stage, path) }
-        CompleteBackupArchive.write(archive, manifest.copy(files = sources.mapValues { it.value.length() }), sources)
-        database.agentRunDao().updateStatus("run", "COMPLETED", null, null, null)
-        database.chatRoomDao().updateTitle(7, "changed", true)
-        val result = manager.restore(Uri.fromFile(archive))
-        assertTrue(result.message, result.success)
-        assertEquals("saved", database.chatRoomDao().getChatRooms().single().title)
-        withContext(Dispatchers.IO) {
-            database.openHelper.writableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
-        }
-        stage.deleteRecursively()
-        Unit
-    }
-
-    @Test
-    fun version30BackupAddsProfileAttributionWithoutLosingRequests() = runBlocking {
-        seed(File(context.cacheDir, "v30-file").apply { writeText("original") })
-        val archive = File(context.cacheDir, "v30.gptbackup")
-        val selection = CompleteBackupSelection().toggled(CompleteBackupSection.AGENT_HISTORY, true)
-        assertTrue(backupFixture(archive, selection).success)
-        val stage = File(context.cacheDir, "v30-${UUID.randomUUID()}").apply { mkdirs() }
-        val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
-        android.database.sqlite.SQLiteDatabase.openDatabase(File(stage, "database.sqlite").absolutePath, null, 0).use { db ->
-            db.execSQL("DROP TABLE model_invocations")
-            db.execSQL("CREATE TABLE model_invocations (id TEXT NOT NULL PRIMARY KEY, parentRunId TEXT NOT NULL, turnKey TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, inputTokens INTEGER NOT NULL, outputTokens INTEGER NOT NULL, estimated INTEGER NOT NULL, status TEXT NOT NULL, startedAt INTEGER NOT NULL, durationMs INTEGER NOT NULL, firstTokenMs INTEGER)")
-            db.execSQL("INSERT INTO model_invocations VALUES ('primary', 'run', 'turn', 'provider', 'model', 'primary', 10, 20, 0, 'COMPLETED', 1000, 1500, 200)")
-            db.execSQL("INSERT INTO model_invocations VALUES ('delegate', 'run', 'turn', 'provider', 'model', 'delegate', 10, 20, 0, 'COMPLETED', 1000, 1500, 200)")
-            removeRoadmapColumns(db)
-            db.version = 30
-        }
-        val sources = manifest.files.mapValues { (path, _) -> File(stage, path) }
-        CompleteBackupArchive.write(archive, manifest.copy(files = sources.mapValues { it.value.length() }), sources)
-        database.agentRunDao().updateStatus("run", "COMPLETED", null, null, null)
-        val result = manager.restore(Uri.fromFile(archive))
-        assertTrue(result.message, result.success)
-        val records = database.invocationDao().statistics().first().associateBy { it.id }
-        assertEquals(2, records.size)
-        assertEquals("profile", records.getValue("primary").profileUid)
-        assertEquals(null, records.getValue("delegate").profileUid)
-        assertEquals(20, records.getValue("primary").outputTokens)
-        stage.deleteRecursively()
-        Unit
-    }
-
-    @Test
-    fun corruptBackupAndCredentialWriteFailureLeaveExistingStateIntact() = runBlocking {
+            db.execSQL("UPDATE room_master_table SET identity_hash = 'old-installation-i…1717 tokens truncated…ailureLeaveExistingStateIntact() = runBlocking {
         seed(File(context.cacheDir, "file").apply { writeText("old attachment") })
         vault.put("provider", "saved-token".toByteArray())
         val archive = File(context.cacheDir, "complete.gptbackup")

@@ -1892,9 +1892,11 @@ class ChatViewModel @Inject constructor(
         )
 
         val normalizedResearchTask = userMessage.content.trim().replace(Regex("\\s+"), " ").take(8_000)
+        val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
         val sharedEvidence = researchSessionStore?.exportChat(leadMessage.chatId)
             ?.lastOrNull { session ->
-                session.snapshot.task.trim().replace(Regex("\\s+"), " ").take(8_000).equals(normalizedResearchTask, ignoreCase = true)
+                session.turnId == researchTurnId &&
+                    session.snapshot.task.trim().replace(Regex("\\s+"), " ").take(8_000).equals(normalizedResearchTask, ignoreCase = true)
             }
             ?.snapshot
             ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)

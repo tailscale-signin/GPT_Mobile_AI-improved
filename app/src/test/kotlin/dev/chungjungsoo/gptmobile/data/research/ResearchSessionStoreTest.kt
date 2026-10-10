@@ -42,17 +42,18 @@ class ResearchSessionStoreTest {
 
     @Test fun relatedProfileRunsReuseFreshResearchForTheSameTask() = runBlocking {
         val store = ResearchSessionStore(context)
-        val original = store.journal("profile-a", 1, true)
+        val original = store.journal("profile-a", 1, true, turnId = "1:42")
         original.save(ResearchSnapshot("What changed in the latest release?", complete = true))
 
-        val related = store.journal("profile-b", 1, true)
+        val related = store.journal("profile-b", 1, true, turnId = "1:42")
         assertEquals("What changed in the latest release?", related.load("  WHAT changed in the latest   release? ")?.task)
+        assertNull(store.journal("profile-c", 1, true, turnId = "1:43").load("What changed in the latest release?"))
     }
 
     @Test fun taskScopedResearchLockSerializesSiblingProfiles() = runBlocking {
         val store = ResearchSessionStore(context)
-        val first = store.journal("profile-a", 1, true)
-        val second = store.journal("profile-b", 1, true)
+        val first = store.journal("profile-a", 1, true, turnId = "1:7")
+        val second = store.journal("profile-b", 1, true, turnId = "1:7")
         val active = AtomicInteger()
         val peak = AtomicInteger()
         coroutineScope {

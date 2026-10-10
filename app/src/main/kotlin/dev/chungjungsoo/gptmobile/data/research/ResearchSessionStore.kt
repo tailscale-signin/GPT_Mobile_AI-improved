@@ -19,7 +19,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
-data class ResearchSession(val runId: String, val chatId: Int, val snapshot: ResearchSnapshot)
+data class ResearchSession(val runId: String, val chatId: Int, val snapshot: ResearchSnapshot, val turnId: String = runId)
 
 /** App-private bounded history, included in complete backups; temporary chats stay in RAM. */
 @Singleton
@@ -35,7 +35,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     fun stop(runId: String) {
         stops += runId
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId): ResearchJournal = object : ResearchJournal {
         override fun stopRequested() = runId in stops || chatId in deletedChats
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
@@ -51,20 +51,20 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val persisted = if (persistent) directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read) else emptyList()
                 (persisted + mutable.value.values.filter { it.chatId == chatId })
                     .asSequence()
-                    .filter { it.chatId == chatId && normalizedTask(it.snapshot.task) == taskKey }
+                    .filter { it.chatId == chatId && it.turnId == turnId && normalizedTask(it.snapshot.task) == taskKey }
                     .maxByOrNull { it.snapshot.updatedAt }
                     ?.snapshot
             }
         }
         override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
-            val key = "$chatId:${researchHash(normalizedTask(task))}"
+            val key = "$chatId:$turnId:${researchHash(normalizedTask(task))}"
             val taskLock = taskLocks[(key.hashCode() and Int.MAX_VALUE) % taskLocks.size]
             return taskLock.withLock { block() }
         }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats) return@withLock
-                val session = ResearchSession(runId, chatId, snapshot)
+                val session = ResearchSession(runId, chatId, snapshot, turnId)
                 mutable.update { (it + (runId to session)).entries.sortedByDescending { row -> row.value.snapshot.updatedAt }.take(24).associate { row -> row.toPair() } }
                 if (!persistent) return@withLock
                 try {
@@ -73,6 +73,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     val data = buildJsonObject {
                         put("runId", runId)
                         put("chatId", chatId)
+                        put("turnId", turnId)
                         put("snapshot", snapshot.json())
                     }.toString().toByteArray()
                     require(data.size <= 512 * 1024)
@@ -122,6 +123,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             stream.readBytes()
         }
         val value = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
-        ResearchSession(value.text("runId"), value.number("chatId"), requireNotNull(ResearchSnapshot.parse(value["snapshot"]!!.jsonObject)))
+        val runId = value.text("runId")
+        ResearchSession(runId, value.number("chatId"), requireNotNull(ResearchSnapshot.parse(value["snapshot"]!!.jsonObject)), value.text("turnId").ifBlank { runId })
     }.getOrNull()
 }

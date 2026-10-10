@@ -1267,7 +1267,7 @@ class ChatRepositoryImpl(
             val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
             val localDelegation = LocalDelegationCoordinator(
                 platform,
-                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent),
+                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey),
                 settings = { effectiveDelegationSettings() },
                 profiles = { settingRepository.fetchPlatformV2s() },
                 generate = { target, task, cap -> generateDelegate(target, task, cap) },

@@ -6,13 +6,14 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from release_identity import release_application_id
 
 artifacts = Path(sys.argv[1])
 sha = sys.argv[2]
 if not re.fullmatch(r"[a-f0-9]{40}", sha):
     raise SystemExit("Expected a full immutable commit SHA")
 build = Path("app/build.gradle.kts").read_text()
-expected_id = re.search(r'applicationId = "([^"]+)"', build).group(1)
+expected_id = release_application_id(build)
 expected_code = re.search(r'versionCode = (\d+)', build).group(1)
 expected_name = re.search(r'versionName = "([^"]+)"', build).group(1)
 aapt = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0/aapt2"

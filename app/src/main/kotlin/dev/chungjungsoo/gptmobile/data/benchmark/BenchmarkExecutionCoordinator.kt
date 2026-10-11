@@ -7,6 +7,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundService
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /** Owns a benchmark independently of the screen that started it. */
 @Singleton
@@ -39,6 +41,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         private set
 
     private var recovery: Job? = null
+    private var foregroundReady: CompletableDeferred<Unit>? = null
 
     init {
         if (preferences.getBoolean(KEY_RUNNING, false)) {
@@ -57,7 +60,12 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         stopReason = null
         val id = java.util.UUID.randomUUID().toString()
         sessionMutable.value = id
+        val ready = CompletableDeferred<Unit>()
+        foregroundReady = ready
         val job = scope.launch(start = CoroutineStart.LAZY) {
+            // Starting the service is asynchronous. Fast failures/cancellation must
+            // not stop it before Android receives the foreground notification.
+            withTimeout(10_000) { ready.await() }
             recovery?.join()
             preferences.edit().putBoolean(KEY_RUNNING, true).putString("session_id", id).putString("status", "RUNNING").commit()
             block()
@@ -76,13 +84,14 @@ class BenchmarkExecutionCoordinator @Inject constructor(
                         else -> "FINISHED"
                     }
                     preferences.edit().putBoolean(KEY_RUNNING, false).putString("status", outcome).apply()
-                    appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
+                    if (ready.isCompleted) appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
+                    foregroundReady = null
                     active = null
                 }
             }
         }
         try {
-            ContextCompat.startForegroundService(appContext, Intent(appContext, BenchmarkForegroundService::class.java))
+            ContextCompat.startForegroundService(appContext, Intent(appContext, BenchmarkForegroundService::class.java).putExtra(BenchmarkForegroundService.EXTRA_SESSION_ID, id))
         } catch (error: Exception) {
             job.cancel()
             sessionMutable.value = null
@@ -92,6 +101,16 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         errorMutable.value = null
         job.start()
         return job
+    }
+
+    /** Called only after ServiceCompat.startForeground succeeds for this session. */
+    @Synchronized
+    fun serviceReady(id: String?): Boolean {
+        if (id == null || id != sessionMutable.value || active?.isCancelled != false) return false
+        return foregroundReady?.let {
+            it.complete(Unit)
+            true
+        } ?: false
     }
 
     fun serviceUnavailable(reason: String) {

@@ -166,6 +166,8 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             send(packet)
             return withTimeout(timeoutMs) { request.finished.await() }.also {
                 if (it.operation == "ERROR") {
+                    if (it.errorCode == "MODEL_CONFIGURATION") throw LocalModelConfigurationException(it.text)
+                    if (it.errorCode == "NPU_PACKAGE") throw LocalNpuPackageException.fromRemote(it.text)
                     if (it.loadAttempts.isNotEmpty()) throw LocalLoadFailure(it.loadAttempts)
                     throw IllegalStateException(it.text)
                 }

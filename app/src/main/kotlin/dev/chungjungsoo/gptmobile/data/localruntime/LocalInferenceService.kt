@@ -196,7 +196,12 @@ class LocalInferenceService : Service() {
                 reply.send("CANCELLED", text = "Local request cancelled after native cleanup")
             } catch (error: Throwable) {
                 if (error is NativeCancellationTimeoutException) Process.killProcess(Process.myPid())
-                reply.send("ERROR", text = error.message ?: "Local worker failed", loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty())
+                val errorCode = when (error) {
+                    is LocalModelConfigurationException -> "MODEL_CONFIGURATION"
+                    is LocalNpuPackageException -> "NPU_PACKAGE"
+                    else -> null
+                }
+                reply.send("ERROR", text = error.message ?: "Local worker failed", errorCode = errorCode, loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty())
             } finally {
                 if (generatingRequest == packet.requestId) generatingRequest = null
                 jobs.remove(packet.requestId)

@@ -6,12 +6,15 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -21,6 +24,62 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class BenchmarkExecutionCoordinatorTest {
+    @Test fun workWaitsForForegroundAndFastCompletionStopsOnlyAfterPromotion() = runBlocking {
+        var stops = 0
+        val stopped = CompletableDeferred<Unit>()
+        val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
+            override fun getApplicationContext(): Context = this
+            override fun stopService(service: Intent): Boolean {
+                stops++
+                stopped.complete(Unit)
+                return true
+            }
+        }
+        val ran = CompletableDeferred<Unit>()
+        val coordinator = BenchmarkExecutionCoordinator(context, mockk(relaxed = true))
+        val job = requireNotNull(coordinator.launch { ran.complete(Unit) })
+        assertNull(withTimeoutOrNull(100) { ran.await() })
+        assertFalse(ran.isCompleted)
+        assertEquals(0, stops)
+        assertFalse(coordinator.serviceReady("stale-session"))
+        assertFalse(ran.isCompleted)
+        assertTrue(coordinator.serviceReady(coordinator.sessionId.value))
+        withTimeout(5000) {
+            job.join()
+            stopped.await()
+        }
+        assertTrue(ran.isCompleted)
+        assertEquals(1, stops)
+    }
+
+    @Test fun cancellationBeforePromotionLetsTheServiceAcknowledgeAndroidBeforeStopping() = runBlocking {
+        var stops = 0
+        val stopped = CompletableDeferred<Unit>()
+        val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
+            override fun getApplicationContext(): Context = this
+            override fun stopService(service: Intent): Boolean {
+                stops++
+                stopped.complete(Unit)
+                return true
+            }
+        }
+        val coordinator = BenchmarkExecutionCoordinator(context, mockk(relaxed = true))
+        val first = requireNotNull(coordinator.launch { error("Cancelled work must not execute") })
+        val firstId = coordinator.sessionId.value
+        coordinator.cancel()
+        withTimeout(5000) { first.join() }
+        assertEquals(0, stops)
+        val second = requireNotNull(coordinator.launch { awaitCancellation() })
+        assertFalse(coordinator.serviceReady(firstId))
+        assertTrue(coordinator.serviceReady(coordinator.sessionId.value))
+        coordinator.cancel()
+        withTimeout(5000) {
+            second.join()
+            stopped.await()
+        }
+        assertEquals(1, stops)
+    }
+
     @Test fun foregroundStartRejectionReleasesReservedOwnership() {
         val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
             override fun getApplicationContext(): Context = this

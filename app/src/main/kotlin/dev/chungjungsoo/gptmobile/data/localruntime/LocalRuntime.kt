@@ -160,12 +160,17 @@ class LocalRuntimeFallbackDisabledException(cause: Throwable) :
         cause
     )
 
-class LocalNpuPackageException(cause: Throwable) :
-    IllegalStateException(
+class LocalNpuPackageException private constructor(message: String, cause: Throwable?) : IllegalStateException(message, cause) {
+    constructor(cause: Throwable) : this(
         "NPU initialization failed: ${cause.message.orEmpty()}. This compiled package cannot use GPU/CPU fallback. " +
             "Export diagnostics, retry if the failure was transient, or download a separate compatible GPU / CPU edition from the marketplace.",
         cause
     )
+
+    companion object {
+        fun fromRemote(message: String): LocalNpuPackageException = LocalNpuPackageException(message, null)
+    }
+}
 
 interface LocalRuntime {
     val isBusy: Boolean get() = false

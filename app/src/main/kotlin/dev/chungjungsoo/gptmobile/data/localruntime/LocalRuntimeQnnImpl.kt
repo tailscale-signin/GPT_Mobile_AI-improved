@@ -141,6 +141,10 @@ internal class LocalRuntimeQnnImpl(
             throw cancelled
         } catch (error: Throwable) {
             if (error is VirtualMachineError || error is ThreadDeath) throw error
+            if (error is LocalModelConfigurationException) {
+                checkpoint("QNN_INIT_TERMINAL", QnnRuntimeStage.MODEL_CONTEXT, "status=CONFIGURATION_REJECTED · nativeInitializationStarted=false · detail=${error.message}")
+                throw error
+            }
             val failure = classifyQnnFailure(stage, error)
             checkpoint("QNN_INIT_TERMINAL", failure.stage, "status=FAILED · code=${failure.code} · cause=${error.javaClass.simpleName} · nativeDetail=${failure.nativeDetail}")
             throw failure

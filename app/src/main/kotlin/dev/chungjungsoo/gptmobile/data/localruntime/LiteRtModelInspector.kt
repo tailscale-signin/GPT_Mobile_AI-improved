@@ -20,6 +20,14 @@ data class LocalModelCapabilities(
     val visionBackends: Set<String> = emptySet()
 ) {
     fun validate(spec: LocalEngineSpec) {
+        try {
+            validateConfiguration(spec)
+        } catch (error: IllegalArgumentException) {
+            throw LocalModelConfigurationException(error.message ?: "Unsupported model configuration", error)
+        }
+    }
+
+    private fun validateConfiguration(spec: LocalEngineSpec) {
         require(contextTokens == null || spec.maxTokens <= contextTokens) { "Requested context ${spec.maxTokens} exceeds this export's $contextTokens-token ceiling." }
         require(backends.isEmpty() || spec.accelerator.lowercase() in backends) { "This artifact does not support ${spec.accelerator}. Choose a compatible variant; a backend switch cannot convert compiled weights." }
         require(!spec.isVisionEnabled || vision != false) { "This export is text-only; image input is unsupported." }
@@ -31,6 +39,8 @@ data class LocalModelCapabilities(
         require(minRuntimeVersion == null || !runtimeVersionIsNewer(minRuntimeVersion, BuildConfig.LITERT_LM_VERSION)) { "This model requires LiteRT-LM $minRuntimeVersion; installed runtime is ${BuildConfig.LITERT_LM_VERSION}." }
     }
 }
+
+class LocalModelConfigurationException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 
 internal fun runtimeVersionIsNewer(required: String, installed: String): Boolean {
     fun parts(value: String) = value.removePrefix("v").substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }

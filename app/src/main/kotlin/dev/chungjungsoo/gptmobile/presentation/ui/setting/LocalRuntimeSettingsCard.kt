@@ -144,7 +144,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
                         )
                     }
                 }
-                Text("Model default follows the package's supported settings. On requires a compatible draft or MTP model package and may fail to load otherwise. Compare speed and answer quality in Benchmarks.", style = MaterialTheme.typography.bodySmall)
+                Text("Model default follows the package's settings. On enables speculative decoding only for packages that declare draft or MTP support; other packages use ordinary decoding. Compare speed and answer quality in Benchmarks.", style = MaterialTheme.typography.bodySmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Local Assist (Trial)")

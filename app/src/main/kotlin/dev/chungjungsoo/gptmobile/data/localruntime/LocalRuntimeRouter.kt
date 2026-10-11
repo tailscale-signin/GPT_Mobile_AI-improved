@@ -79,6 +79,7 @@ class LocalRuntimeRouter(
                 } catch (error: Throwable) {
                     if (error !is Exception && error !is LinkageError) throw error
                     qnnRuntime.unloadEngine()
+                    if (error is LocalModelConfigurationException) throw error
                     if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) {
                         throw LocalNpuPackageException(error)
                     }
@@ -128,6 +129,7 @@ class LocalRuntimeRouter(
                 throw cancelled
             } catch (error: Throwable) {
                 if (error !is Exception && error !is LinkageError) throw error
+                if (error is LocalModelConfigurationException) throw error
                 if (primaryError == null) primaryError = error
                 attempts += LocalLoadAttempt.failed(accelerator, "initialize", error)
                 liteRtRuntime.unloadEngine()

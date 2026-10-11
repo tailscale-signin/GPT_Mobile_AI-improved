@@ -716,6 +716,9 @@ class LiteRtLmAdapter(
         try {
             loadEngine(requested)
             val active = loadedEngineSpec() ?: requested
+            state.value.fallbackReason?.takeIf { it.isNotBlank() }?.let {
+                send(ProviderEvent.Notice(it, persistent = true))
+            }
             if (active.accelerator != requested.accelerator) {
                 send(ProviderEvent.Notice("${requested.accelerator.uppercase()} unavailable — running on ${active.accelerator.uppercase()}", persistent = true))
             }
@@ -725,6 +728,9 @@ class LiteRtLmAdapter(
         } catch (error: LocalRuntimeFallbackDisabledException) {
             throw error
         } catch (error: LocalNpuPackageException) {
+            logEngineFailure(requested, error)
+            throw error
+        } catch (error: dev.chungjungsoo.gptmobile.data.localruntime.LocalModelConfigurationException) {
             logEngineFailure(requested, error)
             throw error
         } catch (error: Throwable) {

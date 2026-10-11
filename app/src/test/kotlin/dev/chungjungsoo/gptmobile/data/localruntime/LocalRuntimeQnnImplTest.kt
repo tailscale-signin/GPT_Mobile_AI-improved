@@ -18,6 +18,13 @@ class LocalRuntimeQnnImplTest {
         override fun loadFinished() = Unit
     }
 
+    @Test fun configurationRejectionIsNotMisreportedAsNativeInitializationFailure() = runTest {
+        val original = LocalModelConfigurationException("This export has no verified speculative-decoding support")
+        val native = FakeLocalRuntime().apply { failLoadEngineIf = { original } }
+        val qnn = LocalRuntimeQnnImpl(native, noOpGuard, { ready }, enabled = true)
+        assertTrue(runCatching { qnn.loadEngine(spec) }.exceptionOrNull() === original)
+    }
+
     @Test
     fun transformedDispatchSpecStillReusesTheWarmEngine() = runTest {
         val native = FakeLocalRuntime()

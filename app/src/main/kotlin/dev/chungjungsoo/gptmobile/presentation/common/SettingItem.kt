@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,13 +46,14 @@ fun SettingItem(
     leadingIcon: @Composable () -> Unit? = {},
     trailingBadge: @Composable (() -> Unit)? = null
 ) {
+    val focusedModifier = modifier.settingSearchFocus(title)
     val clickableModifier = if (enabled) {
-        modifier
+        focusedModifier
             .fillMaxWidth()
             .clickable(onClick = onItemClick)
             .padding(horizontal = 8.dp)
     } else {
-        modifier
+        focusedModifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
     }
@@ -117,9 +120,10 @@ fun SettingsHelpIcon(
     title: String = "About This Setting"
 ) {
     var open by remember { mutableStateOf(false) }
+    val helpLabel = stringResource(R.string.help_action, title)
     Surface(
         onClick = { open = true },
-        modifier = modifier.size(22.dp),
+        modifier = modifier.size(48.dp).semantics { contentDescription = helpLabel },
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -128,7 +132,9 @@ fun SettingsHelpIcon(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text("?", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(22.dp)) {
+                Box(contentAlignment = Alignment.Center) { Text("?", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+            }
         }
     }
     if (open) {
@@ -137,7 +143,7 @@ fun SettingsHelpIcon(
             title = { Text(title) },
             text = { Text(description) },
             confirmButton = {
-                TextButton(onClick = { open = false }) { Text("Close") }
+                TextButton(onClick = { open = false }) { Text(stringResource(R.string.local_tools_settings_panel_label_12)) }
             }
         )
     }

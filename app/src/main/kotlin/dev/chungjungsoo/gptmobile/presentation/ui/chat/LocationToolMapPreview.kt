@@ -8,9 +8,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -40,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -160,6 +163,9 @@ internal fun EmbeddedLocationMap(
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val origin = data.origin
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var cameraFitted by rememberSaveable(origin, data.places.map { it.id }) { mutableStateOf(false) }
+    var cameraState by rememberSaveable(origin) { mutableStateOf(listOf(origin.latitude, origin.longitude, 15.0, 0.0, 0.0)) }
     var selectedId by rememberSaveable(origin) { mutableStateOf<String?>(null) }
     var walking by rememberSaveable { mutableStateOf(true) }
     var walkRoute by remember(origin, selectedId) { mutableStateOf<PlaceRoute?>(null) }
@@ -184,7 +190,11 @@ internal fun EmbeddedLocationMap(
             }
             getMapAsync { active ->
                 if (!disposed.get()) {
-                    active.cameraPosition = CameraPosition.Builder().target(LatLng(origin.latitude, origin.longitude)).zoom(15.0).build()
+                    active.cameraPosition = CameraPosition.Builder().target(LatLng(cameraState[0], cameraState[1])).zoom(cameraState[2]).bearing(cameraState[3]).tilt(cameraState[4]).build()
+                    active.addOnCameraIdleListener {
+                        val position = active.cameraPosition
+                        position.target?.let { target -> cameraState = listOf(target.latitude, target.longitude, position.zoom, position.bearing, position.tilt) }
+                    }
                     active.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/dark")) { style ->
                         if (!disposed.get()) {
                             style.addSource(GeoJsonSource("location-origin", FeatureCollection.fromFeatures(if (data.showOrigin) listOf(Feature.fromGeometry(Point.fromLngLat(origin.longitude, origin.latitude))) else emptyList())))
@@ -281,7 +291,8 @@ internal fun EmbeddedLocationMap(
     // Fit only when the location results change; theme and route updates preserve the user's camera.
     LaunchedEffect(ready, origin, data.places.map { Triple(it.id, it.latitude, it.longitude) }) {
         val active = map ?: return@LaunchedEffect
-        if (data.places.isNotEmpty()) {
+        if (data.places.isNotEmpty() && !cameraFitted) {
+            cameraFitted = true
             val bounds = LatLngBounds.Builder().include(LatLng(origin.latitude, origin.longitude))
             data.places.forEach { bounds.include(LatLng(it.latitude, it.longitude)) }
             active.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 45))
@@ -315,9 +326,35 @@ internal fun EmbeddedLocationMap(
     fun open(url: String) {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     }
+    val mapContent: @Composable (Modifier) -> Unit = { mapModifier ->
+        androidx.compose.runtime.key(mapView) {
+            AndroidView(
+                factory = {
+                    // Move the existing view between the inline and expanded containers.
+                    (mapView.parent as? android.view.ViewGroup)?.removeView(mapView)
+                    mapView
+                },
+                modifier = mapModifier
+            )
+        }
+    }
+    if (expanded) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(
+            onDismissRequest = { expanded = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize().systemBarsPadding()) {
+                    TextButton(onClick = { expanded = false }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.map_close)) }
+                    mapContent(Modifier.fillMaxWidth().weight(1f))
+                }
+            }
+        }
+    }
     Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))) {
         Column {
-            androidx.compose.runtime.key(mapView) { AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(250.dp)) }
+            if (!expanded) mapContent(Modifier.fillMaxWidth().height(250.dp))
+            TextButton(onClick = { expanded = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.map_expand)) }
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.primary)

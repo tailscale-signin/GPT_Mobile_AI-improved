@@ -22,8 +22,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.settingSearchFocus
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,11 +50,11 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
     LaunchedEffect(Unit) { refresh() }
     val panelContent: @Composable () -> Unit = {
         Column(Modifier.padding(if (embedded) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (!embedded) Text("Privacy & Storage", style = MaterialTheme.typography.titleLarge)
-            Row {
+            if (!embedded) Text(stringResource(R.string.ui_v2_privacy_storage), style = MaterialTheme.typography.titleLarge)
+            Row(Modifier.settingSearchFocus("Require Device Unlock")) {
                 Column(Modifier.weight(1f)) {
-                    Text("Require Device Unlock")
-                    Text("Locks after 30 seconds away", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.ui_v2_require_device_unlock))
+                    Text(stringResource(R.string.ui_v2_locks_after_30_seconds_away), style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(locked, { enabled ->
                     if (enabled && !(context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure) {
@@ -62,8 +65,8 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
                     }
                 })
             }
-            Row {
-                Text("Hide Screenshots And Recent-App Previews", Modifier.weight(1f))
+            Row(Modifier.settingSearchFocus("Hide Screenshots And Recent-App Previews")) {
+                Text(stringResource(R.string.ui_v2_hide_screenshots_and_recent_app_previews), Modifier.weight(1f))
                 Switch(secure, { enabled ->
                     secure = enabled
                     preferences.edit().putBoolean("secure_screen", enabled).apply()
@@ -71,7 +74,7 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
                 })
             }
             sizes.forEach { (name, size) -> Text("$name · ${"%.1f".format(size / 1_048_576.0)} MB", style = MaterialTheme.typography.bodySmall) }
-            TextButton(onClick = { confirmCleanup = true }) { Text("Clear Attachment Previews") }
+            TextButton(modifier = Modifier.settingSearchFocus("Clear Attachment Previews"), onClick = { confirmCleanup = true }) { Text(stringResource(R.string.ui_v2_clear_attachment_previews)) }
             if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -83,8 +86,8 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
     if (confirmCleanup) {
         AlertDialog(
             onDismissRequest = { confirmCleanup = false },
-            title = { Text("Clear previews?") },
-            text = { Text("Removes temporary copies used by external viewers. Original attachments and downloaded models are kept.") },
+            title = { Text(stringResource(R.string.ui_v2_clear_previews)) },
+            text = { Text(stringResource(R.string.ui_v2_removes_temporary_copies_used_by_external_viewers_original_attach)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmCleanup = false
@@ -93,9 +96,15 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
                         message = if (removed) "Preview copies cleared." else "Some previews could not be removed."
                         refresh()
                     }
-                }) { Text("Clear") }
+                }) { Text(stringResource(R.string.fact_vault_screen_label_2)) }
             },
-            dismissButton = { TextButton(onClick = { confirmCleanup = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { confirmCleanup = false }) { Text(stringResource(R.string.fact_vault_screen_label_19)) } }
         )
     }
 }
+
+internal val privacyControlSearchEntries = listOf(
+    SettingsSearchEntry("privacy.control.0", "Require Device Unlock", "Advanced Settings › Privacy & Storage", SettingsSearchDestination.ADVANCED, "privacy:Require Device Unlock"),
+    SettingsSearchEntry("privacy.control.1", "Hide Screenshots And Recent-App Previews", "Advanced Settings › Privacy & Storage", SettingsSearchDestination.ADVANCED, "privacy:Hide Screenshots And Recent-App Previews"),
+    SettingsSearchEntry("privacy.control.2", "Clear Attachment Previews", "Advanced Settings › Privacy & Storage", SettingsSearchDestination.ADVANCED, "privacy:Clear Attachment Previews")
+)

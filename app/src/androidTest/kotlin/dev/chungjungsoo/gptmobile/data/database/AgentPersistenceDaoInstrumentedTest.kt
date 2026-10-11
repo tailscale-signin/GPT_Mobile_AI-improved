@@ -42,6 +42,23 @@ class AgentPersistenceDaoInstrumentedTest {
     }
 
     @Test
+    fun removedQueuedProfileCannotDispatchOrOverwriteCurrentMembership() = runBlocking {
+        val stale = ChatRoomV2(title = "Queued", enabledPlatform = listOf("profile-1", "profile-2"))
+        val id = database.agentPersistenceDao().insertChatRoom(stale).toInt()
+        val current = stale.copy(id = id, activePlatform = listOf("profile-1"))
+        database.agentPersistenceDao().updateChatRoom(current)
+        val payload = dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload(profileUids = listOf("profile-2"))
+        database.pendingPromptDao().enqueue(dev.chungjungsoo.gptmobile.data.queue.PendingPrompt("queued-1", id, "Keep my prompt", kotlinx.serialization.json.Json.encodeToString(payload), 0))
+        val failure = runCatching {
+            database.agentPersistenceDao().persistAgentTurn(PersistAgentTurnRequest(stale.copy(id = id), MessageV2(content = "Keep my prompt", platformType = null), listOf(AgentRunDraft("removed-run", "profile-2", "OPENAI", "model")), mapOf("profile-2" to "model"), queuedPromptId = "queued-1"))
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals(listOf("profile-1"), database.agentPersistenceDao().getChatRoom(id)?.activePlatform)
+        assertEquals("Keep my prompt", database.pendingPromptDao().get("queued-1")?.text)
+        assertTrue(database.messageDao().loadMessages(id).isEmpty())
+    }
+
+    @Test
     fun persistAgentTurn_assignsIdsAndQueuesEveryProfileInOneTransaction() = runBlocking {
         val result = database.agentPersistenceDao().persistAgentTurn(
             PersistAgentTurnRequest(

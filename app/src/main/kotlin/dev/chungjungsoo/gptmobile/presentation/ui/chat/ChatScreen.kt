@@ -110,6 +110,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.contentDescription
@@ -141,6 +142,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -271,6 +273,9 @@ fun ChatScreen(
     var targetResponseOffset by remember(chatViewModel.targetMessageId) { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showExportOptions by remember { mutableStateOf(false) }
+    var showProfileManagement by rememberSaveable { mutableStateOf(false) }
+    var showOutline by rememberSaveable { mutableStateOf(false) }
+    var pendingJumpKey by rememberSaveable { mutableStateOf<String?>(null) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
@@ -285,6 +290,7 @@ fun ChatScreen(
         }
     }
     val disabledPlatformUids by chatViewModel.disabledPlatformUids.collectAsStateWithLifecycle()
+    val nextMessageProfileUid by chatViewModel.nextMessageProfileUid.collectAsStateWithLifecycle()
     val activePlatformUids by chatViewModel.activePlatformUids.collectAsStateWithLifecycle()
     val isChatTitleDialogOpen by chatViewModel.isChatTitleDialogOpen.collectAsStateWithLifecycle()
     val isChatModelDialogOpen by chatViewModel.isChatModelDialogOpen.collectAsStateWithLifecycle()
@@ -413,6 +419,15 @@ fun ChatScreen(
     }
 
     val scope = rememberCoroutineScope()
+    LaunchedEffect(pendingJumpKey, firstVisibleTurn, historyHeaderCount) {
+        val key = pendingJumpKey ?: return@LaunchedEffect
+        val index = groupedMessages.userMessages.withIndex().firstOrNull { (turn, message) -> chatMessagePairKey(message, turn) == key }?.index ?: -1
+        if (index >= firstVisibleTurn) {
+            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= visibleTurnCount + historyHeaderCount }
+            listState.scrollToItem(index - firstVisibleTurn + historyHeaderCount)
+        }
+        pendingJumpKey = null
+    }
     if (showExportOptions) {
         ChatExportDialog(onDismiss = { showExportOptions = false }, debugMode = debugMode) { format ->
             showExportOptions = false
@@ -566,8 +581,9 @@ fun ChatScreen(
                 onChatModelItemClick = chatViewModel::openChatModelDialog,
                 onExportChatItemClick = { showExportOptions = true },
                 onDisablePlatformClick = {
-                    Toast.makeText(context, R.string.disable_platform, Toast.LENGTH_SHORT).show()
-                }
+                    showProfileManagement = true
+                },
+                onOutlineClick = { showOutline = true }
             )
         }
     ) { innerPadding ->
@@ -740,35 +756,43 @@ fun ChatScreen(
                     .fillMaxWidth()
                     .onSizeChanged { composerHeightPx = it.height }
             ) {
-                ChatInputBox(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding(),
-                    inputState = chatViewModel.question,
-                    chatEnabled = canUseChat && !inspectingCombinedSource,
-                    sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
-                    isRunning = !isIdle,
-                    queuedPromptCount = queuedPromptCount,
-                    selectedAttachments = selectedAttachments,
-                    onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
-                    onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
-                    onCancelButtonClick = chatViewModel::cancelActiveRuns
-                ) {
-                    if (!requestedNotificationPermission &&
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                Column {
+                    nextMessageProfileUid?.let { uid ->
+                        TextButton(onClick = { showProfileManagement = true }) {
+                            Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
+                        }
+                    }
+                    ChatInputBox(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding(),
+                        inputState = chatViewModel.question,
+                        chatEnabled = canUseChat && !inspectingCombinedSource,
+                        sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
+                        isRunning = !isIdle,
+                        queuedPromptCount = queuedPromptCount,
+                        selectedAttachments = selectedAttachments,
+                        onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
+                        onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
+                        onFileRetry = chatViewModel::retrySelectedFile,
+                        onCancelButtonClick = chatViewModel::cancelActiveRuns
                     ) {
-                        sendAfterNotificationPermission = true
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else if (needsLocalNetworkAccess &&
-                        Build.VERSION.SDK_INT >= 37 &&
-                        ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        sendAfterLocalNetworkPermission = true
-                        localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
-                    } else {
-                        chatViewModel.askQuestion()
-                        focusManager.clearFocus()
+                        if (!requestedNotificationPermission &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            sendAfterNotificationPermission = true
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else if (needsLocalNetworkAccess &&
+                            Build.VERSION.SDK_INT >= 37 &&
+                            ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            sendAfterLocalNetworkPermission = true
+                            localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
+                        } else {
+                            chatViewModel.askQuestion()
+                            focusManager.clearFocus()
+                        }
                     }
                 }
             }
@@ -861,6 +885,40 @@ fun ChatScreen(
                     chatViewModel.updateChatCreativity(creativity)
                     chatViewModel.closeChatModelDialog()
                 }
+            )
+        }
+
+        if (showOutline) {
+            AlertDialog(
+                onDismissRequest = { showOutline = false },
+                title = { Text(stringResource(R.string.outline_title)) },
+                text = {
+                    LazyColumn {
+                        if (hasOlderHistory) item { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier turns") } }
+                        itemsIndexed(groupedMessages.userMessages, key = { index, message -> chatMessagePairKey(message, index) }) { index, message ->
+                            TextButton(onClick = {
+                                isFollowingBottom = false
+                                isHoldingEntryCenter = false
+                                entryPositioned = true
+                                revealedArchivedTurns = groupedMessages.userMessages.size
+                                pendingJumpKey = chatMessagePairKey(message, index)
+                                showOutline = false
+                            }) { Text(stringResource(R.string.outline_turn, index + 1, message.content.take(100)), maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showOutline = false }) { Text(stringResource(R.string.close)) } }
+            )
+        }
+        if (showProfileManagement) {
+            ChatProfileManagementDialog(
+                profiles = appAllPlatforms.filter { it.uid in activePlatformUids },
+                pausedUids = disabledPlatformUids,
+                onPause = chatViewModel::togglePlatformDisabled,
+                onRemove = { chatViewModel.setPlatformMembership(it, false) },
+                onDismiss = { showProfileManagement = false },
+                nextMessageUid = nextMessageProfileUid,
+                onNextMessage = if (chatRoom.conversationMode != ConversationMode.COMBINED) chatViewModel::selectNextMessageProfile else null
             )
         }
 
@@ -1329,7 +1387,8 @@ private fun ChatTopBar(
     onChatTitleItemClick: () -> Unit,
     onChatModelItemClick: () -> Unit,
     onExportChatItemClick: () -> Unit,
-    onDisablePlatformClick: () -> Unit = {}
+    onDisablePlatformClick: () -> Unit = {},
+    onOutlineClick: () -> Unit = {}
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
@@ -1350,7 +1409,7 @@ private fun ChatTopBar(
             IconButton(
                 onClick = onBackAction,
                 colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.padding(start = 8.dp).size(44.dp)
+                modifier = Modifier.padding(start = 8.dp).size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -1388,6 +1447,10 @@ private fun ChatTopBar(
                 onDisablePlatformClick = {
                     onDisablePlatformClick()
                     isDropDownMenuExpanded = false
+                },
+                onOutlineClick = {
+                    onOutlineClick()
+                    isDropDownMenuExpanded = false
                 }
             )
         },
@@ -1403,7 +1466,8 @@ fun ChatDropdownMenu(
     onDismissRequest: () -> Unit,
     onChatTitleItemClick: () -> Unit,
     onExportChatItemClick: () -> Unit,
-    onDisablePlatformClick: () -> Unit = {}
+    onDisablePlatformClick: () -> Unit = {},
+    onOutlineClick: () -> Unit = {}
 ) {
     DropdownMenu(
         modifier = Modifier.wrapContentSize(),
@@ -1426,11 +1490,19 @@ fun ChatDropdownMenu(
                 onDismissRequest()
             }
         )
-        /* Disable Platform in current session */
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.outline_open)) },
+            onClick = {
+                onOutlineClick()
+                onDismissRequest()
+            },
+            enabled = isMenuItemEnabled
+        )
+        /* Manage profiles in current conversation */
         DropdownMenuItem(
             colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
             enabled = isMenuItemEnabled,
-            text = { Text(text = stringResource(R.string.disable_platform)) },
+            text = { Text(text = stringResource(R.string.manage_chat_profiles)) },
             onClick = {
                 onDisablePlatformClick()
                 onDismissRequest()
@@ -1553,6 +1625,7 @@ fun ChatInputBox(
     onFileSelected: (String) -> Unit = {},
     onFileRemoved: (String) -> Unit = {},
     onCancelButtonClick: () -> Unit = {},
+    onFileRetry: (String) -> Unit = {},
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -1562,6 +1635,7 @@ fun ChatInputBox(
     val scope = rememberCoroutineScope()
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
     val hasQuestionText = inputState.text.isNotEmpty()
+    var attachmentMenu by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -1595,7 +1669,8 @@ fun ChatInputBox(
                 if (selectedAttachments.isNotEmpty()) {
                     FileThumbnailRow(
                         selectedAttachments = selectedAttachments,
-                        onFileRemoved = onFileRemoved
+                        onFileRemoved = onFileRemoved,
+                        onFileRetry = onFileRetry
                     )
                 }
                 BasicTextField(
@@ -1613,15 +1688,18 @@ fun ChatInputBox(
                                 .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(
-                                enabled = chatEnabled,
-                                onClick = { filePickerLauncher.launch("*/*") }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.AttachFile,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    contentDescription = stringResource(R.string.attach_file)
-                                )
+                            Box {
+                                IconButton(enabled = chatEnabled, onClick = { attachmentMenu = true }) {
+                                    Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.attach_file))
+                                }
+                                DropdownMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
+                                    listOf(R.string.attach_images to "image/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
+                                        DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
+                                            attachmentMenu = false
+                                            filePickerLauncher.launch(mime)
+                                        })
+                                    }
+                                }
                             }
                             Box(
                                 modifier = Modifier
@@ -1630,7 +1708,7 @@ fun ChatInputBox(
                             ) {
                                 if (inputState.text.isEmpty()) {
                                     Text(
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         text = if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
                                     )
                                 }
@@ -1638,23 +1716,24 @@ fun ChatInputBox(
                                     innerTextField()
                                 }
                             }
-                            val showStop = isRunning && !hasQuestionText && selectedAttachments.isEmpty()
+                            if (isRunning) {
+                                IconButton(
+                                    onClick = onCancelButtonClick,
+                                    modifier = Modifier.testTag("chat_stop")
+                                ) {
+                                    Icon(Icons.Rounded.Stop, contentDescription = stringResource(R.string.cancel_active_runs))
+                                }
+                            }
                             FilledIconButton(
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                                enabled = showStop || (chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty())),
-                                onClick = if (showStop) onCancelButtonClick else onSendButtonClick
+                                enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
+                                onClick = onSendButtonClick,
+                                modifier = Modifier.testTag("chat_send")
                             ) {
-                                if (showStop) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Stop,
-                                        contentDescription = stringResource(R.string.cancel_active_runs)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ArrowUpward,
-                                        contentDescription = stringResource(R.string.send)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.ArrowUpward,
+                                    contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
+                                )
                             }
                         }
                     }
@@ -1667,7 +1746,8 @@ fun ChatInputBox(
 @Composable
 internal fun FileThumbnailRow(
     selectedAttachments: List<ChatAttachmentDraft>,
-    onFileRemoved: (String) -> Unit
+    onFileRemoved: (String) -> Unit,
+    onFileRetry: (String) -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -1679,7 +1759,8 @@ internal fun FileThumbnailRow(
         selectedAttachments.forEach { attachment ->
             FileThumbnail(
                 attachment = attachment,
-                onRemove = { onFileRemoved(attachment.sourceFilePath) }
+                onRemove = { onFileRemoved(attachment.sourceFilePath) },
+                onRetry = { onFileRetry(attachment.sourceFilePath) }
             )
         }
     }
@@ -1688,7 +1769,8 @@ internal fun FileThumbnailRow(
 @Composable
 internal fun FileThumbnail(
     attachment: ChatAttachmentDraft,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onRetry: () -> Unit = {}
 ) {
     val file = File(attachment.preparedFilePath ?: attachment.sourceFilePath)
     val isImage = isImageFile(file.extension)
@@ -1768,6 +1850,20 @@ internal fun FileThumbnail(
                 .width(72.dp)
         )
 
+        attachment.attachment?.sizeBytes?.let { size ->
+            Text(android.text.format.Formatter.formatShortFileSize(LocalContext.current, size), style = MaterialTheme.typography.labelSmall)
+        }
+        Text(
+            stringResource(
+                when (attachment.status) {
+                    ChatAttachmentDraft.Status.Preparing -> R.string.attachment_preparing
+                    ChatAttachmentDraft.Status.Ready -> R.string.attachment_ready
+                    ChatAttachmentDraft.Status.Failed -> R.string.attachment_failed
+                }
+            ),
+            style = MaterialTheme.typography.labelSmall
+        )
+        if (attachment.status == ChatAttachmentDraft.Status.Failed) TextButton(onClick = onRetry) { Text(stringResource(R.string.attachment_retry)) }
         attachment.notice?.let { notice ->
             Text(
                 text = notice,

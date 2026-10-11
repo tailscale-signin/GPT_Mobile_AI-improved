@@ -4,6 +4,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class AppFeatureSettings(
+    val compactChatList: Boolean = false,
+    val lastChatProfileUids: List<String> = emptyList(),
+    val lastChatMode: String = "STANDARD",
     val smoothStreaming: Boolean = true,
     val centerUnread: Boolean = true,
     val responseAnimation: Boolean = true,
@@ -57,6 +60,7 @@ data class AppFeatureSettings(
     val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()
 ) {
     fun withFeature(feature: AppFeature, enabled: Boolean): AppFeatureSettings = when (feature) {
+        AppFeature.COMPACT_CHAT_LIST -> copy(compactChatList = enabled)
         AppFeature.SMOOTH_STREAMING -> copy(smoothStreaming = enabled)
         AppFeature.CENTER_UNREAD -> copy(centerUnread = enabled)
         AppFeature.RESPONSE_ANIMATION -> copy(responseAnimation = enabled)
@@ -144,6 +148,7 @@ enum class AppFeature(
     val title: String,
     val description: String
 ) {
+    COMPACT_CHAT_LIST("Compact Conversation List", "Show a smaller conversation preview while preserving accessible actions."),
     SMOOTH_STREAMING("Follow Streaming Responses", "Keep the latest text visible until you scroll up."),
     CENTER_UNREAD("Center Unread Responses", "Open new replies at their beginning, in the middle of the screen."),
     RESPONSE_ANIMATION("Response Fade-In", "Animate newly generated text."),

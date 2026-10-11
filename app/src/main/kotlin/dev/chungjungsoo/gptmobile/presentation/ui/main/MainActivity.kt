@@ -102,7 +102,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
         val hasChatRoom = intent.hasExtra(EXTRA_CHAT_ROOM_ID) || intent.hasExtra("conversation_id")
-        if (hasChatRoom) {
+        if (hasChatRoom || intent.getBooleanExtra(dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundService.EXTRA_OPEN_BENCHMARKS, false)) {
             pendingDeepLinkEvents.tryEmit(intent)
         }
     }
@@ -111,6 +111,10 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 pendingDeepLinkEvents.collectLatest { intent ->
+                    if (intent.getBooleanExtra(dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundService.EXTRA_OPEN_BENCHMARKS, false)) {
+                        navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "all")) { launchSingleTop = true }
+                        return@collectLatest
+                    }
                     val chatRoomId = when {
                         intent.hasExtra(EXTRA_CHAT_ROOM_ID) -> intent.getIntExtra(EXTRA_CHAT_ROOM_ID, 0)
                         intent.hasExtra("conversation_id") -> intent.getStringExtra("conversation_id")?.toIntOrNull() ?: 0

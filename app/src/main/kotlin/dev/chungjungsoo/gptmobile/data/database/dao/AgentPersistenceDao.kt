@@ -186,6 +186,8 @@ interface AgentPersistenceDao {
         request.queuedPromptId?.let { id ->
             val pending = requireNotNull(pendingPrompt(id)) { "Queued input has already been dispatched or removed." }
             require(pending.chatId == request.chatRoom.id && !pending.paused)
+            val currentRoom = requireNotNull(getChatRoom(pending.chatId))
+            require(request.runs.isNotEmpty() && request.runs.all { it.profileUid in currentRoom.activePlatform && it.profileUid !in request.queuedPausedProfiles }) { "A queued profile was removed or paused. Review the queued input before resuming it." }
             require(firstPendingId(pending.chatId) == id) { "Queue order changed." }
             require(queuedTurnReady(pending.chatId, request.queuedPausedProfiles)) { "Conversation is still running or awaiting its combined answer." }
             require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
@@ -197,7 +199,9 @@ interface AgentPersistenceDao {
             val submittedDraft = request.queuedPromptId == null &&
                 current.draftText.orEmpty() == request.userMessage.content &&
                 runCatching { kotlinx.serialization.json.Json.decodeFromString<List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment>>(current.draftAttachments) }.getOrNull() == request.userMessage.attachments
-            val merged = request.chatRoom.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken)
+            // A queue worker may have read this room before the user changed membership.
+            val roomSnapshot = if (request.queuedPromptId == null) request.chatRoom else current
+            val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken)
             updateChatRoom(merged)
             merged
         }

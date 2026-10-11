@@ -75,8 +75,17 @@ fun AiPlatformsScreen(
     onNavigateToPlatformSetting: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val platforms by settingViewModel.platformState.collectAsStateWithLifecycle()
-    val providerConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
+    val allPlatforms by settingViewModel.platformState.collectAsStateWithLifecycle()
+    val allProviderConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
+    var query by rememberSaveable { mutableStateOf("") }
+    var favoritesOnly by rememberSaveable { mutableStateOf(false) }
+    val platforms = remember(allPlatforms, query, favoritesOnly) {
+        allPlatforms.filter { dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery(it, query) && (!favoritesOnly || it.isFavorite) }
+            .sortedWith(compareByDescending<PlatformV2> { it.isFavorite }.thenBy { it.name.lowercase(java.util.Locale.ROOT) })
+    }
+    val providerConnections = allProviderConnections.filter { connection ->
+        query.isBlank() || connection.name.contains(query, true) || platforms.any { it.providerConnectionUid == connection.uid }
+    }
     var selectedPlatformTab by rememberSaveable { mutableIntStateOf(0) }
 
     Scaffold(
@@ -114,6 +123,10 @@ fun AiPlatformsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            item {
+                dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField(query, { query = it })
+                androidx.compose.material3.FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = !favoritesOnly }, label = { Text(stringResource(R.string.profile_favorites_only)) })
+            }
             item {
                 PrimaryTabRow(selectedTabIndex = selectedPlatformTab) {
                     Tab(

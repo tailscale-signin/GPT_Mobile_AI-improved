@@ -53,6 +53,10 @@ jobs:
             echo '{"status":"NOT_QUALIFIED","reason":"Missing trusted model/device evidence or failed inference"}' > device-evidence/qnn-status.json
           fi
           cat device-evidence/qnn-status.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect visual review fixtures
+        if: always()
+        run: |
+          adb exec-out run-as dev.melo.gptmobile.improved tar -cf - files/ui-review > device-evidence/ui-review.tar
       - name: Capture Qualcomm execution logs
         if: always()
         run: adb logcat -d -v threadtime -s QnnQualification LiteRT QnnHtp > device-evidence/qnn-logcat.txt

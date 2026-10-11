@@ -80,6 +80,8 @@ class HomeViewModel @Inject constructor(
         val selectedChats: List<Boolean> = listOf()
     )
 
+    val featureSettings = settingRepository.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
+
     private val _currentTab = MutableStateFlow(HomeTab.CHATS)
     val currentTab = _currentTab.asStateFlow()
 
@@ -415,7 +417,17 @@ class HomeViewModel @Inject constructor(
         _showDeleteWarningDialog.update { false }
     }
 
+    fun rememberChatSelection(uids: List<String>, mode: String) {
+        val valid = platformState.value.filter { it.enabled && it.uid in uids }.map { it.uid }
+        viewModelScope.launch {
+            val current = settingRepository.getFeatureSettings()
+            settingRepository.updateFeatureSettings(current.copy(lastChatProfileUids = valid, lastChatMode = mode))
+        }
+    }
+
     fun openSelectModelDialog() {
+        val suggested = featureSettings.value.lastChatProfileUids.toSet()
+        _chatListState.update { state -> state.copy(selectedPlatforms = platformState.value.map { it.enabled && it.uid in suggested }) }
         _showSelectModelDialog.update { true }
         disableSelectionMode()
     }

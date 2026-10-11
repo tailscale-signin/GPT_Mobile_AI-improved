@@ -80,7 +80,7 @@ fun CompleteBackupDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
                         Text(
-                            if (state.passwordProtectionEnabled) "Your password is saved securely in the app and included inside the encrypted backup. Use it to restore after reinstall or on another device." else "Encryption is off. The backup includes readable app data and your saved password. Enable encryption to protect it.",
+                            stringResource(if (state.passwordProtectionEnabled) R.string.backup_password_recovery_notice else R.string.backup_unencrypted_notice),
                             modifier = Modifier.padding(start = 10.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

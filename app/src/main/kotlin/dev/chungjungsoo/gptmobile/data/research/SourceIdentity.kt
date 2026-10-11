@@ -66,7 +66,7 @@ data class SourceIdentity(
             val query = uri.rawQuery.orEmpty().split('&').asSequence()
                 .filter(String::isNotBlank)
                 .filterNot { pair ->
-                    val key = URLDecoder.decode(pair.substringBefore('='), StandardCharsets.UTF_8).lowercase(Locale.ROOT)
+                    val key = URLDecoder.decode(pair.substringBefore('='), StandardCharsets.UTF_8.name()).lowercase(Locale.ROOT)
                     key.startsWith("utm_") || key in setOf("fbclid", "gclid", "mc_cid", "mc_eid", "ref", "source")
                 }
                 .sorted()

@@ -40,17 +40,18 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
     val npuStatus by viewModel.npuStatus.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var threads by remember(settings.localCpuThreads) { mutableStateOf(settings.localCpuThreads.toFloat()) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Engine & performance", style = MaterialTheme.typography.titleLarge)
+            Text("Device & engine", style = MaterialTheme.typography.titleLarge)
             Text("${viewModel.soc} · ${viewModel.cores} CPU cores · ${viewModel.ramGb} GB RAM", style = MaterialTheme.typography.bodyMedium)
-            Text(active.engineSpec?.let { "Running: ${active.backend?.displayName} / ${it.accelerator.uppercase()} · ${it.maxTokens} context" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
+            Text(active.engineSpec?.let { "Loaded: ${active.backend?.displayName} / ${it.accelerator.uppercase()} · ${it.maxTokens} context" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
             active.fallbackReason?.let { Text("Fallback: $it", style = MaterialTheme.typography.bodySmall) }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LocalRuntimeBackend.entries.filter { it == LocalRuntimeBackend.LITERT_LM || (it == LocalRuntimeBackend.QUALCOMM_QNN && qnnAvailable && !dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) }.forEach { option -> FilterChip(selected = backend == option, onClick = { viewModel.selectBackend(option) }, label = { Text(option.displayName) }, enabled = !busy) }
             }
+            Text("Selected backend: ${backend.displayName}", style = MaterialTheme.typography.bodyMedium)
             Text(npuStatus, style = MaterialTheme.typography.bodySmall)
             if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) Text("GenieX preview · Import a validated .localmodel bundle. Chat only; device qualification pending.", style = MaterialTheme.typography.bodySmall)
             Text("LiteRT-LM ${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION} · QAIRT ${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}", style = MaterialTheme.typography.labelSmall)
@@ -94,6 +95,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
                         Switch(settings.qnnAutomaticFallback, { viewModel.updateTuning(fallback = it) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Automatic QNN fallback" })
                     }
                 }
+                Text("Storage & thermal controls", style = MaterialTheme.typography.titleMedium)
                 Text("Release model after idle", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(1, 5, 10, 30, 0).forEach { minutes -> FilterChip(settings.localIdleMinutes == minutes, onClick = { viewModel.updateTuning(idle = minutes) }, label = { Text(if (minutes == 0) "Keep warm" else "$minutes min") }, enabled = !busy) }

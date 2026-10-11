@@ -49,7 +49,7 @@ fun SetupCompleteScreen(
             Column(Modifier.padding(24.dp)) {
                 Text("1. Tap New chat", style = MaterialTheme.typography.titleMedium)
                 Text("2. Choose your AI and send a message", modifier = Modifier.padding(vertical = 12.dp))
-                Text("3. Use the wrench to adjust models and tools")
+                Text("3. Open AI or Tools whenever you want to adjust your setup")
             }
             Spacer(modifier = Modifier.weight(1f))
             PrimaryLongButton(

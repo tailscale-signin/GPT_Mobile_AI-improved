@@ -146,3 +146,14 @@ internal fun AppEditorScaffold(
         )
     }
 }
+
+/** Read-only detail pages share the same safe top bar and content insets as editors. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AppDetailScaffold(title: String, onBack: () -> Unit, content: @Composable (androidx.compose.foundation.layout.PaddingValues) -> Unit) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) },
+        content = content
+    )
+}

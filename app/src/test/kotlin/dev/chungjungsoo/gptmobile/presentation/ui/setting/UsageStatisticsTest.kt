@@ -77,4 +77,34 @@ class UsageStatisticsTest {
         assertEquals(listOf(2, 1), result.toolUsage.map { it.calls })
         assertEquals("A · search", result.toolUsage.first().name)
     }
+
+    @Test
+    fun selectedScopeFiltersRunsToolsRequestsAndRecordedCostTogether() {
+        val first = run("a", output = 10)
+        val other = run("b", output = 90).copy(profileUid = "other")
+        fun invocation(id: String, profile: String, cost: Long?, currency: String? = "USD") = dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation(
+            id, id, id, "provider", "model", "primary", 1, 10, false, "COMPLETED", timestamp * 1000,
+            profileUid = profile, costMicros = cost, currency = currency
+        )
+        val invocations = listOf(invocation("a", "profile", 100), invocation("a2", "profile", null), invocation("b", "other", 900))
+        val inputs = UsageInputs(listOf(first, other), emptyList(), mapOf("profile" to "Same name", "other" to "Same name"), 7, emptyList())
+        val result = scopedUsageStatistics(inputs, invocations, UsageScope("profile", "provider"), today)
+        assertEquals(1, result.runs)
+        assertEquals(10L, result.generatedTokens)
+        assertEquals(2, result.profilePerformance.sumOf { it.samples.size })
+        assertEquals(mapOf("USD" to 100L), result.recordedCosts)
+        assertEquals(1, result.unpricedRequests)
+        assertEquals(2, result.availableProfiles.size)
+    }
+
+    @Test
+    fun costsRetainCurrenciesAndMissingPricesStayUnknown() {
+        fun invocation(id: String, currency: String?, cost: Long?) = dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation(
+            id, id, id, "provider", "model", "primary", 1, 10, false, "COMPLETED", timestamp * 1000,
+            costMicros = cost, currency = currency
+        )
+        val result = scopedUsageStatistics(UsageInputs(emptyList(), emptyList(), emptyMap(), 7, emptyList()), listOf(invocation("a", "USD", 10), invocation("b", "EUR", 20), invocation("c", null, null)), UsageScope(), today)
+        assertEquals(mapOf("USD" to 10L, "EUR" to 20L), result.recordedCosts)
+        assertEquals(1, result.unpricedRequests)
+    }
 }

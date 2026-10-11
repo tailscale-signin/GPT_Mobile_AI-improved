@@ -84,7 +84,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     val editing = vault.facts.firstOrNull { it.id == editingId }
     var adding by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
-    var selectedMemories by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedMemories by rememberSaveable(stateSaver = androidx.compose.runtime.saveable.Saver<Set<String>, ArrayList<String>>(save = { ArrayList(it) }, restore = { it.toSet() })) { mutableStateOf(emptySet<String>()) }
     var restructuring by rememberSaveable { mutableStateOf(false) }
     var replacementText by rememberSaveable { mutableStateOf("") }
     var deleting by remember { mutableStateOf<String?>(null) }

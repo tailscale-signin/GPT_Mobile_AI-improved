@@ -105,6 +105,11 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val rangeLabel = if (days == 0) "stored history" else "$days days"
     var tab by rememberSaveable { mutableIntStateOf(2) }
     var mode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
+    var scoreOrder by rememberSaveable { mutableIntStateOf(0) }
+    var showSpeed by rememberSaveable { mutableStateOf(true) }
+    var showReliability by rememberSaveable { mutableStateOf(true) }
+    var showFreshness by rememberSaveable { mutableStateOf(false) }
+    var showColumns by rememberSaveable { mutableStateOf(false) }
     var typeFilter by rememberSaveable { mutableIntStateOf(0) }
     var performanceOrder by rememberSaveable { mutableStateOf(PerformanceOrder.LATENCY) }
     var detailKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -473,6 +478,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("All", "Local", "Remote").forEachIndexed { index, label -> FilterChip(typeFilter == index, { typeFilter = index }, label = { Text(label) }) }
                                 }
+                                SettingsTabs(listOf("Overall ↓", "Speed ↓", "Reliability ↓"), scoreOrder) { scoreOrder = it }
+                                TextButton(onClick = { showColumns = !showColumns }) { Text(if (showColumns) "Hide display options" else "Choose visible metrics") }
+                                if (showColumns) {
+                                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        FilterChip(showSpeed, { showSpeed = !showSpeed }, label = { Text("Speed") })
+                                        FilterChip(showReliability, { showReliability = !showReliability }, label = { Text("Reliability") })
+                                        FilterChip(showFreshness, { showFreshness = !showFreshness }, label = { Text("Measurement date") })
+                                    }
+                                }
                                 Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote use separate verified cohort scales.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -482,7 +496,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     Text("Scale updates across all eligible profiles", modifier = Modifier.weight(1f))
                                     SettingsHelpIcon("Speed balances each workload band: 100 × its measured rate / its fastest verified compatible rate. Local weights Q/R/S/L/C = 40/25/10/10/15; Remote = 35/20/20/15/10. Overall is capped by quality and reliability. Hidden rows remain in the anchor. Quick and incomplete runs never establish anchors. Reference lexical4 tokenizer v1 is a comparison unit, not provider billing. Five timed trials per workload are required; p95 requires 20 samples.")
                                 }
-                                Text("Snapshot ${snapshot?.generation ?: 0} · 30-day freshness · Quick runs stay provisional", style = MaterialTheme.typography.labelSmall)
+                                Text("Snapshot ${snapshot?.generation ?: 0} · ${snapshot?.createdAt?.let(::benchmarkDate) ?: "Not measured"} · 30-day freshness · Quick runs stay provisional", style = MaterialTheme.typography.labelSmall)
                             }
                         }
                         val rows = snapshot?.rows.orEmpty().filter { row -> typeFilter == 0 || row.cohort.contains("device:") == (typeFilter == 1) }
@@ -498,15 +512,23 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     }
                                 ) {
                                     Text(cohort.substringBefore('|'), style = MaterialTheme.typography.labelSmall)
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Profile", modifier = Modifier.weight(1.3f))
-                                        Text("Speed /100", modifier = Modifier.weight(1f))
-                                        Text("Ref tok/s", modifier = Modifier.weight(1f))
-                                        Text("Overall", modifier = Modifier.weight(.8f))
-                                    }
+                                    Text("Profile and overall score · ${listOfNotNull(if (showSpeed) "speed" else null, if (showReliability) "reliability" else null, if (showFreshness) "measurement date" else null).joinToString()}", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
-                            items(cohortRows.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow> { it.overall ?: -1.0 }.thenByDescending { it.speed ?: -1.0 }), key = { "v2-${it.profileUid}-${it.cohort}-${it.sourceRunIds.firstOrNull()}" }) { row ->
+                            items(
+                                cohortRows.sortedWith(
+                                    compareByDescending<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow> {
+                                        (
+                                            when (scoreOrder) {
+                                                1 -> it.speedScore
+                                                2 -> it.reliability
+                                                else -> it.overall
+                                            }
+                                            ) ?: -1.0
+                                    }.thenByDescending { it.speed ?: -1.0 }
+                                ),
+                                key = { "v2-${it.profileUid}-${it.cohort}-${it.sourceRunIds.firstOrNull()}" }
+                            ) { row ->
                                 val item = profiles.firstOrNull { it.uid == row.profileUid }
                                 Card(onClick = {
                                     if (item != null) {
@@ -515,14 +537,16 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     }
                                 }, shape = RoundedCornerShape(16.dp)) {
                                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(item?.name ?: "Retained profile", modifier = Modifier.weight(1.3f), fontWeight = FontWeight.SemiBold)
-                                            Text(row.speedScore?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(1f))
-                                            Text(row.speed?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(1f))
-                                            Text(row.overall?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(.8f), color = MaterialTheme.colorScheme.primary)
+                                        Text(item?.name ?: "Retained profile", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                                        MetricLine("Overall /100", row.overall?.let { "%.1f".format(it) } ?: "Not measured")
+                                        if (showSpeed) {
+                                            MetricLine("Speed score /100", row.speedScore?.let { "%.1f".format(it) } ?: "Not measured")
+                                            MetricLine("Reference tokens/s", row.speed?.let { "%.1f".format(it) } ?: "Not measured")
                                         }
+                                        if (showReliability) MetricLine("Reliability", row.reliability?.let { "%.1f%%".format(it) } ?: "Not measured")
+                                        if (showFreshness) MetricLine("Latest source measurement", history.filter { it.id in row.sourceRunIds }.maxOfOrNull { it.startedAt }?.let(::benchmarkDate) ?: "Not available")
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("${if (row.verified) "Verified" else "Provisional"} · ${row.sampleCount} samples · first ${row.firstTextMs?.let { "%.0f ms".format(it) } ?: "—"}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                                            Text("${if (row.verified) "Verified" else "Provisional"} · ${row.sampleCount} samples · first ${row.firstTextMs?.let { "%.0f ms".format(it) } ?: "Not measured"}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
                                             SettingsHelpIcon(row.explanation)
                                         }
                                     }

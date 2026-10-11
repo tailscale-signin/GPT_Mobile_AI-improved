@@ -67,6 +67,7 @@ fun ArchivedConversationsBar(
 ) {
     var pendingDelete by androidx.compose.runtime.remember { mutableStateOf<ChatRoomV2?>(null) }
     var expanded by rememberSaveable { mutableStateOf(false) }
+    var fullHeight by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     LaunchedEffect(archivedChats.isEmpty()) {
@@ -99,7 +100,7 @@ fun ArchivedConversationsBar(
         )
     }
     if (expanded && archivedChats.isNotEmpty()) {
-        val halfHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * 0.5f }
+        val halfHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * if (fullHeight) 0.9f else 0.5f }
         ModalBottomSheet(
             onDismissRequest = { expanded = false },
             sheetState = sheetState,
@@ -112,10 +113,11 @@ fun ArchivedConversationsBar(
                 Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
                     HorizontalDivider(Modifier.size(width = 32.dp, height = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 }
+                TextButton(onClick = { fullHeight = !fullHeight }) { Text(if (fullHeight) "Half-height view" else "Expand archive") }
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Archived conversations", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                        Text("Swipe right to restore · swipe left to delete", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Archived conversations", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Restore or delete using each conversation’s actions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = {
                         scope.launch {

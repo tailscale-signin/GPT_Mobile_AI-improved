@@ -54,10 +54,23 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewModel = hiltViewModel(), embedded: Boolean = false) {
     var tab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    var filterSheet by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
     var order by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(PerformanceOrder.LATENCY) }
     val stats by viewModel.statistics.collectAsStateWithLifecycle()
     val samples = remember(stats.profilePerformance) { stats.profilePerformance.flatMap { it.samples } }
     val measured = samples.filterNot { it.estimated }
+    if (filterSheet != null) {
+        UsageScopeSheet(
+            title = if (filterSheet == "profile") "Choose a profile" else "Choose a provider",
+            options = if (filterSheet == "profile") stats.availableProfiles else stats.availableProviders.associateWith { it },
+            selected = if (filterSheet == "profile") stats.selectedProfile else stats.selectedProvider,
+            onDismiss = { filterSheet = null },
+            onChoose = { value ->
+                if (filterSheet == "profile") viewModel.selectProfile(value) else viewModel.selectProvider(value)
+                filterSheet = null
+            }
+        )
+    }
     Scaffold(topBar = {
         if (!embedded) {
             TopAppBar(title = { Text("Usage") }, navigationIcon = {
@@ -77,12 +90,21 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(24.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(stats.selectedProfile != null, { filterSheet = "profile" }, label = { Text(stats.selectedProfile?.let { stats.availableProfiles[it] ?: it } ?: "All profiles") })
+                    FilterChip(stats.selectedProvider != null, { filterSheet = "provider" }, label = { Text(stats.selectedProvider ?: "All providers") })
+                }
+            }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(24.dp)) {
                     Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("MODEL REQUESTS", style = MaterialTheme.typography.labelLarge)
+                        Text("Model requests", style = MaterialTheme.typography.labelLarge)
                         Text(number(samples.size.toLong()), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
                         Text("${number(measured.sumOf { it.outputTokens.toLong() })} reported output tokens", style = MaterialTheme.typography.titleMedium)
                         Text("${number(measured.sumOf { it.inputTokens.toLong() })} reported input · ${stats.profilePerformance.size} profile / model combinations", style = MaterialTheme.typography.bodySmall)
+                        if (stats.recordedCosts.isEmpty()) Text("Cost · Not recorded", style = MaterialTheme.typography.bodyMedium)
+                        stats.recordedCosts.forEach { (currency, micros) -> Text("Recorded cost · $currency ${"%.6f".format(micros / 1_000_000.0)}", style = MaterialTheme.typography.bodyMedium) }
+                        if (stats.unpricedRequests > 0) Text("${stats.unpricedRequests} requests have no recorded price and are excluded from cost totals.", style = MaterialTheme.typography.bodySmall)
                         if (samples.any { it.estimated }) Text("${samples.count { it.estimated }} requests have estimates; excluded from reported totals.", style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -158,7 +180,7 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
 @Composable
 internal fun TrendChart(values: List<Double>, labels: List<String>, color: Color, unit: String) {
     val maximum = (values.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
-    val grid = MaterialTheme.colorScheme.primary.copy(alpha = .15f)
+    val grid = MaterialTheme.colorScheme.outlineVariant
     if (values.isEmpty()) {
         Text("No samples in this period.")
         return
@@ -184,6 +206,9 @@ internal fun TrendChart(values: List<Double>, labels: List<String>, color: Color
         Text(labels.firstOrNull().orEmpty(), style = MaterialTheme.typography.labelSmall)
         Text(labels.lastOrNull().orEmpty(), style = MaterialTheme.typography.labelSmall)
     }
+    var table by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.material3.TextButton(onClick = { table = !table }) { Text(if (table) "Hide data table" else "Show data table") }
+    if (table) values.forEachIndexed { index, value -> MetricLine(labels.getOrNull(index).orEmpty(), "${"%.1f".format(value)} $unit") }
 }
 
 @Composable
@@ -206,7 +231,7 @@ internal fun OutcomeChart(completed: Int, failed: Int, canceled: Int, unknown: I
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            labels.forEachIndexed { index, label -> if (index < 3 || values[index] > 0) Text("${values[index]} $label", color = colors[index], style = MaterialTheme.typography.bodySmall) }
+            labels.forEachIndexed { index, label -> if (index < 3 || values[index] > 0) Text("${values[index]} $label", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
@@ -238,3 +263,26 @@ internal fun modelChartColor(name: String): Color {
 internal fun formatLatency(value: Long?): String = value?.let { "%.2f s".format(it / 1000.0) } ?: "—"
 private fun number(value: Long) = NumberFormat.getIntegerInstance().format(value)
 private fun shortTime(value: Long) = DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
+
+@Composable
+private fun UsageScopeSheet(title: String, options: Map<String, String>, selected: String?, onDismiss: () -> Unit, onChoose: (String?) -> Unit) {
+    var query by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        confirmButton = {},
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                dev.chungjungsoo.gptmobile.presentation.designsystem.AppSearchField(query, { query = it }, "Search")
+                LazyColumn {
+                    item { androidx.compose.material3.TextButton(onClick = { onChoose(null) }) { Text(if (selected == null) "All · selected" else "All") } }
+                    options.entries.filter { it.value.contains(query, true) || it.key.contains(query, true) }.sortedBy { it.value }.forEach { option ->
+                        item(key = option.key) {
+                            androidx.compose.material3.TextButton(onClick = { onChoose(option.key) }, modifier = Modifier.fillMaxWidth()) { Text(option.value + if (selected == option.key) " · selected" else "") }
+                        }
+                    }
+                }
+            }
+        }
+    )
+}

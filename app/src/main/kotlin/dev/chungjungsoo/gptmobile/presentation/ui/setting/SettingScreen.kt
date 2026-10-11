@@ -52,13 +52,29 @@ fun SettingScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val entries = SettingsSearchRegistry.entries + memoryControlSearchEntries + privacyControlSearchEntries +
         platforms.flatMap { profile -> profileControlSearchEntries(profile, providers.any { it.uid == profile.providerConnectionUid }) + SettingsSearchEntry("profile.${profile.uid}", profile.name, "AI › Profiles › ${profile.name}", SettingsSearchDestination.PROFILES, profile.uid, "${profile.model} ${profile.compatibleType}") }
+    SettingsRootContent(query, { query = it }, entries, onSearchDestination, onNavigateToAppearance, onNavigateToFactVault, onNavigateToDebugDiagnostics, onNavigateToAboutPage, modifier)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun SettingsRootContent(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    entries: List<SettingsSearchEntry>,
+    onSearchDestination: (String, String) -> Unit,
+    onNavigateToAppearance: () -> Unit,
+    onNavigateToFactVault: () -> Unit,
+    onNavigateToDebugDiagnostics: () -> Unit,
+    onNavigateToAboutPage: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
         LargeTopAppBar(title = { Text("Settings") }, actions = {
             IconButton(onClick = onNavigateToDebugDiagnostics) { Icon(Icons.Rounded.Timeline, "Activity") }
         })
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { SettingsDiscoveryPanel(query, { query = it }, entries, { onSearchDestination(it.destination.name, it.focus) }) }
+            item { SettingsDiscoveryPanel(query, onQueryChange, entries, { onSearchDestination(it.destination.name, it.focus) }) }
             if (query.isBlank()) {
                 item { AppDestinationRow("Appearance", "Theme, colour and display", Icons.Rounded.Palette, onNavigateToAppearance) }
                 item { AppDestinationRow("Conversations", "Reading, composer and notifications", Icons.Rounded.ChatBubbleOutline, { onSearchDestination("CONVERSATIONS", "") }) }

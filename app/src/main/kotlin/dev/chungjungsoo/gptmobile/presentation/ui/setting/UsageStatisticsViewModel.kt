@@ -57,7 +57,13 @@ data class UsageStatistics(
     val performance: List<ModelPerformance> = emptyList(),
     val days: Int = 30,
     val profileNames: Map<String, String> = emptyMap(),
-    val profilePerformance: List<ProfilePerformance> = emptyList()
+    val profilePerformance: List<ProfilePerformance> = emptyList(),
+    val selectedProfile: String? = null,
+    val selectedProvider: String? = null,
+    val availableProfiles: Map<String, String> = emptyMap(),
+    val availableProviders: List<String> = emptyList(),
+    val recordedCosts: Map<String, Long> = emptyMap(),
+    val unpricedRequests: Int = 0
 )
 
 internal fun calculateUsageStatistics(
@@ -149,22 +155,67 @@ class UsageStatisticsViewModel @Inject constructor(
         days.value = value
     }
 
-    val statistics = combine(
+    private val scope = MutableStateFlow(UsageScope())
+    fun selectProfile(uid: String?) {
+        scope.value = scope.value.copy(profileUid = uid)
+    }
+    fun selectProvider(provider: String?) {
+        scope.value = scope.value.copy(provider = provider)
+    }
+
+    private val source = combine(
         runDao.observeRecent(10_000),
         persistenceDao.observeRecentToolEvents(10_000),
         settings.observePlatformV2s(),
         days,
         runDao.observeUnreportedOutputLengths()
     ) { runs, tools, profiles, range, lengths ->
-        calculateUsageStatistics(runs, profiles.associate { it.uid to it.name }, range, outputLengths = lengths, tools = tools)
-            .copy(profileNames = profiles.associate { it.uid to it.name })
-    }.combine(database.invocationDao().statistics()) { stats, invocations ->
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now()
-        val selected = invocations.filter {
-            val day = Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate()
-            !day.isAfter(today) && (stats.days == 0 || !day.isBefore(today.minusDays(stats.days - 1L)))
-        }
-        stats.copy(performance = modelPerformance(selected), profilePerformance = profilePerformance(selected, stats.profileNames))
+        UsageInputs(runs, tools, profiles.associate { it.uid to it.name }, range, lengths)
+    }
+    val statistics = combine(source, database.invocationDao().statistics(), scope) { source, invocations, selectedScope ->
+        scopedUsageStatistics(source, invocations, selectedScope)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UsageStatistics())
+}
+
+internal data class UsageScope(val profileUid: String? = null, val provider: String? = null) {
+    fun includes(profile: String?, providerName: String): Boolean =
+        (profileUid == null || profileUid == profile) && (provider == null || provider == providerName)
+}
+
+internal data class UsageInputs(
+    val runs: List<AgentRun>,
+    val tools: List<ToolEvent>,
+    val profileNames: Map<String, String>,
+    val range: Int,
+    val lengths: List<RunOutputLength>
+)
+
+internal fun scopedUsageStatistics(
+    source: UsageInputs,
+    invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>,
+    scope: UsageScope,
+    today: LocalDate = LocalDate.now()
+): UsageStatistics {
+    val runs = source.runs.filter { scope.includes(it.profileUid, it.providerSnapshot) }
+    val runIds = runs.mapTo(mutableSetOf()) { it.runId }
+    val tools = if (scope == UsageScope()) source.tools else source.tools.filter { it.runId in runIds }
+    val stats = calculateUsageStatistics(runs, source.profileNames, source.range, today, source.lengths, tools)
+    val zone = ZoneId.systemDefault()
+    val selected = invocations.filter {
+        val date = Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate()
+        scope.includes(it.profileUid, it.provider) &&
+            !date.isAfter(today) &&
+            (source.range == 0 || !date.isBefore(today.minusDays(source.range - 1L)))
+    }
+    val profiles = (source.runs.map { it.profileUid } + invocations.mapNotNull { it.profileUid }).distinct()
+        .associateWith { source.profileNames[it] ?: "Deleted profile (${it.take(8)})" }
+    val finished = selected.filter { it.status != "RUNNING" }
+    val priced = finished.filter { it.costMicros != null && !it.currency.isNullOrBlank() }
+    return stats.copy(
+        performance = modelPerformance(selected), profilePerformance = profilePerformance(selected, source.profileNames),
+        profileNames = source.profileNames, selectedProfile = scope.profileUid, selectedProvider = scope.provider,
+        availableProfiles = profiles, availableProviders = (source.runs.map { it.providerSnapshot } + invocations.map { it.provider }).distinct().sorted(),
+        recordedCosts = priced.groupBy { it.currency!! }.mapValues { (_, rows) -> rows.sumOf { it.costMicros!! } },
+        unpricedRequests = finished.size - priced.size
+    )
 }

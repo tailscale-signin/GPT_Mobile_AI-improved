@@ -7,6 +7,7 @@ on:
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/**'
       - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/**'
       - '.github/workflows/ui-renovation-validation.yml'
+      - 'scripts/run_ui_renovation_checks.sh'
   workflow_dispatch:
 
 permissions:
@@ -46,12 +47,7 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
-          script: ./gradlew :app:connectedDebugAndroidTest -PenableAbiSplits=false -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.presentation.renovation.RenovationInstrumentedTest,dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerControlsInstrumentedTest,dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerVisualReviewInstrumentedTest --no-daemon
-      - name: Preserve emulator screenshots
-        if: always()
-        run: |
-          mkdir -p app/build/ui-renovation-evidence
-          adb exec-out run-as dev.melo.gptmobile.improved tar -cf - files/ui-review > app/build/ui-renovation-evidence/screenshots.tar || true
+          script: bash scripts/run_ui_renovation_checks.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

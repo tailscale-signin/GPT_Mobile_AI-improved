@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -35,7 +35,7 @@ fun MaxToolCallsSetting(
     var dialogOpen by remember { mutableStateOf(false) }
 
     SettingItem(
-        modifier = Modifier.height(64.dp),
+        modifier = Modifier.heightIn(min = 64.dp),
         title = stringResource(R.string.maximum_tool_calls),
         description = if (maxToolCalls == Int.MAX_VALUE) stringResource(R.string.unlimited) else maxToolCalls.toString(),
         enabled = enabled,

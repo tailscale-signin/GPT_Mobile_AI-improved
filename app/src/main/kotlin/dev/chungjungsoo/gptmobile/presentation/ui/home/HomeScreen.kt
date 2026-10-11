@@ -1482,7 +1482,7 @@ fun AddFavoriteGroupDialog(
     onDismissRequest: () -> Unit,
     onAddGroup: (String) -> Unit
 ) {
-    var text by remember { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismissRequest,
         title = { Text(stringResource(R.string.add_group)) },
@@ -1682,12 +1682,21 @@ fun SelectPlatformDialog(
     LaunchedEffect(canCombine) {
         if (!canCombine) combinedMode = false
     }
+    var source by rememberSaveable { mutableStateOf("All") }
+    var selectedOnly by rememberSaveable { mutableStateOf(false) }
     var profileQuery by rememberSaveable { mutableStateOf("") }
     var selectedLabel by rememberSaveable { mutableStateOf<String?>(null) }
     val reusableLabels = remember(platforms) { collectReusableProfileLabels(platforms.map { it.labels }) }
-    val indexedPlatforms = remember(platforms, selectedLabel, profileQuery) {
-        orderedChatProfiles(platforms).filter { (_, profile) ->
-            dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery(profile, profileQuery) &&
+    val indexedPlatforms = remember(platforms, selectedLabel, profileQuery, selectedPlatforms, source, selectedOnly) {
+        orderedChatProfiles(platforms).filter { (index, profile) ->
+            val kind = when (profile.compatibleType) {
+                dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM -> "Local"
+                dev.chungjungsoo.gptmobile.data.model.ClientType.FREE -> "Free"
+                else -> "Remote"
+            }
+            (source == "All" || source == kind) &&
+                (!selectedOnly || (profile.enabled && selectedPlatforms.getOrElse(index) { false })) &&
+                dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery(profile, profileQuery) &&
                 (selectedLabel == null || dev.chungjungsoo.gptmobile.data.model.parseProfileLabels(profile.labels).any { it.key == selectedLabel })
         }
     }
@@ -1714,6 +1723,12 @@ fun SelectPlatformDialog(
                 }
                 item {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("All", "Remote", "Local", "Free").forEach { label -> FilterChip(source == label, { source = label }, label = { Text(label) }) }
+                        FilterChip(selectedOnly, { selectedOnly = !selectedOnly }, label = { Text("Selected · $selectedCount") })
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = !combinedMode, onClick = { combinedMode = false }, label = { Text("Separate replies") })
                         FilterChip(selected = combinedMode, enabled = canCombine, onClick = { combinedMode = true }, label = { Text("Combined reply") })
                     }
@@ -1737,7 +1752,7 @@ fun SelectPlatformDialog(
                     PlatformCheckBoxItem(
                         title = platform.name,
                         enabled = platform.enabled,
-                        selected = selectedPlatforms.getOrElse(originalIndex) { false },
+                        selected = platform.enabled && selectedPlatforms.getOrElse(originalIndex) { false },
                         isFavorite = platform.isFavorite,
                         labels = platform.labels,
                         description = if (platform.enabled) null else "Disabled — enable this profile in AI",

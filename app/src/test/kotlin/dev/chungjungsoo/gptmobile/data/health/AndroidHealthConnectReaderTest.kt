@@ -58,9 +58,9 @@ class AndroidHealthConnectReaderTest {
             AggregateRequest(
                 metrics = setOf(StepsRecord.COUNT_TOTAL),
                 timeRangeFilter = TimeRangeFilter.between(query.start, query.end),
-                dataOriginFilter = setOf(DataOrigin("com.example.health")),
+                dataOriginFilter = setOf(DataOrigin("com.example.health"))
             ),
-            request.captured,
+            request.captured
         )
         assertEquals(JsonPrimitive(1234L), result.getValue("metrics").jsonObject.getValue("steps").jsonObject.getValue("values").jsonObject["total"])
         assertEquals(JsonPrimitive("partial"), result["status"])

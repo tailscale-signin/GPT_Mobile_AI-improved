@@ -92,6 +92,7 @@ class ScoreboardViewModel @Inject constructor(store: BenchmarkStore, private val
         return try {
             val status = repository.submissionStatus(issue, account)
             mutableShare.value = mutableShare.value.copy(status = status.state, message = status.message)
+            if (status.state == ScoreboardSubmissionStatus.State.ACCEPTED) repository.refresh()
             status
         } catch (error: Exception) {
             if (error is CancellationException) throw error

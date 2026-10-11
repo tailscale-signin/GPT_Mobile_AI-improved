@@ -1,6 +1,11 @@
 name: Android device validation
 on:
   workflow_dispatch:
+    inputs:
+      qnn_model_path:
+        description: 'Optional app-readable SM8750 AOT .litertlm path for real NPU qualification'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -21,6 +26,17 @@ jobs:
           adb shell dumpsys thermalservice > device-evidence/thermal-before.txt
       - name: Instrumented behavior and native memory checks
         run: ./gradlew :app:connectedDebugAndroidTest
+      - name: Qualify SM8750 NPU inference without fallback
+        if: inputs.qnn_model_path != ''
+        env:
+          QNN_MODEL_PATH: ${{ inputs.qnn_model_path }}
+        run: |
+          ./gradlew :app:connectedDebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.data.localruntime.QualcommNpuInstrumentedTest \
+            "-Pandroid.testInstrumentationRunnerArguments.qnnModelPath=$QNN_MODEL_PATH"
+      - name: Capture Qualcomm execution logs
+        if: always()
+        run: adb logcat -d -v threadtime -s QnnQualification LiteRT QnnHtp > device-evidence/qnn-logcat.txt
       - name: Generate Baseline Profile and measure performance
         run: ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
       - name: Device evidence

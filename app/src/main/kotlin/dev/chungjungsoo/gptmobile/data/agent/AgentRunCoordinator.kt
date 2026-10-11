@@ -267,12 +267,8 @@ class AgentRunCoordinator @Inject constructor(
                 ?: "Android did not allow the foreground agent service to start."
             requests.forEach { request ->
                 runCatching {
-                    chatRepository.updateAgentMessage(
-                        terminalAgentMessage(request.assistantMessage, message, completedAt)
-                    )
-                }
-                runCatching {
-                    chatRepository.finishQueuedAgentRun(
+                    chatRepository.commitAgentRun(
+                        terminalAgentMessage(request.assistantMessage, message, completedAt),
                         request.runId,
                         AgentRunStatus.FAILED,
                         completedAt,
@@ -446,17 +442,9 @@ class AgentRunCoordinator @Inject constructor(
             val terminal = outcome.toTerminalUpdate()
             val completedAt = currentEpochSeconds()
             val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error, completedAt)
-            val committed = commitTerminalAgentRun(
-                finishRun = {
-                    chatRepository.finishAgentRun(
-                        request.runId,
-                        terminal.status,
-                        completedAt,
-                        terminal.error
-                    )
-                },
-                persistMessage = { chatRepository.updateAgentMessage(terminalMessage) }
-            )
+            val committed = withContext(NonCancellable) {
+                chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
+            }
             if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
                 completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
             }
@@ -465,20 +453,12 @@ class AgentRunCoordinator @Inject constructor(
                 val completedAt = currentEpochSeconds()
                 runCatching {
                     val isInterrupted = interruptingRunIds.remove(request.runId)
-                    commitTerminalAgentRun(
-                        finishRun = {
-                            chatRepository.finishAgentRun(
-                                request.runId,
-                                if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED,
-                                completedAt,
-                                if (isInterrupted) AgentRunTerminalError.SERVICE_STOPPED else null
-                            )
-                        },
-                        persistMessage = {
-                            chatRepository.updateAgentMessage(
-                                assistantMessage.copy(createdAt = completedAt).resetActiveRevision()
-                            )
-                        }
+                    chatRepository.commitAgentRun(
+                        assistantMessage.copy(createdAt = completedAt).resetActiveRevision(),
+                        request.runId,
+                        if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED,
+                        completedAt,
+                        if (isInterrupted) AgentRunTerminalError.SERVICE_STOPPED else null
                     )
                 }
             }
@@ -489,17 +469,7 @@ class AgentRunCoordinator @Inject constructor(
                 val message = error.message ?: "Unknown provider error."
                 runCatching {
                     val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt)
-                    commitTerminalAgentRun(
-                        finishRun = {
-                            chatRepository.finishAgentRun(
-                                request.runId,
-                                AgentRunStatus.FAILED,
-                                completedAt,
-                                message
-                            )
-                        },
-                        persistMessage = { chatRepository.updateAgentMessage(terminalMessage) }
-                    )
+                    chatRepository.commitAgentRun(terminalMessage, request.runId, AgentRunStatus.FAILED, completedAt, message)
                 }
             }
         }

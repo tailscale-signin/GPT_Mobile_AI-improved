@@ -195,11 +195,11 @@ class MarketplaceViewModel @Inject constructor(
         }
     }
 
-    fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean, endpoints: Map<String, String> = emptyMap(), disabledOperations: Set<String> = emptySet(), onSaved: () -> Unit) {
+    fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean, endpoints: Map<String, String> = emptyMap(), disabledOperations: Set<String> = emptySet(), endpointConfigs: Map<String, dev.chungjungsoo.gptmobile.data.marketplace.NativeEndpointConfig> = emptyMap(), endpointSecrets: Map<String, String> = emptyMap(), onSaved: () -> Unit) {
         viewModelScope.launch {
             try {
                 dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
-                    registry.configure(entry, endpoint, key, maxResults, dailyLimit, clearKey, endpoints, disabledOperations)
+                    registry.configure(entry, endpoint, key, maxResults, dailyLimit, clearKey, endpoints, disabledOperations, endpointConfigs, endpointSecrets)
                 }
                 onSaved()
             } catch (cancelled: CancellationException) {

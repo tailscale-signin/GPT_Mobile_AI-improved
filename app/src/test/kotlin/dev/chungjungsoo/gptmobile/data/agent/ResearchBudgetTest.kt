@@ -27,4 +27,22 @@ class ResearchBudgetTest {
         assertEquals(1, budget.snapshot().usedLogical)
         assertEquals(0, budget.snapshot().physicalRequests)
     }
+    @Test fun smallBudgetPreservesEveryPhaseWithoutIncreasingTotal() {
+        val budget = ResearchBudget(4)
+        ResearchBudget.Phase.entries.forEach { phase ->
+            assertEquals(1, budget.snapshot().remainingByPhase.getValue(phase))
+            assertTrue(budget.tryCharge(phase, physicalRequest = true))
+            assertFalse(budget.tryCharge(phase, physicalRequest = true))
+        }
+        assertEquals(0, budget.snapshot().remaining)
+    }
+
+    @Test fun discoveryExhaustionDoesNotPreventReview() {
+        val budget = ResearchBudget(24)
+        while (budget.tryCharge(ResearchBudget.Phase.DISCOVERY, physicalRequest = true)) { }
+        assertTrue(budget.tryCharge(ResearchBudget.Phase.VERIFICATION, physicalRequest = true))
+        assertTrue(budget.tryCharge(ResearchBudget.Phase.RECOVERY, physicalRequest = true))
+        assertTrue(budget.tryCharge(ResearchBudget.Phase.FINALIZATION, physicalRequest = true))
+    }
+
 }

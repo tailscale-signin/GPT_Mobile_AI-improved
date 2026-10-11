@@ -317,6 +317,40 @@ interface AgentPersistenceDao {
         if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
     }
 
+    /** Commit the complete accumulated answer and terminal status under the same ownership check. */
+    @Transaction
+    suspend fun finishRunningWithMessage(
+        assistantMessage: MessageV2,
+        runId: String,
+        status: String,
+        completedAt: Long,
+        terminalError: String?
+    ): Boolean {
+        require(status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED"))
+        val run = recoveryRun(runId) ?: return false
+        if (run.status != "RUNNING" && !(run.status == "QUEUED" && status != "COMPLETED")) return false
+        val current = recoveryMessage(run.assistantMessageId) ?: return false
+        if (current.currentRunId != runId || assistantMessage.currentRunId != runId ||
+            assistantMessage.id != run.assistantMessageId || assistantMessage.chatId != run.chatId
+        ) return false
+        updateMessage(assistantMessage)
+        updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
+        cancelActiveToolEvents(runId, completedAt)
+        if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)
+        return true
+    }
+
+    /** A late streaming checkpoint cannot replace a terminal or newer revision. */
+    @Transaction
+    suspend fun checkpointRunningMessage(message: MessageV2): Boolean {
+        val runId = message.currentRunId ?: return false
+        val run = recoveryRun(runId) ?: return false
+        if (run.status != "RUNNING" || run.assistantMessageId != message.id || run.chatId != message.chatId) return false
+        if (recoveryMessage(message.id)?.currentRunId != runId) return false
+        updateMessage(message)
+        return true
+    }
+
     @Query(
         "UPDATE agent_runs SET status = :status, started_at = :startedAt, " +
             "completed_at = :completedAt, terminal_error = :terminalError WHERE run_id = :runId"

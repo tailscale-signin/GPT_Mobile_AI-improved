@@ -2422,8 +2422,16 @@ class ChatRepositoryImpl(
         return true
     }
 
+    override suspend fun commitAgentRun(
+        message: MessageV2,
+        runId: String,
+        status: String,
+        completedAt: Long,
+        terminalError: String?
+    ): Boolean = agentPersistenceDao.finishRunningWithMessage(message, runId, status, completedAt, terminalError)
+
     override suspend fun updateAgentMessage(message: MessageV2) {
-        messageV2Dao.editMessages(message)
+        agentPersistenceDao.checkpointRunningMessage(message)
     }
 
     override suspend fun interruptActiveAgentRuns(completedAt: Long): Int = agentRunDao.interruptActiveRuns(completedAt)

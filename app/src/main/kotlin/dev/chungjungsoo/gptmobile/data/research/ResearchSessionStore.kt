@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.research
 import android.content.Context
 import android.util.AtomicFile
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.agent.ResearchBudget
+import dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -26,6 +28,8 @@ data class ResearchSession(val runId: String, val chatId: Int, val snapshot: Res
 class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context) {
     private val directory = File(context.filesDir, "research-history")
     private val lock = Mutex()
+    private val readerHealth = ConcurrentHashMap<Pair<Int, String>, ResearchReaderHealth>()
+    private val turnBudgets = linkedMapOf<Pair<Int, String>, Pair<Long, ResearchBudget>>()
     private val taskLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
     private val deletedChats = ConcurrentHashMap.newKeySet<Int>()
@@ -36,6 +40,19 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stops += runId
     }
     fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId): ResearchJournal = object : ResearchJournal {
+        override fun readerHealth(): ResearchReaderHealth = readerHealth.computeIfAbsent(chatId to turnId) { ResearchReaderHealth() }
+        override fun budget(totalLogicalCalls: Int): ResearchBudget = synchronized(turnBudgets) {
+            val now = System.currentTimeMillis()
+            // A turn cannot acquire a new allowance by changing task or profile.
+            turnBudgets.entries.removeAll { entry ->
+                (now - entry.value.first > 24 * 60 * 60 * 1000L).also { expired -> if (expired) readerHealth.remove(entry.key) }
+            }
+            val key = chatId to turnId
+            turnBudgets[key]?.second ?: run {
+                check(turnBudgets.size < 512) { "Research budget capacity reached. Retry after existing turns expire." }
+                ResearchBudget(totalLogicalCalls).also { turnBudgets[key] = now to it }
+            }
+        }
         override fun stopRequested() = runId in stops || chatId in deletedChats
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
@@ -109,6 +126,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
     suspend fun deleteChat(chatId: Int) = withContext(Dispatchers.IO) {
         deletedChats += chatId
+        readerHealth.keys.removeAll { it.first == chatId }
+        synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
             directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }

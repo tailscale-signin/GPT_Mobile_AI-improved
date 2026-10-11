@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ResearchBudget
+import dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolOutcome
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
@@ -50,9 +51,9 @@ internal class AndroidResearchWorkflow(
     private val options = config.deepResearch.normalized()
     // Charge each logical provider/tool operation once; internal physical retries remain
     // tracked by the attempt counters and do not consume another logical slot.
-    private val budget = ResearchBudget(
-        totalLogicalCalls = (maxOf(1, minOf(config.maxSearchQueries, 9)) + options.maxPages * 3 + 30).coerceIn(24, 120)
-    )
+    private val totalLogicalCalls = (maxOf(1, minOf(config.maxSearchQueries, 9)) + options.maxPages * 3 + 30).coerceIn(24, 120)
+    private val budget = journal?.budget(totalLogicalCalls) ?: ResearchBudget(totalLogicalCalls)
+    private val readerHealth = journal?.readerHealth() ?: ResearchReaderHealth(now)
     private var state = ResearchSnapshot("")
     @Volatile private var exhausted = false
     private var collectionDeadlineMs = Long.MAX_VALUE
@@ -73,7 +74,7 @@ internal class AndroidResearchWorkflow(
         journal?.save(state)
     }
 
-    private suspend fun stopped(): Boolean = exhausted || journal?.stopRequested() == true || !stillEnabled()
+    private suspend fun stopped(): Boolean = journal?.stopRequested() == true || !stillEnabled()
 
     /** Stop-and-summarize cancels only in-flight research work, never the parent answer. */
     private suspend fun <T> operation(block: suspend () -> T): T? = coroutineScope {
@@ -99,7 +100,9 @@ internal class AndroidResearchWorkflow(
         val phase = if (state.phase == "Reviewing") ResearchBudget.Phase.VERIFICATION else ResearchBudget.Phase.DISCOVERY
         if (!charge(phase)) return null
         return operation {
-            generate(delegationPrompt(instruction, state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000)), minOf(config.maxOutputTokens, 768))
+            val counters = budget.snapshot()
+            val budgetContext = "Remaining logical calls: ${counters.remaining}; phase allowances: ${counters.remainingByPhase}. Use completed evidence and preserve later phases."
+            generate(delegationPrompt("$instruction\n$budgetContext", state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000)), minOf(config.maxOutputTokens, 768))
                 ?.let(::parseDelegationObject)
         }
     }
@@ -174,12 +177,12 @@ internal class AndroidResearchWorkflow(
                     state = state.copy(notes = state.notes + "Resumed saved research within its 15-minute freshness window.")
                 }
                 for (round in (if (saved?.complete == true) options.maxRounds else state.round.coerceAtLeast(0)) until options.maxRounds) {
-                    if (stopped() || !collecting()) break
+                    if (exhausted || stopped() || !collecting()) break
                     state = state.copy(round = round)
                     val before = sources.values.count { it.readable }
                     checkpoint("Searching")
                     for (query in nextQueries.map(String::trim).filter { it.length in 3..500 }.distinct()) {
-                        if (stopped() || !collecting() || queries.size >= maxQueries) break
+                        if (exhausted || stopped() || !collecting() || queries.size >= maxQueries) break
                         if (!queries.add(query)) continue
                         checkpoint()
                         search(query, "$callId:r$round:q${queries.size}")
@@ -216,12 +219,12 @@ internal class AndroidResearchWorkflow(
                     "Stopped"
                 } else if (noResearchNeeded) {
                     "Not needed"
-                } else if (completed == null || !collecting()) {
+                } else if (exhausted || completed == null || !collecting()) {
                     "Partial"
                 } else {
                     "Complete"
                 },
-                complete = completed != null && collecting() && journal?.stopRequested() != true
+                complete = completed != null && !exhausted && collecting() && journal?.stopRequested() != true
             )
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) { checkpoint("Interrupted") }
@@ -378,7 +381,7 @@ internal class AndroidResearchWorkflow(
         }.sortedBy { it.connectionUid != null }
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
-        while (!stopped() && collecting() && readAttempts.get() < maxAttempts && sources.values.count { it.readable } < options.maxPages) {
+        while (!exhausted && !stopped() && collecting() && readAttempts.get() < maxAttempts && sources.values.count { it.readable } < options.maxPages) {
             val remaining = options.maxPages - sources.values.count { it.readable }
             val batch = sources.values.filter { it.status == "Discovered" }.sortedByDescending { source ->
                 researchTerms(source.title + " " + source.url).count { it in questionTerms }
@@ -394,7 +397,7 @@ internal class AndroidResearchWorkflow(
                         batch.map { source ->
                             async {
                                 var last: AgentToolResult? = null
-                                for (reader in readers.take(2)) {
+                                for (reader in readers.filter { readerHealth.available(it.modelToolName, source.url) }.take(2)) {
                                     val args = crawlerArguments(reader.tool.definition, source.url)?.toMutableMap() ?: continue
                                     if (!charge(ResearchBudget.Phase.DISCOVERY)) break
                                     if (!startReadAttempt()) break
@@ -411,15 +414,17 @@ internal class AndroidResearchWorkflow(
                                     val readOutcome = when {
                                         last == null -> ToolOutcome.FAILED
                                         last?.toolCallBudgetExhausted == true || last?.outputBudgetExhausted == true -> ToolOutcome.BUDGET_EXHAUSTED
-                                        last?.blockedPage() == true -> ToolOutcome.BLOCKED
                                         last?.isError == true && isAuthFailure(last) -> ToolOutcome.AUTH_FAILED
                                         last?.isError == true && isRateLimit(last) -> ToolOutcome.RATE_LIMITED
+                                        last?.blockedPage() == true -> ToolOutcome.BLOCKED
+                                        last?.errorCode in setOf("INVALID_RESPONSE", "MALFORMED_RESPONSE", "PARSE_ERROR") -> ToolOutcome.INVALID_RESPONSE
                                         last?.isError == true -> ToolOutcome.FAILED
                                         retrievedText.length < 80 -> ToolOutcome.EMPTY
                                         looksLikeConsentOrScriptShell(retrievedText) -> ToolOutcome.BLOCKED
                                         wasTruncated -> ToolOutcome.PARTIAL
                                         else -> ToolOutcome.SUCCESS
                                     }
+                                    readerHealth.record(reader.modelToolName, source.url, readOutcome, billingFailure = isBillingFailure(last))
                                     completedEvents.add(ResearchToolEvent(
                                         query = source.url,
                                         engine = reader.modelToolName,
@@ -434,7 +439,6 @@ internal class AndroidResearchWorkflow(
                                         recordedAt = now()
                                     ))
                                     if (last?.toolCallBudgetExhausted == true || last?.outputBudgetExhausted == true) break
-                                    if (last?.blockedPage() == true) break
                                     val text = last?.takeUnless { it.isError }?.pageEvidenceText().orEmpty()
                                     if (text.length >= 80 && !looksLikeConsentOrScriptShell(text)) break
                                 }
@@ -455,11 +459,11 @@ internal class AndroidResearchWorkflow(
                     val text = result?.pageEvidenceText().orEmpty()
                     val valid = result != null && !result.isError && text.length >= 80 && !looksLikeConsentOrScriptShell(text)
                     val passage = if (valid) relevantEvidence(text, state.task, 6000) else ""
+                    val finalUrl = (payload as? JsonObject)?.text("url").orEmpty().ifBlank { source.url }
+                    val allowed = researchDomainAllowed(finalUrl, included, excluded)
                     val usable = valid && allowed
                     val fingerprint = if (usable) researchHash(text.lowercase().replace(Regex("\\s+"), " ")) else ""
                     val origin = sources.values.firstOrNull { fingerprint.isNotEmpty() && (it.fingerprint == fingerprint || relatedResearchPassages(it.passage, passage)) }?.id.orEmpty()
-                    val finalUrl = (payload as? JsonObject)?.text("url").orEmpty().ifBlank { source.url }
-                    val allowed = researchDomainAllowed(finalUrl, included, excluded)
                     val status = when {
                         !allowed -> "Blocked"
                         result?.blockedPage() == true -> "Blocked"
@@ -512,6 +516,12 @@ internal class AndroidResearchWorkflow(
     private fun isAuthFailure(result: AgentToolResult?): Boolean = result?.let {
         it.errorCode in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED") ||
             Regex("HTTP (401|403)|unauthorized|authentication required|invalid api key", RegexOption.IGNORE_CASE)
+                .containsMatchIn(it.content.researchText())
+    } == true
+
+    private fun isBillingFailure(result: AgentToolResult?): Boolean = result?.let {
+        it.errorCode in setOf("BILLING_FAILED", "PAYMENT_REQUIRED", "INSUFFICIENT_CREDITS") ||
+            Regex("HTTP 402|payment required|insufficient (credits|balance)|billing quota", RegexOption.IGNORE_CASE)
                 .containsMatchIn(it.content.researchText())
     } == true
 

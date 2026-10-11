@@ -715,11 +715,14 @@ class CompleteBackupManager @Inject constructor(
             dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages).mapTo(mutableSetOf()) { it.id }
         require(records.keys.all { it in catalogIds }) { "Backup registry references an unknown marketplace package." }
         val safeRecords = records.mapValues { (_, record) ->
-            if (record.credentialRef != null && record.credentialRef !in importedSecretRefs) {
-                record.copy(enabled = false, credentialRef = null)
-            } else {
-                record
+            val missingKey = record.credentialRef != null && record.credentialRef !in importedSecretRefs
+            val configs = record.endpointConfigs.mapValues { (_, config) ->
+                if (config.secretRef != null && config.secretRef !in importedSecretRefs) config.copy(secretRef = null) else config
             }
+            val missingEndpointKey = configs.filterKeys { it !in record.disabledOperations }.values.any {
+                it.authType != dev.chungjungsoo.gptmobile.data.marketplace.EndpointAuthType.NONE && it.secretRef == null
+            }
+            record.copy(enabled = record.enabled && !missingKey && !missingEndpointKey, credentialRef = if (missingKey) null else record.credentialRef, endpointConfigs = configs)
         }
         registryFile.writeText(json.encodeToString(safeRecords))
     }

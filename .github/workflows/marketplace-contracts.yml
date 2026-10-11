@@ -1,6 +1,9 @@
 name: Marketplace contracts
 
 on:
+  push:
+    branches: ['feat/combined-marketplace-gateway-14-2-2026-10-10']
+    paths: ['app/**', 'mcp/**', '.github/workflows/marketplace-contracts.yml']
   pull_request:
     paths:
       - '.github/workflows/marketplace-contracts.yml'
@@ -35,7 +38,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: marketplace-contracts-${{ github.event.pull_request.number }}
+  group: marketplace-contracts-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -72,6 +75,11 @@ jobs:
           --tests 'dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2MigrationsTest'
           --tests 'dev.chungjungsoo.gptmobile.data.model.ToolServicePolicyTest'
           --tests 'dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.ResearchBudgetTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealthTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySessionTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinatorTest'
 
       - name: Test Amazon HTTP and stdio bridge contracts
         working-directory: mcp/amazon

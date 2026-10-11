@@ -219,6 +219,8 @@ data class ResearchSnapshot(
 }
 
 interface ResearchJournal {
+    fun readerHealth(): dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth? = null
+    fun budget(totalLogicalCalls: Int): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
     suspend fun load(): ResearchSnapshot?
     suspend fun load(task: String): ResearchSnapshot? = load()
     suspend fun save(snapshot: ResearchSnapshot)

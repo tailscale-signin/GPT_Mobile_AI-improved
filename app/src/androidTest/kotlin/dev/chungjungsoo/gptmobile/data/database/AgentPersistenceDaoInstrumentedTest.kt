@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -197,6 +198,44 @@ class AgentPersistenceDaoInstrumentedTest {
         assertEquals(AgentRunStatus.COMPLETED, database.agentRunDao().getById("run-1")?.status)
         assertEquals(AgentRunStatus.QUEUED, database.agentRunDao().getById("run-2")?.status)
         assertEquals(firstAnswer.id, database.agentRunDao().getById("run-2")?.assistantMessageId)
+    }
+
+    @Test
+    fun finalAnswerCommit_rollsBackAnswerWhenTerminalStatusWriteFails() = runBlocking {
+        val persisted = persistTurn(newChat(), "Question", "run-1", 100L)
+        val dao = database.agentPersistenceDao()
+        database.agentRunDao().updateStatus("run-1", AgentRunStatus.RUNNING, 101L, null, null)
+        val message = persisted.assistantMessages.single().copy(content = "Saved first segment")
+        assertTrue(dao.checkpointRunningMessage(message))
+        database.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_completion BEFORE UPDATE OF status ON agent_runs WHEN NEW.status = 'COMPLETED' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+        assertTrue(runCatching {
+            dao.finishRunningWithMessage(message.copy(content = "First segment and full continuation"), "run-1", AgentRunStatus.COMPLETED, 102L, null)
+        }.isFailure)
+        assertEquals("Saved first segment", dao.recoveryMessage(message.id)?.content)
+        assertEquals(AgentRunStatus.RUNNING, dao.recoveryRun("run-1")?.status)
+    }
+
+    @Test
+    fun finalAnswerCommit_rejectsCanceledAndSupersededRuns() = runBlocking {
+        val persisted = persistTurn(newChat(), "Question", "run-1", 100L)
+        val dao = database.agentPersistenceDao()
+        database.agentRunDao().updateStatus("run-1", AgentRunStatus.RUNNING, 101L, null, null)
+        val answer = persisted.assistantMessages.single().copy(content = "First segment and continuation")
+        assertTrue(dao.checkpointRunningMessage(answer))
+        assertTrue(dao.finishRunningWithMessage(answer, "run-1", AgentRunStatus.COMPLETED, 102L, null))
+        assertFalse(dao.checkpointRunningMessage(answer.copy(content = "Late tail")))
+        assertFalse(dao.finishRunningWithMessage(answer.copy(content = "Late tail"), "run-1", AgentRunStatus.COMPLETED, 103L, null))
+        assertEquals(answer.content, dao.recoveryMessage(answer.id)?.content)
+
+        val retried = dao.persistAgentRetry(PersistAgentRetryRequest(
+            userMessage = persisted.userMessage,
+            assistantMessage = answer,
+            run = AgentRunDraft("run-2", "profile-1", "OPENAI", "gpt-5", createdAt = 104L)
+        ))
+        database.agentRunDao().updateStatus("run-2", AgentRunStatus.CANCELED, 105L, 106L, null)
+        assertFalse(dao.finishRunningWithMessage(retried.assistantMessage.copy(content = "Canceled tail"), "run-2", AgentRunStatus.COMPLETED, 107L, null))
+        assertFalse(dao.checkpointRunningMessage(answer))
+        assertEquals("run-2", dao.recoveryMessage(answer.id)?.currentRunId)
     }
 
     @Test

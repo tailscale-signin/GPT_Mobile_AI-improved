@@ -1,1 +1,0 @@
-After changes, prefer verifying with the smallest relevant Gradle task first, often `./gradlew :app:compileDebugKotlin` or targeted tests, then broader tasks if needed. Keep AGENTS.md import/style conventions, avoid reverting unrelated work, and mention any remaining warnings or unverified areas in the final response.

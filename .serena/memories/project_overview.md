@@ -1,1 +1,0 @@
-GPT Mobile is an Android chat app that supports multiple AI providers including OpenAI, Anthropic, Google, Groq, Ollama, and OpenRouter. Tech stack: Kotlin, Jetpack Compose, MVVM, Hilt DI, Room, Ktor CIO, kotlinx.serialization, Material 3. Main app module is `app/`; root build uses Gradle Kotlin DSL with version catalog in `gradle/libs.versions.toml`.

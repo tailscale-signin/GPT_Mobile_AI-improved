@@ -71,7 +71,8 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     dynamicTheme = LocalDynamicTheme.current,
                     themeMode = LocalThemeMode.current,
                     customPrimaryArgb = LocalCustomPrimaryArgb.current,
-                    customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
+                    customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current,
+                    themeFamily = dev.chungjungsoo.gptmobile.presentation.common.LocalThemeFamily.current
                 ) {
                     if (isReady) {
                         SetupNavGraph(

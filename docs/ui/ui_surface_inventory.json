@@ -1,0 +1,1949 @@
+{
+  "baseline": "33002673dd5c55f252ee69717af4b124bebe9785",
+  "surfaces": [
+    {
+      "id": "common/FadingPopups.kt:FadingAlertDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/FadingPopups.kt",
+      "function": "FadingAlertDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "common/FadingPopups.kt:FadingDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/FadingPopups.kt",
+      "function": "FadingDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "common/FadingPopups.kt:FadingDropdownMenu",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/FadingPopups.kt",
+      "function": "FadingDropdownMenu",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "common/FadingPopups.kt:FadingModalBottomSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/FadingPopups.kt",
+      "function": "FadingModalBottomSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "common/FreeProviderPicker.kt:FreeProviderPicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/FreeProviderPicker.kt",
+      "function": "FreeProviderPicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "common/McpMarketplaceDialog.kt:McpMarketplaceDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/McpMarketplaceDialog.kt",
+      "function": "McpMarketplaceDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "common/ProfileLabelComponents.kt:ProfileLabelEditorDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/ProfileLabelComponents.kt",
+      "function": "ProfileLabelEditorDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "icons/GptMobileStartScreen.kt:GptMobileStartScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/icons/GptMobileStartScreen.kt",
+      "function": "GptMobileStartScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/amazon/AmazonDataScreen.kt:AmazonDataScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/amazon/AmazonDataScreen.kt",
+      "function": "AmazonDataScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/amazon/AmazonDataScreen.kt:AmazonWatchDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/amazon/AmazonDataScreen.kt",
+      "function": "AmazonWatchDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/amazon/AmazonProductDetailDialog.kt:AmazonProductDetailDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/amazon/AmazonProductDetailDialog.kt",
+      "function": "AmazonProductDetailDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/archive/ArchivedConversationsBar.kt:ArchivedConversationsBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/archive/ArchivedConversationsBar.kt",
+      "function": "ArchivedConversationsBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/AgentFlightRecorderCard.kt:CompactAgentActivityBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AgentFlightRecorderCard.kt",
+      "function": "CompactAgentActivityBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/AirbnbListingResults.kt:AirbnbListingDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AirbnbListingResults.kt",
+      "function": "AirbnbListingDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatBubble.kt:UserChatBubble",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",
+      "function": "UserChatBubble",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatBubble.kt:OpponentChatBubble",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",
+      "function": "OpponentChatBubble",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatBubble.kt:TokenComparisonPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",
+      "function": "TokenComparisonPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatDialogs.kt:ChatModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt",
+      "function": "ChatModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatDialogs.kt:ChatTitleDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt",
+      "function": "ChatTitleDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatDialogs.kt:UserMessageEditDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt",
+      "function": "UserMessageEditDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatDialogs.kt:AssistantMessageEditDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt",
+      "function": "AssistantMessageEditDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatExportDialog.kt:ChatExportDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatExportDialog.kt",
+      "function": "ChatExportDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatProfileManagementDialog.kt:ChatProfileManagementDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatProfileManagementDialog.kt",
+      "function": "ChatProfileManagementDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatScreen.kt:ChatScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
+      "function": "ChatScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatScreen.kt:ChatTopBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
+      "function": "ChatTopBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatScreen.kt:ChatDropdownMenu",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
+      "function": "ChatDropdownMenu",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatScreen.kt:ChatBubbleDropdownMenu",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
+      "function": "ChatBubbleDropdownMenu",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatSourcePicker.kt:ChatSourcePicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatSourcePicker.kt",
+      "function": "ChatSourcePicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatSourcePicker.kt:SourceListDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatSourcePicker.kt",
+      "function": "SourceListDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatToolSelectionBottomSheet.kt:ChatToolSelectionBottomSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatToolSelectionBottomSheet.kt",
+      "function": "ChatToolSelectionBottomSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:closeChatTitleDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "closeChatTitleDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:discardMessageEditDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "discardMessageEditDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:finishMessageEditDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "finishMessageEditDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:closeSelectTextSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "closeSelectTextSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:closeChatModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "closeChatModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:openChatTitleDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "openChatTitleDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:openChatModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "openChatModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:openChatToolSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "openChatToolSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:closeChatToolSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "closeChatToolSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:openUserMessageEditDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "openUserMessageEditDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:openAssistantMessageEditDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "openAssistantMessageEditDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ChatViewModel.kt:openSelectTextSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt",
+      "function": "openSelectTextSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/CloudModelPickerDialog.kt:CloudModelPickerDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CloudModelPickerDialog.kt",
+      "function": "CloudModelPickerDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/CombinedProfileBubbles.kt:CombinedProfileBubble",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedProfileBubbles.kt",
+      "function": "CombinedProfileBubble",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/DelegationRecoveryDialog.kt:DelegationRecoveryDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/DelegationRecoveryDialog.kt",
+      "function": "DelegationRecoveryDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/InlineExecutionTrace.kt:DebugMemorySourcesBubble",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/InlineExecutionTrace.kt",
+      "function": "DebugMemorySourcesBubble",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/McpInputDialog.kt:McpInputDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/McpInputDialog.kt",
+      "function": "McpInputDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/PromptQueuePanel.kt:PromptQueuePanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PromptQueuePanel.kt",
+      "function": "PromptQueuePanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/QueuedPromptBubble.kt:QueuedPromptBubble",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/QueuedPromptBubble.kt",
+      "function": "QueuedPromptBubble",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/SelectTextBottomSheet.kt:SelectTextBottomSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SelectTextBottomSheet.kt",
+      "function": "SelectTextBottomSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ToolPermissionDialogs.kt:ToolApprovalDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolPermissionDialogs.kt",
+      "function": "ToolApprovalDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/ToolPermissionDialogs.kt:FreeToolConsentDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolPermissionDialogs.kt",
+      "function": "FreeToolConsentDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/chat/UnifiedChatComponents.kt:UnifiedModelPickerDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UnifiedChatComponents.kt",
+      "function": "UnifiedModelPickerDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeScreen.kt:HomeScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
+      "function": "HomeScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeScreen.kt:AddFavoriteGroupDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
+      "function": "AddFavoriteGroupDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeScreen.kt:FavoriteDetailDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
+      "function": "FavoriteDetailDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeScreen.kt:SelectPlatformDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
+      "function": "SelectPlatformDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeScreen.kt:DeleteWarningDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
+      "function": "DeleteWarningDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeScreen.kt:HomeTopBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
+      "function": "HomeTopBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeViewModel.kt:openDeleteWarningDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt",
+      "function": "openDeleteWarningDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeViewModel.kt:closeDeleteWarningDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt",
+      "function": "closeDeleteWarningDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeViewModel.kt:openSelectModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt",
+      "function": "openSelectModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/home/HomeViewModel.kt:closeSelectModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt",
+      "function": "closeSelectModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadActions.kt:dismissDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadActions.kt",
+      "function": "dismissDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadActions.kt:openAccessTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadActions.kt",
+      "function": "openAccessTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadDialogs.kt:HuggingFaceSignInSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadDialogs.kt",
+      "function": "HuggingFaceSignInSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadDialogs.kt:HuggingFaceLicenseSheet",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadDialogs.kt",
+      "function": "HuggingFaceLicenseSheet",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadDialogs.kt:HuggingFaceAccessTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadDialogs.kt",
+      "function": "HuggingFaceAccessTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadDialogs.kt:ActionDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadDialogs.kt",
+      "function": "ActionDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadDialogs.kt:MessageDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadDialogs.kt",
+      "function": "MessageDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/localmodel/LocalModelDownloadDialogs.kt:ConfirmDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/localmodel/LocalModelDownloadDialogs.kt",
+      "function": "ConfirmDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/mcp/McpMarketplaceDialog.kt:McpMarketplaceScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt",
+      "function": "McpMarketplaceScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/mcp/McpMarketplaceDialog.kt:McpPresetConfigureDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt",
+      "function": "McpPresetConfigureDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/mcp/NativePluginSettings.kt:InstalledNativePluginsPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/NativePluginSettings.kt",
+      "function": "InstalledNativePluginsPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/mcp/NativePluginSettings.kt:NativePluginUninstallDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/NativePluginSettings.kt",
+      "function": "NativePluginUninstallDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/migrate/MigrateScreen.kt:MigrateScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/migrate/MigrateScreen.kt",
+      "function": "MigrateScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AboutScreen.kt:AboutScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AboutScreen.kt",
+      "function": "AboutScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AboutScreen.kt:AboutTopAppBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AboutScreen.kt",
+      "function": "AboutTopAppBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AddPlatformScreen.kt:AddPlatformScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AddPlatformScreen.kt",
+      "function": "AddPlatformScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AddPlatformScreen.kt:AddPlatformTopBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AddPlatformScreen.kt",
+      "function": "AddPlatformTopBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AddPlatformViewModel.kt:dismissDownloadDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AddPlatformViewModel.kt",
+      "function": "dismissDownloadDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AddPlatformViewModel.kt:openAccessTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AddPlatformViewModel.kt",
+      "function": "openAccessTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AdvancedSettingsScreen.kt:AdvancedSettingsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AdvancedSettingsScreen.kt",
+      "function": "AdvancedSettingsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AiPlatformsScreen.kt:AiPlatformsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AiPlatformsScreen.kt",
+      "function": "AiPlatformsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/AppLogPanel.kt:AppLogPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogPanel.kt",
+      "function": "AppLogPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/CompleteBackupDialog.kt:CompleteBackupDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/CompleteBackupDialog.kt",
+      "function": "CompleteBackupDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/CompleteBackupDialog.kt:BackupSelectionDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/CompleteBackupDialog.kt",
+      "function": "BackupSelectionDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ConnectionDoctorDialog.kt:ConnectionDoctorDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ConnectionDoctorDialog.kt",
+      "function": "ConnectionDoctorDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/CustomPaletteEditor.kt:ColorWheelPicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/CustomPaletteEditor.kt",
+      "function": "ColorWheelPicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/DebugDiagnosticsScreen.kt:DebugDiagnosticsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DebugDiagnosticsScreen.kt",
+      "function": "DebugDiagnosticsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/DebugDiagnosticsScreen.kt:DebugPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DebugDiagnosticsScreen.kt",
+      "function": "DebugPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/FactVaultScreen.kt:FactVaultScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/FactVaultScreen.kt",
+      "function": "FactVaultScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/GitHubWorkspaceScreen.kt:GitHubWorkspaceScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt",
+      "function": "GitHubWorkspaceScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LicenseScreen.kt:LicenseScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LicenseScreen.kt",
+      "function": "LicenseScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LicenseScreen.kt:LicenseTopAppBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LicenseScreen.kt",
+      "function": "LicenseTopAppBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LlamaModelPickerDialog.kt:LlamaModelPickerDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LlamaModelPickerDialog.kt",
+      "function": "LlamaModelPickerDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LocalModelsScreen.kt:LocalModelsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LocalModelsScreen.kt",
+      "function": "LocalModelsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LocalModelsScreen.kt:LocalModelsTopBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LocalModelsScreen.kt",
+      "function": "LocalModelsTopBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LocalModelsViewModel.kt:dismissDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LocalModelsViewModel.kt",
+      "function": "dismissDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LocalModelsViewModel.kt:openAccessTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LocalModelsViewModel.kt",
+      "function": "openAccessTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LocalToolsSettingsPanel.kt:LocalToolsSettingsPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LocalToolsSettingsPanel.kt",
+      "function": "LocalToolsSettingsPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/LocalToolsSettingsPanel.kt:LocalToolConfigurationDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/LocalToolsSettingsPanel.kt",
+      "function": "LocalToolConfigurationDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/MaxToolCallsSetting.kt:MaxToolCallsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/MaxToolCallsSetting.kt",
+      "function": "MaxToolCallsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/McpBrowserDialog.kt:McpBrowserDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpBrowserDialog.kt",
+      "function": "McpBrowserDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/McpServerPickerDialog.kt:FancyMcpToolsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpServerPickerDialog.kt",
+      "function": "FancyMcpToolsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/McpToolsSelectionScreen.kt:McpToolsSelectionScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpToolsSelectionScreen.kt",
+      "function": "McpToolsSelectionScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ModelDelegationSettingsPanel.kt:ModelDelegationSettingsPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ModelDelegationSettingsPanel.kt",
+      "function": "ModelDelegationSettingsPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/OllamaServerCard.kt:OllamaServerModelPickerDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OllamaServerCard.kt",
+      "function": "OllamaServerModelPickerDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/OpenRouterModelPickerDialog.kt:OpenRouterModelPickerDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OpenRouterModelPickerDialog.kt",
+      "function": "OpenRouterModelPickerDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/OpenRouterSettingsScreen.kt:OpenRouterSettingsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OpenRouterSettingsScreen.kt",
+      "function": "OpenRouterSettingsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:PlatformNameDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "PlatformNameDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:APIUrlDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "APIUrlDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:APIKeyDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "APIKeyDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:ModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "ModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:LocalModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "LocalModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TopKDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TopKDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:MaxTokensDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "MaxTokensDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:AcceleratorDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "AcceleratorDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TemperatureDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TemperatureDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TopPDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TopPDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:SystemPromptDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "SystemPromptDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TimeoutDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TimeoutDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:GeminiSafetySettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "GeminiSafetySettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:OpenRouterAdvancedSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "OpenRouterAdvancedSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:OllamaAdvancedSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "OllamaAdvancedSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:LlamaAdvancedSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "LlamaAdvancedSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:DeletePlatformDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "DeletePlatformDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:PlatformNameDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "PlatformNameDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:APIUrlDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "APIUrlDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:APIKeyDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "APIKeyDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TimeoutDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TimeoutDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:ModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "ModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:LocalModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "LocalModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TopKDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TopKDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:MaxTokensDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "MaxTokensDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:AcceleratorDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "AcceleratorDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TemperatureDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TemperatureDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:TopPDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "TopPDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:SystemPromptDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "SystemPromptDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:GeminiSafetySettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "GeminiSafetySettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:DeletePlatformDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "DeletePlatformDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:OllamaAdvancedSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "OllamaAdvancedSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:OpenRouterAdvancedSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "OpenRouterAdvancedSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingDialogs.kt:LlamaAdvancedSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt",
+      "function": "LlamaAdvancedSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingScreen.kt:PlatformSettingScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt",
+      "function": "PlatformSettingScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingScreen.kt:SearchBackendDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt",
+      "function": "SearchBackendDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingScreen.kt:LegacyMcpToolsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt",
+      "function": "LegacyMcpToolsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingScreen.kt:PlatformTopAppBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt",
+      "function": "PlatformTopAppBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openPlatformNameDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openPlatformNameDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closePlatformNameDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closePlatformNameDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openLabelsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openLabelsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeLabelsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeLabelsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openApiUrlDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openApiUrlDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeApiUrlDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeApiUrlDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openApiTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openApiTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeApiTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeApiTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openApiModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openApiModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeApiModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeApiModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openTemperatureDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openTemperatureDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeTemperatureDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeTemperatureDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openTopPDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openTopPDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeTopPDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeTopPDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openTopKDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openTopKDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeTopKDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeTopKDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openMaxTokensDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openMaxTokensDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeMaxTokensDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeMaxTokensDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openAcceleratorDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openAcceleratorDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeAcceleratorDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeAcceleratorDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openSystemPromptDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openSystemPromptDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeSystemPromptDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeSystemPromptDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openTimeoutDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openTimeoutDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeTimeoutDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeTimeoutDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openGeminiSafetyDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openGeminiSafetyDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeGeminiSafetyDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeGeminiSafetyDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openOpenRouterSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openOpenRouterSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeOpenRouterSettingsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeOpenRouterSettingsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openOllamaAdvancedDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openOllamaAdvancedDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeOllamaAdvancedDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeOllamaAdvancedDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openLlamaAdvancedDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openLlamaAdvancedDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeLlamaAdvancedDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeLlamaAdvancedDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openDeleteDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openDeleteDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeDeleteDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeDeleteDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openSearchBackendDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openSearchBackendDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeSearchBackendDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeSearchBackendDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:openMcpToolsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "openMcpToolsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PlatformSettingViewModel.kt:closeMcpToolsDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt",
+      "function": "closeMcpToolsDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PluginConfigurationDialog.kt:PluginConfigurationDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PluginConfigurationDialog.kt",
+      "function": "PluginConfigurationDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/PrivacyStoragePanel.kt:PrivacyStoragePanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyStoragePanel.kt",
+      "function": "PrivacyStoragePanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ProfileBenchmarkScreen.kt:ProfileBenchmarkScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
+      "function": "ProfileBenchmarkScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ProfileBenchmarkScreen.kt:BenchmarkProfilePicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
+      "function": "BenchmarkProfilePicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ProfileBenchmarkScreen.kt:BenchmarkPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
+      "function": "BenchmarkPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ProfileToolsPanel.kt:ProfileToolsPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileToolsPanel.kt",
+      "function": "ProfileToolsPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ProjectWorkspacePanel.kt:ProjectWorkspacePanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProjectWorkspacePanel.kt",
+      "function": "ProjectWorkspacePanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ProviderConnectionSettingsScreen.kt:ProviderConnectionSettingsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProviderConnectionSettingsScreen.kt",
+      "function": "ProviderConnectionSettingsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingScreen.kt:SettingScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingScreen.kt",
+      "function": "SettingScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingScreen.kt:ThemeSettingDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingScreen.kt",
+      "function": "ThemeSettingDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:openThemeDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "openThemeDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:openApiUrlDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "openApiUrlDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:openApiTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "openApiTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:openApiModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "openApiModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:openTemperatureDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "openTemperatureDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:openTopPDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "openTopPDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:openSystemPromptDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "openSystemPromptDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:closeThemeDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "closeThemeDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:closeApiUrlDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "closeApiUrlDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:closeApiTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "closeApiTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:closeApiModelDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "closeApiModelDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:closeTemperatureDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "closeTemperatureDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:closeTopPDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "closeTopPDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModel.kt:closeSystemPromptDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModel.kt",
+      "function": "closeSystemPromptDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:openThemeDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "openThemeDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:closeThemeDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "closeThemeDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:openDeleteDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "openDeleteDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:closeDeleteDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "closeDeleteDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:openBackupRestoreDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "openBackupRestoreDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:closeBackupRestoreDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "closeBackupRestoreDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:prepareBackupPicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "prepareBackupPicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingViewModelV2.kt:cancelBackupPicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingViewModelV2.kt",
+      "function": "cancelBackupPicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingsDesign.kt:SettingsPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingsDesign.kt",
+      "function": "SettingsPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/SettingsDiscoveryPanel.kt:SettingsDiscoveryPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingsDiscoveryPanel.kt",
+      "function": "SettingsDiscoveryPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ThemeSettingsScreen.kt:ThemeSettingsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ThemeSettingsScreen.kt",
+      "function": "ThemeSettingsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ToolConnectionsScreen.kt:ToolConnectionsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsScreen.kt",
+      "function": "ToolConnectionsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ToolConnectionsScreen.kt:ToolConnectionEditorScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsScreen.kt",
+      "function": "ToolConnectionEditorScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ToolConnectionsScreen.kt:ToolConnectionsTopBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsScreen.kt",
+      "function": "ToolConnectionsTopBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ToolConnectionsScreen.kt:ToolConnectionEditorTopBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsScreen.kt",
+      "function": "ToolConnectionEditorTopBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/ToolPolicyDialog.kt:ToolPolicyDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolPolicyDialog.kt",
+      "function": "ToolPolicyDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setting/UsageStatisticsScreen.kt:UsageStatisticsScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/UsageStatisticsScreen.kt",
+      "function": "UsageStatisticsScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/LocalModelPicker.kt:LocalModelPicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/LocalModelPicker.kt",
+      "function": "LocalModelPicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/LocalModelPicker.kt:LocalModelCatalogPicker",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/LocalModelPicker.kt",
+      "function": "LocalModelCatalogPicker",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/SetupAppBar.kt:SetupAppBar",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupAppBar.kt",
+      "function": "SetupAppBar",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/SetupCompleteScreen.kt:SetupCompleteScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupCompleteScreen.kt",
+      "function": "SetupCompleteScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/SetupPlatformListScreen.kt:SetupPlatformListScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupPlatformListScreen.kt",
+      "function": "SetupPlatformListScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/SetupPlatformTypeScreen.kt:SetupPlatformTypeScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupPlatformTypeScreen.kt",
+      "function": "SetupPlatformTypeScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/SetupPlatformWizardScreen.kt:SetupPlatformWizardScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupPlatformWizardScreen.kt",
+      "function": "SetupPlatformWizardScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/SetupViewModelV2.kt:dismissDownloadDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupViewModelV2.kt",
+      "function": "dismissDownloadDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/setup/SetupViewModelV2.kt:openAccessTokenDialog",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setup/SetupViewModelV2.kt",
+      "function": "openAccessTokenDialog",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/startscreen/StartScreen.kt:StartScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/startscreen/StartScreen.kt",
+      "function": "StartScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/workspace/GitHubReviewPanel.kt:GitHubReviewPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubReviewPanel.kt",
+      "function": "GitHubReviewPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/workspace/PluginConfigurationPanel.kt:PluginConfigurationPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/PluginConfigurationPanel.kt",
+      "function": "PluginConfigurationPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/workspace/WorkspaceScreen.kt:WorkspaceScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/WorkspaceScreen.kt",
+      "function": "WorkspaceScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "ui/workspace/WorkspaceScreen.kt:BudgetPanel",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/WorkspaceScreen.kt",
+      "function": "BudgetPanel",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "unified/MessageQueueScreen.kt:MessageQueueScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/unified/MessageQueueScreen.kt",
+      "function": "MessageQueueScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    },
+    {
+      "id": "unified/UnifiedModelPickerScreen.kt:UnifiedModelPickerScreen",
+      "file": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/unified/UnifiedModelPickerScreen.kt",
+      "function": "UnifiedModelPickerScreen",
+      "status": "pending",
+      "new_home": "",
+      "validation": ""
+    }
+  ]
+}

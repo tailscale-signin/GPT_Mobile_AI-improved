@@ -63,6 +63,7 @@ fun DebugDiagnosticsScreen(
     viewModel: DebugDiagnosticsViewModel = hiltViewModel(),
     modifier: Modifier = Modifier,
     initialFocus: String = "",
+    embedded: Boolean = false,
     toolConnectionsViewModel: ToolConnectionsViewModel = hiltViewModel()
 ) {
     val toolHealth by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
@@ -94,23 +95,30 @@ fun DebugDiagnosticsScreen(
     val activeRequests = state.invocations.filter { it.status == "RUNNING" }
     val activeTools = state.recentToolEvents.distinctBy { it.eventId }.filter { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
-        TopAppBar(title = { Text("Debug & Statistics") }, navigationIcon = {
-            IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
-        }, actions = {
-            if (workspaceTab == 0 && selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause" else "Resume") }
-        })
+        if (!embedded) {
+            TopAppBar(title = { Text("Diagnostics") }, navigationIcon = {
+                IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
+            }, actions = {
+                if (workspaceTab == 0 && selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause" else "Resume") }
+            })
+        }
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = workspaceTab) {
-                listOf("Debug", "Statistics", "Benchmark").forEachIndexed { index, label ->
-                    androidx.compose.material3.Tab(selected = workspaceTab == index, onClick = { workspaceTab = index }, text = { Text(label) })
+            if (!embedded) {
+                androidx.compose.material3.PrimaryTabRow(selectedTabIndex = workspaceTab) {
+                    listOf("Debug", "Statistics", "Benchmark").forEachIndexed { index, label ->
+                        androidx.compose.material3.Tab(selected = workspaceTab == index, onClick = { workspaceTab = index }, text = { Text(label) })
+                    }
                 }
             }
             if (workspaceTab == 1) UsageStatisticsScreen(onBack = onNavigationClick, embedded = true)
             if (workspaceTab == 2) ProfileBenchmarkScreen(onBack = onNavigationClick, onUsage = { workspaceTab = 1 }, embedded = true)
             if (workspaceTab == 0) {
                 LazyColumn(Modifier.fillMaxSize(), state = diagnosticsList, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    item { SettingsHero("Observatory", "Your AI, in focus", "${activeRequests.size} active requests · ${activeTools.size} tools · ${state.failedRuns} failed runs") }
+                    item {
+                        Text("${activeRequests.size} active requests · ${activeTools.size} tools · ${state.failedRuns} failed runs", style = MaterialTheme.typography.bodyMedium)
+                        if (embedded && selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause live view" else "Resume live view") }
+                    }
                     item { SettingsTabs(listOf("Live", "Runs", "Logs", "Display", "Health"), selectedTab) { selectedTab = it } }
                     when (selectedTab) {
                         0 -> {

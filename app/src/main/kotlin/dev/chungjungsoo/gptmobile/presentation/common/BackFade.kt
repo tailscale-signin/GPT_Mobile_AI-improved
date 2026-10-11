@@ -14,7 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /** Back transitions for subpages that share one navigation destination. */
-class BackFade internal constructor(private val scope: CoroutineScope) {
+class BackFade internal constructor(private val scope: CoroutineScope, private val reducedMotion: Boolean) {
     private val opacity = Animatable(1f)
     private var running by mutableStateOf(false)
     val modifier: Modifier get() = Modifier.graphicsLayer { alpha = opacity.value }
@@ -24,7 +24,7 @@ class BackFade internal constructor(private val scope: CoroutineScope) {
         running = true
         scope.launch {
             try {
-                opacity.animateTo(0f, tween(500))
+                opacity.animateTo(0f, tween(if (reducedMotion) 0 else 140))
                 action()
                 opacity.snapTo(1f)
             } finally {
@@ -37,5 +37,6 @@ class BackFade internal constructor(private val scope: CoroutineScope) {
 @Composable
 fun rememberBackFade(): BackFade {
     val scope = rememberCoroutineScope()
-    return remember(scope) { BackFade(scope) }
+    val reducedMotion = LocalReducedMotion.current
+    return remember(scope, reducedMotion) { BackFade(scope, reducedMotion) }
 }

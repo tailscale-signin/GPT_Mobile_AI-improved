@@ -72,6 +72,23 @@ class SettingDataSourceImpl @Inject constructor(
         ApiType.GROQ to stringPreferencesKey("groq_system_prompt"),
         ApiType.OLLAMA to stringPreferencesKey("ollama_system_prompt")
     )
+    private val themeFamilyKey = stringPreferencesKey("theme_family")
+    private val reducedMotionKey = booleanPreferencesKey("reduced_motion")
+    override suspend fun getThemeFamily(): String? = dataStore.data.first()[themeFamilyKey]
+    override suspend fun getReducedMotion(): Boolean = dataStore.data.first()[reducedMotionKey] ?: false
+
+    override suspend fun updateThemePreferences(theme: dev.chungjungsoo.gptmobile.data.dto.ThemeSetting) {
+        dataStore.edit { pref ->
+            pref[dynamicThemeKey] = theme.dynamicTheme.ordinal
+            pref[themeModeKey] = theme.themeMode.ordinal
+            pref[savedThemeProfilesKey] = json.encodeToString(theme.savedProfiles)
+            pref[reducedMotionKey] = theme.reducedMotion
+            if (theme.themeFamily == null) pref.remove(themeFamilyKey) else pref[themeFamilyKey] = theme.themeFamily
+            if (theme.customPrimaryArgb == null) pref.remove(customPrimaryArgbKey) else pref[customPrimaryArgbKey] = theme.customPrimaryArgb
+            if (theme.customPalette == null) pref.remove(customPaletteKey) else pref[customPaletteKey] = json.encodeToString(theme.customPalette)
+        }
+    }
+
     val dynamicThemeKey = intPreferencesKey("dynamic_mode")
     val themeModeKey = intPreferencesKey("theme_mode")
     private val savedThemeProfilesKey = stringPreferencesKey("saved_theme_profiles")

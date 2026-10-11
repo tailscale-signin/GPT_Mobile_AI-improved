@@ -124,7 +124,15 @@ fun PlatformSettingScreen(
 ) {
     val features by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     val behavior = features.profileBehavior[settingViewModel.platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-    var profileTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+    var profileTab by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableIntStateOf(
+            when (initialTab) {
+                1 -> 2
+                2 -> 3
+                else -> 0
+            }
+        )
+    }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
@@ -210,7 +218,7 @@ fun PlatformSettingScreen(
                     val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
                     ProfileIdentityCard(platformData)
                     Column(Modifier.padding(horizontal = 16.dp)) {
-                        SettingsTabs(listOf("Profile", "Tools", "Advanced"), profileTab) { profileTab = it }
+                        SettingsTabs(listOf("Overview", "Behaviour", "Tools", "Advanced"), profileTab) { profileTab = it }
                     }
                     if (profileTab == 0) {
                         PreferenceSwitchWithContainer(
@@ -385,16 +393,34 @@ fun PlatformSettingScreen(
                                 )
                             }
                         )
+                    }
+                    if (profileTab == 1) {
+                        SettingItem(
+                            modifier = Modifier.heightIn(min = 64.dp),
+                            title = stringResource(R.string.system_prompt),
+                            description = platformData.systemPrompt,
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openSystemPromptDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    ImageVector.vectorResource(id = R.drawable.ic_instructions),
+                                    contentDescription = stringResource(R.string.system_prompt)
+                                )
+                            }
+                        )
+
                         PreferenceListSwitch(
                             title = "Delegation mode",
-                            description = if (features.delegation.enabled) "Allow this profile to use a delegate" else "Enable delegation in Settings to use helpers",
+                            description = if (features.delegation.enabled) "Allow this profile to use a delegate" else "Enable delegation in AI to use helpers",
                             icon = Icons.Rounded.Build,
                             enabled = platformData.enabled,
                             isChecked = behavior.delegationEnabled,
                             onCheckedChange = { settingViewModel.updateProfileBehavior(behavior.copy(delegationEnabled = it)) }
                         )
                     }
-                    if (profileTab == 2) {
+                    if (profileTab == 3) {
                         ProfileSectionTitle(title = stringResource(R.string.advanced_settings))
                         val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
                         val usesNpuSampling = isLocalPlatform && !LocalAccelerators.shouldApplySampler(platformData.accelerator.orEmpty())
@@ -476,21 +502,6 @@ fun PlatformSettingScreen(
                                 }
                             )
                         }
-                        SettingItem(
-                            modifier = Modifier.heightIn(min = 64.dp),
-                            title = stringResource(R.string.system_prompt),
-                            description = platformData.systemPrompt,
-                            enabled = platformData.enabled,
-                            onItemClick = settingViewModel::openSystemPromptDialog,
-                            showTrailingIcon = false,
-                            showLeadingIcon = true,
-                            leadingIcon = {
-                                Icon(
-                                    ImageVector.vectorResource(id = R.drawable.ic_instructions),
-                                    contentDescription = stringResource(R.string.system_prompt)
-                                )
-                            }
-                        )
                         if (!isLocalPlatform && !isFreePlatform) {
                             SettingItem(
                                 modifier = Modifier.heightIn(min = 64.dp),
@@ -631,7 +642,7 @@ fun PlatformSettingScreen(
 
                         if (supportsTools) PlatformMaxToolCallsSettingHost(settingViewModel)
                     }
-                    if (profileTab == 1) {
+                    if (profileTab == 2) {
                         ProfileToolsPanel(
                             viewModel = settingViewModel,
                             platform = platformData,

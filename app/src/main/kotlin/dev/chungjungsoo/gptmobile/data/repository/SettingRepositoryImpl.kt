@@ -154,7 +154,9 @@ class SettingRepositoryImpl @Inject constructor(
         themeMode = settingDataSource.getThemeMode() ?: ThemeMode.DARK,
         customPrimaryArgb = settingDataSource.getCustomPrimaryArgb(),
         customPalette = settingDataSource.getCustomPalette(),
-        savedProfiles = settingDataSource.getSavedThemeProfiles()
+        savedProfiles = settingDataSource.getSavedThemeProfiles(),
+        themeFamily = settingDataSource.getThemeFamily(),
+        reducedMotion = settingDataSource.getReducedMotion()
     )
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
@@ -316,11 +318,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateThemes(themeSetting: ThemeSetting) {
-        settingDataSource.updateDynamicTheme(themeSetting.dynamicTheme)
-        settingDataSource.updateThemeMode(themeSetting.themeMode)
-        settingDataSource.updateCustomPrimaryArgb(themeSetting.customPrimaryArgb)
-        settingDataSource.updateCustomPalette(themeSetting.customPalette)
-        settingDataSource.updateSavedThemeProfiles(themeSetting.savedProfiles)
+        settingDataSource.updateThemePreferences(themeSetting)
     }
 
     override suspend fun addPlatformV2(platform: PlatformV2) {
@@ -430,7 +428,9 @@ class SettingRepositoryImpl @Inject constructor(
                 themeMode = currentThemes.themeMode.ordinal,
                 customPrimaryArgb = currentThemes.customPrimaryArgb,
                 customPalette = currentThemes.customPalette,
-                savedProfiles = currentThemes.savedProfiles
+                savedProfiles = currentThemes.savedProfiles,
+                themeFamily = currentThemes.themeFamily,
+                reducedMotion = currentThemes.reducedMotion
             ),
             platforms = currentPlatforms.map { p ->
                 PlatformBackupDto(
@@ -470,7 +470,7 @@ class SettingRepositoryImpl @Inject constructor(
         backup.theme?.let { themeDto ->
             val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
             val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles))
+            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, themeFamily = themeDto.themeFamily, reducedMotion = themeDto.reducedMotion))
         }
 
         if (backup.favoriteGroups.isNotEmpty()) {

@@ -58,10 +58,8 @@ fun SettingItem(
             .padding(horizontal = 8.dp)
     }
     val colors = ListItemDefaults.colors()
-    val displayTitle = title.split(Regex("\\s+")).joinToString(" ") { word ->
-        word.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() }
-    }
-    val compactDescription = description?.takeIf { it.length <= 72 }
+    val displayTitle = title
+    val compactDescription = description?.takeIf { it.isNotBlank() }
 
     val trailingContentComposable: @Composable () -> Unit = {
         Row(
@@ -91,8 +89,8 @@ fun SettingItem(
             leadingContent = { leadingIcon() },
             trailingContent = trailingContentComposable,
             colors = ListItemDefaults.colors(
-                headlineColor = if (enabled) colors.headlineColor else colors.disabledHeadlineColor,
-                supportingColor = if (enabled) colors.supportingTextColor else colors.disabledHeadlineColor,
+                headlineColor = if (enabled) colors.headlineColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                supportingColor = if (enabled) colors.supportingTextColor else MaterialTheme.colorScheme.onSurfaceVariant,
                 trailingIconColor = if (enabled) colors.trailingIconColor else colors.disabledTrailingIconColor
             )
         )
@@ -105,8 +103,8 @@ fun SettingItem(
             },
             trailingContent = trailingContentComposable,
             colors = ListItemDefaults.colors(
-                headlineColor = if (enabled) colors.headlineColor else colors.disabledHeadlineColor,
-                supportingColor = if (enabled) colors.supportingTextColor else colors.disabledHeadlineColor,
+                headlineColor = if (enabled) colors.headlineColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                supportingColor = if (enabled) colors.supportingTextColor else MaterialTheme.colorScheme.onSurfaceVariant,
                 trailingIconColor = if (enabled) colors.trailingIconColor else colors.disabledTrailingIconColor
             )
         )
@@ -125,14 +123,14 @@ fun SettingsHelpIcon(
         onClick = { open = true },
         modifier = modifier.size(48.dp).semantics { contentDescription = helpLabel },
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(22.dp)) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.size(22.dp)) {
                 Box(contentAlignment = Alignment.Center) { Text("?", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
             }
         }

@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.designsystem.AppShapes
 import dev.chungjungsoo.gptmobile.presentation.designsystem.AppSpacing
 
@@ -28,18 +26,13 @@ import dev.chungjungsoo.gptmobile.presentation.designsystem.AppSpacing
 internal fun SettingsHero(eyebrow: String, title: String, detail: String, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     Column(
-        modifier.fillMaxWidth().background(
-            colors.surfaceContainerHigh,
-            AppShapes.panel
-        ).padding(24.dp),
+        modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(eyebrow.uppercase(), style = MaterialTheme.typography.labelMedium, color = colors.onSurface)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = colors.onSurface, modifier = Modifier.weight(1f))
-            if (detail.length > 72) SettingsHelpIcon(detail)
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Medium, color = colors.onSurface, modifier = Modifier.weight(1f))
         }
-        if (detail.isNotBlank() && detail.length <= 72) Text(detail, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+        if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
     }
 }
 

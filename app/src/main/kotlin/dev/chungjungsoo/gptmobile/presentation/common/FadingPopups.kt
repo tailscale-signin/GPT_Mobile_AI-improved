@@ -26,12 +26,13 @@ import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
-private const val BACK_FADE_MILLIS = 500
+private const val BACK_FADE_MILLIS = 140
 
 /** Defer dismissing the owner until the actual popup finishes fading, including system back. */
 @Composable
 private fun rememberFadeDismiss(onDismiss: () -> Unit): Pair<Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, () -> Unit> {
     val opacity = remember { Animatable(1f) }
+    val reducedMotion = LocalReducedMotion.current
     val callback by rememberUpdatedState(onDismiss)
     val scope = rememberCoroutineScope()
     var dismissing by remember { mutableStateOf(false) }
@@ -39,7 +40,7 @@ private fun rememberFadeDismiss(onDismiss: () -> Unit): Pair<Animatable<Float, a
         if (!dismissing) {
             dismissing = true
             scope.launch {
-                opacity.animateTo(0f, tween(BACK_FADE_MILLIS))
+                opacity.animateTo(0f, tween(if (reducedMotion) 0 else BACK_FADE_MILLIS))
                 callback()
             }
         }

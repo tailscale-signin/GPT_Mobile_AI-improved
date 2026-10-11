@@ -4,12 +4,15 @@ import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import kotlinx.serialization.Serializable
 
+@Serializable
 data class ThemeSetting(
     val dynamicTheme: DynamicTheme = DynamicTheme.OFF,
     val themeMode: ThemeMode = ThemeMode.DARK,
     val customPrimaryArgb: Long? = null,
     val customPalette: CustomThemePalette? = null,
-    val savedProfiles: List<SavedThemeProfile> = emptyList()
+    val savedProfiles: List<SavedThemeProfile> = emptyList(),
+    val themeFamily: String? = null,
+    val reducedMotion: Boolean = false
 )
 
 @Serializable

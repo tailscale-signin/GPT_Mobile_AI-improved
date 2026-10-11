@@ -64,10 +64,9 @@ import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -81,6 +80,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -97,8 +97,6 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
@@ -350,7 +348,18 @@ fun HomeScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Column(modifier = Modifier.fillMaxSize()) {
-                if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                if (!chatListState.isSelectionMode && currentTab == HomeTab.CHATS) {
+                    dev.chungjungsoo.gptmobile.presentation.designsystem.AppSearchField(
+                        query = searchQuery,
+                        onQueryChange = { value ->
+                            if (value.isNotEmpty()) homeViewModel.enableSearchMode() else homeViewModel.disableSearchMode()
+                            homeViewModel.updateSearchQuery(value)
+                        },
+                        label = stringResource(R.string.search_chats),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    )
+                }
+                if (!chatListState.isSelectionMode) {
                     PrimaryTabRow(
                         selectedTabIndex = currentTab.ordinal,
                         containerColor = MaterialTheme.colorScheme.background,
@@ -362,14 +371,14 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         },
-                        divider = { HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)) }
+                        divider = {}
                     ) {
                         Tab(
                             selectedContentColor = MaterialTheme.colorScheme.primary,
-                            unselectedContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             selected = currentTab == HomeTab.CHATS,
                             onClick = { homeViewModel.selectTab(HomeTab.CHATS) },
-                            text = { Text(stringResource(R.string.chats)) },
+                            text = { Text("All") },
                             icon = {
                                 Icon(
                                     imageVector = Icons.Rounded.ChatBubbleOutline,
@@ -379,7 +388,7 @@ fun HomeScreen(
                         )
                         Tab(
                             selectedContentColor = MaterialTheme.colorScheme.primary,
-                            unselectedContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             selected = currentTab == HomeTab.FAVORITES,
                             onClick = { homeViewModel.selectTab(HomeTab.FAVORITES) },
                             text = { Text(stringResource(R.string.favorites)) },
@@ -1666,9 +1675,6 @@ fun SelectPlatformDialog(
     onTogglePlatformFavorite: (platformId: Int) -> Unit = {},
     initialCombined: Boolean = false
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
     var combinedMode by rememberSaveable { mutableStateOf(initialCombined) }
     val selectedCount = platforms.indices.count { platforms[it].enabled && selectedPlatforms.getOrElse(it) { false } }
     val canCombine = selectedCount >= 2
@@ -1686,103 +1692,63 @@ fun SelectPlatformDialog(
         }
     }
 
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        onDismissRequest = onDismissRequest,
-        title = {
-            Column {
-                Text(
-                    text = stringResource(R.string.select_platform),
-                    modifier = Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Text(
-                    text = stringResource(R.string.select_platform_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = !combinedMode,
-                        onClick = { combinedMode = false },
-                        label = { Text("Separate") }
-                    )
-                    FilterChip(
-                        selected = combinedMode,
-                        enabled = canCombine,
-                        onClick = { combinedMode = true },
-                        label = { Text(stringResource(R.string.chat_mode_combined)) }
-                    )
-                }
-                Text(
-                    text = stringResource(if (combinedMode) R.string.chat_mode_combined_description else R.string.chat_mode_standard_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+    Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        dev.chungjungsoo.gptmobile.presentation.designsystem.AppEditorScaffold(
+            title = "New conversation",
+            dirty = false,
+            onCancel = onDismissRequest,
+            saveEnabled = selectedCount > 0,
+            saveLabel = "Start · $selectedCount",
+            onSave = {
+                val selected = platforms.filterIndexed { i, platform -> platform.enabled && selectedPlatforms.getOrElse(i) { false } }.map { it.uid }
+                onConfirmation(selected, if (combinedMode && selected.size >= 2) ConversationMode.COMBINED else ConversationMode.STANDARD)
             }
-        },
-        text = {
-            HorizontalDivider()
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField(profileQuery, { profileQuery = it })
-                if (reusableLabels.isNotEmpty()) {
+        ) { padding ->
+            LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Text("Choose profiles", style = MaterialTheme.typography.titleLarge)
+                    Text("Select the profiles for this conversation. Disabled profiles remain visible for reference.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                item {
+                    dev.chungjungsoo.gptmobile.presentation.designsystem.AppSearchField(profileQuery, { profileQuery = it }, "Search profiles")
+                }
+                item {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PlatformLabelFilter(label = dev.chungjungsoo.gptmobile.data.model.ProfileLabel(stringResource(R.string.all_profile_labels)), selected = selectedLabel == null, onClick = { selectedLabel = null })
-                        reusableLabels.forEach { label ->
-                            PlatformLabelFilter(label = label, selected = selectedLabel == label.key, onClick = { selectedLabel = label.key })
+                        FilterChip(selected = !combinedMode, onClick = { combinedMode = false }, label = { Text("Separate replies") })
+                        FilterChip(selected = combinedMode, enabled = canCombine, onClick = { combinedMode = true }, label = { Text("Combined reply") })
+                    }
+                    Text(
+                        stringResource(if (combinedMode) R.string.chat_mode_combined_description else R.string.chat_mode_standard_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!canCombine) Text("Select at least two profiles to combine replies.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (reusableLabels.isNotEmpty()) {
+                    item {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PlatformLabelFilter(dev.chungjungsoo.gptmobile.data.model.ProfileLabel(stringResource(R.string.all_profile_labels)), selectedLabel == null) { selectedLabel = null }
+                            reusableLabels.forEach { label -> PlatformLabelFilter(label, selectedLabel == label.key) { selectedLabel = label.key } }
                         }
                     }
                 }
-                if (platforms.any { it.enabled }) {
-                    indexedPlatforms.forEach { (originalIndex, platform) ->
-                        PlatformCheckBoxItem(
-                            title = platform.name,
-                            enabled = platform.enabled,
-                            selected = selectedPlatforms.getOrElse(originalIndex) { false },
-                            isFavorite = platform.isFavorite,
-                            labels = platform.labels,
-                            description = null,
-                            onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
-                            onClickEvent = { onPlatformSelect(originalIndex) }
-                        )
-                    }
-                } else {
-                    EnablePlatformWarningText()
-                }
-                HorizontalDivider(Modifier.padding(top = 8.dp))
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = selectedCount > 0,
-                onClick = {
-                    val selected = platforms.filterIndexed { i, platform -> platform.enabled && selectedPlatforms.getOrElse(i) { false } }.map { it.uid }
-                    onConfirmation(
-                        selected,
-                        if (combinedMode && selected.size >= 2) ConversationMode.COMBINED else ConversationMode.STANDARD
+                if (indexedPlatforms.isEmpty()) item { Text("No profiles match this search.") }
+                items(indexedPlatforms, key = { it.second.uid }) { (originalIndex, platform) ->
+                    PlatformCheckBoxItem(
+                        title = platform.name,
+                        enabled = platform.enabled,
+                        selected = selectedPlatforms.getOrElse(originalIndex) { false },
+                        isFavorite = platform.isFavorite,
+                        labels = platform.labels,
+                        description = if (platform.enabled) null else "Disabled — enable this profile in AI",
+                        onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
+                        onClickEvent = { if (platform.enabled) onPlatformSelect(originalIndex) }
                     )
                 }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = { onDismissRequest() }
-            ) {
-                Text(stringResource(R.string.cancel))
+                if (platforms.none { it.enabled }) item { EnablePlatformWarningText() }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -1901,37 +1867,12 @@ fun HomeTopBar(
                 }
             }
         )
-    } else if (chatListState.isSearchMode) {
-        TopAppBar(
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background, titleContentColor = MaterialTheme.colorScheme.onBackground, navigationIconContentColor = MaterialTheme.colorScheme.primary, actionIconContentColor = MaterialTheme.colorScheme.primary),
-            title = {
-                TextField(
-                    value = searchQuery,
-                    onValueChange = onSearchQueryChanged,
-                    placeholder = { Text(stringResource(R.string.search_chats)) },
-                    singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
-                    )
-                )
-            },
-            navigationIcon = {
-                IconButton(onClick = onSearchToggle) {
-                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close))
-                }
-            }
-        )
     } else {
-        TopAppBar(
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background, titleContentColor = MaterialTheme.colorScheme.onBackground, navigationIconContentColor = MaterialTheme.colorScheme.primary, actionIconContentColor = MaterialTheme.colorScheme.primary),
-            title = { },
+        LargeTopAppBar(
+            title = { Text("Conversations") },
             actions = {
-                IconButton(onClick = onSearchToggle, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary)) {
-                    Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.search))
-                }
-                IconButton(onClick = onSettingClick, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary)) {
-                    Icon(Icons.Rounded.Settings, contentDescription = stringResource(R.string.settings))
+                IconButton(onClick = onSettingClick) {
+                    Icon(Icons.Rounded.Timeline, contentDescription = "Activity")
                 }
             },
             scrollBehavior = scrollBehavior

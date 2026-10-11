@@ -197,7 +197,8 @@ fun ChatScreen(
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
-    onInspectContext: ((Int, String) -> Unit)? = null
+    onInspectContext: ((Int, String) -> Unit)? = null,
+    onWorkspace: (Int, String) -> Unit = { _, _ -> }
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val branchNavigation by chatViewModel.branchNavigation.collectAsStateWithLifecycle()
@@ -583,7 +584,8 @@ fun ChatScreen(
                 onDisablePlatformClick = {
                     showProfileManagement = true
                 },
-                onOutlineClick = { showOutline = true }
+                onOutlineClick = { showOutline = true },
+                onWorkspace = { tab -> onWorkspace(chatRoom.id, tab) }
             )
         }
     ) { innerPadding ->
@@ -1388,7 +1390,8 @@ private fun ChatTopBar(
     onChatModelItemClick: () -> Unit,
     onExportChatItemClick: () -> Unit,
     onDisablePlatformClick: () -> Unit = {},
-    onOutlineClick: () -> Unit = {}
+    onOutlineClick: () -> Unit = {},
+    onWorkspace: (String) -> Unit = {}
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
@@ -1444,6 +1447,7 @@ private fun ChatTopBar(
                     isDropDownMenuExpanded = false
                 },
                 onExportChatItemClick = onExportChatItemClick,
+                onWorkspace = onWorkspace,
                 onDisablePlatformClick = {
                     onDisablePlatformClick()
                     isDropDownMenuExpanded = false
@@ -1467,7 +1471,8 @@ fun ChatDropdownMenu(
     onChatTitleItemClick: () -> Unit,
     onExportChatItemClick: () -> Unit,
     onDisablePlatformClick: () -> Unit = {},
-    onOutlineClick: () -> Unit = {}
+    onOutlineClick: () -> Unit = {},
+    onWorkspace: (String) -> Unit = {}
 ) {
     DropdownMenu(
         modifier = Modifier.wrapContentSize(),
@@ -1475,14 +1480,14 @@ fun ChatDropdownMenu(
         onDismissRequest = onDismissRequest
     ) {
         DropdownMenuItem(
-            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
+            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.onSurface, leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
             enabled = isMenuItemEnabled,
             text = { Text(text = stringResource(R.string.update_chat_title)) },
             onClick = onChatTitleItemClick
         )
         /* Export Chat */
         DropdownMenuItem(
-            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
+            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.onSurface, leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
             enabled = isMenuItemEnabled,
             text = { Text(text = stringResource(R.string.export_chat)) },
             onClick = {
@@ -1500,7 +1505,7 @@ fun ChatDropdownMenu(
         )
         /* Manage profiles in current conversation */
         DropdownMenuItem(
-            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
+            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.onSurface, leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
             enabled = isMenuItemEnabled,
             text = { Text(text = stringResource(R.string.manage_chat_profiles)) },
             onClick = {
@@ -1508,6 +1513,12 @@ fun ChatDropdownMenu(
                 onDismissRequest()
             }
         )
+        listOf("Context", "Evidence", "Branches").forEach { tab ->
+            DropdownMenuItem(enabled = isMenuItemEnabled, text = { Text(tab) }, onClick = {
+                onDismissRequest()
+                onWorkspace(tab)
+            })
+        }
     }
 }
 
@@ -1525,7 +1536,7 @@ fun ChatBubbleDropdownMenu(
         onDismissRequest = onDismissRequest
     ) {
         DropdownMenuItem(
-            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
+            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.onSurface, leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
             enabled = canEdit,
             leadingIcon = {
                 Icon(
@@ -1540,7 +1551,7 @@ fun ChatBubbleDropdownMenu(
             }
         )
         DropdownMenuItem(
-            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
+            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.onSurface, leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
             leadingIcon = {
                 Icon(
                     imageVector = ImageVector.vectorResource(id = R.drawable.ic_copy),

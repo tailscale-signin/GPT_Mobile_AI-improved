@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -121,7 +122,11 @@ fun ToolConnectionsScreen(
     onMarketplaceClick: () -> Unit = {},
     onAddConnectionClick: () -> Unit,
     onEditConnectionClick: (String) -> Unit,
-    onNavigationClick: () -> Unit
+    onNavigationClick: () -> Unit,
+    onActivity: () -> Unit = {},
+    onGitHub: () -> Unit = {},
+    onDelegation: () -> Unit = {},
+    onMemory: () -> Unit = {}
 ) {
     val features by viewModel.features.collectAsStateWithLifecycle()
     var search by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
@@ -304,7 +309,7 @@ fun ToolConnectionsScreen(
                 scrollBehavior = scrollBehavior,
                 onAddClick = onAddConnectionClick,
                 onMarketplaceClick = onMarketplaceClick,
-                onNavigationClick = onNavigationClick
+                onNavigationClick = onActivity
             )
         }
     ) { innerPadding ->
@@ -312,7 +317,8 @@ fun ToolConnectionsScreen(
             Modifier.padding(innerPadding).verticalScroll(scrollState).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SettingsHero("YOUR SERVICES", "Plugins & Tools", "One service. All its tools. Choose what each AI can use.")
+            SettingsTabs(listOf("Installed", "Connections"), if (toolkitFilter == ToolkitFilter.MCP) 1 else 0) { toolkitFilter = if (it == 1) ToolkitFilter.MCP else ToolkitFilter.ALL }
+            dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("GitHub workspace", "Repositories, files and changes", Icons.Rounded.Code, onGitHub)
             TextButton(onClick = { showAccessAudit = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_title)) }
             ToolkitControls(search, { search = it }, toolkitFilter, { toolkitFilter = it }, toolkitSort, { toolkitSort = it })
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -363,8 +369,8 @@ fun ToolConnectionsScreen(
                             val plugin = INTEGRATED_PLUGINS.first { it.id == service.id }
                             OutlinedButton(onClick = {
                                 when (service.id) {
-                                    ToolPluginId.MODEL_DELEGATION -> delegationSettingsOpen = true
-                                    ToolPluginId.LOCAL_MEMORY -> memorySettingsOpen = true
+                                    ToolPluginId.MODEL_DELEGATION -> onDelegation()
+                                    ToolPluginId.LOCAL_MEMORY -> onMemory()
                                     else -> pluginSettings = plugin
                                 }
                             }) {
@@ -949,7 +955,7 @@ private fun ToolConnectionsTopBar(
         title = {
             Text(
                 modifier = Modifier.padding(4.dp),
-                text = stringResource(R.string.tool_connections),
+                text = "Tools",
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -959,7 +965,7 @@ private fun ToolConnectionsTopBar(
                 modifier = Modifier.padding(4.dp),
                 onClick = onNavigationClick
             ) {
-                Icon(imageVector = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.go_back))
+                Icon(imageVector = Icons.Rounded.Timeline, contentDescription = "Activity")
             }
         },
         actions = {

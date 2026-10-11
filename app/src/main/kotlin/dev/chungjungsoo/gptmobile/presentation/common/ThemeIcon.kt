@@ -15,7 +15,7 @@ private fun iconTint(requested: Color): Color {
     if (requested != Color.Unspecified) return requested
     val colors = MaterialTheme.colorScheme
     val content = LocalContentColor.current
-    return if (content == colors.onSurface || content == colors.onSurfaceVariant || content == Color.Unspecified) colors.primary else content
+    return if (content == Color.Unspecified) colors.onSurfaceVariant else content
 }
 
 @Composable

@@ -98,21 +98,31 @@ fun LocalToolsSettingsPanel(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun LocalToolConfigurationDialog(section: String, onDismiss: () -> Unit) {
+fun LocalToolConfigurationDialog(section: String, onDismiss: () -> Unit, asDialog: Boolean = true) {
+    if (!asDialog) {
+        LocalToolConfigurationContent(section, onDismiss)
+        return
+    }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize()) {
-                androidx.compose.material3.TopAppBar(
-                    title = { Text(if (section == "delegation") "Model Delegation" else stringResource(R.string.local_tools_settings_panel_label_12)) },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.local_tools_settings_panel_label_12))
-                        }
+        LocalToolConfigurationContent(section, onDismiss)
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun LocalToolConfigurationContent(section: String, onDismiss: () -> Unit) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize()) {
+            androidx.compose.material3.TopAppBar(
+                title = { Text(if (section == "delegation") "Model Delegation" else stringResource(R.string.local_tools_settings_panel_label_12)) },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.local_tools_settings_panel_label_12))
                     }
-                )
-                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                    if (section == "delegation") ModelDelegationSettingsPanel() else LocalToolsSettingsPanel(initialSection = section)
                 }
+            )
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                if (section == "delegation") ModelDelegationSettingsPanel() else LocalToolsSettingsPanel(initialSection = section)
             }
         }
     }

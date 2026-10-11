@@ -34,6 +34,18 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
         }
     }
 
+    fun applyDraft(draft: ThemeSetting, onError: (String) -> Unit = {}, onSaved: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                persistTheme { draft }
+                onSaved()
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                onError(error.message ?: "Could not save appearance. Please try again.")
+            }
+        }
+    }
+
     fun updateDynamicTheme(theme: DynamicTheme) {
         viewModelScope.launch {
             persistTheme { it.copy(dynamicTheme = theme) }
@@ -48,18 +60,18 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
 
     fun updateCustomPrimaryArgb(argb: Long?) {
         viewModelScope.launch {
-            persistTheme { it.copy(customPrimaryArgb = argb, customPalette = null) }
+            persistTheme { it.copy(customPrimaryArgb = argb, customPalette = null, themeFamily = null) }
         }
     }
 
     fun updateCustomPalette(palette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette?) {
         viewModelScope.launch {
-            persistTheme { it.copy(dynamicTheme = DynamicTheme.OFF, customPalette = palette, customPrimaryArgb = palette?.primary) }
+            persistTheme { it.copy(dynamicTheme = DynamicTheme.OFF, customPalette = palette, customPrimaryArgb = palette?.primary, themeFamily = null) }
         }
     }
 
     fun applyProfile(profile: dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile) {
-        viewModelScope.launch { persistTheme { it.copy(dynamicTheme = DynamicTheme.OFF, themeMode = profile.mode, customPalette = profile.palette, customPrimaryArgb = profile.palette.primary) } }
+        viewModelScope.launch { persistTheme { it.copy(dynamicTheme = DynamicTheme.OFF, themeMode = profile.mode, customPalette = profile.palette, customPrimaryArgb = profile.palette.primary, themeFamily = null) } }
     }
 
     fun saveProfile(name: String, palette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette) {
@@ -68,7 +80,7 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
         viewModelScope.launch {
             persistTheme { current ->
                 val profile = dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile(label, palette, current.themeMode)
-                current.copy(dynamicTheme = DynamicTheme.OFF, customPalette = palette, customPrimaryArgb = palette.primary, savedProfiles = current.savedProfiles.filterNot { it.name.equals(label, true) } + profile)
+                current.copy(dynamicTheme = DynamicTheme.OFF, customPalette = palette, customPrimaryArgb = palette.primary, themeFamily = null, savedProfiles = current.savedProfiles.filterNot { it.name.equals(label, true) } + profile)
             }
         }
     }

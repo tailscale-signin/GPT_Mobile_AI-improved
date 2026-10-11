@@ -34,7 +34,8 @@ internal object SettingsSearchRegistry {
     fun group(feature: AppFeature): String = when (feature) {
         AppFeature.COMPACT_CHAT_LIST, AppFeature.SMOOTH_STREAMING, AppFeature.CENTER_UNREAD, AppFeature.RESPONSE_ANIMATION,
         AppFeature.EDGE_FADES, AppFeature.MESSAGE_TIMESTAMPS, AppFeature.ARCHIVE_OLDER_REPLIES,
-        AppFeature.SHOW_REASONING, AppFeature.SMART_SUGGESTIONS, AppFeature.AUTOMATIC_TITLES -> "Reading & Motion"
+        AppFeature.SHOW_REASONING -> "Reading & Motion"
+        AppFeature.SMART_SUGGESTIONS, AppFeature.AUTOMATIC_TITLES, AppFeature.QUEUED_FOLLOW_UPS -> "Composer & Organisation"
         AppFeature.BACKGROUND_GENERATION, AppFeature.RESPONSE_NOTIFICATIONS -> "Background & Notifications"
         AppFeature.LOCAL_MODEL_CACHE, AppFeature.LOCAL_ASSIST, AppFeature.LOCAL_NATIVE_METRICS,
         AppFeature.QNN_AUTO_FALLBACK -> "Local Runtime"
@@ -44,12 +45,12 @@ internal object SettingsSearchRegistry {
     }
 
     val entries: List<SettingsSearchEntry> = AppFeature.entries.map {
-        SettingsSearchEntry("feature.${it.name}", it.title, "Advanced Settings › ${group(it)}", SettingsSearchDestination.ADVANCED, it.name, it.description)
+        SettingsSearchEntry("feature.${it.name}", it.title, "All advanced controls › ${group(it)}", SettingsSearchDestination.ADVANCED, it.name, it.description)
     } + DebugMetric.entries.map {
         SettingsSearchEntry("debug.${it.name}", it.title, "Debug › Display", SettingsSearchDestination.DEBUG, it.name, it.description)
     } + listOf(
-        SettingsSearchEntry("appearance.presets", "Theme Presets", "Appearance › Presets", SettingsSearchDestination.APPEARANCE, "0", "theme colours colors graphite cyan midnight"),
-        SettingsSearchEntry("appearance.custom", "Custom Colours", "Appearance › Custom", SettingsSearchDestination.APPEARANCE, "1", "palette contrast accent secondary background cards hex save theme"),
+        SettingsSearchEntry("appearance.presets", "Theme Presets", "Appearance › Theme", SettingsSearchDestination.APPEARANCE, "0", "theme colours colors graphite cyan midnight"),
+        SettingsSearchEntry("appearance.custom", "Custom Colours", "Appearance › Colour", SettingsSearchDestination.APPEARANCE, "1", "palette contrast accent secondary background cards hex save theme"),
         SettingsSearchEntry("appearance.display", "Display", "Appearance › Display", SettingsSearchDestination.APPEARANCE, "2", "dark light system wallpaper dynamic colours"),
         SettingsSearchEntry("memory.facts", "Saved Memories", "Memory › Facts", SettingsSearchDestination.MEMORY, "Memories", "saved facts recall edit delete pin private memory vault"),
         SettingsSearchEntry("memory.documents", "Document Indexing", "Memory › Documents", SettingsSearchDestination.MEMORY, "Documents", "attachments indexing import retry remove"),
@@ -58,8 +59,8 @@ internal object SettingsSearchRegistry {
         SettingsSearchEntry("local.runtime", "Runtime Settings", "AI › Local Models › Settings", SettingsSearchDestination.LOCAL_MODELS, "runtime", "threads cache cpu gpu npu fallback speculative idle"),
         SettingsSearchEntry("profiles", "AI Profiles", "AI › Profiles", SettingsSearchDestination.PROFILES, keywords = "platform providers connections remote free models labels"),
         SettingsSearchEntry("tools", "Plugins & Tools", "Plugins & Tools", SettingsSearchDestination.TOOLS, keywords = "tool connections marketplace mcp endpoint permissions revoke data access"),
-        SettingsSearchEntry("delegation", "Model Delegation", "Memory & Research › Delegation", SettingsSearchDestination.DELEGATION, keywords = "reviewer local assist worker budget research cloud recall"),
-        SettingsSearchEntry("privacy", "Privacy & Storage", "Advanced Settings › Privacy & Storage", SettingsSearchDestination.ADVANCED, "privacy", "biometric device unlock screenshots cleanup storage"),
+        SettingsSearchEntry("delegation", "Model Delegation", "AI › Delegation", SettingsSearchDestination.DELEGATION, keywords = "reviewer local assist worker budget research cloud recall"),
+        SettingsSearchEntry("privacy", "Privacy & Storage", "Privacy & data", SettingsSearchDestination.ADVANCED, "privacy", "biometric device unlock screenshots cleanup storage"),
         SettingsSearchEntry("health", "Connection & Runtime Health", "Diagnostics › Health", SettingsSearchDestination.DEBUG, "health", "connection online offline provider local backend accelerator fallback"),
         SettingsSearchEntry("debug.live", "Live Diagnostics", "Debug › Live", SettingsSearchDestination.DEBUG, "live", "health runtime connectivity hardware logs tools"),
         SettingsSearchEntry("debug.runs", "Recent Runs", "Debug › Runs", SettingsSearchDestination.DEBUG, "runs", "failed interrupted cancelled canceled requests"),

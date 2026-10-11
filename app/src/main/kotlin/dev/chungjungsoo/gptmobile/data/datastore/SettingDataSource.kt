@@ -12,6 +12,15 @@ import kotlinx.coroutines.flow.flowOf
 interface SettingDataSource {
     fun observePreferences(): Flow<Preferences> = kotlinx.coroutines.flow.flow { emit(getPreferencesSnapshot()) }
     suspend fun getPreferencesSnapshot(): Preferences
+    suspend fun getThemeFamily(): String? = null
+    suspend fun getReducedMotion(): Boolean = false
+    suspend fun updateThemePreferences(theme: dev.chungjungsoo.gptmobile.data.dto.ThemeSetting) {
+        updateDynamicTheme(theme.dynamicTheme)
+        updateThemeMode(theme.themeMode)
+        updateCustomPrimaryArgb(theme.customPrimaryArgb)
+        updateCustomPalette(theme.customPalette)
+        updateSavedThemeProfiles(theme.savedProfiles)
+    }
     suspend fun updateDynamicTheme(theme: DynamicTheme)
     suspend fun updateThemeMode(themeMode: ThemeMode)
     suspend fun getSavedThemeProfiles(): List<dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile> = emptyList()

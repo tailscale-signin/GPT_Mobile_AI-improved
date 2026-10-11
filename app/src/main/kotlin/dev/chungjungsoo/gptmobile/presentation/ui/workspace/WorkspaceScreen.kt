@@ -57,7 +57,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int = 0, initialTab: String = "Tasks", initialRun: String = "", model: WorkspaceViewModel = hiltViewModel()) {
+fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int = 0, initialTab: String = "Tasks", initialRun: String = "", focused: Boolean = false, embedded: Boolean = false, model: WorkspaceViewModel = hiltViewModel()) {
     val records by model.records.collectAsState()
     val requestReceipts by model.requestReceipts.collectAsState()
     LaunchedEffect(initialRun) { model.inspectedRun.value = initialRun }
@@ -72,17 +72,19 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
     val comparison by model.comparison.collectAsState()
     val notice by model.notice.collectAsState()
     val inputs by model.interactions.pending.collectAsState()
-    var tab by remember { mutableStateOf(initialTab) }
+    var tab by androidx.compose.runtime.saveable.rememberSaveable(initialTab) { mutableStateOf(initialTab) }
     var selectedContext by remember { mutableStateOf<WorkspaceRecord?>(null) }
     var editingRecipe by remember { mutableStateOf<WorkspaceRecord?>(null) }
     var createRecipe by remember { mutableStateOf(false) }
     var evidenceEdit by remember { mutableStateOf<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent?>(null) }
     LaunchedEffect(initialChat, chats) { if (initialChat > 0) model.chatId.value = initialChat }
     inputs.firstOrNull()?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.McpInputDialog(it) { _, value -> model.interactions.respond(it.id, value) } }
-    Scaffold(topBar = { TopAppBar(title = { Text("Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { padding ->
+    Scaffold(topBar = { if (!embedded) TopAppBar(title = { Text(if (focused) if (tab == "Tasks") "Runs" else tab else "Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Tasks", "Context", "Evidence", "Branches", "Recipes", "Models", "Budgets", "GitHub", "Plugins").forEach { name -> FilterChip(tab == name, { tab = name }, label = { Text(name) }) }
+            if (!focused) {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Tasks", "Context", "Evidence", "Branches", "Recipes", "Models", "Budgets", "GitHub", "Plugins").forEach { name -> FilterChip(tab == name, { tab = name }, label = { Text(name) }) }
+                }
             }
             notice?.let { TextButton(onClick = { model.notice.value = null }) { Text(it) } }
             if (tab in setOf("Context", "Evidence", "Branches", "Recipes")) {

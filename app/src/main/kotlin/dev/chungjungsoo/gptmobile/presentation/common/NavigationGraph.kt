@@ -79,23 +79,25 @@ fun SetupNavGraph(
     onLaunchOAuth: (String) -> Unit = {}
 ) {
     val currentEntry by navController.currentBackStackEntryAsState()
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f)) {
-            val navHost: @Composable () -> Unit = {
-                AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+    dev.chungjungsoo.gptmobile.presentation.navigation.AppNavigationShell(navController, currentEntry?.destination?.route) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
+                val navHost: @Composable () -> Unit = {
+                    AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+                }
+                if (isSettingsDestination(currentEntry?.destination?.route)) {
+                    SettingsTypographyScope(content = navHost)
+                } else {
+                    navHost()
+                }
             }
-            if (isSettingsDestination(currentEntry?.destination?.route)) {
-                SettingsTypographyScope(content = navHost)
-            } else {
-                navHost()
-            }
+            BenchmarkExecutionBanner(
+                Modifier.navigationBarsPadding(),
+                onOpen = {
+                    if (currentEntry?.destination?.route != Route.PROFILE_BENCHMARKS) navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", ""))
+                }
+            )
         }
-        BenchmarkExecutionBanner(
-            Modifier.navigationBarsPadding(),
-            onOpen = {
-                if (currentEntry?.destination?.route != Route.PROFILE_BENCHMARKS) navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", ""))
-            }
-        )
     }
 }
 
@@ -105,6 +107,7 @@ private fun AppNavHost(
     toolConnectionsViewModel: ToolConnectionsViewModel,
     onLaunchOAuth: (String) -> Unit
 ) {
+    val reducedMotion = LocalReducedMotion.current
     NavHost(
         modifier = Modifier
             .fillMaxSize()
@@ -114,16 +117,16 @@ private fun AppNavHost(
         enterTransition = {
             slideInHorizontally(
                 animationSpec = tween(
-                    durationMillis = PAGE_ENTER_DURATION_MS,
+                    durationMillis = if (reducedMotion) 0 else PAGE_ENTER_DURATION_MS,
                     easing = FastOutSlowInEasing
                 ),
                 initialOffsetX = { width -> width / 9 }
             ) +
-                fadeIn(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                fadeIn(animationSpec = tween(durationMillis = if (reducedMotion) 0 else PAGE_FADE_DURATION_MS)) +
                 scaleIn(
                     initialScale = 0.992f,
                     animationSpec = tween(
-                        durationMillis = PAGE_ENTER_DURATION_MS,
+                        durationMillis = if (reducedMotion) 0 else PAGE_ENTER_DURATION_MS,
                         easing = FastOutSlowInEasing
                     )
                 )
@@ -131,22 +134,22 @@ private fun AppNavHost(
         exitTransition = {
             slideOutHorizontally(
                 animationSpec = tween(
-                    durationMillis = PAGE_EXIT_DURATION_MS,
+                    durationMillis = if (reducedMotion) 0 else PAGE_EXIT_DURATION_MS,
                     easing = FastOutSlowInEasing
                 ),
                 targetOffsetX = { width -> -width / 28 }
             ) +
-                fadeOut(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                fadeOut(animationSpec = tween(durationMillis = if (reducedMotion) 0 else PAGE_FADE_DURATION_MS)) +
                 scaleOut(
                     targetScale = 0.996f,
                     animationSpec = tween(
-                        durationMillis = PAGE_EXIT_DURATION_MS,
+                        durationMillis = if (reducedMotion) 0 else PAGE_EXIT_DURATION_MS,
                         easing = FastOutSlowInEasing
                     )
                 )
         },
-        popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = 500)) },
-        popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 500)) }
+        popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = if (reducedMotion) 0 else PAGE_FADE_DURATION_MS)) },
+        popExitTransition = { fadeOut(animationSpec = tween(durationMillis = if (reducedMotion) 0 else PAGE_FADE_DURATION_MS)) }
     ) {
         homeScreenNavigation(navController)
         migrationScreenNavigation(navController)
@@ -271,7 +274,7 @@ fun NavGraphBuilder.setupNavigation(
 fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
     composable(Route.CHAT_LIST) {
         HomeScreen(
-            settingOnClick = { navController.navigate(Route.SETTING_ROUTE) },
+            settingOnClick = { navController.navigate(Route.ACTIVITY) },
             onExistingChatClick = { chatRoom, targetMessageId ->
                 val targetSuffix = if (targetMessageId != null) "&targetMessageId=$targetMessageId" else ""
                 navController.navigate(
@@ -312,7 +315,9 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
                 chatViewModel = conversation,
                 onBackAction = { navController.navigateUp() },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
-                onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") }
+                onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") },
+                onInspectContext = { id, run -> navController.navigate("workspaces?chatId=$id&tab=Context&runId=${android.net.Uri.encode(run)}") },
+                onWorkspace = { id, tab -> navController.navigate("workspaces?chatId=$id&tab=$tab") }
             )
         }
     }
@@ -346,13 +351,17 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigateToWorkspaces = { navController.navigate("workspaces") },
                 githubWorkspaceEnabled = githubConnection != null,
                 onNavigateToFactVault = { navController.navigate(Route.FACT_VAULT) },
-                onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
+                onNavigateToDebugDiagnostics = { navController.navigate(Route.ACTIVITY) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) },
                 onNavigateToAppearance = { navController.navigate(Route.APPEARANCE) },
                 onSearchDestination = { destination, focus ->
                     val encoded = android.net.Uri.encode(focus)
                     val target = when (destination) {
-                        "ADVANCED" -> Route.ADVANCED_SETTINGS + "?focus=$encoded"
+                        "ADVANCED" -> if (focus.startsWith("privacy")) Route.PRIVACY_DATA + "?focus=$encoded" else Route.ADVANCED_SETTINGS + "?focus=$encoded"
+                        "CONVERSATIONS" -> Route.CONVERSATION_PREFERENCES
+                        "PRIVACY" -> Route.PRIVACY_DATA
+                        "BACKUP" -> Route.PRIVACY_DATA + "?backup=true"
+                        "DELEGATION" -> Route.DELEGATION
                         "APPEARANCE" -> Route.APPEARANCE + "?tab=$encoded"
                         "MEMORY" -> Route.FACT_VAULT + "?tab=$encoded"
                         "LOCAL_MODELS" -> Route.LOCAL_MODELS + "?runtime=${focus == "runtime"}"
@@ -390,7 +399,17 @@ fun NavGraphBuilder.settingNavigation(
                     connection.type == ToolConnectionType.GITHUB &&
                     (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
             }
-            if (githubConnection != null) {
+            val workspaceTab = it.arguments?.getString("tab") ?: "GitHub"
+            if (workspaceTab != "GitHub") {
+                dev.chungjungsoo.gptmobile.presentation.ui.workspace.WorkspaceScreen(
+                    onBack = { navController.navigateUp() },
+                    onChat = { id -> navController.navigate("chat_room/$id") },
+                    initialChat = it.arguments?.getInt("chatId") ?: 0,
+                    initialTab = workspaceTab,
+                    initialRun = it.arguments?.getString("runId").orEmpty(),
+                    focused = true
+                )
+            } else if (githubConnection != null) {
                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
                     connection = githubConnection,
                     onDismiss = { navController.navigateUp() }
@@ -401,6 +420,49 @@ fun NavGraphBuilder.settingNavigation(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+        }
+        composable(Route.ACTIVITY + "?tab={tab}", arguments = listOf(navArgument("tab") { defaultValue = "Runs" })) { entry ->
+            val parentEntry = remember(entry) { navController.getBackStackEntry(Route.SETTING_ROUTE) }
+            val settings: SettingViewModelV2 = hiltViewModel(parentEntry)
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.ActivityScreen(
+                settings,
+                toolConnectionsViewModel,
+                entry.arguments?.getString("tab") ?: "Runs",
+                { navController.navigateUp() },
+                { id -> navController.navigate("chat_room/$id") }
+            )
+        }
+        composable(Route.DELEGATION) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalToolConfigurationDialog("delegation", { navController.navigateUp() }, asDialog = false)
+        }
+        composable(Route.CONVERSATION_PREFERENCES) { entry ->
+            val parentEntry = remember(entry) { navController.getBackStackEntry(Route.SETTING_ROUTE) }
+            AdvancedSettingsScreen(
+                viewModel = hiltViewModel<SettingViewModelV2>(parentEntry),
+                onNavigationClick = { navController.navigateUp() },
+                title = "Conversations",
+                groupFilter = setOf("Reading & Motion", "Composer & Organisation", "Background & Notifications"),
+                showPrivacy = false,
+                onAllControls = { navController.navigate(Route.ADVANCED_SETTINGS) }
+            )
+        }
+        composable(
+            Route.PRIVACY_DATA + "?focus={focus}&backup={backup}",
+            arguments = listOf(
+                navArgument("focus") { defaultValue = "" },
+                navArgument("backup") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { entry ->
+            val parentEntry = remember(entry) { navController.getBackStackEntry(Route.SETTING_ROUTE) }
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.PrivacyDataScreen(
+                hiltViewModel<SettingViewModelV2>(parentEntry),
+                { navController.navigateUp() },
+                entry.arguments?.getString("focus").orEmpty(),
+                entry.arguments?.getBoolean("backup") == true
+            )
         }
         composable(Route.OPENROUTER_SETTINGS) {
             val viewModel: OpenRouterSettingsViewModel = hiltViewModel()
@@ -474,6 +536,10 @@ fun NavGraphBuilder.settingNavigation(
             AiPlatformsScreen(
                 settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
+                onDelegation = { navController.navigate(Route.DELEGATION) },
+                onWorkspace = { tab -> navController.navigate("workspaces?tab=$tab") },
+                onActivity = { navController.navigate(Route.ACTIVITY) },
                 onNavigateToAddPlatform = { navController.navigate(Route.ADD_PLATFORM) },
                 onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
                 onNavigateToProviderSettings = { connectionUid ->
@@ -595,6 +661,10 @@ fun NavGraphBuilder.settingNavigation(
                 viewModel = toolConnectionsViewModel,
                 onLaunchOAuth = onLaunchOAuth,
                 onNavigationClick = { navController.navigateUp() },
+                onActivity = { navController.navigate(Route.ACTIVITY) },
+                onGitHub = { navController.navigate("workspaces?tab=GitHub") },
+                onDelegation = { navController.navigate(Route.DELEGATION) },
+                onMemory = { navController.navigate(Route.FACT_VAULT) },
                 onMarketplaceClick = { navController.navigate(Route.MCP_MARKETPLACE) },
                 onAddConnectionClick = { navController.navigate(Route.ADD_TOOL_CONNECTION) },
                 onEditConnectionClick = { connectionUid ->

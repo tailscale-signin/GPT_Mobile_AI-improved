@@ -183,7 +183,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
 }
 
 @Composable
-private fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
+internal fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
     val hsv = remember(color) { FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) } }
     val currentHsv by rememberUpdatedState(hsv)
     val change by rememberUpdatedState(onColorChange)

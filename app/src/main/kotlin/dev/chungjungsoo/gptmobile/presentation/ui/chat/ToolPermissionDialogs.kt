@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,14 +19,14 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +48,8 @@ internal fun ToolApprovalDialog(
     onAlwaysAllowProvider: () -> Unit,
     onAllowInConversation: () -> Unit = {}
 ) {
-    var allowProvider by remember(approval.id) { mutableStateOf(false) }
+    var grantScope by rememberSaveable(approval.id) { mutableStateOf(0) }
+    var showScopes by rememberSaveable(approval.id) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDeny,
         icon = {
@@ -92,26 +94,37 @@ internal fun ToolApprovalDialog(
                     }
                 }
                 Text(
-                    "Allow once for this action, or remember it for every model. Change this anytime in Plugins/Tools → Permissions.",
+                    "Allow once for this action, or remember it for every model. Change this anytime in Tools → Permissions.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                FilledTonalButton(onClick = onAlwaysAllowTool, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Always allow this tool · all models")
+                TextButton(onClick = { showScopes = !showScopes }) { Text(if (showScopes) "Hide permission scope" else "Change permission scope") }
+                if (showScopes) {
+                    listOf("Only this action", "This tool · all models", "All tools from ${approval.connection}").forEachIndexed { index, label ->
+                        Row(Modifier.fillMaxWidth().clickable { grantScope = index }, verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = grantScope == index, onClick = { grantScope = index })
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = allowProvider, onCheckedChange = { allowProvider = it })
-                    Text("Always allow all tools from ${approval.connection}", style = MaterialTheme.typography.bodyMedium)
-                }
+                if (grantScope > 0) Text("This permission remains active for future requests. Revoke it in Tools → Permissions.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
         },
         confirmButton = {
             FilledTonalButton(
-                onClick = if (allowProvider) onAlwaysAllowProvider else onAllowOnce
+                onClick = when (grantScope) {
+                    1 -> onAlwaysAllowTool
+                    2 -> onAlwaysAllowProvider
+                    else -> onAllowOnce
+                }
             ) {
-                Text(if (allowProvider) "Always allow provider" else "Allow once")
+                Text(
+                    when (grantScope) {
+                        1 -> "Allow tool for all models"
+                        2 -> "Allow provider"
+                        else -> "Allow once"
+                    }
+                )
             }
         },
         dismissButton = { OutlinedButton(onClick = onDeny) { Text("Deny") } }
@@ -124,8 +137,7 @@ internal fun FreeToolConsentDialog(
     onAccept: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var progress by remember(request.profileUid, request.toolId) { mutableFloatStateOf(0f) }
-    val unlocked = progress >= 0.95f
+    var unlocked by rememberSaveable(request.profileUid, request.toolId) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
@@ -149,7 +161,7 @@ internal fun FreeToolConsentDialog(
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    "Data tracking is on at the free provider: requests and tool results may be logged under its data policy. You can revoke this permission in Plugins/Tools at any time.",
+                    "Data tracking is on at the free provider: requests and tool results may be logged under its data policy. You can revoke this permission in Tools → Permissions at any time.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -159,17 +171,11 @@ internal fun FreeToolConsentDialog(
                     color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
                     Column(Modifier.padding(14.dp)) {
-                        Text("Slide to acknowledge data sharing", style = MaterialTheme.typography.labelLarge)
-                        Slider(
-                            value = progress,
-                            onValueChange = { progress = it },
-                            valueRange = 0f..1f
-                        )
-                        Text(
-                            if (unlocked) "Acknowledged. This tool permission will be remembered for all models." else "Move the slider fully to the right to continue.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(Modifier.fillMaxWidth().clickable { unlocked = !unlocked }, verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = unlocked, onCheckedChange = { unlocked = it })
+                            Text("I understand this data sharing and permission scope.", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Text("The accepted tool permission is remembered for all models.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

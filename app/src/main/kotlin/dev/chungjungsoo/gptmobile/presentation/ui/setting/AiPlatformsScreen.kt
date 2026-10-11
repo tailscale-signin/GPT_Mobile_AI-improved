@@ -18,27 +18,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Cloud
-import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.CompareArrows
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,7 +47,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -64,7 +62,7 @@ import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun AiPlatformsScreen(
     settingViewModel: SettingViewModelV2,
@@ -73,182 +71,64 @@ fun AiPlatformsScreen(
     onNavigateToOpenRouterSettings: () -> Unit = {},
     onNavigateToProviderSettings: (String) -> Unit = {},
     onNavigateToPlatformSetting: (String) -> Unit,
+    onNavigateToLocalModels: () -> Unit = {},
+    onDelegation: () -> Unit = {},
+    onWorkspace: (String) -> Unit = {},
+    onActivity: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val allPlatforms by settingViewModel.platformState.collectAsStateWithLifecycle()
-    val allProviderConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
+    val connections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
-    val platforms = remember(allPlatforms, query, favoritesOnly) {
-        allPlatforms.filter { dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery(it, query) && (!favoritesOnly || it.isFavorite) }
-            .sortedWith(compareByDescending<PlatformV2> { it.isFavorite }.thenBy { it.name.lowercase(java.util.Locale.ROOT) })
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var source by rememberSaveable { mutableStateOf("All") }
+    val platforms = remember(allPlatforms, query, favoritesOnly, source) {
+        allPlatforms.filter { profile ->
+            val kind = when (profile.compatibleType) {
+                ClientType.LITERT_LM -> "Local"
+                ClientType.FREE -> "Free"
+                else -> "Remote"
+            }
+            dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery(profile, query) &&
+                (!favoritesOnly || profile.isFavorite) &&
+                (source == "All" || source == kind)
+        }.sortedWith(compareByDescending<PlatformV2> { it.isFavorite }.thenBy { it.name.lowercase(java.util.Locale.ROOT) })
     }
-    val providerConnections = allProviderConnections.filter { connection ->
-        query.isBlank() || connection.name.contains(query, true) || platforms.any { it.providerConnectionUid == connection.uid }
-    }
-    var selectedPlatformTab by rememberSaveable { mutableIntStateOf(0) }
-
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = { Text(text = stringResource(R.string.ai_platforms)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigationClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = stringResource(R.string.go_back)
-                        )
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNavigateToAddPlatform,
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = stringResource(R.string.add_platform)
-                )
-            }
-        }
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
-                dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField(query, { query = it })
-                androidx.compose.material3.FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = !favoritesOnly }, label = { Text(stringResource(R.string.profile_favorites_only)) })
-            }
-            item {
-                PrimaryTabRow(selectedTabIndex = selectedPlatformTab) {
-                    Tab(
-                        selected = selectedPlatformTab == 0,
-                        onClick = { selectedPlatformTab = 0 },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Rounded.Cloud, null, modifier = Modifier.size(18.dp))
-                                Text("Remote")
-                            }
-                        }
-                    )
-                    Tab(
-                        selected = selectedPlatformTab == 1,
-                        onClick = { selectedPlatformTab = 1 },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Rounded.Dns, null, modifier = Modifier.size(18.dp))
-                                Text("Local")
-                            }
-                        }
-                    )
-                    Tab(
-                        selected = selectedPlatformTab == 2,
-                        onClick = { selectedPlatformTab = 2 },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(18.dp))
-                                Text("Free")
-                            }
-                        }
-                    )
-                }
-            }
-            if (platforms.isEmpty() && providerConnections.isEmpty()) {
+    Scaffold(modifier = modifier.fillMaxSize(), topBar = {
+        androidx.compose.material3.LargeTopAppBar(title = { Text("AI") }, actions = {
+            IconButton(onClick = onActivity) { Icon(Icons.Rounded.Timeline, "Activity") }
+        })
+    }, floatingActionButton = {
+        androidx.compose.material3.ExtendedFloatingActionButton(onClick = onNavigateToAddPlatform, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("New profile") })
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { SettingsTabs(listOf("Profiles", "Connections", "Local"), tab) { if (it == 2) onNavigateToLocalModels() else tab = it } }
+            item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppSearchField(query, { query = it }, if (tab == 0) "Find an AI profile" else "Find a connection") }
+            if (tab == 0) {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = stringResource(R.string.no_platforms_yet),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            TextButton(onClick = onNavigateToAddPlatform) {
-                                Text(stringResource(R.string.add_your_first_platform))
-                            }
-                        }
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("All", "Remote", "Local", "Free").forEach { label -> androidx.compose.material3.FilterChip(source == label, { source = label }, label = { Text(label) }) }
+                        androidx.compose.material3.FilterChip(favoritesOnly, { favoritesOnly = !favoritesOnly }, label = { Text("Favourites") })
                     }
+                }
+                if (platforms.isEmpty()) item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppEmptyState(if (query.isBlank()) "No matching profiles" else "No profiles match your search", "Add profile", onNavigateToAddPlatform) }
+                items(platforms, key = { it.uid }) { profile ->
+                    PlatformItemCard(profile, { settingViewModel.togglePlatformFavorite(profile.id) }, { onNavigateToPlatformSetting(profile.uid) })
                 }
             } else {
-                val freeConnections = providerConnections.filter { it.compatibleType == ClientType.FREE }
-                val freeStandalone = platforms.filter { it.compatibleType == ClientType.FREE && it.providerConnectionUid == null }
-                if (selectedPlatformTab == 2) {
-                    items(freeConnections, key = { "connection:${it.uid}" }) { connection ->
-                        ProviderConnectionGroupCard(
-                            modifier = Modifier.animateItem(),
-                            connection = connection,
-                            profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
-                            onEdit = { onNavigateToPlatformSetting(it.uid) },
-                            onProviderSettings = { onNavigateToProviderSettings(connection.uid) }
-                        )
-                    }
-                    items(freeStandalone, key = { "profile:${it.id}" }) { platform ->
-                        PlatformItemCard(
-                            modifier = Modifier.animateItem(),
-                            platform = platform,
-                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(platform.id) },
-                            onEdit = { onNavigateToPlatformSetting(platform.uid) }
-                        )
-                    }
-                }
-                val localTypes = setOf(ClientType.LITERT_LM, ClientType.LLAMA, ClientType.OLLAMA)
-                val localConnections = providerConnections.filter { it.compatibleType in localTypes }
-                val remoteConnections = providerConnections.filter { it.compatibleType != ClientType.FREE && it.compatibleType !in localTypes }
-                val localStandalone = platforms.filter { it.providerConnectionUid == null && it.compatibleType in localTypes }
-                val remoteStandalone = platforms.filter { it.providerConnectionUid == null && it.compatibleType != ClientType.FREE && it.compatibleType !in localTypes }
-
-                if (selectedPlatformTab == 0) {
-                    items(remoteConnections, key = { "remote-connection:${it.uid}" }) { connection ->
-                        ProviderConnectionGroupCard(
-                            modifier = Modifier.animateItem(),
-                            connection = connection,
-                            profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
-                            onEdit = { onNavigateToPlatformSetting(it.uid) },
-                            onProviderSettings = { onNavigateToProviderSettings(connection.uid) },
-                            onSpecialSettings = if (connection.compatibleType == ClientType.OPENROUTER) onNavigateToOpenRouterSettings else null
-                        )
-                    }
-                    items(remoteStandalone, key = { "remote-profile:${it.id}" }) { platform ->
-                        PlatformItemCard(platform, { settingViewModel.togglePlatformFavorite(platform.id) }, { onNavigateToPlatformSetting(platform.uid) }, modifier = Modifier.animateItem())
-                    }
-                }
-
-                if (selectedPlatformTab == 1) {
-                    items(localConnections, key = { "local-connection:${it.uid}" }) { connection ->
-                        ProviderConnectionGroupCard(
-                            modifier = Modifier.animateItem(),
-                            connection = connection,
-                            profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
-                            onEdit = { onNavigateToPlatformSetting(it.uid) },
-                            onProviderSettings = { onNavigateToProviderSettings(connection.uid) }
-                        )
-                    }
-                    items(localStandalone, key = { "local-profile:${it.id}" }) { platform ->
-                        PlatformItemCard(platform, { settingViewModel.togglePlatformFavorite(platform.id) }, { onNavigateToPlatformSetting(platform.uid) }, modifier = Modifier.animateItem())
-                    }
+                val visible = connections.filter { query.isBlank() || it.name.contains(query, true) || it.compatibleType.name.contains(query, true) }
+                if (visible.isEmpty()) item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppEmptyState("No matching connections", "Add connection", onNavigateToAddPlatform) }
+                items(visible, key = { "connection:${it.uid}" }) { connection ->
+                    dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow(connection.name, "${connection.compatibleType.name} · ${allPlatforms.count { it.providerConnectionUid == connection.uid }} profiles", Icons.Rounded.Cloud, { onNavigateToProviderSettings(connection.uid) })
+                    if (connection.compatibleType == ClientType.OPENROUTER) TextButton(onClick = onNavigateToOpenRouterSettings) { Text("OpenRouter options") }
                 }
             }
+            item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppSectionTitle("Configure your AI", Modifier.padding(top = 16.dp)) }
+            item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Delegation", "Helpers, reviewer, research depth and limits", Icons.Rounded.AutoAwesome, onDelegation) }
+            item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Recipes", "Reusable task instructions", Icons.Rounded.Description, { onWorkspace("Recipes") }) }
+            item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Compare models", "Existing measurements and model comparison", Icons.Rounded.CompareArrows, { onWorkspace("Models") }) }
+            item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Budgets", "Spend and token limits", Icons.Rounded.Tune, { onWorkspace("Budgets") }) }
         }
     }
 }
@@ -347,7 +227,6 @@ private fun PlatformItemCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer { alpha = if (platform.enabled) 1f else 0.4f }
             .combinedClickable(
                 onClick = onEdit,
                 onLongClick = {
@@ -356,7 +235,7 @@ private fun PlatformItemCard(
                 }
             ),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
         Row(
@@ -396,6 +275,7 @@ private fun PlatformItemCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                Text(if (platform.enabled) "Enabled" else "Disabled", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (labelsList.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
@@ -408,6 +288,7 @@ private fun PlatformItemCard(
                     }
                 }
             }
+            IconButton(onClick = onToggleFavorite) { Icon(if (platform.isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (platform.isFavorite) "Remove favourite" else "Add favourite") }
         }
     }
 }

@@ -167,13 +167,13 @@ fun UserChatBubble(
     Column(horizontalAlignment = Alignment.End) {
         Card(
             modifier = modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
-            shape = RoundedCornerShape(32.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = cardColor
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                 Text(
                     text = text,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 1f),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         platformStyle = PlatformTextStyle(includeFontPadding = false),
                         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
@@ -187,7 +187,7 @@ fun UserChatBubble(
                     text = formattedTime,
                     modifier = Modifier.padding(end = 8.dp),
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             AnimatedVisibility(visible = actionsExpanded) {
@@ -390,7 +390,7 @@ fun OpponentChatBubble(
                     .fillMaxWidth()
                     .background(
                         color = bubbleColor,
-                        shape = RoundedCornerShape(32.dp)
+                        shape = RoundedCornerShape(20.dp)
                     )
             ) {
                 AnimatedVisibility(
@@ -403,7 +403,7 @@ fun OpponentChatBubble(
                         Text(
                             workedTimeText((timing.completedAt ?: now / 1000) - timing.startedAt),
                             modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -609,7 +609,7 @@ fun OpponentChatBubble(
                         Text(
                             text = formattedTime,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(end = 8.dp)
                         )
                     }

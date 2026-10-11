@@ -144,6 +144,8 @@ fun GPTMobileTheme(
     themeMode: ThemeMode = ThemeMode.DARK,
     customPrimaryArgb: Long? = null,
     customPalette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette? = null,
+    themeFamily: String? = null,
+    updateSystemBars: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val useDarkTheme = when (themeMode) {
@@ -161,21 +163,22 @@ fun GPTMobileTheme(
     fun foreground(color: Color): Color = if (androidx.core.graphics.ColorUtils.calculateLuminance(color.toArgb()) > 0.179) Color.Black else Color.White
     val colorScheme = when {
         dynamicTheme == DynamicTheme.ON -> baseScheme
+        themeFamily in RenovationPalettes.names -> RenovationPalettes.scheme(themeFamily!!, useDarkTheme)
         customPalette != null -> {
             customPaletteColorScheme(baseScheme, customPalette)
         }
-        customPrimary != null -> baseScheme.copy(primary = customPrimary, onPrimary = foreground(customPrimary), secondary = customPrimary, tertiary = customPrimary)
+        customPrimary != null -> RenovationPalettes.withPrimary(baseScheme, customPrimary)
         else -> baseScheme
     }
     val view = LocalView.current
-    if (!view.isInEditMode) {
+    if (updateSystemBars && !view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             WindowCompat.setDecorFitsSystemWindows(window, false)
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = foreground(colorScheme.background) == Color.Black
         }
     }
-    MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
+    MaterialTheme(colorScheme = colorScheme, typography = AppTypography, shapes = AppMaterialShapes, content = content)
 }
 
 /** The editor and the application use the same role mapping. */

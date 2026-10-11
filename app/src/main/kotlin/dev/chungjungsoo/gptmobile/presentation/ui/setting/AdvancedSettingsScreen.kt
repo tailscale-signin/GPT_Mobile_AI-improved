@@ -46,19 +46,23 @@ fun AdvancedSettingsScreen(
     viewModel: SettingViewModelV2,
     onNavigationClick: () -> Unit,
     modifier: Modifier = Modifier,
-    initialFocus: String = ""
+    initialFocus: String = "",
+    title: String = "All advanced controls",
+    groupFilter: Set<String>? = null,
+    showPrivacy: Boolean = true,
+    onAllControls: (() -> Unit)? = null
 ) {
     val settings by viewModel.featureSettings.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val groups = remember { AppFeature.entries.groupBy(SettingsSearchRegistry::group) }
-    val rows = remember { groups.values.flatMap { listOf<AppFeature?>(null) + it } }
+    val groups = remember(groupFilter) { AppFeature.entries.groupBy(SettingsSearchRegistry::group).filterKeys { groupFilter == null || it in groupFilter } }
+    val rows = remember(groups) { groups.values.flatMap { listOf<AppFeature?>(null) + it } }
     LaunchedEffect(initialFocus) {
-        val target = if (initialFocus.startsWith("privacy")) 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(1)
+        val target = if (initialFocus.startsWith("privacy")) 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus((if (showPrivacy) 1 else 0) + (if (onAllControls != null) 1 else 0))
         if (target != null) listState.scrollToItem(target)
     }
     CompositionLocalProvider(LocalSettingSearchFocus provides initialFocus.substringAfter(':', "")) {
         Scaffold(modifier = modifier.fillMaxSize(), topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.settings_advanced)) }, navigationIcon = {
+            TopAppBar(title = { Text(title) }, navigationIcon = {
                 IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) }
             })
         }) { padding ->
@@ -68,9 +72,12 @@ fun AdvancedSettingsScreen(
                 contentPadding = PaddingValues(AppSpacing.large),
                 verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
             ) {
-                item(key = "privacy") {
-                    SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) }
+                if (showPrivacy) {
+                    item(key = "privacy") {
+                        SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) }
+                    }
                 }
+                onAllControls?.let { action -> item { androidx.compose.material3.TextButton(onClick = action) { Text("All advanced controls") } } }
                 groups.forEach { (group, features) ->
                     item(key = "group.$group") { Text(group, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = AppSpacing.medium)) }
                     features.forEach { feature ->

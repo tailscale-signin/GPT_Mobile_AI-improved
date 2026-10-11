@@ -42,6 +42,7 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
             journal.quarantine(marker.readText().split('|').takeLast(8).take(6).joinToString("|"))
             check(marker.delete())
         }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("QNN", "QNN_JOURNAL_INSPECT · ${journal.diagnostic()}")
         journal.before(signature)
     }
 
@@ -65,6 +66,13 @@ internal class LocalRuntimeQnnImpl(
 
     private var requestedSpec: LocalEngineSpec? = null
     private var dispatchedSpec: LocalEngineSpec? = null
+    private var requestId = ""
+
+    private suspend fun checkpoint(event: String, stage: QnnRuntimeStage, detail: String = "") {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            QnnExecutionEvidence.record(requestId, event, stage, detail)
+        }
+    }
 
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = runtime.inspectModel(modelPath)
 
@@ -74,74 +82,104 @@ internal class LocalRuntimeQnnImpl(
     override fun loadedEngineSpec(): LocalEngineSpec? = runtime.loadedEngineSpec() ?: dispatchedSpec
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
-        check(enabled) { "LiteRT/QNN is disabled in the GenieX preview APK to keep native QAIRT dependencies separate. Use the regular build for LiteRT NPU models." }
-        check(LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
-            "QNN requires the NPU accelerator and a matching SoC model. Use LiteRT-LM for CPU/GPU."
-        }
-        val probe = probeEnvironment()
-        if (!probe.isReady) {
-            val code = when {
-                !probe.isQualcommDevice -> QnnFailureCode.UNSUPPORTED_SOC
-                !android.os.Process.is64Bit() -> QnnFailureCode.WRONG_PROCESS_ABI
-                probe.missingLibraries.isNotEmpty() -> QnnFailureCode.LIBRARY_MISSING
-                probe.errorMessage.orEmpty().contains("No packaged Qualcomm", ignoreCase = true) -> QnnFailureCode.UNSUPPORTED_SOC
-                else -> QnnFailureCode.UNKNOWN_NATIVE_ERROR
-            }
-            throw QnnRuntimeFailure(QnnRuntimeStage.LIBRARY_FILES, code, probe.errorMessage ?: "Qualcomm NPU prerequisites are unavailable")
-        }
-        val effectiveSpec = spec.copy(
-            accelerator = LocalAccelerators.NPU,
-            litertDispatchLibDir = spec.litertDispatchLibDir ?: probe.dispatchDir
-        )
+        requestId = java.util.UUID.randomUUID().toString()
+        var stage = QnnRuntimeStage.DEVICE
+        var guardEntered = false
         requestedSpec = null
         dispatchedSpec = null
+        checkpoint("QNN_INIT_BEGIN", stage, "requested=npu · active=none")
         try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { loadGuard.beforeLoad(effectiveSpec) }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (error: Throwable) {
-            throw classifyQnnFailure(QnnRuntimeStage.MODEL_INTEGRITY, error)
-        }
-        try {
+            check(enabled) { "LiteRT/QNN is disabled in the GenieX preview APK; use the regular NPU build." }
+            check(LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) { "QNN requires the NPU accelerator and a matching SoC model." }
+            stage = QnnRuntimeStage.LIBRARY_FILES
+            val probe = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { probeEnvironment() }
+            checkpoint("QNN_PROBE_RESULT", stage, "prerequisitesReady=${probe.isReady} · soc=${probe.socModel} · abi=${probe.processAbi} · hashStatus=${probe.libraryDigestStatus} · executionQualified=false")
+            if (!probe.isReady) {
+                val code = when {
+                    !probe.isQualcommDevice -> QnnFailureCode.UNSUPPORTED_SOC
+                    probe.processAbi != "arm64-v8a" -> QnnFailureCode.WRONG_PROCESS_ABI
+                    probe.missingLibraries.isNotEmpty() -> QnnFailureCode.LIBRARY_MISSING
+                    probe.libraryDigestStatus == "TRUSTED_HASH_FAIL" -> QnnFailureCode.UNSAFE_ARTIFACT
+                    probe.errorMessage.orEmpty().contains("No packaged Qualcomm", true) -> QnnFailureCode.UNSUPPORTED_SOC
+                    else -> QnnFailureCode.UNKNOWN_NATIVE_ERROR
+                }
+                throw QnnRuntimeFailure(stage, code, probe.errorMessage ?: "Qualcomm NPU prerequisites unavailable")
+            }
+            val effectiveSpec = spec.copy(accelerator = LocalAccelerators.NPU, litertDispatchLibDir = probe.dispatchDir)
+            stage = QnnRuntimeStage.CRASH_JOURNAL
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                loadGuard.beforeLoad(effectiveSpec)
+                guardEntered = true
+            }
+            checkpoint("QNN_JOURNAL_RESULT", stage, "admitted=true")
+            stage = QnnRuntimeStage.ENGINE_INIT
+            checkpoint("QNN_ENGINE_INIT_BEGIN", stage, "maxContext=${spec.maxTokens} · vision=${spec.isVisionEnabled} · active=unverified")
             runtime.loadEngine(effectiveSpec)
+            checkpoint("QNN_ENGINE_INIT_SUCCEEDED", stage, "active=npu · executionQualified=false")
+            requestedSpec = spec
+            dispatchedSpec = effectiveSpec
+            checkpoint("QNN_INIT_TERMINAL", stage, "status=INITIALIZED · executionQualified=false")
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            loadGuard.loadFinished()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { checkpoint("QNN_INIT_TERMINAL", stage, "status=CANCELLED") }
             throw cancelled
         } catch (error: Throwable) {
-            loadGuard.loadFinished()
             if (error is VirtualMachineError || error is ThreadDeath) throw error
-            val failure = classifyQnnFailure(QnnRuntimeStage.ENGINE_INIT, error)
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                "QNN",
-                "NATIVE_FAILURE stage=${failure.stage} code=${failure.code} cause=${error::class.java.simpleName}"
-            )
+            val failure = classifyQnnFailure(stage, error)
+            checkpoint("QNN_INIT_TERMINAL", failure.stage, "status=FAILED · code=${failure.code} · cause=${error.javaClass.simpleName} · nativeDetail=${failure.nativeDetail}")
             throw failure
+        } finally {
+            if (guardEntered) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) { loadGuard.loadFinished() }
         }
-        loadGuard.loadFinished()
-        requestedSpec = spec
-        dispatchedSpec = effectiveSpec
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean =
         requestedSpec == spec && dispatchedSpec?.let { runtime.isEngineLoaded(it) } == true
 
     override suspend fun createConversation(config: LocalConversationConfig) {
+        guardedOperation(QnnRuntimeStage.CONVERSATION) { runtime.createConversation(config) }
+    }
+
+    private suspend fun <T> guardedOperation(stage: QnnRuntimeStage, action: suspend () -> T): T {
         val spec = checkNotNull(dispatchedSpec) { "NPU model is not loaded" }
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { loadGuard.beforeLoad(spec) }
+        var admitted = false
         try {
-            runtime.createConversation(config)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                loadGuard.beforeLoad(spec)
+                admitted = true
+            }
+            checkpoint("QNN_${stage.name}", stage, "status=BEGIN")
+            return action()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            if (error is VirtualMachineError || error is ThreadDeath) throw error
+            val failure = classifyQnnFailure(if (admitted) stage else QnnRuntimeStage.CRASH_JOURNAL, error)
+            checkpoint("QNN_INIT_TERMINAL", failure.stage, "status=FAILED · code=${failure.code} · nativeDetail=${failure.nativeDetail}")
+            throw failure
         } finally {
-            loadGuard.loadFinished()
+            if (admitted) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) { loadGuard.loadFinished() }
         }
     }
+
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = kotlinx.coroutines.flow.flow {
-        val spec = checkNotNull(dispatchedSpec) { "NPU model is not loaded" }
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { loadGuard.beforeLoad(spec) }
-        try {
-            runtime.sendMessage(text, images).collect { emit(it) }
-        } finally {
-            // A native process abort cannot execute this. A normal error/cancellation can.
-            loadGuard.loadFinished()
+        guardedOperation(QnnRuntimeStage.DECODE) {
+            var nonempty = false
+            var completed = false
+            var failure: QnnRuntimeFailure? = null
+            runtime.sendMessage(text, images).collect { event ->
+                if (event is LocalRuntimeEvent.TextDelta && event.text.isNotBlank()) nonempty = true
+                if (event is LocalRuntimeEvent.Done) completed = true
+                if (event is LocalRuntimeEvent.Error) {
+                    failure = classifyQnnFailure(QnnRuntimeStage.DECODE, event.cause ?: IllegalStateException(event.message))
+                }
+                emit(if (event is LocalRuntimeEvent.Error) LocalRuntimeEvent.Error(requireNotNull(failure).message.orEmpty(), failure) else event)
+            }
+            val activeNpu = runtime.loadedEngineSpec()?.accelerator?.let(LocalAccelerators::normalize) == LocalAccelerators.NPU
+            checkpoint(
+                "QNN_INIT_TERMINAL",
+                QnnRuntimeStage.DECODE,
+                if (nonempty && completed && failure == null && activeNpu) "status=QUALIFIED · active=npu · nonempty=true" else "status=NOT_QUALIFIED · nonempty=$nonempty · completed=$completed · code=${failure?.code ?: "NO_CONFIRMED_OUTPUT"} · nativeDetail=${failure?.nativeDetail ?: "native detail unavailable"}"
+            )
         }
     }
     override fun cancelActive() = runtime.cancelActive()
@@ -149,6 +187,7 @@ internal class LocalRuntimeQnnImpl(
     override suspend fun closeConversation() = runtime.closeConversation()
 
     override suspend fun unloadEngine() {
+        QnnExecutionEvidence.invalidate()
         requestedSpec = null
         dispatchedSpec = null
         runtime.unloadEngine()

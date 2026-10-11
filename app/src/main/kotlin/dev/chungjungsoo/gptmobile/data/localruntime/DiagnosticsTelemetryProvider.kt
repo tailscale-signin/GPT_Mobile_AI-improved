@@ -29,7 +29,9 @@ object DiagnosticsTelemetryProvider {
         val javaHeapMb: Long = 0,
         val network: String = "Unknown",
         val nativeHeapMb: Long = 0,
-        val qnnProcessAbi: String = ""
+        val qnnProcessAbi: String = "",
+        val qnnExecutionQualified: Boolean = false,
+        val qnnLastStatus: String = "NOT_QUALIFIED"
     )
 
     fun getSnapshot(context: Context, backendName: String, accelerator: String): DiagnosticsSnapshot {
@@ -76,6 +78,8 @@ object DiagnosticsTelemetryProvider {
             dispatchDir = qnnProbe.dispatchDir,
             skelExists = qnnProbe.skelFileExists,
             qnnProcessAbi = qnnProbe.processAbi,
+            qnnExecutionQualified = QnnExecutionEvidence.executionQualified,
+            qnnLastStatus = QnnExecutionEvidence.lastStatus,
             processMemoryMb = android.os.Debug.getPss() / 1024,
             javaHeapMb = Runtime.getRuntime().let { (it.totalMemory() - it.freeMemory()) / (1024 * 1024) },
             nativeHeapMb = android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024),
@@ -108,7 +112,10 @@ object DiagnosticsTelemetryProvider {
         appendLine("QNN device/library prerequisites: ${if (snapshot.qnnReady) "Available (execution unverified)" else "Unavailable"}")
         appendLine("QNN process ABI: ${snapshot.qnnProcessAbi.ifBlank { "Unknown" }}")
         appendLine("Local runtime versions: LiteRT-LM ${BuildConfig.LITERT_LM_VERSION} / QAIRT ${BuildConfig.QAIRT_VERSION}")
-        appendLine("QNN Dispatch Dir: ${snapshot.dispatchDir}")
+        appendLine("APK commit: ${BuildConfig.APP_COMMIT}")
+        appendLine("QNN execution: ${if (snapshot.qnnExecutionQualified) "NPU output confirmed in this process" else "NOT QUALIFIED"}")
+        appendLine("QNN last boundary: ${snapshot.qnnLastStatus}")
+        appendLine("Vendor log available: false (attach an explicit device capture if needed)")
         appendLine("QNN Skel Present: ${if (snapshot.skelExists) "Yes" else "No"}")
         telemetryNotice?.takeIf { it.isNotBlank() }?.let {
             appendLine("Inference Telemetry: $it")

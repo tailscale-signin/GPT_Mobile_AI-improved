@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolBatchOversizeException
+import dev.chungjungsoo.gptmobile.data.agent.ToolRoundAdmission
+import dev.chungjungsoo.gptmobile.data.agent.ToolStreamGuard
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MessageContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.RedactedThinkingContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.TextContent
@@ -30,6 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 class OpenAIResponsesEventAssembler {
+    private val toolGuard = ToolStreamGuard()
     private data class PendingCall(
         val callId: String,
         val name: String,
@@ -52,6 +56,11 @@ class OpenAIResponsesEventAssembler {
                 if (callId == null || name == null) {
                     listOf(ProviderEvent.Failed("OpenAI returned an incomplete function call."))
                 } else {
+                    toolGuard.slot(event.item.id)
+                    toolGuard.identifier(callId)
+                    toolGuard.identifier(name)
+                    toolGuard.append(event.item.arguments.orEmpty())
+                    check(event.item.id !in pending) { "Duplicate provider tool item" }
                     pending[event.item.id] = PendingCall(
                         callId = callId,
                         name = name,
@@ -63,6 +72,7 @@ class OpenAIResponsesEventAssembler {
         }
 
         is FunctionCallArgumentsDeltaEvent -> {
+            toolGuard.append(event.delta)
             pending[event.itemId]?.arguments?.append(event.delta)
             emptyList()
         }
@@ -92,6 +102,7 @@ class OpenAIResponsesEventAssembler {
 }
 
 class ChatCompletionsEventAssembler {
+    private val toolGuard = ToolStreamGuard()
     private data class PendingCall(
         var callId: String? = null,
         var name: String? = null,
@@ -110,6 +121,10 @@ class ChatCompletionsEventAssembler {
         reasoning?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.ThinkingDelta(it) }
         content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it) }
         toolCalls.orEmpty().forEach { delta ->
+            toolGuard.slot(delta.index.toString())
+            toolGuard.identifier(delta.id)
+            toolGuard.identifier(delta.function?.name)
+            toolGuard.append(delta.function?.arguments.orEmpty())
             val call = pending.getOrPut(delta.index) { PendingCall() }
             delta.id?.let { call.callId = it }
             delta.function?.name?.let { call.name = it }
@@ -147,6 +162,7 @@ class ChatCompletionsEventAssembler {
 }
 
 class AnthropicEventAssembler {
+    private val toolGuard = ToolStreamGuard()
     private data class PendingCall(
         val callId: String,
         val name: String,
@@ -192,10 +208,18 @@ class AnthropicEventAssembler {
                     if (callId == null || name == null) {
                         return listOf(ProviderEvent.Failed("Anthropic returned an incomplete tool use block."))
                     }
+                    event.contentBlock.input?.let {
+                        if (dev.chungjungsoo.gptmobile.data.agent.boundedJsonBytes(it, 16 * 1024) > 16 * 1024) throw ToolBatchOversizeException()
+                    }
                     val initialInput = event.contentBlock.input
                         ?.takeIf { it.isNotEmpty() }
                         ?.toString()
                         .orEmpty()
+                    toolGuard.slot(event.index.toString())
+                    toolGuard.identifier(callId)
+                    toolGuard.identifier(name)
+                    toolGuard.append(initialInput)
+                    check(event.index !in pending && event.index !in completed) { "Duplicate provider tool block" }
                     pending[event.index] = PendingCall(callId, name, StringBuilder(initialInput))
                 }
 
@@ -221,6 +245,7 @@ class AnthropicEventAssembler {
             }
 
             ContentBlockType.INPUT_JSON_DELTA -> {
+                toolGuard.append(event.delta.partialJson.orEmpty())
                 pending[event.index]?.arguments?.append(event.delta.partialJson.orEmpty())
                 emptyList()
             }
@@ -266,12 +291,15 @@ object GeminiEventMapper {
             val output = if (usage.candidateTokens != null || usage.thoughtTokens != null) (usage.candidateTokens ?: 0) + (usage.thoughtTokens ?: 0) else null
             events += ProviderEvent.Usage(usage.promptTokens, output, usage.totalTokens)
         }
-        response.candidates.orEmpty().flatMap { it.content?.parts.orEmpty() }.forEach { part ->
+        val admission = ToolRoundAdmission()
+        response.candidates.orEmpty().asSequence().flatMap { it.content?.parts.orEmpty().asSequence() }.forEach { part ->
             part.text?.let { text ->
                 events += if (part.thought == true) ProviderEvent.ThinkingDelta(text) else ProviderEvent.TextDelta(text)
             }
             part.functionCall?.let { call ->
-                events += ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args)
+                val event = ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args)
+                if (!admission.admit(event)) throw ToolBatchOversizeException()
+                events += event
             }
         }
         if (response.candidates.orEmpty().any { it.finishReason == "MAX_TOKENS" }) {
@@ -281,13 +309,16 @@ object GeminiEventMapper {
     }
 }
 
-private fun toolCall(callId: String, name: String, arguments: String): List<ProviderEvent> = try {
-    val parsed = Json.parseToJsonElement(arguments.ifBlank { "{}" })
-    if (parsed is JsonObject) {
-        listOf(ProviderEvent.ToolCall(callId, name, parsed))
-    } else {
-        listOf(ProviderEvent.Failed("Tool arguments must be a JSON object."))
+private fun toolCall(callId: String, name: String, arguments: String): List<ProviderEvent> {
+    if (callId.length > 256 || name.length > 256 || arguments.length > 16 * 1024) throw ToolBatchOversizeException()
+    return try {
+        val parsed = Json.parseToJsonElement(arguments.ifBlank { "{}" })
+        if (parsed is JsonObject) {
+            listOf(ProviderEvent.ToolCall(callId, name, parsed))
+        } else {
+            listOf(ProviderEvent.Failed("Tool arguments must be a JSON object."))
+        }
+    } catch (_: Exception) {
+        listOf(ProviderEvent.Failed("Tool arguments were not valid JSON."))
     }
-} catch (_: Exception) {
-    listOf(ProviderEvent.Failed("Tool arguments were not valid JSON."))
 }

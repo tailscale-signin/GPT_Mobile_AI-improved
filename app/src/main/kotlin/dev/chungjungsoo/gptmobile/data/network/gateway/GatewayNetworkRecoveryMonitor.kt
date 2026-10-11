@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -35,7 +36,21 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
     @Volatile
     private var validatedNetwork: Network? = null
 
+    @Volatile
+    private var routeIdentity: Int? = null
+
     private val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            // Route and DNS changes can occur without replacing the default Network.
+            // Keep only an in-memory identity, never private addresses in diagnostics.
+            val identity = 31 * network.hashCode() + linkProperties.hashCode()
+            if (routeIdentity != identity) {
+                routeIdentity = identity
+                if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+                if (validatedNetwork == network) scope.launch { agentRunCoordinator.recoverInterruptedGatewayRuns() }
+            }
+        }
+
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
             val validated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
                 networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
@@ -43,6 +58,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                 networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
             if (validated && validatedNetwork != network) {
                 validatedNetwork = network
+                if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
                 scope.launch {
                     agentRunCoordinator.recoverInterruptedGatewayRuns()
                 }
@@ -52,6 +68,8 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
         }
 
         override fun onLost(network: Network) {
+            routeIdentity = null
+            if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
             if (validatedNetwork == network) {
                 validatedNetwork = null
             }

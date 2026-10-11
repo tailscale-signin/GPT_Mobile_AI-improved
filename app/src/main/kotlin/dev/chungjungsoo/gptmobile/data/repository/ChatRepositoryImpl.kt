@@ -1767,11 +1767,14 @@ class ChatRepositoryImpl(
         // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
         val effectiveOutputCap = requestedOutputTokens ?: if (runId.startsWith("combined-synthesis:") && platform.maxTokens == null) 16_384 else null
         val editorialPass = runId.startsWith("combined-synthesis:")
+        val capKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
+        val resolvedOutputCap = dev.chungjungsoo.gptmobile.data.agent.provider.ProviderOutputLimits.effective(capKey, listOfNotNull(effectiveOutputCap, platform.maxTokens?.takeIf { it > 0 }).minOrNull())
         val requestConstraints = RequestConstraints(
-            maxOutputTokens = effectiveOutputCap,
+            maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
             allowGatewayLocalTools = false
         )
+        if (editorialPass) AppLogRecorder.record("Combined", "OUTPUT_CAP_RESOLVED · runId=$runId · requested=${effectiveOutputCap ?: -1} · profile=${platform.maxTokens ?: -1} · provider=${dev.chungjungsoo.gptmobile.data.agent.provider.ProviderOutputLimits.effective(capKey, null) ?: -1} · effective=${resolvedOutputCap ?: -1}")
         if (localResearch) {
             AppLogRecorder.record(
                 "Delegation",
@@ -1827,11 +1830,17 @@ class ChatRepositoryImpl(
         } else {
             dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
         }
+        val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY
+        val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
+        val restoredDraft = checkpoint?.restore().orEmpty()
         val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
             openPrimarySession(contextPlan.turns),
             maxContinuations = continuationLimit,
             targetWords = remainingWordGoal,
-            recoverTransientFailures = true
+            recoverTransientFailures = true,
+            initialDraft = restoredDraft,
+            effectiveOutputCap = resolvedOutputCap,
+            saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
         ) { draft, exchanges ->
             val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                 contextPlan.turns,
@@ -1839,10 +1848,10 @@ class ChatRepositoryImpl(
                     "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
                     (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
                     "If evidence is missing, state the gap. Start with a paragraph break only when the previous paragraph is complete.",
-                draft,
+                checkpoint?.continuationContext(draft) ?: draft,
                 exchanges
             )
-            // Recheck the growing answer against the configured context ceiling before dispatch.
+            // Recheck the bounded continuation context against the configured context ceiling before dispatch.
             val continuationPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(
                 turns,
                 requestPlatform.systemPrompt.orEmpty(),
@@ -1934,6 +1943,7 @@ class ChatRepositoryImpl(
         selectedToolCount: Int,
         trace: ToolTraceSession
     ): Flow<ApiState> = flow {
+        dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.phase(runId, "streaming")
         val progressTracker = dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker()
         val progressParser = dev.chungjungsoo.gptmobile.data.agent.PublicProgressParser()
         var gatewayTelemetrySeen = false
@@ -2010,7 +2020,10 @@ class ChatRepositoryImpl(
 
                     is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message))
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))
-                    is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
+                    is ProviderEvent.PhaseChanged -> {
+                        dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.phase(runId, providerEvent.phase.name)
+                        emit(ApiState.PhaseChanged(providerEvent.phase))
+                    }
                     is ProviderEvent.LocalMetrics -> Unit
                     is ProviderEvent.RequestConfigured -> Unit
                     is ProviderEvent.Usage -> {
@@ -2102,7 +2115,7 @@ class ChatRepositoryImpl(
                 is AgentRunEvent.Notice -> emit(ApiState.Notice(runEvent.message, runEvent.persistent))
             }
         }
-    }
+    }.onCompletion { dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.finished(runId) }
 
     private fun buildSharedToolScope(contextTurns: List<ConversationTurn>): String? {
         val latestUserMessage = contextTurns.lastOrNull()?.userMessage ?: return null

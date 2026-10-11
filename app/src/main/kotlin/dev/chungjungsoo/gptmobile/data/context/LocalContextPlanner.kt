@@ -9,7 +9,9 @@ internal data class LocalContextPlan(
     val toolResultBytes: Int,
     val estimatedPromptTokens: Long,
     val omittedTurns: Int,
-    val omittedTools: Int
+    val omittedTools: Int,
+    val toolDefinitionTokens: Long = 0,
+    val outputReserveTokens: Int = 0
 )
 
 /**
@@ -49,10 +51,17 @@ internal object LocalContextPlanner {
         val requiredNames = requiredToolNames(currentUserPrompt, tools)
         val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
         val selectedTools = mutableListOf<AgentToolDefinition>()
+        var toolTokens = 0L
+        val ordinaryToolCap = when {
+            contextTokens < 8192 -> 4
+            contextTokens < 32768 -> 8
+            else -> 16
+        }
         fun admitTool(tool: AgentToolDefinition) {
             val tokens = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
-            if (used + tokens < promptLimit) {
+            if (used + tokens < promptLimit && (tool.name in requiredNames || selectedTools.size < ordinaryToolCap)) {
                 used += tokens
+                toolTokens += tokens
                 selectedTools += tool
             }
         }
@@ -88,13 +97,16 @@ internal object LocalContextPlanner {
             toolResultReserve * 2,
             used,
             priorTurns.size - retained.size,
-            tools.size - selectedTools.size
+            tools.size - selectedTools.size,
+            toolTokens,
+            outputReserve
         )
     }
 
     internal fun requiredToolNames(prompt: String, tools: List<AgentToolDefinition>): Set<String> {
         val lower = prompt.lowercase()
         val required = mutableSetOf<String>()
+        tools.filter { tool -> lower.contains(tool.name.lowercase()) }.forEach { required += it.name }
         fun select(word: String) {
             val matching = tools.firstOrNull { it.name == word } ?: tools.firstOrNull {
                 when (word) {

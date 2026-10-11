@@ -25,7 +25,7 @@ internal object ToolResultEnvelope {
                 put(
                     "outcome",
                     when {
-                        result.errorCode == "TIMEOUT_OUTCOME_UNKNOWN" -> "unknown"
+                        result.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") -> "unknown"
                         !result.dispatched -> "not_executed"
                         result.isError -> "failed"
                         else -> "completed"

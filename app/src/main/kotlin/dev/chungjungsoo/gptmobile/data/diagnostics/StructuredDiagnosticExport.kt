@@ -5,10 +5,11 @@ import kotlinx.serialization.json.put
 
 /** Keep every record and stack continuation while exposing correlation and measured/estimated fields. */
 internal fun structuredDiagnosticLine(line: String): String {
-    val safe = redactLogMessage(line)
+    val safe = redactLogMessage(line.take(16_000)).take(8000)
     val match = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$").matchEntire(safe)
     return buildJsonObject {
         put("schema", 1)
+        put("truncated", line.length > 8000)
         put("kind", if (match == null) "continuation" else "event")
         if (match == null) {
             put("message", safe)
@@ -21,7 +22,7 @@ internal fun structuredDiagnosticLine(line: String): String {
             put(
                 "fields",
                 buildJsonObject {
-                    message.split(" · ").drop(1).forEach { field ->
+                    message.split(" · ", limit = 65).drop(1).forEach { field ->
                         val separator = field.indexOf('=')
                         if (separator > 0) {
                             val key = field.substring(0, separator).trim()

@@ -258,6 +258,7 @@ class LiteRtLmAdapter(
                         )
                     )
                 }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "NATIVE_CONTEXT_PLAN · context=$effectiveContextTokens · promptEstimate=${plan.estimatedPromptTokens} · toolDefinitions=${plan.toolDefinitionTokens} · toolResultBytes=${plan.toolResultBytes} · outputReserve=${plan.outputReserveTokens} · selectedTools=${plan.tools.size} · omittedTools=${plan.omittedTools} · tokenizerMeasured=false")
                 dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.planned(effectiveContextTokens, plan.tools.map { it.name }, availableTools.map { it.definition.name }.filter { name -> plan.tools.none { it.name == name } }, plan.toolResultBytes)
                 val compactedPriorTurns = plan.priorTurns
                 val selectedNames = plan.tools.map { it.name }.toSet()
@@ -371,6 +372,7 @@ class LiteRtLmAdapter(
                                             toolExecutor = if (descriptors.isNotEmpty()) {
                                                 LocalToolExecutor { name, argumentsJson ->
                                                     if (callbackCount.incrementAndGet() > 32) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("CALLBACK_LIMIT")
+                                                    if (name.length > 256 || argumentsJson.length > 16 * 1024) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("ARGUMENT_LIMIT")
                                                     val signature = name + argumentsJson.hashCode()
                                                     if ((callbackFailures[signature]?.get() ?: 0) >= 2) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("REPEATED_FAILURE")
                                                     val response = executeBoundTool(

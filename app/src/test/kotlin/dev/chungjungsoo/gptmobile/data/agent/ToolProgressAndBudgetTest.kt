@@ -41,7 +41,8 @@ class ToolProgressAndBudgetTest {
         assertFalse(first.outputBudgetExhausted)
         assertEquals(16 * 1024, first.toolResultBudgetUsedBytes)
         assertTrue((first.content as ToolResultContent.Text).text.toByteArray().size <= 16 * 1024)
-        assertTrue((first.retainedContent as ToolResultContent.Text).text.length > 256 * 1024)
+        assertTrue((first.retainedContent as ToolResultContent.Text).text.toByteArray().size <= 64 * 1024)
+        assertTrue((first.retainedContent as ToolResultContent.Text).text.contains("Observation excerpt"))
         assertFalse(tool.execute("second", buildJsonObject {}).isError)
     }
 

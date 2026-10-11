@@ -812,7 +812,7 @@ class AnthropicMessagesAdapter @Inject constructor(
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
         val initialMessages = attachmentEncoder.anthropicMessages(turns, platform.uid)
-        val assistantContentByRound = mutableMapOf<Int, List<MessageContent>>()
+        val assistantContentByCall = mutableMapOf<String, List<MessageContent>>()
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
         return object : AgentProviderSession {
@@ -840,8 +840,9 @@ class AnthropicMessagesAdapter @Inject constructor(
                 }
                 val request = MessageRequest(
                     model = platform.model,
-                    messages = initialMessages + exchanges.flatMapIndexed { index, exchange ->
-                        exchange.toAnthropicMessages(assistantContentByRound[index])
+                    messages = initialMessages + exchanges.flatMap { exchange ->
+                        val ids = exchange.calls.map { it.callId }.toSet()
+                        exchange.toAnthropicMessages(exchange.calls.firstNotNullOfOrNull { assistantContentByCall[it.callId] }?.filter { it !is ToolUseContent || it.id in ids })
                     },
                     maxTokens = effectiveOutputTokens,
                     stream = platform.stream,
@@ -897,7 +898,11 @@ class AnthropicMessagesAdapter @Inject constructor(
                         }
 
                     if (!roundFailed) {
-                        assembler.replayContent().takeIf { it.isNotEmpty() }?.let { assistantContentByRound[exchanges.size] = it }
+                        val retainedIds = exchanges.flatMap { it.calls }.map { it.callId }.toSet()
+                        assistantContentByCall.keys.retainAll(retainedIds)
+                        assembler.replayContent().takeIf { it.isNotEmpty() }?.let { content ->
+                            content.filterIsInstance<ToolUseContent>().forEach { assistantContentByCall[it.id] = content }
+                        }
                         emit(ProviderEvent.Completed)
                         return@flow
                     } else if (canRotate && attempt < attempts - 1) {
@@ -1018,7 +1023,7 @@ class GeminiAdapter @Inject constructor(
         val initialContents = attachmentEncoder.googleContents(turns, platform.uid)
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
-        val modelPartsByRound = mutableMapOf<Int, List<Part>>()
+        val modelPartsByCall = mutableMapOf<String, List<Pair<String?, Part>>>()
         return object : AgentProviderSession {
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
@@ -1035,9 +1040,17 @@ class GeminiAdapter @Inject constructor(
                         )
                     )
                 }
+                modelPartsByCall.keys.retainAll(exchanges.flatMap { it.calls }.map { it.callId }.toSet())
                 val request = GenerateContentRequest(
-                    contents = initialContents + exchanges.flatMapIndexed { index, exchange ->
-                        exchange.toGeminiContents(modelPartsByRound[index])
+                    contents = initialContents + exchanges.flatMap { exchange ->
+                        val ids = exchange.calls.map { it.callId }.toSet()
+                        val replay = if (ids.all { it in modelPartsByCall }) {
+                            exchange.calls.mapNotNull { modelPartsByCall[it.callId] }.distinct().flatten()
+                                .filter { (id, _) -> id == null || id in ids }.map { it.second }
+                        } else {
+                            null
+                        }
+                        exchange.toGeminiContents(replay)
                     },
                     generationConfig = GenerationConfig(
                         maxOutputTokens = effectiveOutputTokens,
@@ -1078,6 +1091,8 @@ class GeminiAdapter @Inject constructor(
                     val config = ProviderRequestConfig(platform.apiUrl, activeKey)
                     var roundFailed = false
                     var canRotate = false
+                    val roundParts = mutableListOf<Pair<String?, Part>>()
+                    val roundCallIds = mutableListOf<String>()
 
                     api.streamGenerateContent(request, platform.model, platform.timeout, config)
                         .catch { error ->
@@ -1087,10 +1102,6 @@ class GeminiAdapter @Inject constructor(
                             canRotate = ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { response ->
-                            val parts = response.candidates.orEmpty().flatMap { it.content?.parts.orEmpty() }
-                            if (parts.isNotEmpty()) {
-                                modelPartsByRound[exchanges.size] = modelPartsByRound[exchanges.size].orEmpty() + parts
-                            }
                             val safetyError = when {
                                 response.promptFeedback?.blockReason != null ->
                                     "Gemini safety settings blocked the prompt: ${response.promptFeedback.blockReason}"
@@ -1104,7 +1115,15 @@ class GeminiAdapter @Inject constructor(
                                 roundFailed = true
                                 lastFailedMessage = safetyError
                             } else {
-                                GeminiEventMapper.accept(response).forEach { mapped ->
+                                val mappedEvents = GeminiEventMapper.accept(response)
+                                val calls = mappedEvents.filterIsInstance<ProviderEvent.ToolCall>().iterator()
+                                response.candidates.orEmpty().asSequence().flatMap { it.content?.parts.orEmpty().asSequence() }
+                                    .forEach { part ->
+                                        val id = if (part.functionCall != null && calls.hasNext()) calls.next().callId else null
+                                        if (id != null) roundCallIds += id
+                                        roundParts += id to part
+                                    }
+                                mappedEvents.forEach { mapped ->
                                     if (mapped is ProviderEvent.Failed) {
                                         roundFailed = true
                                         lastFailedMessage = mapped.message
@@ -1117,6 +1136,8 @@ class GeminiAdapter @Inject constructor(
                         }
 
                     if (!roundFailed) {
+                        val replay = roundParts.toList()
+                        roundCallIds.forEach { modelPartsByCall[it] = replay }
                         emit(ProviderEvent.Completed)
                         return@flow
                     } else if (canRotate && attempt < attempts - 1) {

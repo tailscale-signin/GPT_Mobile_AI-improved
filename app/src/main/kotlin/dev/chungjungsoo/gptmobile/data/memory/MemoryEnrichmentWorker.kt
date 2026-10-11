@@ -83,7 +83,13 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                                 null
                             } else {
                                 parse(output.toString()).also {
-                                    reason = if (it == null) "INVALID_OUTPUT" else "ENRICHED"
+                                    reason = if (it == null) {
+                                        "INVALID_OUTPUT"
+                                    } else if ((it["observations"] as? kotlinx.serialization.json.JsonArray)?.isEmpty() == true) {
+                                        "NO_ELIGIBLE_FACTS"
+                                    } else {
+                                        "ENRICHED"
+                                    }
                                 }
                             }
                         }
@@ -116,7 +122,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
         reason in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY") -> {
             MemoryEnrichmentQueue.markWaiting(applicationContext, inputData)
             setProgress(androidx.work.workDataOf("outcome" to if (reason == "RUNTIME_BUSY") "WAITING_FOR_IDLE" else "WAITING_FOR_MODEL", "reason" to reason))
-            outcome("RETRY", reason)
+            outcome(if (reason == "RUNTIME_BUSY") "WAITING_FOR_IDLE" else "WAITING_FOR_MODEL", reason)
         }
         reason in setOf("NO_ELIGIBLE_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
         reason == "ENRICHED" -> outcome("SUCCESS", reason)

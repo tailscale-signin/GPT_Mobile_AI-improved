@@ -89,6 +89,15 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         dao.save(WorkspaceRecord(UUID.randomUUID().toString(), "debug_request", "Assembled request · $kind", safe.toString(), chatId, runId))
     }
 
+    suspend fun synthesisCheckpoint(id: String): kotlinx.serialization.json.JsonObject? =
+        dao.get(id)?.payload?.takeIf { it.length <= 1_500_000 }?.let { runCatching { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() }
+
+    suspend fun saveSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject) {
+        if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return
+        require(payload.toString().length <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
+        dao.save(WorkspaceRecord(id, "synthesis_checkpoint", "Combined writing progress", payload.toString(), chatId, runId))
+    }
+
     suspend fun readReceipt(entry: WorkspaceRecord): ContextReceipt {
         val metadata = json.decodeFromString<ContextReceipt>(entry.payload)
         val bytes = metadata.protectedReference?.let { vault.read(it) } ?: return metadata

@@ -1,0 +1,31 @@
+package dev.chungjungsoo.gptmobile.data.network
+
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+class LocalServiceHealthTest {
+    @Before fun reset() = LocalServiceHealth.networkChanged()
+
+    @Test fun timeoutDoesNotBlockAnotherPortAndHandshakeIsRequiredForHealthy() {
+        LocalServiceHealth.recordFailure("http://100.64.0.2:8102/mcp", SocketTimeoutException())
+        LocalServiceHealth.requireAvailable("http://100.64.0.2:8101/mcp")
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.health("http://100.64.0.2:8101/mcp"))
+        assertEquals(ConnectionHealth.CONNECT_TIMEOUT, LocalServiceHealth.health("http://100.64.0.2:8102/mcp"))
+        LocalServiceHealth.recordHandshakeSuccess("http://100.64.0.2:8101/mcp")
+        assertEquals(ConnectionHealth.HEALTHY, LocalServiceHealth.health("http://100.64.0.2:8101/mcp"))
+    }
+
+    @Test fun dnsIsHostScopedAndNetworkChangeInvalidatesCaches() {
+        LocalServiceHealth.recordFailure("https://mcp.example.org:8101/mcp", UnknownHostException())
+        assertThrows(java.io.IOException::class.java) { LocalServiceHealth.requireAvailable("https://mcp.example.org:8102/mcp") }
+        val old = LocalServiceHealth.networkEpoch
+        LocalServiceHealth.networkChanged()
+        assertTrue(LocalServiceHealth.networkEpoch > old)
+        LocalServiceHealth.requireAvailable("https://mcp.example.org:8102/mcp")
+    }
+}

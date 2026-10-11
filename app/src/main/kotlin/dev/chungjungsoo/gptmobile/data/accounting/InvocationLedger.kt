@@ -183,10 +183,10 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             event.inputTokens?.let { input = if (event.cumulative) maxOf(input ?: 0, it) else (input ?: 0) + it }
                             event.outputTokens?.let { output = if (event.cumulative) maxOf(output ?: 0, it) else (output ?: 0) + it }
                         }
-                        ProviderEvent.Completed -> if (status != "FAILED") status = "COMPLETED"
+                        ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL")) status = "COMPLETED"
                         is ProviderEvent.Failed -> {
-                            status = "FAILED"
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Failed ${record.id}: ${event.message}", "E")
+                            status = if (generatedBytes > 0 && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message)) "PARTIAL" else "FAILED"
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Segment ${record.id} · status=$status · ${event.message}", if (status == "PARTIAL") "I" else "E")
                         }
                         else -> Unit
                     }

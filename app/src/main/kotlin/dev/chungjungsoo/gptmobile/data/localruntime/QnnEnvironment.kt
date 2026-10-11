@@ -30,7 +30,9 @@ object QnnEnvironment {
         val skelFilePath: String,
         // Prerequisites only; successful native initialization is the execution check.
         val isReady: Boolean,
-        val errorMessage: String? = null
+        val errorMessage: String? = null,
+        val libraryDigestStatus: String = "NOT_CHECKED",
+        val libraryInventory: List<String> = emptyList()
     ) {
         /** Static package prerequisites only; this does not claim QNN has been verified. */
         val prerequisitesReady: Boolean get() = isReady
@@ -104,12 +106,46 @@ object QnnEnvironment {
      * creation. This prevents a stale successful probe from surviving an app,
      * split-APK, ABI or QAIRT deployment change.
      */
-    fun prepareForExecution(context: Context): QnnProbeStatus = initialize(context, forceRefresh = true)
+    @Synchronized
+    fun prepareForExecution(context: Context): QnnProbeStatus {
+        val probe = initialize(context, forceRefresh = true)
+        if (!probe.isReady) return probe
+        val directory = File(probe.dispatchDir)
+        val required = QualcommSocSupport.requiredLibraries(probe.socModel)
+        val key = probeKey(context) + required.joinToString { name -> File(directory, name).let { "$name:${it.length()}:${it.lastModified()}" } }
+        if (verifiedKey == key) return (verifiedProbe ?: probe).also { lastProbeStatus = it }
+        val expected = org.json.JSONObject(context.assets.open("local-runtime-native-libraries.json").bufferedReader().use { it.readText() }).getJSONObject("libraries")
+        var valid = true
+        val inventory = required.map { name ->
+            val file = File(directory, name)
+            val pinned = expected.optJSONObject("lib/arm64-v8a/$name")
+            val digest = dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(file)
+            val matches = pinned != null && pinned.optString("sha256").equals(digest, true) && pinned.optLong("bytes") == file.length()
+            valid = valid && matches
+            "$name:${file.length()}:$digest:${if (matches) "PASS" else "FAIL"}"
+        }
+        return probe.copy(
+            isReady = valid,
+            errorMessage = if (valid) null else "Packaged Qualcomm library checksum mismatch; native initialization blocked",
+            libraryDigestStatus = if (valid) "TRUSTED_HASH_PASS" else "TRUSTED_HASH_FAIL",
+            libraryInventory = inventory
+        ).also {
+            lastProbeStatus = it
+            verifiedKey = if (valid) key else null
+            verifiedProbe = it
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("QNN", "QNN_LIBRARY_INVENTORY · soc=${probe.socModel} · abi=${probe.processAbi} · directory=${if (probe.dispatchDir == probe.nativeLibDir) "installed" else "extracted"} · hashes=${it.libraryDigestStatus} · libraries=${inventory.joinToString(";")} · executionQualified=false")
+        }
+    }
+
+    private var verifiedKey: String? = null
+    private var verifiedProbe: QnnProbeStatus? = null
 
     @Synchronized
     fun resetProbe() {
         lastProbeStatus = null
         lastProbeKey = null
+        verifiedKey = null
+        verifiedProbe = null
     }
 
     fun getDispatchDir(context: Context): String = getProbeStatus(context).dispatchDir
@@ -124,6 +160,8 @@ object QnnEnvironment {
             install.lastUpdateTime,
             Build.SOC_MODEL.orEmpty(),
             Build.SOC_MANUFACTURER.orEmpty(),
+            Build.FINGERPRINT.orEmpty(),
+            context.applicationInfo.splitSourceDirs.orEmpty().joinToString(),
             Build.SUPPORTED_ABIS.joinToString(","),
             context.applicationInfo.nativeLibraryDir
         ).joinToString("|")

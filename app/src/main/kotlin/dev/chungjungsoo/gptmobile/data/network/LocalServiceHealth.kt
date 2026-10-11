@@ -8,15 +8,29 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Short-lived shared transport health. Refused ports do not quarantine a whole host. */
+enum class ConnectionHealth {
+    DNS_FAILED,
+    ROUTE_UNAVAILABLE,
+    CONNECT_TIMEOUT,
+    HTTP_ERROR,
+    MCP_HANDSHAKE_FAILED,
+    STREAM_INTERRUPTED,
+    HEALTHY,
+    UNKNOWN
+}
+
+/** DNS is host scoped; TCP/protocol failures are endpoint scoped. TCP alone is never MCP health. */
 internal object LocalServiceHealth {
-    private val unavailableUntil = ConcurrentHashMap<String, Long>()
+    private data class State(val health: ConnectionHealth, val failures: Int, val until: Long)
+    private val states = ConcurrentHashMap<String, State>()
+    private val epoch = AtomicLong()
+    val networkEpoch: Long get() = epoch.get()
     private fun now() = System.nanoTime() / 1_000_000
-    private fun endpoint(url: String): URI? = runCatching { URI(url) }.getOrNull()
-        ?.takeIf { it.host != null && endpointLocality(url) != EndpointLocality.EXTERNAL }
+    private fun endpoint(url: String): URI? = runCatching { URI(url) }.getOrNull()?.takeIf { it.host != null }
     private fun port(uri: URI) = if (uri.port >= 0) {
         uri.port
     } else if (uri.scheme == "https") {
@@ -24,37 +38,78 @@ internal object LocalServiceHealth {
     } else {
         80
     }
+    private fun key(uri: URI) = "${uri.scheme}://${uri.host.lowercase()}:${port(uri)}${uri.path.orEmpty()}"
+    private fun dnsKey(uri: URI) = "dns:${uri.host.lowercase()}"
+
+    fun networkChanged() {
+        states.clear()
+        epoch.incrementAndGet()
+    }
 
     fun requireAvailable(url: String) {
         val uri = endpoint(url) ?: return
         val time = now()
-        unavailableUntil.entries.removeIf { it.value <= time }
-        if ((unavailableUntil[uri.host] ?: 0) > time || (unavailableUntil["${uri.host}:${port(uri)}"] ?: 0) > time) {
-            throw IOException("LOCAL_SERVICE_UNREACHABLE: temporarily unavailable; connectivity will be rechecked automatically")
+        if (listOf(key(uri), dnsKey(uri)).any { (states[it]?.until ?: 0) > time }) {
+            throw IOException("LOCAL_SERVICE_UNREACHABLE: endpoint cooldown active; check connection or wait before safe discovery retry")
+        }
+    }
+
+    fun health(url: String): ConnectionHealth {
+        val uri = endpoint(url) ?: return ConnectionHealth.UNKNOWN
+        return states[dnsKey(uri)]?.takeIf { it.until > now() }?.health ?: states[key(uri)]?.health ?: ConnectionHealth.UNKNOWN
+    }
+
+    fun checkAgain(url: String) {
+        val uri = endpoint(url) ?: return
+        states.remove(key(uri))
+        states.remove(dnsKey(uri))
+    }
+
+    fun recordHandshakeSuccess(url: String) {
+        val uri = endpoint(url) ?: return
+        trim()
+        states.remove(dnsKey(uri))
+        states[key(uri)] = State(ConnectionHealth.HEALTHY, 0, 0)
+    }
+
+    fun classify(failure: Throwable): ConnectionHealth {
+        val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        val message = causes.joinToString { it.message.orEmpty().take(512) }.lowercase()
+        return when {
+            causes.any { it is java.net.UnknownHostException } -> ConnectionHealth.DNS_FAILED
+            causes.any { it is java.net.NoRouteToHostException || it is ConnectException } -> ConnectionHealth.ROUTE_UNAVAILABLE
+            causes.any { it is java.net.SocketTimeoutException || it.javaClass.simpleName == "ConnectTimeoutException" } || "timed out" in message -> ConnectionHealth.CONNECT_TIMEOUT
+            "mcp version" in message || "initializ" in message || "handshake" in message -> ConnectionHealth.MCP_HANDSHAKE_FAILED
+            "http" in message || causes.any { it.javaClass.simpleName in setOf("ModernMcpError", "StreamableHttpError") } -> ConnectionHealth.HTTP_ERROR
+            listOf("stream", "unexpected end", "connection reset", "socket closed").any { it in message } -> ConnectionHealth.STREAM_INTERRUPTED
+            else -> ConnectionHealth.UNKNOWN
         }
     }
 
     fun recordFailure(url: String, failure: Throwable) {
+        if (failure is kotlinx.coroutines.CancellationException) return
         val uri = endpoint(url) ?: return
-        val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
-        val refused = causes.any { it is ConnectException }
-        val unreachable = refused || causes.any { it is java.net.SocketTimeoutException || it is java.net.NoRouteToHostException || it is java.net.UnknownHostException || it.javaClass.simpleName == "ConnectTimeoutException" }
-        if (unreachable) {
-            if (unavailableUntil.size >= 128) unavailableUntil.clear()
-            unavailableUntil[if (refused) "${uri.host}:${port(uri)}" else uri.host] = now() + 10_000
-        }
+        val health = classify(failure)
+        val scope = if (health == ConnectionHealth.DNS_FAILED) dnsKey(uri) else key(uri)
+        trim()
+        val count = ((states[scope]?.failures ?: 0) + 1).coerceAtMost(8)
+        val delay = (1_000L shl count.coerceAtMost(5)) + kotlin.random.Random.nextLong(0, 1000)
+        states[scope] = State(health, count, now() + delay)
+    }
+
+    private fun trim() {
+        if (states.size >= 128) states.keys.firstOrNull()?.let(states::remove)
     }
 
     suspend fun probe(url: String) = withContext(Dispatchers.IO) {
+        if (endpointLocality(url) == EndpointLocality.EXTERNAL) return@withContext
         val uri = endpoint(url) ?: return@withContext
         requireAvailable(url)
         try {
             Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 1_000) }
         } catch (failure: IOException) {
-            val key = if (failure is ConnectException) "${uri.host}:${port(uri)}" else uri.host
-            if (unavailableUntil.size >= 128) unavailableUntil.clear()
-            unavailableUntil[key] = now() + 10_000
-            throw IOException("LOCAL_SERVICE_UNREACHABLE: gateway health probe failed", failure)
+            recordFailure(url, failure)
+            throw IOException("LOCAL_SERVICE_UNREACHABLE: gateway TCP probe failed", failure)
         }
     }
 }

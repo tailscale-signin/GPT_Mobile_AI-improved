@@ -47,6 +47,18 @@ class ProvenanceTest(unittest.TestCase):
         self.assertEqual(1, self.check_mutation(mutate))
         self.assertEqual(0, self.check_mutation(mutate, allow=True))
 
+    def test_qnn_upgrade_requires_matching_dispatch_inputs(self):
+        def mutate(paths):
+            paths["VERSIONS"].write_text(paths["VERSIONS"].read_text().replace('qnn = "2.51.0"', 'qnn = "2.52.0"'))
+        self.assertEqual(1, self.check_mutation(mutate, allow=True))
+
+    def test_mixed_qnn_distribution_is_rejected(self):
+        def mutate(paths):
+            manifest = json.loads(paths["MANIFEST"].read_text())
+            manifest["libraries"]["lib/arm64-v8a/libQnnSystem.so"]["source"] = "com.qualcomm.qti:qnn-runtime:2.50.0"
+            paths["MANIFEST"].write_text(json.dumps(manifest))
+        self.assertEqual(1, self.check_mutation(mutate, allow=True))
+
     def test_corrupt_binary_is_rejected_even_in_source_only_mode(self):
         def mutate(paths):
             binary = bytearray(paths["DISPATCH"].read_bytes())

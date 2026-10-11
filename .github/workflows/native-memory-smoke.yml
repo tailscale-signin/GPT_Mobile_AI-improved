@@ -29,6 +29,8 @@ concurrency:
   group: native-memory-smoke-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  OBX_DISABLE_ANALYTICS: "true"
 jobs:
   smoke:
     name: R8 and real JNI on Android 16

@@ -11,6 +11,10 @@ internal class NativeOperationJournal(private val directory: File) {
     private fun digest(tuple: String) = MessageDigest.getInstance("SHA-256").digest(tuple.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun blocked(key: String) = File(directory, "quarantined-$key")
 
+    /** Read-only, path-free quarantine diagnostics; never remove protection for an ordinary retry. */
+    @Synchronized
+    fun diagnostic(): String = "pending=${pending.isFile}; quarantined=${directory.listFiles()?.count { it.name.startsWith("quarantined-") } ?: 0}"
+
     @Synchronized
     fun before(tuple: String) {
         check(directory.mkdirs() || directory.isDirectory)

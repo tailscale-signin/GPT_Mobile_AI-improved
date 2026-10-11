@@ -1279,7 +1279,7 @@ class LiteRtLmAdapterTest {
 
         val toolResult = events.filterIsInstance<ProviderEvent.ToolResult>().single()
         assertEquals(true, toolResult.result.isError)
-        assertEquals("PROVIDER_UNAVAILABLE", toolResult.result.errorCode)
+        assertEquals("DISPATCH_OUTCOME_UNKNOWN", toolResult.result.errorCode)
         assertFalse(events.any { it is ProviderEvent.Failed })
         assertEquals(
             listOf("before", "after"),

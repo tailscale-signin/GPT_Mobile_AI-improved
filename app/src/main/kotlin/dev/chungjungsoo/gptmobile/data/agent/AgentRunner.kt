@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
@@ -33,7 +34,11 @@ data class AgentRunLimits(
     /** Maximum replay budget for prior tool exchanges sent on each provider round. */
     val maxReplayTokens: Int = 4_000,
     /** Maximum budget retained from any one consumed tool result on later rounds. */
-    val maxReplayResultTokens: Int = 512
+    val maxReplayResultTokens: Int = 512,
+    val maxObservedToolCalls: Int = 256,
+    val maxToolCallsPerRound: Int = 32,
+    val maxRetainedEvidenceTokens: Int = 16_000,
+    val allowToolStormFinalization: Boolean = true
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
@@ -98,6 +103,8 @@ class AgentRunner(
         var roundLimitFinalizationAttempted = false
         var wrapUpNoticeEmitted = false
         var replayTokens = 0L
+        var observedToolCalls = 0
+        var stormFinalizationAttempted = false
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
@@ -169,7 +176,21 @@ class AgentRunner(
 
             // collectRound catches only upstream provider failures. Cancellation and
             // downstream collector errors must leave the run without retrying or emitting.
-            val round = collectRound(session, exposedDefinitions, exchanges)
+            val round = collectRound(session, exposedDefinitions, exchanges, (limits.maxObservedToolCalls.coerceIn(1, 1024) - observedToolCalls).coerceAtLeast(0))
+            observedToolCalls += round.observedCalls
+            if (round.batchRejected) {
+                AppLogRecorder.record("Agent", "TOOL_BATCH_OVERSIZE · observed=${round.observedCalls} · admitted=${round.calls.size} · suppressedAtLeast=1 · totalObserved=$observedToolCalls · dispatchOwner=${if (session.handlesToolsInternally) "native" else "none"}", "W")
+                emit(AgentRunEvent.Notice("An oversized or invalid tool batch was stopped. Completed results remain available for the final answer.", persistent = true))
+                if (stormFinalizationAttempted || session.handlesToolsInternally || !limits.allowToolStormFinalization) {
+                    emit(failed("TOOL_BATCH_OVERSIZE: partial answer and completed evidence retained. The provider did not honor tool-free finalization."))
+                    return
+                }
+                stormFinalizationAttempted = true
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                finalResponseRequested = true
+                continue
+            }
             if (round.toolDefinitionsRejected) {
                 if (exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
                     retriedWithoutTools = true
@@ -198,6 +219,7 @@ class AgentRunner(
                 emit(failed(roundFailure))
                 return
             }
+            round.calls.forEach { emit(AgentRunEvent.Provider(it)) }
             val calls = round.calls.map { call ->
                 // The aggregate search surface can replace individual engine
                 // schemas after delegation. Reuse only the current authorized
@@ -236,33 +258,18 @@ class AgentRunner(
             } else {
                 (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
             }
-            val executableCalls = mutableListOf<ProviderEvent.ToolCall>()
-            val deferredCalls = mutableListOf<ProviderEvent.ToolCall>()
-            val perToolSuppressedIds = mutableSetOf<String>()
-            val hostSuppressedIds = mutableSetOf<String>()
-            // Removing a storming tool must not invalidate calls already admitted in this batch.
             val toolsForBatch = executableToolByName
-            calls.take(remainingCalls).forEach { call ->
-                val used = toolCallsByName[call.name] ?: 0
-                val repeatLimit = if (Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else MAX_SAME_TOOL_CALLS_PER_RUN
-                if (call.name !in toolsForBatch) {
-                    deferredCalls += call
-                    perToolSuppressedIds += call.callId
-                } else if (failureScope(call) in blockedReadScopes) {
-                    deferredCalls += call
-                    hostSuppressedIds += call.callId
-                } else if (used >= repeatLimit) {
-                    deferredCalls += call
-                    perToolSuppressedIds += call.callId
-                    executableToolByName = executableToolByName - call.name
-                    exposedDefinitions = exposedDefinitions.filterNot { it.name == call.name }
-                    AppLogRecorder.record("Agent", "TOOL_CALL_STORM_BLOCKED · tool=${call.name} · calls=$used · max=$repeatLimit", "W")
-                } else {
-                    executableCalls += call
-                    toolCallsByName[call.name] = used + 1
-                }
+            val plan = planToolBatch(calls, remainingCalls, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, ::failureScope)
+            val executableCalls = plan.executable
+            val deferredCalls = plan.deferred
+            val perToolSuppressedIds = plan.perToolSuppressedIds
+            val hostSuppressedIds = plan.hostSuppressedIds
+            plan.acceptedByName.forEach { (name, count) -> toolCallsByName[name] = (toolCallsByName[name] ?: 0) + count }
+            if (plan.disabledNames.isNotEmpty()) {
+                executableToolByName = executableToolByName.filterKeys { it !in plan.disabledNames }
+                exposedDefinitions = exposedDefinitions.filterNot { it.name in plan.disabledNames }
+                AppLogRecorder.record("Agent", "TOOL_REPEAT_SUPPRESSED · tools=${plan.disabledNames.size} · calls=${plan.perToolSuppressedIds.size}", "W")
             }
-            deferredCalls += calls.drop(remainingCalls)
 
             executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
@@ -311,7 +318,9 @@ class AgentRunner(
                 AgentToolResult(
                     callId = call.callId,
                     content = ToolResultContent.Text(message),
-                    isError = true
+                    isError = true,
+                    dispatched = false,
+                    errorCode = "NOT_DISPATCHED"
                 )
             }
             val producedResults = executedResults + deferredResults
@@ -432,7 +441,14 @@ class AgentRunner(
             calls.zip(allResults).forEach { (call, result) ->
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
-            exchanges += AgentToolExchange(calls, allResults)
+            // Retain bounded observations on ingress, including trace/retained payloads.
+            val retained = ToolExchangeCompactor.compact(
+                exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) }),
+                limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000),
+                limits.maxReplayResultTokens.coerceIn(64, 2048)
+            )
+            exchanges.clear()
+            exchanges.addAll(retained)
         }
     }
 
@@ -441,7 +457,9 @@ class AgentRunner(
         val completed: Boolean = false,
         val failure: String? = null,
         val textEmitted: Boolean = false,
-        val toolDefinitionsRejected: Boolean = false
+        val toolDefinitionsRejected: Boolean = false,
+        val batchRejected: Boolean = false,
+        val observedCalls: Int = 0
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -465,9 +483,12 @@ class AgentRunner(
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.collectRound(
         session: AgentProviderSession,
         exposedDefinitions: List<AgentToolDefinition>,
-        exchanges: List<AgentToolExchange>
+        exchanges: List<AgentToolExchange>,
+        remainingObserved: Int
     ): RoundResult {
         val calls = mutableListOf<ProviderEvent.ToolCall>()
+        val admission = ToolRoundAdmission(minOf(limits.maxToolCallsPerRound, remainingObserved))
+        var batchRejected = false
         var completed = false
         var failure: String? = null
         var textEmitted = false
@@ -521,7 +542,11 @@ class AgentRunner(
             // Include synchronous stream construction failures in the upstream boundary.
             emitAll(session.streamRound(exposedDefinitions, replayExchanges).withAssistantTextMarkupGuard())
         }.catch { error ->
-            if (error is CancellationException) throw error
+            if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath) throw error
+            if (error is ToolBatchOversizeException) {
+                batchRejected = true
+                return@catch
+            }
             // Keep the first terminal provider failure; trailing transport errors
             // must not replace it or change the recovery decision.
             if (failure == null) {
@@ -532,17 +557,29 @@ class AgentRunner(
                     ErrorClassification.classify(error).userMessage
                 }
             }
+        }.transformWhile { event ->
+            if (event is ProviderEvent.ToolCall && !admission.admit(event)) {
+                batchRejected = true
+                false
+            } else if (event is ProviderEvent.Failed && event.message.startsWith("TOOL_BATCH_OVERSIZE")) {
+                batchRejected = true
+                false
+            } else {
+                emit(event)
+                true
+            }
         }.collect { event ->
             if (failure != null && event !is ProviderEvent.Usage) return@collect
             when (event) {
                 is ProviderEvent.ToolCall -> {
                     if (!session.handlesToolsInternally) {
                         calls += event
+                    } else {
+                        emit(AgentRunEvent.Provider(event))
                     }
-                    emit(AgentRunEvent.Provider(event))
                 }
 
-                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
+                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(event.result)))
 
                 is ProviderEvent.Failed -> {
                     failure = event.message
@@ -589,11 +626,11 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed)
     }
 
     private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>): List<AgentToolResult> {
-        val semaphore = Semaphore(limits.maxConcurrentTools)
+        val semaphore = Semaphore(limits.maxConcurrentTools.coerceIn(1, 32))
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
         val order = calls.mapIndexed { index, call -> call.callId to index }.toMap()
         fun ownerOf(call: ProviderEvent.ToolCall): AgentToolExecutionOwner =
@@ -658,7 +695,7 @@ class AgentRunner(
             } else {
                 tool.execute(call.callId, call.arguments)
             }
-            if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content))
+            ToolObservationRetention.bound(if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content)))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -670,16 +707,7 @@ class AgentRunner(
         }
     }
 
-    private fun boundContent(content: ToolResultContent): ToolResultContent {
-        if (limits.maxToolOutputBytes == Int.MAX_VALUE) return content
-        val encoded = when (content) {
-            is ToolResultContent.Text -> content.text
-            is ToolResultContent.Json -> Json.encodeToString(content.value)
-            is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
-        }
-        if (encoded.toByteArray(StandardCharsets.UTF_8).size <= limits.maxToolOutputBytes) return content
-        return ToolResultContent.Text(truncateUtf8(encoded, limits.maxToolOutputBytes))
-    }
+    private fun boundContent(content: ToolResultContent): ToolResultContent = ToolObservationRetention.content(content, limits.maxToolOutputBytes.coerceIn(0, 256 * 1024))
 
     private fun truncateUtf8(value: String, maxBytes: Int): String {
         val result = StringBuilder()

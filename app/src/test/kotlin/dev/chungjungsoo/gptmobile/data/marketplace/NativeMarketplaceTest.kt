@@ -147,6 +147,24 @@ class NativeMarketplaceTest {
         assertTrue(registry(file).load().isEmpty())
     }
 
+    @Test fun managedEndpointCredentialsAreRedactedFromProviderEvidence() = runBlocking {
+        val entry = entry("openstreetmap")
+        val registry = registry()
+        registry.install(entry)
+        registry.configure(entry, "", "", 5, 25, disabledOperations = setOf("restrooms"),
+            endpointConfigs = mapOf("geocode" to NativeEndpointConfig("https://maps.example/search", EndpointAuthType.BEARER)),
+            endpointSecrets = mapOf("geocode" to "endpoint-private-secret"))
+        registry.setEnabled(entry, true)
+        val definition = NativeMarketplaceCatalog.definitions(entry).first { it.name.endsWith("__geocode") }
+        val tool = NativeMarketplaceTool(entry, definition, registry) { request ->
+            buildJsonObject { put("echo", request.header("Authorization")) }
+        }
+        val result = tool.execute("call", buildJsonObject { put("query", "Toronto") })
+        assertFalse(result.isError)
+        assertFalse(result.content.toString().contains("endpoint-private-secret"))
+        assertTrue(result.content.toString().contains("[redacted]"))
+    }
+
     @Test fun managedEndpointsUseSeparateVaultSecretsAndExplicitPortApproval() = runBlocking {
         val entry = entry("openstreetmap")
         val registry = registry()

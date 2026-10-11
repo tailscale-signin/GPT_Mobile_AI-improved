@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
@@ -22,9 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatBottomAutoScroller
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.OpponentChatBubble
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsDiscoveryPanel
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsSearchRegistry
 import kotlinx.coroutines.delay
 
 /** Benchmark-only entry point. No accounts, user data or model/network requests. */
@@ -34,6 +38,13 @@ class ChatBenchmarkActivity : ComponentActivity() {
         val streaming = intent.getBooleanExtra("stream", false)
         setContent {
             MaterialTheme {
+                if (intent.getStringExtra("screen") == "settings") {
+                    var search by remember { mutableStateOf("") }
+                    LazyColumn(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }.testTag("benchmark_settings")) {
+                        item { SettingsDiscoveryPanel(search, { search = it }, SettingsSearchRegistry.entries, {}, Modifier.padding(16.dp)) }
+                    }
+                    return@MaterialTheme
+                }
                 var chunks by remember { mutableIntStateOf(1) }
                 var input by remember { mutableStateOf("") }
                 var serviceRaceDone by remember { mutableStateOf(false) }

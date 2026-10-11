@@ -21,6 +21,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
+import dev.chungjungsoo.gptmobile.presentation.common.LocalSettingSearchFocus
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.designsystem.AppShapes
@@ -51,43 +53,45 @@ fun AdvancedSettingsScreen(
     val groups = remember { AppFeature.entries.groupBy(SettingsSearchRegistry::group) }
     val rows = remember { groups.values.flatMap { listOf<AppFeature?>(null) + it } }
     LaunchedEffect(initialFocus) {
-        val target = if (initialFocus == "privacy") 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(1)
+        val target = if (initialFocus.startsWith("privacy")) 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(1)
         if (target != null) listState.scrollToItem(target)
     }
-    Scaffold(modifier = modifier.fillMaxSize(), topBar = {
-        TopAppBar(title = { Text(stringResource(R.string.settings_advanced)) }, navigationIcon = {
-            IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) }
-        })
-    }) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(AppSpacing.large),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
-        ) {
-            item(key = "privacy") {
-                SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) }
-            }
-            groups.forEach { (group, features) ->
-                item(key = "group.$group") { Text(group, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = AppSpacing.medium)) }
-                features.forEach { feature ->
-                    item(key = feature.name) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().testTag("setting_${feature.name}"),
-                            shape = AppShapes.card,
-                            colors = CardDefaults.cardColors(containerColor = if (initialFocus == feature.name) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
-                        ) {
-                            Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(feature.title, style = MaterialTheme.typography.bodyLarge)
+    CompositionLocalProvider(LocalSettingSearchFocus provides initialFocus.substringAfter(':', "")) {
+        Scaffold(modifier = modifier.fillMaxSize(), topBar = {
+            TopAppBar(title = { Text(stringResource(R.string.settings_advanced)) }, navigationIcon = {
+                IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) }
+            })
+        }) { padding ->
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(AppSpacing.large),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
+            ) {
+                item(key = "privacy") {
+                    SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) }
+                }
+                groups.forEach { (group, features) ->
+                    item(key = "group.$group") { Text(group, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = AppSpacing.medium)) }
+                    features.forEach { feature ->
+                        item(key = feature.name) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().testTag("setting_${feature.name}"),
+                                shape = AppShapes.card,
+                                colors = CardDefaults.cardColors(containerColor = if (initialFocus == feature.name) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
+                            ) {
+                                Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(feature.title, style = MaterialTheme.typography.bodyLarge)
+                                    }
+                                    SettingsHelpIcon(feature.description, title = feature.title)
+                                    Switch(
+                                        checked = settings.withFeature(feature, true) == settings,
+                                        onCheckedChange = { viewModel.updateFeature(feature, it) },
+                                        enabled = feature != AppFeature.PARALLEL_SEARCH,
+                                        modifier = Modifier.semantics { contentDescription = feature.title }
+                                    )
                                 }
-                                SettingsHelpIcon(feature.description, title = feature.title)
-                                Switch(
-                                    checked = settings.withFeature(feature, true) == settings,
-                                    onCheckedChange = { viewModel.updateFeature(feature, it) },
-                                    enabled = feature != AppFeature.PARALLEL_SEARCH,
-                                    modifier = Modifier.semantics { contentDescription = feature.title }
-                                )
                             }
                         }
                     }

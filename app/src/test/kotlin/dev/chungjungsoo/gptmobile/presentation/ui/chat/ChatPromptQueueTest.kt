@@ -286,6 +286,35 @@ class ChatPromptQueueTest {
         assertEquals(0, model.queuedPromptCount.value)
     }
 
+    @Test
+    fun `queued one-message choice snapshots its profile and preserves membership`() = runTest(dispatcher) {
+        val model = createViewModel(availableProfileCount = 2)
+        runCurrent()
+        model.setPlatformMembership("profile-2", true)
+        runCurrent()
+        model.selectNextMessageProfile("profile-2")
+        send(model, "Use this profile once")
+        assertEquals(null, model.nextMessageProfileUid.value)
+        assertEquals(listOf("profile-1", "profile-2"), model.activePlatformUids.value)
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        assertEquals(listOf("profile-2"), starts.single().map { it.platform.uid })
+        assertEquals(listOf("profile-1", "profile-2"), model.activePlatformUids.value)
+    }
+
+    @Test
+    fun `one-message choice rejects profiles outside membership and combined mode`() = runTest(dispatcher) {
+        val model = createViewModel(availableProfileCount = 2)
+        runCurrent()
+        model.selectNextMessageProfile("profile-2")
+        assertEquals(null, model.nextMessageProfileUid.value)
+        val combined = createViewModel(combined = true)
+        runCurrent()
+        combined.selectNextMessageProfile("profile-1")
+        assertEquals(null, combined.nextMessageProfileUid.value)
+    }
+
     private fun completePersistedRuns() {
         messages.value = messages.value.map { message ->
             if (message.platformType != null) message.copy(content = "Finished response") else message

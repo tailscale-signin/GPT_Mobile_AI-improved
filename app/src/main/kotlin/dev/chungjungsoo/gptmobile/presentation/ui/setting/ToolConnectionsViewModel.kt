@@ -56,6 +56,20 @@ class ToolConnectionsViewModel @Inject constructor(
     private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
     private val freeToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
 ) : ViewModel() {
+    private val permissionAuditMutable = MutableStateFlow<List<Triple<String, String, Boolean>>>(emptyList())
+    val permissionAudit = permissionAuditMutable.asStateFlow()
+    fun refreshPermissionAudit() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            permissionAuditMutable.value = toolTrust?.grants().orEmpty().map { Triple(it.first, it.second, false) } + freeToolConsent?.grants().orEmpty().map { Triple(it.first, it.second, true) }
+        }
+    }
+    fun revokeAuditedGrant(key: String, freeModel: Boolean) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (freeModel) freeToolConsent?.revokeGrant(key) else toolTrust?.revokeGrant(key)
+            refreshPermissionAudit()
+        }
+    }
+
     fun revokeToolGrants(connectionUid: String) {
         toolTrust?.revoke(connectionUid)
         freeToolConsent?.revokeConnection(connectionUid)

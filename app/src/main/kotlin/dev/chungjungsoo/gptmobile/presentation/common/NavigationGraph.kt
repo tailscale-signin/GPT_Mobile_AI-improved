@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
@@ -30,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
@@ -354,7 +356,12 @@ fun NavGraphBuilder.settingNavigation(
                         "APPEARANCE" -> Route.APPEARANCE + "?tab=$encoded"
                         "MEMORY" -> Route.FACT_VAULT + "?tab=$encoded"
                         "LOCAL_MODELS" -> Route.LOCAL_MODELS + "?runtime=${focus == "runtime"}"
-                        "PROFILES" -> if (focus.isBlank()) Route.AI_PLATFORMS else Route.PLATFORM_SETTINGS.replace("{platformUid}", encoded)
+                        "PROFILES" -> if (focus.isBlank()) {
+                            Route.AI_PLATFORMS
+                        } else {
+                            val parts = focus.split('|', limit = 3)
+                            Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(parts[0])) + "?tab=${parts.getOrNull(1) ?: "0"}&focus=${android.net.Uri.encode(parts.getOrNull(2).orEmpty())}"
+                        }
                         "TOOLS" -> Route.TOOL_CONNECTIONS
                         "DEBUG" -> Route.DEBUG_DIAGNOSTICS + "?focus=$encoded"
                         "STATISTICS" -> Route.USAGE_STATISTICS
@@ -517,13 +524,25 @@ fun NavGraphBuilder.settingNavigation(
             )
         }
         composable(
-            Route.PLATFORM_SETTINGS,
-            arguments = listOf(navArgument("platformUid") { type = NavType.StringType })
+            Route.PLATFORM_SETTINGS + "?tab={tab}&focus={focus}",
+            arguments = listOf(
+                navArgument("platformUid") { type = NavType.StringType },
+                navArgument("tab") {
+                    type = NavType.IntType
+                    defaultValue = 0
+                },
+                navArgument("focus") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                }
+            )
         ) { backStackEntry ->
             val platformUid = backStackEntry.arguments?.getString("platformUid") ?: ""
             val platformViewModel: PlatformSettingViewModel = hiltViewModel(backStackEntry)
             PlatformSettingScreen(
                 settingViewModel = platformViewModel,
+                initialTab = backStackEntry.arguments?.getInt("tab") ?: 0,
+                initialFocus = backStackEntry.arguments?.getString("focus").orEmpty(),
                 onNavigationClick = { navController.navigateUp() },
                 onNavigateToBenchmarks = { navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", android.net.Uri.encode(platformUid))) },
                 onNavigateToUsage = { navController.navigate(Route.USAGE_STATISTICS) },
@@ -626,7 +645,7 @@ fun NavGraphBuilder.settingNavigation(
                     title = { androidx.compose.material3.Text("$name saved") },
                     text = {
                         androidx.compose.foundation.lazy.LazyColumn {
-                            item { androidx.compose.material3.Text("Choose an AI profile, then select the server tools it may use.") }
+                            item { androidx.compose.material3.Text(stringResource(R.string.ui_v2_choose_an_ai_profile_then_select_the_server_tools_it_may_use)) }
                             items(profiles.size) { index ->
                                 val profile = profiles[index]
                                 androidx.compose.material3.TextButton(onClick = {
@@ -634,23 +653,23 @@ fun NavGraphBuilder.settingNavigation(
                                     navController.navigate(Route.MCP_TOOLS_SELECTION.replace("{platformUid}", profile.uid))
                                 }) { androidx.compose.material3.Text(profile.name) }
                             }
-                            if (profiles.isEmpty()) item { androidx.compose.material3.Text("Add an AI profile in Settings to enable its tools.") }
+                            if (profiles.isEmpty()) item { androidx.compose.material3.Text(stringResource(R.string.ui_v2_add_an_ai_profile_in_settings_to_enable_its_tools)) }
                         }
                     },
                     confirmButton = {
                         androidx.compose.material3.TextButton(onClick = {
                             installedName = null
                             navController.navigateUp()
-                        }) { androidx.compose.material3.Text("Done") }
+                        }) { androidx.compose.material3.Text(stringResource(R.string.done)) }
                     }
                 )
             }
             uiState.errorMessage?.let { message ->
                 dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
                     onDismissRequest = toolConnectionsViewModel::clearError,
-                    title = { androidx.compose.material3.Text("Could not install") },
+                    title = { androidx.compose.material3.Text(stringResource(R.string.ui_v2_could_not_install)) },
                     text = { androidx.compose.material3.Text(message) },
-                    confirmButton = { androidx.compose.material3.TextButton(onClick = toolConnectionsViewModel::clearError) { androidx.compose.material3.Text("Close") } }
+                    confirmButton = { androidx.compose.material3.TextButton(onClick = toolConnectionsViewModel::clearError) { androidx.compose.material3.Text(stringResource(R.string.local_tools_settings_panel_label_12)) } }
                 )
             }
         }

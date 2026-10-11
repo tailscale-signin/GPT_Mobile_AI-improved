@@ -75,7 +75,8 @@ fun SettingScreen(
     var showDelegation by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val searchEntries = SettingsSearchRegistry.entries.filter { githubWorkspaceEnabled || it.destination != SettingsSearchDestination.WORKSPACE } +
-        platforms.map { profile -> SettingsSearchEntry("profile.${profile.uid}", profile.name, "AI › Profiles › ${profile.name}", SettingsSearchDestination.PROFILES, profile.uid, "${profile.model} ${profile.compatibleType}") }
+        memoryControlSearchEntries + privacyControlSearchEntries +
+        platforms.flatMap { profile -> profileControlSearchEntries(profile, providerConnections.any { it.uid == profile.providerConnectionUid }) + SettingsSearchEntry("profile.${profile.uid}", profile.name, "AI › Profiles › ${profile.name}", SettingsSearchDestination.PROFILES, profile.uid, "${profile.model} ${profile.compatibleType}") }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),

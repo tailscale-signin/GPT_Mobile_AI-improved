@@ -530,10 +530,6 @@ class ChatViewModel @Inject constructor(
 
     fun togglePlatformDisabled(platformUid: String) {
         if (platformUid !in _activePlatformUids.value) return
-        if (!canPauseChatProfile(platformUid, _activePlatformUids.value.toSet(), _disabledPlatformUids.value)) {
-            _attachmentNotice.value = context.getString(dev.chungjungsoo.gptmobile.R.string.chat_last_profile_required)
-            return
-        }
         _disabledPlatformUids.update { disabled ->
             if (platformUid in disabled) {
                 disabled - platformUid
@@ -556,7 +552,7 @@ class ChatViewModel @Inject constructor(
                     val platform = _platformsInApp.value.firstOrNull { it.uid == platformUid }
                     if (active && platform?.enabled != true) return@withLock
                     val updated = if (active) (current + platformUid).distinct() else current - platformUid
-                    if (updated.isEmpty() || (updated.toSet() - _disabledPlatformUids.value).isEmpty()) {
+                    if (updated.isEmpty()) {
                         _attachmentNotice.value = "At least one AI profile must remain active."
                         return@withLock
                     }

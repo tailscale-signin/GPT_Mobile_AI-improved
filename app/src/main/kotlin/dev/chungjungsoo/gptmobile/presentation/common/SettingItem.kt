@@ -47,13 +47,14 @@ fun SettingItem(
     leadingIcon: @Composable () -> Unit? = {},
     trailingBadge: @Composable (() -> Unit)? = null
 ) {
+    val focusedModifier = modifier.settingSearchFocus(title)
     val clickableModifier = if (enabled) {
-        modifier
+        focusedModifier
             .fillMaxWidth()
             .clickable(onClick = onItemClick)
             .padding(horizontal = 8.dp)
     } else {
-        modifier
+        focusedModifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
     }
@@ -143,7 +144,7 @@ fun SettingsHelpIcon(
             title = { Text(title) },
             text = { Text(description) },
             confirmButton = {
-                TextButton(onClick = { open = false }) { Text("Close") }
+                TextButton(onClick = { open = false }) { Text(stringResource(R.string.local_tools_settings_panel_label_12)) }
             }
         )
     }

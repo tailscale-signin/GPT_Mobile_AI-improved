@@ -248,6 +248,8 @@ fun ToolConnectionsScreen(
         }
     }
 
+    val savedPermissions by viewModel.permissionAudit.collectAsStateWithLifecycle()
+    LaunchedEffect(showAccessAudit) { if (showAccessAudit) viewModel.refreshPermissionAudit() }
     if (showAccessAudit) {
         AlertDialog(
             onDismissRequest = { showAccessAudit = false },
@@ -255,6 +257,16 @@ fun ToolConnectionsScreen(
             text = {
                 androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_help)) }
+                    item { Text(stringResource(R.string.ui_v2_saved_permission_grants), style = MaterialTheme.typography.titleSmall) }
+                    if (savedPermissions.isEmpty()) item { Text(stringResource(R.string.ui_v2_no_saved_permission_grants)) }
+                    savedPermissions.forEach { (key, label, freeModel) ->
+                        item(key = "grant:$freeModel:$key") {
+                            Column {
+                                Text(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(label), style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { viewModel.revokeAuditedGrant(key, freeModel) }) { Text(stringResource(R.string.ui_v2_revoke_grant)) }
+                            }
+                        }
+                    }
                     uiState.connections.forEach { connection ->
                         item(key = connection.connectionUid) {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

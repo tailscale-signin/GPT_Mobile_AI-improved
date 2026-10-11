@@ -34,6 +34,10 @@ jobs:
           ./gradlew :app:connectedDebugAndroidTest \
             -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.data.localruntime.QualcommNpuInstrumentedTest \
             "-Pandroid.testInstrumentationRunnerArguments.qnnModelPath=$QNN_MODEL_PATH"
+      - name: Collect visual review fixtures
+        if: always()
+        run: |
+          adb exec-out run-as dev.melo.gptmobile.improved tar -cf - files/ui-review > device-evidence/ui-review.tar
       - name: Capture Qualcomm execution logs
         if: always()
         run: adb logcat -d -v threadtime -s QnnQualification LiteRT QnnHtp > device-evidence/qnn-logcat.txt

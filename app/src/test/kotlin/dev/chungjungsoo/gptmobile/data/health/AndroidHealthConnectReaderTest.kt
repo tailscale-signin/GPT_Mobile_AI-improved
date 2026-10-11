@@ -74,7 +74,8 @@ class AndroidHealthConnectReaderTest {
             HealthMetric.STEPS.permission,
             HEALTH_HISTORY_PERMISSION
         )
-        val oldQuery = query.copy(start = now.minus(Duration.ofDays(60)))
+        val current = Instant.now()
+        val oldQuery = query.copy(start = current.minus(Duration.ofDays(60)), end = current)
         val error = runCatching { AndroidHealthConnectReader(client).read("summary", oldQuery) }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
         assertTrue(error?.message.orEmpty().contains("explicit local import"))

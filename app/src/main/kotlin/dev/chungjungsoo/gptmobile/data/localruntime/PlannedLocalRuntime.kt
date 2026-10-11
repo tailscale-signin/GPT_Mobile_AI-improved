@@ -25,9 +25,10 @@ class PlannedLocalRuntime(
     private var requested: LocalEngineSpec? = null
     private var effective: LocalEngineSpec? = null
     private var preference: Pair<LocalExecutionPolicy, LocalEngineTuning>? = null
+    private var tuningNotice: String? = null
     init {
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
-            delegate.state.collect { actual -> mutableState.value = actual.copy(decision = mutableState.value.decision, requestedMtp = effective?.speculativeDecoding) }
+            delegate.state.collect { actual -> mutableState.value = actual.copy(decision = mutableState.value.decision, requestedMtp = effective?.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice) }
         }
     }
 
@@ -35,13 +36,20 @@ class PlannedLocalRuntime(
         if (isEngineLoaded(spec)) return
         val current = settings.getFeatureSettings()
         val tuning = current.localEngineTuning()
-        val tuned = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = tuning.speculativeDecoding, nativeMetricsEnabled = tuning.nativeMetricsEnabled, tuningLocked = true)
+        val isLiteRt = !spec.modelPath.endsWith("manifest.json")
+        val capabilities = if (isLiteRt) delegate.inspectModel(spec.modelPath) else null
+        val speculative = if (isLiteRt) compatibleSpeculativeDecoding(tuning.speculativeDecoding, capabilities) else tuning.speculativeDecoding
+        val tuned = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = speculative, nativeMetricsEnabled = tuning.nativeMetricsEnabled, tuningLocked = true)
+        tuningNotice = if (!spec.tuningLocked && tuning.speculativeDecoding == true && tuned.speculativeDecoding == false) {
+            "Speculative decoding is unavailable for this package; using ordinary decoding."
+        } else {
+            null
+        }
         var evidenceKey: RuntimeQualificationKey? = null
-        val decision = if (!spec.modelPath.endsWith("manifest.json")) {
+        val decision = if (isLiteRt) {
             evidence.load()
             val key = RuntimeEvidenceIdentity.key(context, tuned, tuned.samplerIdentity, tuned.workload)
             evidenceKey = key
-            val capabilities = delegate.inspectModel(spec.modelPath)
             val allowed = evidence.runtimeQualifications.value.filter {
                 it.plan.languageBackend in capabilities?.backends.orEmpty() &&
                     (it.plan.speculativeDecoding != true || capabilities?.speculative == true)
@@ -68,7 +76,7 @@ class PlannedLocalRuntime(
             val actualDecision = decision?.let {
                 if (actual.engineSpec?.accelerator == it.selected.languageBackend) it else it.copy(qualification = QualificationStatus.NOT_TESTED, reason = "Runtime used a fallback; its configuration requires separate measurement")
             }
-            mutableState.value = actual.copy(decision = actualDecision, lifecycle = "READY", requestedMtp = chosen.speculativeDecoding)
+            mutableState.value = actual.copy(decision = actualDecision, lifecycle = "READY", requestedMtp = chosen.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice)
             if (actualDecision != null && evidenceKey != null) {
                 evidence.saveRuntimeDecision(RuntimePlanDecisionRecord(java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), evidenceKey, actualDecision, actual.engineSpec?.accelerator))
             }
@@ -105,8 +113,13 @@ class PlannedLocalRuntime(
         delegate.unloadEngine()
         requested = null
         effective = null
+        tuningNotice = null
         mutableState.value = delegate.state.value
     }
 
     override fun loadedEngineSpec(): LocalEngineSpec? = delegate.loadedEngineSpec()
 }
+
+/** A global speed preference must not prevent ordinary decoding on another package. */
+internal fun compatibleSpeculativeDecoding(requested: Boolean?, capabilities: LocalModelCapabilities?): Boolean? =
+    if (requested == true && capabilities?.speculative != true) false else requested

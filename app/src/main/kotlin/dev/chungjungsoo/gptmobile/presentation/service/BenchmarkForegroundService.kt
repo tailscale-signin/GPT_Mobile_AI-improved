@@ -12,8 +12,10 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import dagger.Lazy
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProgress
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -26,11 +28,14 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class BenchmarkForegroundService : Service() {
     @Inject
-    lateinit var coordinator: BenchmarkExecutionCoordinator
+    lateinit var coordinatorProvider: Lazy<BenchmarkExecutionCoordinator>
+
+    private val coordinator: BenchmarkExecutionCoordinator get() = coordinatorProvider.get()
 
     private var wakeLock: PowerManager.WakeLock? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var published = false
+    private var observing = false
 
     override fun onCreate() {
         super.onCreate()
@@ -40,34 +45,46 @@ class BenchmarkForegroundService : Service() {
                 NotificationChannel(CHANNEL_ID, "Benchmark progress", NotificationManager.IMPORTANCE_LOW)
             )
         }
+        // Do not resolve the benchmark/database graph before the startup deadline.
         publishForeground()
-        serviceScope.launch {
-            coordinator.progressMutable.collect { progress ->
-                if (published && progress != null) manager.notify(NOTIFICATION_ID, buildNotification())
-            }
-        }
     }
 
     private fun publishForeground(): Boolean {
-        if (published) return true
+        // Every startForegroundService request needs promotion, including a
+        // restart delivered while the previous session is shutting down.
         return try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
             published = true
             true
         } catch (_: Exception) {
-            coordinator.serviceUnavailable("Android could not publish the benchmark foreground notification. The run was stopped; completed samples remain saved.")
-            stopSelf()
+            published = false
             false
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!publishForeground()) {
+            coordinator.serviceUnavailable("Android could not publish the benchmark foreground notification. The run was stopped; completed samples remain saved.")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             coordinator.cancel()
             stopSelf()
             return START_NOT_STICKY
         }
-        if (!publishForeground()) return START_NOT_STICKY
+        if (!coordinator.serviceReady(intent?.getStringExtra(EXTRA_SESSION_ID))) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (!observing) {
+            observing = true
+            serviceScope.launch {
+                coordinator.progressMutable.collect { progress ->
+                    if (published && progress != null) getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(progress))
+                }
+            }
+        }
         if (wakeLock?.isHeld != true) {
             wakeLock = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GPTMobile:Benchmark")
@@ -76,7 +93,7 @@ class BenchmarkForegroundService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(progress: BenchmarkProgress? = null): Notification {
         val openApp = PendingIntent.getActivity(
             this,
             0,
@@ -92,10 +109,10 @@ class BenchmarkForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentTitle("Benchmark running")
-            .setContentText(coordinator.progressMutable.value?.let { "${it.profileName} · ${it.testName} · ${it.completed.coerceAtMost(it.total)}/${it.total}" } ?: "Starting benchmark. Completed samples remain saved.")
+            .setContentText(progress?.let { "${it.profileName} · ${it.testName} · ${it.completed.coerceAtMost(it.total)}/${it.total}" } ?: "Starting benchmark. Completed samples remain saved.")
             .setContentIntent(openApp)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stop)
-            .setProgress(coordinator.progressMutable.value?.total ?: 0, coordinator.progressMutable.value?.completed ?: 0, coordinator.progressMutable.value == null)
+            .setProgress(progress?.total ?: 0, progress?.completed ?: 0, progress == null)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
@@ -117,6 +134,7 @@ class BenchmarkForegroundService : Service() {
 
     companion object {
         const val EXTRA_OPEN_BENCHMARKS = "open_benchmarks"
+        const val EXTRA_SESSION_ID = "benchmark_session_id"
         const val ACTION_STOP = "dev.chungjungsoo.gptmobile.action.STOP_BENCHMARK"
         const val CHANNEL_ID = "benchmark_execution"
         const val NOTIFICATION_ID = 8204

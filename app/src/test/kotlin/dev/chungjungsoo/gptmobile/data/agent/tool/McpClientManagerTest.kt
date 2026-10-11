@@ -29,6 +29,11 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class McpClientManagerTest {
+    // Managers share endpoint cooldowns across instances, so isolate each test's network state.
+    @org.junit.Before fun resetEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+
+    @org.junit.After fun clearEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+
     @Test fun `authentication failure stops repeat discovery until credentials change`() = runBlocking {
         var requests = 0
         val client = HttpClient(

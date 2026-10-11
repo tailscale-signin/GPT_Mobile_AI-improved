@@ -25,6 +25,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModernMcpTaskTest {
+    @org.junit.Before fun resetEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+
+    @org.junit.After fun clearEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+
     private val config = McpConnectionConfig("remote", "https://example.com/mcp", false, "Bearer token")
     private fun obj(text: String) = Json.parseToJsonElement(text).jsonObject
     private var saved: WorkspaceRecord? = null

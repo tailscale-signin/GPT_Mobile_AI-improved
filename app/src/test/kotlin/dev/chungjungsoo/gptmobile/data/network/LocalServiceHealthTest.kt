@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -10,6 +11,8 @@ import org.junit.Test
 
 class LocalServiceHealthTest {
     @Before fun reset() = LocalServiceHealth.networkChanged()
+
+    @After fun clear() = LocalServiceHealth.networkChanged()
 
     @Test fun timeoutDoesNotBlockAnotherPortAndHandshakeIsRequiredForHealthy() {
         LocalServiceHealth.recordFailure("http://100.64.0.2:8102/mcp", SocketTimeoutException())

@@ -87,7 +87,10 @@ class ScoreboardRepository @Inject constructor(
                     else -> throw IOException("Could not refresh the community scoreboard (HTTP ${response.status.value}).")
                 }
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
+                if (error is CancellationException) {
+                    mutableState.value = mutableState.value.copy(loading = false, cached = true)
+                    throw error
+                }
                 mutableState.value = mutableState.value.copy(loading = false, cached = true, message = error.message?.take(240) ?: "Could not load the online scoreboard.")
             }
         }
@@ -102,7 +105,11 @@ class ScoreboardRepository @Inject constructor(
         require(BenchmarkScoreboard.evaluate(data) != null && data.issueNumber == null) { "Only a complete local remote-model result can be shared." }
         val account = checkNotNull(sharingAccounts().firstOrNull { it.connectionUid == connectionUid }) { "Choose a GitHub connection that permits writes in Settings → Tools." }
         val bytes = account.secretRef?.let { vault.read(it) }
-        val token = try { bytes?.decodeToString()?.trim() } finally { bytes?.fill(0) }
+        val token = try {
+            bytes?.decodeToString()?.trim()
+        } finally {
+            bytes?.fill(0)
+        }
         check(!token.isNullOrBlank()) { "Reconnect this GitHub account before sharing." }
         val body = "Community scoreboard submission. Self-reported; no prompts, responses, keys or endpoint URLs.\n\n```json\n${json.encodeToString(data)}\n```"
         require(body.toByteArray().size <= 60_000) { "This result is too large to share." }
@@ -111,10 +118,12 @@ class ScoreboardRepository @Inject constructor(
             header(HttpHeaders.Accept, "application/vnd.github+json")
             header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
             contentType(ContentType.Application.Json)
-            setBody(buildJsonObject {
-                put("title", "[Scoreboard v1] ${data.kind.name} ${data.plan.label} ${data.id}")
-                put("body", body)
-            }.toString())
+            setBody(
+                buildJsonObject {
+                    put("title", "[Scoreboard v1] ${data.kind.name} ${data.plan.label} ${data.id}")
+                    put("body", body)
+                }.toString()
+            )
         }
         check(response.status.value == 201) {
             when (response.status.value) {

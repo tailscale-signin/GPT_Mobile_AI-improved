@@ -150,9 +150,11 @@ class DelegationBenchmarkRunnerTest {
                         }
                     })
                 },
-                target = worker, config = settings,
+                target = worker,
+                config = settings,
                 openPrimary = { _, _ -> error("Tool test must not call primary") },
-                workerTokens = { 0L to 0L }, workerCalls = { 0 },
+                workerTokens = { 0L to 0L },
+                workerCalls = { 0 },
                 reviewerUsage = { ReviewerBenchmarkUsage(calls = reviews.size) }
             )
             val sample = runner.run(delegationBenchmarkSuite(BenchmarkMode.QUICK).first { it.id == "delegation-tools" })

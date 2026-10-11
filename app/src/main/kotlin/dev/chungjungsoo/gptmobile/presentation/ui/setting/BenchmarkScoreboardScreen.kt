@@ -39,6 +39,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -166,10 +168,12 @@ internal fun BenchmarkScoreboardPanel(kind: ScoreboardKind, onRun: () -> Unit, v
                         share.issue?.let { issue -> BenchmarkAction("View submission", Icons.Rounded.OpenInNew, onClick = { uri.openUri("https://github.com/${ScoreboardRepository.REPOSITORY}/issues/$issue") }) }
                     }
                 },
-                confirmButton = { Button(onClick = { account?.let { viewModel.publish(entry.submission, it) } }, enabled = account != null && !share.busy && share.issue == null) {
-                    Icon(Icons.Rounded.Share, null)
-                    Text("Publish")
-                } },
+                confirmButton = {
+                    Button(onClick = { account?.let { viewModel.publish(entry.submission, it) } }, enabled = account != null && !share.busy && share.issue == null) {
+                        Icon(Icons.Rounded.Share, null)
+                        Text("Publish")
+                    }
+                },
                 dismissButton = { TextButton(onClick = { showShare = false }, enabled = !share.busy) { Text(if (share.issue == null) "Cancel" else "Done") } }
             )
         }

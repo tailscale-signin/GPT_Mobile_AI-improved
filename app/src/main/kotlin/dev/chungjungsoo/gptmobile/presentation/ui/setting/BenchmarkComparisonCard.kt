@@ -98,12 +98,14 @@ internal fun BenchmarkRatingBar(label: String, value: Double?, missing: String =
             }
         }
         Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(8.dp)).background(colors.surfaceContainerHighest)) {
-            if (value != null) Row(Modifier.fillMaxWidth()) {
-                if (retained > 0f) Box(Modifier.weight(retained).height(9.dp).background(Brush.horizontalGradient(listOf(colors.primary, colors.tertiary))))
-                if (gained > 0f) Box(Modifier.weight(gained).height(9.dp).background(Color(0xFFFFD54F)))
-                if (lost > 0f) Box(Modifier.weight(lost).height(9.dp).background(Color(0xFFEF5350)))
-                val remaining = (1f - retained - gained - lost).coerceAtLeast(0f)
-                if (remaining > 0f) Box(Modifier.weight(remaining).height(9.dp))
+            if (value != null) {
+                Row(Modifier.fillMaxWidth()) {
+                    if (retained > 0f) Box(Modifier.weight(retained).height(9.dp).background(Brush.horizontalGradient(listOf(colors.primary, colors.tertiary))))
+                    if (gained > 0f) Box(Modifier.weight(gained).height(9.dp).background(Color(0xFFFFD54F)))
+                    if (lost > 0f) Box(Modifier.weight(lost).height(9.dp).background(Color(0xFFEF5350)))
+                    val remaining = (1f - retained - gained - lost).coerceAtLeast(0f)
+                    if (remaining > 0f) Box(Modifier.weight(remaining).height(9.dp))
+                }
             }
         }
     }

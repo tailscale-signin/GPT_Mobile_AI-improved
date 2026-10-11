@@ -44,17 +44,17 @@ def validate(data, *, submitted=False):
     data = dict(data)
     data.setdefault("schemaVersion", 1)
     require(type(data["schemaVersion"]) is int and data["schemaVersion"] == 1, "Unsupported scoreboard version.")
-    require(data.get("kind") in {"MODEL", "DELEGATION"} and data.get("plan") in {"QUICK", "FULL"}, "Unsupported test plan.")
+    require(type(data.get("kind")) is str and data.get("kind") in {"MODEL", "DELEGATION"} and type(data.get("plan")) is str and data.get("plan") in {"QUICK", "FULL"}, "Unsupported test plan.")
     delegation = data["kind"] == "DELEGATION"
     require(type(data.get("suiteVersion")) is int and data["suiteVersion"] == (1 if delegation else 6), "Unsupported suite version.")
     require(isinstance(data.get("id"), str) and re.fullmatch(r"[A-Za-z0-9-]{1,80}", data["id"]), "Invalid run ID.")
     require(integer(data.get("startedAt"), 0, 253402300799999), "Invalid run timestamp.")
-    require(data.get("provider") in PROVIDERS and model(data.get("model")), "Only remote provider/model identities are accepted.")
+    require(type(data.get("provider")) is str and data.get("provider") in PROVIDERS and model(data.get("model")), "Only remote provider/model identities are accepted.")
     if data.get("issueNumber") is not None:
         require(not submitted and integer(data["issueNumber"], 1), "Issue provenance is assigned by the server.")
     for role in ("primary", "reviewer"):
         if delegation:
-            require(data.get(role + "Provider") in PROVIDERS | {"LITERT_LM"} and model(data.get(role + "Model")), "Missing primary or reviewer model identity.")
+            require(type(data.get(role + "Provider")) is str and data.get(role + "Provider") in PROVIDERS | {"LITERT_LM"} and model(data.get(role + "Model")), "Missing primary or reviewer model identity.")
         else:
             require(data.get(role + "Provider") is None and data.get(role + "Model") is None, "Unexpected delegation identity.")
     if delegation:
@@ -69,7 +69,7 @@ def validate(data, *, submitted=False):
     for trial in trials:
         require(not trial.keys() - (TRIAL_DEFAULTS.keys() | {"id", "outcome", "durationMs"}), "Unknown or private trial fields.")
         t = TRIAL_DEFAULTS | trial
-        require(t.get("outcome") in OUTCOMES and integer(t.get("durationMs"), 0, 3_600_000), "Unfinished or invalid trial.")
+        require(type(t.get("outcome")) is str and t.get("outcome") in OUTCOMES and integer(t.get("durationMs"), 0, 3_600_000), "Unfinished or invalid trial.")
         require(t["firstTextMs"] is None or integer(t["firstTextMs"], 0, t["durationMs"]), "Invalid first-text time.")
         require(t["speed"] is None or (type(t["speed"]) in (float, int) and math.isfinite(t["speed"]) and 0 < t["speed"] <= 1_000_000), "Invalid speed.")
         for key in ("inputTokens", "outputTokens", "primaryInputTokens", "primaryOutputTokens", "reviewerInputTokens", "reviewerOutputTokens"):

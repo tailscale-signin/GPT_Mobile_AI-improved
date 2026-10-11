@@ -69,7 +69,10 @@ class ScoreboardTest(unittest.TestCase):
             lambda d: d.update(suiteVersion=5),
             lambda d: d.update(model="https://private/api"),
             lambda d: d.update(startedAt=True),
-            lambda d: d.update(schemaVersion=True)
+            lambda d: d.update(schemaVersion=True),
+            lambda d: d.update(kind=[]),
+            lambda d: d.update(provider={}),
+            lambda d: d["trials"][0].update(outcome=[])
         ):
             data = submission()
             mutate(data)

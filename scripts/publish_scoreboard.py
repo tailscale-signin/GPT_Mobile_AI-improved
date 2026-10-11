@@ -94,7 +94,7 @@ def main():
     try:
         submission = parse_issue(issue.get("body"))
     except ValueError as error:
-        github.api("POST", f"/issues/{number}/comments", {"body": f"Scoreboard validation failed: {error} Edit the submission with a complete supported benchmark to retry. No data was published."})
+        github.api("POST", f"/issues/{number}/comments", {"body": f"Scoreboard validation failed: {error} Edit the submission with a complete supported benchmark to retry. No new data was published."})
         return
     publish(github, submission, number)
     github.api("POST", f"/issues/{number}/comments", {"body": "Accepted as a self-reported benchmark. The validated test data is stored on the `scoreboard-data` branch. The online index keeps the highest complete score per provider/model and test plan; a lower retest does not replace the best result."})

@@ -98,9 +98,13 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }
     val delegates = combine(profiles, selected, benchmarkReviewer) { list, primary, reviewer ->
         list.filter {
-            it.enabled && it.model.isNotBlank() && it.uid != primary?.uid && it.uid != reviewer?.uid &&
+            it.enabled &&
+                it.model.isNotBlank() &&
+                it.uid != primary?.uid &&
+                it.uid != reviewer?.uid &&
                 (reviewer == null || !it.model.trim().equals(reviewer.model.trim(), ignoreCase = true)) &&
-                !it.excludesMemory() && !(primary?.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
+                !it.excludesMemory() &&
+                !(primary?.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val delegate = combine(delegates, delegateUid, delegationSettings) { list, uid, config ->

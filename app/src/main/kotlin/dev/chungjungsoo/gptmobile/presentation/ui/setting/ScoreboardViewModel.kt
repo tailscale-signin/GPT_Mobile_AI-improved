@@ -32,7 +32,13 @@ class ScoreboardViewModel @Inject constructor(store: BenchmarkStore, private val
     fun refresh() {
         if (refreshing) return
         refreshing = true
-        viewModelScope.launch { try { repository.refresh() } finally { refreshing = false } }
+        viewModelScope.launch {
+            try {
+                repository.refresh()
+            } finally {
+                refreshing = false
+            }
+        }
     }
 
     fun prepareShare() {

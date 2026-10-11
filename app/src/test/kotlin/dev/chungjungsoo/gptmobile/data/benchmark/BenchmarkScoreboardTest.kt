@@ -85,7 +85,8 @@ class BenchmarkScoreboardTest {
     private fun run(id: String) = BenchmarkRun(
         id, "SECRET-uid", "SECRET-profile", "OPENAI", "model", "SECRET-config", false,
         BenchmarkMode.QUICK, 100, suiteVersion = 6, measurementVersion = 2, plannedTrials = 5,
-        device = "SECRET-device", samples = benchmarkSuite(BenchmarkMode.QUICK).map { test ->
+        device = "SECRET-device",
+        samples = benchmarkSuite(BenchmarkMode.QUICK).map { test ->
             BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.PASSED, durationMs = 500, firstTextMs = 100, lastTextMs = 500, chunks = 2, referenceDecodeTokens = 20, preview = "SECRET-response", error = "SECRET-endpoint", workload = test.workload, intelligenceAnswers = if (test.category == "intelligence") BenchmarkScoreboard.domains.associateWith { true } else emptyMap())
         }
     )

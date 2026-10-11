@@ -41,10 +41,14 @@ fun delegationBenchmarkSuite(): List<BenchmarkCase> = buildList {
 fun delegationBenchmarkSuite(plan: BenchmarkMode): List<BenchmarkCase> {
     require(plan == BenchmarkMode.QUICK || plan == BenchmarkMode.FULL)
     val families = delegationBenchmarkSuite().filter { it.seed == 0 }
-    val cases = if (plan == BenchmarkMode.QUICK) families.take(5) else List(50) { index ->
-        val base = families[index % families.size]
-        val seed = index / families.size
-        base.copy(id = if (seed == 0) base.id else "${base.id}-seed-$seed", label = "${base.label.substringBefore(" · ")} · trial ${seed + 1}", seed = seed)
+    val cases = if (plan == BenchmarkMode.QUICK) {
+        families.take(5)
+    } else {
+        List(50) { index ->
+            val base = families[index % families.size]
+            val seed = index / families.size
+            base.copy(id = if (seed == 0) base.id else "${base.id}-seed-$seed", label = "${base.label.substringBefore(" · ")} · trial ${seed + 1}", seed = seed)
+        }
     }
     return cases.map { it.copy(benchmarkReview = true) }
 }
@@ -140,8 +144,12 @@ internal class DelegationBenchmarkRunner(
             val compute = coordinator.computeStats()
             val reviewerScores = coordinator.reviewerScoresSnapshot()
             val reviewerTokens = reviewerUsage()
-            val reviewerScore = if (test.benchmarkReview) independentScore else reviewerScores.takeIf { it.isNotEmpty() }?.let { values ->
-                ((values.sum().toDouble() / values.size).coerceIn(0.0, 100.0) + 0.5).toInt()
+            val reviewerScore = if (test.benchmarkReview) {
+                independentScore
+            } else {
+                reviewerScores.takeIf { it.isNotEmpty() }?.let { values ->
+                    ((values.sum().toDouble() / values.size).coerceIn(0.0, 100.0) + 0.5).toInt()
+                }
             }
             reviewerScore?.let {
                 event(

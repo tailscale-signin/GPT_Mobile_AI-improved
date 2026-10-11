@@ -48,6 +48,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -157,10 +159,24 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     }
                 }
             }
-            if (tab == 4) item {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BenchmarkAction("Run delegates", Icons.Rounded.PlayArrow, !delegationBoard, { delegationBoard = false })
-                    BenchmarkAction("Scoreboard", Icons.Rounded.BarChart, delegationBoard, { delegationBoard = true })
+            progress?.let { current ->
+                item {
+                    BenchmarkPanel("Running · ${current.profileName}") {
+                        LinearProgressIndicator(progress = { current.completed.toFloat() / current.total }, modifier = Modifier.fillMaxWidth(), color = tint)
+                        Text("${current.completed} / ${current.total} tests · ${current.testName}")
+                        OutlinedButton(onClick = viewModel::cancel) {
+                            Icon(Icons.Rounded.Stop, null)
+                            Text("Stop benchmark")
+                        }
+                    }
+                }
+            }
+            if (tab == 4) {
+                item {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BenchmarkAction("Run delegates", Icons.Rounded.PlayArrow, !delegationBoard, { delegationBoard = false })
+                        BenchmarkAction("Scoreboard", Icons.Rounded.BarChart, delegationBoard, { delegationBoard = true })
+                    }
                 }
             }
             if (tab == 2) {
@@ -171,18 +187,6 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             } else if (selected == null) {
                 item { BenchmarkPanel("No AI profiles yet") { Text("Create an AI profile in Settings, choose its model, then return here to measure it.") } }
             } else {
-                progress?.let { current ->
-                    item {
-                        BenchmarkPanel("Running · ${current.profileName}") {
-                            LinearProgressIndicator(progress = { current.completed.toFloat() / current.total }, modifier = Modifier.fillMaxWidth(), color = tint)
-                            Text("${current.completed} / ${current.total} tests · ${current.testName}")
-                            OutlinedButton(onClick = viewModel::cancel) {
-                                Icon(Icons.Rounded.Stop, null)
-                                Text("Stop benchmark")
-                            }
-                        }
-                    }
-                }
                 if (tab == 1) {
                     item {
                         Column {

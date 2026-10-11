@@ -6,8 +6,12 @@ internal fun BenchmarkScoreRow.retestKey(): String = "$profileUid|$revision|$coh
 /** Score individual runs against the same current cohort anchors, never a rolling average. */
 internal fun benchmarkRetests(history: List<BenchmarkRun>, now: Long = System.currentTimeMillis()): List<BenchmarkRetest> {
     val complete = history.filter { run ->
-        run.mode != BenchmarkMode.DELEGATION && run.finished && !run.canceled && run.stoppedReason == null &&
-            run.samples.size == benchmarkSuiteForRun(run).size && run.samples.map { it.testId }.toSet() == benchmarkSuiteForRun(run).map { it.id }.toSet()
+        run.mode != BenchmarkMode.DELEGATION &&
+            run.finished &&
+            !run.canceled &&
+            run.stoppedReason == null &&
+            run.samples.size == benchmarkSuiteForRun(run).size &&
+            run.samples.map { it.testId }.toSet() == benchmarkSuiteForRun(run).map { it.id }.toSet()
     }
     val byId = complete.associateBy { it.id }
     val isolated = complete.map { it.copy(profileUid = it.id, configKey = it.id) }

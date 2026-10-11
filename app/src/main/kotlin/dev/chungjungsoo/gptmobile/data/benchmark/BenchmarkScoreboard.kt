@@ -131,17 +131,22 @@ object BenchmarkScoreboard {
         val manifest = manifest(data.kind, data.plan).associateBy { it.id }
         if (data.trials.size != manifest.size || data.trials.map { it.id }.toSet() != manifest.keys) return null
         if (data.trials.any { trial ->
-                trial.outcome !in allowedOutcomes || trial.durationMs !in 0..3_600_000L ||
-                    trial.firstTextMs?.let { it !in 0..trial.durationMs } == true || trial.speed?.let { !it.isFinite() || it <= 0 || it > 1_000_000 } == true ||
+                trial.outcome !in allowedOutcomes ||
+                    trial.durationMs !in 0..3_600_000L ||
+                    trial.firstTextMs?.let { it !in 0..trial.durationMs } == true ||
+                    trial.speed?.let { !it.isFinite() || it <= 0 || it > 1_000_000 } == true ||
                     listOf(trial.inputTokens, trial.outputTokens, trial.primaryInputTokens, trial.primaryOutputTokens, trial.reviewerInputTokens, trial.reviewerOutputTokens).any { it !in 0..100_000_000L } ||
                     listOf(trial.toolCalls, trial.successfulToolCalls, trial.workerCalls, trial.searches, trial.pagesRead, trial.reviewerCalls, trial.outputCapViolations).any { it !in 0..10_000 } ||
-                    trial.handoffCharacters !in 0..1_000_000 || trial.successfulToolCalls > trial.toolCalls ||
+                    trial.handoffCharacters !in 0..1_000_000 ||
+                    trial.successfulToolCalls > trial.toolCalls ||
                     trial.reviewerScore?.let { it !in 0..100 } == true ||
                     (delegation && trial.outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED) && (trial.reviewerScore == null || trial.reviewerCalls == 0)) ||
                     (manifest.getValue(trial.id).category == IntelligenceBenchmark.CATEGORY && trial.intelligence.keys != domains) ||
                     (manifest.getValue(trial.id).category != IntelligenceBenchmark.CATEGORY && trial.intelligence.isNotEmpty())
             }
-        ) return null
+        ) {
+            return null
+        }
         fun selected(category: String) = data.trials.filter { manifest.getValue(it.id).category == category }
         fun percent(trials: List<ScoreboardTrial>): Double = 100.0 * trials.count { it.outcome == BenchmarkOutcome.PASSED } / trials.size
         val completion = 100.0 * data.trials.count { it.outcome == BenchmarkOutcome.PASSED || it.outcome == BenchmarkOutcome.FAILED } / data.trials.size
@@ -171,15 +176,18 @@ object BenchmarkScoreboard {
                 val values = group.mapNotNull { it.speed }
                 if (values.size < 3) null else (100 * (1 - sqrt(values.map { (it - values.average()) * (it - values.average()) }.average()) / values.average())).coerceIn(0.0, 100.0)
             }.takeIf { it.isNotEmpty() }?.average()
-        } else null
+        } else {
+            null
+        }
         val score = minOf(dimensions.sumOf { (it.value ?: 0.0) * it.weight } / 100, if (delegation) percent(data.trials) else completion)
         val domainScores = if (delegation) emptyList() else domains.map { domain -> ScoreboardMetric(domain, selected(IntelligenceBenchmark.CATEGORY).count { it.intelligence[domain] == true } * 100.0 / selected(IntelligenceBenchmark.CATEGORY).size) }
-        return ScoreboardEntry(data, score, dimensions + listOf(
+        val metrics = dimensions + listOf(
             ScoreboardMetric("Generation speed", median(speeds), unit = if (delegation) "tok/s" else "ref tok/s"),
             ScoreboardMetric("First response", median(speedTrials.mapNotNull { it.firstTextMs?.toDouble() }), unit = "ms"),
             ScoreboardMetric("Case duration", median(data.trials.map { it.durationMs.toDouble() }), unit = "ms"),
             ScoreboardMetric("Consistency", consistency)
-        ) + domainScores)
+        ) + domainScores
+        return ScoreboardEntry(data, score, metrics)
     }
 
     fun best(data: List<ScoreboardSubmission>): List<ScoreboardEntry> = data.mapNotNull(::evaluate)

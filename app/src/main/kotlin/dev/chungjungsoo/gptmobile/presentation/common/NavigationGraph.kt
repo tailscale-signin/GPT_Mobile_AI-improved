@@ -335,7 +335,25 @@ fun NavGraphBuilder.settingNavigation(
                 githubWorkspaceEnabled = githubConnection != null,
                 onNavigateToFactVault = { navController.navigate(Route.FACT_VAULT) },
                 onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
-                onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
+                onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) },
+                onNavigateToAppearance = { navController.navigate(Route.APPEARANCE) },
+                onSearchDestination = { destination, focus ->
+                    val encoded = android.net.Uri.encode(focus)
+                    val target = when (destination) {
+                        "ADVANCED" -> Route.ADVANCED_SETTINGS + "?focus=$encoded"
+                        "APPEARANCE" -> Route.APPEARANCE + "?tab=$encoded"
+                        "MEMORY" -> Route.FACT_VAULT + "?tab=$encoded"
+                        "LOCAL_MODELS" -> Route.LOCAL_MODELS + "?runtime=${focus == "runtime"}"
+                        "PROFILES" -> if (focus.isBlank()) Route.AI_PLATFORMS else Route.PLATFORM_SETTINGS.replace("{platformUid}", encoded)
+                        "TOOLS" -> Route.TOOL_CONNECTIONS
+                        "DEBUG" -> Route.DEBUG_DIAGNOSTICS + "?focus=$encoded"
+                        "STATISTICS" -> Route.USAGE_STATISTICS
+                        "BENCHMARKS" -> Route.PROFILE_BENCHMARKS.replace("{profileUid}", "")
+                        "WORKSPACE" -> "workspaces"
+                        else -> Route.ABOUT_PAGE
+                    }
+                    navController.navigate(target)
+                }
             )
         }
         composable(
@@ -375,21 +393,29 @@ fun NavGraphBuilder.settingNavigation(
             )
         }
 
-        composable(Route.FACT_VAULT) {
+        composable(Route.FACT_VAULT + "?tab={tab}", arguments = listOf(navArgument("tab") { defaultValue = "Memories" })) { entry ->
             val viewModel: FactVaultViewModel = hiltViewModel()
-            FactVaultScreen(viewModel, onBack = { navController.navigateUp() }, onOpenConversation = { chatId, messageId ->
+            FactVaultScreen(viewModel, initialTab = entry.arguments?.getString("tab") ?: "Memories", onBack = { navController.navigateUp() }, onOpenConversation = { chatId, messageId ->
                 navController.navigate("chat_room/$chatId?targetMessageId=${messageId ?: -1}")
             })
         }
 
-        composable(Route.ADVANCED_SETTINGS) {
+        composable(Route.APPEARANCE + "?tab={tab}", arguments = listOf(navArgument("tab") { defaultValue = "0" })) { entry ->
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.ThemeSettingsScreen(
+                onDismiss = { navController.navigateUp() },
+                asDialog = false,
+                initialTab = entry.arguments?.getString("tab")?.toIntOrNull() ?: 0
+            )
+        }
+        composable(Route.ADVANCED_SETTINGS + "?focus={focus}", arguments = listOf(navArgument("focus") { defaultValue = "" })) {
             val parentEntry = remember(it) {
                 navController.getBackStackEntry(Route.SETTING_ROUTE)
             }
             val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
             AdvancedSettingsScreen(
                 viewModel = settingViewModel,
-                onNavigationClick = { navController.navigateUp() }
+                onNavigationClick = { navController.navigateUp() },
+                initialFocus = it.arguments?.getString("focus").orEmpty()
             )
         }
         composable(Route.USAGE_STATISTICS) {
@@ -409,7 +435,7 @@ fun NavGraphBuilder.settingNavigation(
                 onUsage = { navController.navigate(Route.USAGE_STATISTICS) }
             )
         }
-        composable(Route.DEBUG_DIAGNOSTICS) {
+        composable(Route.DEBUG_DIAGNOSTICS + "?focus={focus}", arguments = listOf(navArgument("focus") { defaultValue = "" })) {
             val parentEntry = remember(it) {
                 navController.getBackStackEntry(Route.SETTING_ROUTE)
             }
@@ -418,7 +444,8 @@ fun NavGraphBuilder.settingNavigation(
                 settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
                 onStatisticsClick = { navController.navigate(Route.USAGE_STATISTICS) },
-                onBenchmarksClick = { navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "")) }
+                onBenchmarksClick = { navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "")) },
+                initialFocus = it.arguments?.getString("focus").orEmpty()
             )
         }
         composable(Route.AI_PLATFORMS) {
@@ -514,9 +541,13 @@ fun NavGraphBuilder.settingNavigation(
             )
         }
         composable(
-            Route.LOCAL_MODELS + "?marketplace={marketplace}",
+            Route.LOCAL_MODELS + "?marketplace={marketplace}&runtime={runtime}",
             arguments = listOf(
                 navArgument("marketplace") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+                navArgument("runtime") {
                     type = NavType.BoolType
                     defaultValue = false
                 }
@@ -524,7 +555,7 @@ fun NavGraphBuilder.settingNavigation(
         ) { entry ->
             LocalModelsScreen(
                 startInMarketplace = entry.arguments?.getBoolean("marketplace") == true,
-                startInDelegation = false,
+                startInDelegation = entry.arguments?.getBoolean("runtime") == true,
                 onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
                 onNavigationClick = { navController.navigateUp() }
             )

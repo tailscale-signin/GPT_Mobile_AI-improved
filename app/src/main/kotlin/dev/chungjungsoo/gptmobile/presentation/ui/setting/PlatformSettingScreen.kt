@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -239,7 +239,7 @@ fun PlatformSettingScreen(
                     )
                     if (!isLocalPlatform && providerConnection != null) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.provider_connection),
                             description = providerConnection?.name ?: stringResource(R.string.not_set),
                             enabled = false,
@@ -249,7 +249,7 @@ fun PlatformSettingScreen(
                         )
                     }
                     SettingItem(
-                        modifier = Modifier.height(64.dp),
+                        modifier = Modifier.heightIn(min = 64.dp),
                         title = stringResource(R.string.ai_profile_name),
                         description = platformData.name,
                         enabled = platformData.enabled,
@@ -308,7 +308,7 @@ fun PlatformSettingScreen(
                     // Standalone/legacy profiles keep their own connection fields for compatibility.
                     if (!isLocalPlatform && !isFreePlatform && providerConnection == null) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.api_url),
                             description = platformData.apiUrl,
                             enabled = platformData.enabled,
@@ -323,7 +323,7 @@ fun PlatformSettingScreen(
                             }
                         )
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.api_key),
                             description = if (platformData.token.isNullOrEmpty()) {
                                 stringResource(R.string.not_set)
@@ -365,7 +365,7 @@ fun PlatformSettingScreen(
                         .firstOrNull { it.catalogEntryId == platformData.model }
                         ?.displayName ?: platformData.model
                     SettingItem(
-                        modifier = Modifier.height(64.dp),
+                        modifier = Modifier.heightIn(min = 64.dp),
                         title = stringResource(R.string.api_model),
                         description = modelDescription,
                         enabled = platformData.enabled && !isFreePlatform,
@@ -423,7 +423,7 @@ fun PlatformSettingScreen(
                     )
                     if (isLocalPlatform) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.top_k),
                             description = platformData.topK?.toString() ?: notSetText,
                             enabled = platformData.enabled && !usesNpuSampling,
@@ -440,7 +440,7 @@ fun PlatformSettingScreen(
                         val maxTokensDescription = platformData.maxTokens?.toString()
                             ?: stringResource(R.string.output_tokens_unlimited)
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.max_tokens),
                             description = maxTokensDescription,
                             enabled = platformData.enabled,
@@ -455,7 +455,7 @@ fun PlatformSettingScreen(
                             }
                         )
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.accelerator),
                             description = acceleratorLabel(platformData.accelerator),
                             enabled = platformData.enabled && acceleratorOptions.isNotEmpty(),
@@ -471,7 +471,7 @@ fun PlatformSettingScreen(
                         )
                     }
                     SettingItem(
-                        modifier = Modifier.height(64.dp),
+                        modifier = Modifier.heightIn(min = 64.dp),
                         title = stringResource(R.string.system_prompt),
                         description = platformData.systemPrompt,
                         enabled = platformData.enabled,
@@ -487,7 +487,7 @@ fun PlatformSettingScreen(
                     )
                     if (!isLocalPlatform && !isFreePlatform) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.timeout),
                             description = formatPlatformTimeout(platformData.timeout, stringResource(R.string.not_set)),
                             enabled = platformData.enabled,
@@ -504,7 +504,7 @@ fun PlatformSettingScreen(
                     }
                     if (platformData.compatibleType == ClientType.GOOGLE) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.gemini_safety_settings),
                             description = stringResource(R.string.gemini_safety_settings),
                             enabled = platformData.enabled,
@@ -521,7 +521,7 @@ fun PlatformSettingScreen(
                     }
                     if (platformData.compatibleType == ClientType.OPENROUTER) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.openrouter_advanced_settings),
                             description = if (platformData.openRouterRouting.isNullOrBlank()) {
                                 stringResource(R.string.default_label)
@@ -542,7 +542,7 @@ fun PlatformSettingScreen(
                     }
                     if (platformData.compatibleType == ClientType.OLLAMA) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.ollama_advanced_options),
                             description = if (platformData.ollamaOptions.isNullOrBlank()) {
                                 stringResource(R.string.default_label)
@@ -563,7 +563,7 @@ fun PlatformSettingScreen(
                     }
                     if (platformData.compatibleType == ClientType.LLAMA) {
                         SettingItem(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.llama_advanced_settings),
                             description = stringResource(R.string.llama_advanced_settings_description),
                             enabled = platformData.enabled,
@@ -580,7 +580,7 @@ fun PlatformSettingScreen(
                     }
                     if (!isLocalPlatform && !isFreePlatform) {
                         ExtendedThinkingSwitch(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.heightIn(min = 64.dp),
                             enabled = platformData.enabled,
                             isChecked = platformData.reasoning,
                             onCheckedChange = { settingViewModel.toggleReasoning() }
@@ -593,7 +593,7 @@ fun PlatformSettingScreen(
                             platformData.compatibleType == ClientType.ANTHROPIC
                         ) {
                             PreferenceListSwitch(
-                                modifier = Modifier.height(64.dp),
+                                modifier = Modifier.heightIn(min = 64.dp),
                                 title = stringResource(R.string.batch_mode),
                                 description = stringResource(R.string.batch_mode_description),
                                 icon = Icons.Rounded.AllInbox,
@@ -605,7 +605,7 @@ fun PlatformSettingScreen(
                             )
                             if (platformData.batchMode) {
                                 SettingItem(
-                                    modifier = Modifier.height(64.dp),
+                                    modifier = Modifier.heightIn(min = 64.dp),
                                     title = stringResource(R.string.batch_api_url),
                                     description = platformData.batchApiUrl ?: stringResource(R.string.not_set),
                                     enabled = platformData.enabled,

@@ -61,7 +61,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenConversation: (Int, Int?) -> Unit = { _, _ -> }) {
+fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenConversation: (Int, Int?) -> Unit = { _, _ -> }, initialTab: String = "Memories") {
     val vault by viewModel.vault.collectAsStateWithLifecycle()
     val connections by viewModel.connections.collectAsStateWithLifecycle()
     val documents by viewModel.documents.collectAsStateWithLifecycle(emptyList())
@@ -71,7 +71,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     val status by viewModel.status.collectAsStateWithLifecycle()
     val indexWarning by viewModel.indexWarning.collectAsStateWithLifecycle()
     val semanticStatus by viewModel.semanticStatus.collectAsStateWithLifecycle()
-    var tab by rememberSaveable { mutableStateOf("Memories") }
+    var tab by rememberSaveable { mutableStateOf(initialTab.takeIf { it in listOf("Memories", "Documents", "Controls", "Review", "Overview") } ?: "Memories") }
     var filter by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf<VaultFact?>(null) }

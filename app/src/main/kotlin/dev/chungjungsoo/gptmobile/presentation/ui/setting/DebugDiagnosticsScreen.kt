@@ -56,14 +56,24 @@ fun DebugDiagnosticsScreen(
     onStatisticsClick: () -> Unit,
     onBenchmarksClick: () -> Unit,
     viewModel: DebugDiagnosticsViewModel = hiltViewModel(),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialFocus: String = ""
 ) {
     val analytics by viewModel.analytics.collectAsStateWithLifecycle()
     val settings by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     val runtime by settingViewModel.localRuntimeState.collectAsStateWithLifecycle()
     val debugEnabled by settingViewModel.debugMode.collectAsStateWithLifecycle()
     var workspaceTab by rememberSaveable { mutableIntStateOf(0) }
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable {
+        mutableIntStateOf(
+            when (initialFocus) {
+                "runs" -> 1
+                "logs" -> 2
+                "", "live" -> 0
+                else -> 3
+            }
+        )
+    }
     var frozen by remember { mutableStateOf<DebugAnalyticsState?>(null) }
     val state = frozen ?: analytics
     val live = workspaceTab == 0 && frozen == null && selectedTab == 0

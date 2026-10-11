@@ -37,11 +37,11 @@ import dev.chungjungsoo.gptmobile.util.getThemeModeTitle
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ThemeSettingsScreen(onDismiss: () -> Unit) {
-    var tab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initialTab: Int = 0) {
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(initialTab.coerceIn(0, 2)) }
     val viewModel = LocalThemeViewModel.current
     val settings by viewModel.themeSetting.collectAsStateWithLifecycle()
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    val body: @Composable () -> Unit = {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
@@ -76,7 +76,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit) {
                                         }
                                         val foreground = if (androidx.core.graphics.ColorUtils.calculateLuminance(profile.palette.background.toInt()) > 0.179) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(profile.name, color = foreground, style = MaterialTheme.typography.titleSmall)
+                                            Text(profile.name, color = foreground, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                                             val selected = settings.dynamicTheme == DynamicTheme.OFF &&
                                                 settings.themeMode == profile.mode &&
                                                 (settings.customPalette == profile.palette || (profile == dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile && settings.customPalette == null && settings.customPrimaryArgb == null))
@@ -112,5 +112,10 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit) {
                 }
             }
         }
+    }
+    if (asDialog) {
+        Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) { body() }
+    } else {
+        body()
     }
 }

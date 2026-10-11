@@ -110,6 +110,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.contentDescription
@@ -271,6 +272,7 @@ fun ChatScreen(
     var targetResponseOffset by remember(chatViewModel.targetMessageId) { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showExportOptions by remember { mutableStateOf(false) }
+    var showProfileManagement by rememberSaveable { mutableStateOf(false) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
@@ -566,7 +568,7 @@ fun ChatScreen(
                 onChatModelItemClick = chatViewModel::openChatModelDialog,
                 onExportChatItemClick = { showExportOptions = true },
                 onDisablePlatformClick = {
-                    Toast.makeText(context, R.string.disable_platform, Toast.LENGTH_SHORT).show()
+                    showProfileManagement = true
                 }
             )
         }
@@ -861,6 +863,16 @@ fun ChatScreen(
                     chatViewModel.updateChatCreativity(creativity)
                     chatViewModel.closeChatModelDialog()
                 }
+            )
+        }
+
+        if (showProfileManagement) {
+            ChatProfileManagementDialog(
+                profiles = appAllPlatforms.filter { it.uid in activePlatformUids },
+                pausedUids = disabledPlatformUids,
+                onPause = chatViewModel::togglePlatformDisabled,
+                onRemove = { chatViewModel.setPlatformMembership(it, false) },
+                onDismiss = { showProfileManagement = false }
             )
         }
 
@@ -1430,7 +1442,7 @@ fun ChatDropdownMenu(
         DropdownMenuItem(
             colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
             enabled = isMenuItemEnabled,
-            text = { Text(text = stringResource(R.string.disable_platform)) },
+            text = { Text(text = stringResource(R.string.manage_chat_profiles)) },
             onClick = {
                 onDisablePlatformClick()
                 onDismissRequest()
@@ -1630,7 +1642,7 @@ fun ChatInputBox(
                             ) {
                                 if (inputState.text.isEmpty()) {
                                     Text(
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         text = if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
                                     )
                                 }
@@ -1638,23 +1650,24 @@ fun ChatInputBox(
                                     innerTextField()
                                 }
                             }
-                            val showStop = isRunning && !hasQuestionText && selectedAttachments.isEmpty()
+                            if (isRunning) {
+                                IconButton(
+                                    onClick = onCancelButtonClick,
+                                    modifier = Modifier.testTag("chat_stop")
+                                ) {
+                                    Icon(Icons.Rounded.Stop, contentDescription = stringResource(R.string.cancel_active_runs))
+                                }
+                            }
                             FilledIconButton(
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                                enabled = showStop || (chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty())),
-                                onClick = if (showStop) onCancelButtonClick else onSendButtonClick
+                                enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
+                                onClick = onSendButtonClick,
+                                modifier = Modifier.testTag("chat_send")
                             ) {
-                                if (showStop) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Stop,
-                                        contentDescription = stringResource(R.string.cancel_active_runs)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ArrowUpward,
-                                        contentDescription = stringResource(R.string.send)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.ArrowUpward,
+                                    contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
+                                )
                             }
                         }
                     }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -25,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -117,9 +120,10 @@ fun SettingsHelpIcon(
     title: String = "About This Setting"
 ) {
     var open by remember { mutableStateOf(false) }
+    val helpLabel = stringResource(R.string.help_action, title)
     Surface(
         onClick = { open = true },
-        modifier = modifier.size(22.dp),
+        modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = helpLabel },
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -128,7 +132,9 @@ fun SettingsHelpIcon(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text("?", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(22.dp)) {
+                Box(contentAlignment = Alignment.Center) { Text("?", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+            }
         }
     }
     if (open) {

@@ -38,14 +38,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeViewModel
+import dev.chungjungsoo.gptmobile.presentation.theme.customPaletteColorScheme
+import dev.chungjungsoo.gptmobile.presentation.theme.paletteContrastChecks
+import dev.chungjungsoo.gptmobile.presentation.theme.suggestPaletteAccent
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -138,6 +143,20 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                 }
             }
             if (colors.all { it != null }) {
+                val candidate = CustomThemePalette(colors[0]!!, colors[1]!!, colors[2]!!, colors[3]!!)
+                val checks = paletteContrastChecks(customPaletteColorScheme(scheme, candidate))
+                val failures = checks.filter { !it.passes }
+                Text(stringResource(if (failures.isEmpty()) R.string.contrast_pass else R.string.contrast_warning), style = MaterialTheme.typography.titleSmall)
+                failures.forEach { check ->
+                    Text(stringResource(R.string.contrast_pair_warning, check.role, check.ratio, check.minimum), color = scheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                if (failures.isNotEmpty()) {
+                    TextButton(onClick = {
+                        val suggested = suggestPaletteAccent(candidate)
+                        values = listOf(suggested.primary, suggested.secondary, suggested.background, suggested.surface).map { "#%06X".format(it and 0xFFFFFF) }
+                    }) { Text(stringResource(R.string.contrast_preview_fix)) }
+                }
+                Text(stringResource(R.string.contrast_help), style = MaterialTheme.typography.bodySmall)
                 fun foreground(value: Long) = if (androidx.core.graphics.ColorUtils.calculateLuminance(value.toInt()) > 0.179) Color.Black else Color.White
                 Surface(color = Color(colors[2]!!), shape = MaterialTheme.shapes.large) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -33,6 +33,7 @@ object Route {
     const val BACKUP_RESTORE = "backup_restore"
     const val WORKSPACES = "workspaces?chatId={chatId}&tab={tab}&runId={runId}"
     const val FACT_VAULT = "fact_vault"
+    const val APPEARANCE = "appearance"
     const val ADVANCED_SETTINGS = "advanced_settings"
     const val USAGE_STATISTICS = "usage_statistics"
     const val PROFILE_BENCHMARKS = "profile_benchmarks?profileUid={profileUid}"

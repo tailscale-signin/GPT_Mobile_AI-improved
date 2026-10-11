@@ -70,7 +70,9 @@ class ScoreboardRepository @Inject constructor(
                 val snapshot = ScoreboardFeed(client).fetch(saved)
                 val persisted = preferences.edit().putString("index", snapshot.raw).putString("raw_etag", snapshot.etag).remove("etag").commit()
                 mutableState.value = OnlineScoreboardState(
-                    BenchmarkScoreboard.best(snapshot.index.entries), updatedAt = snapshot.index.updatedAt, hasSnapshot = true,
+                    BenchmarkScoreboard.best(snapshot.index.entries),
+                    updatedAt = snapshot.index.updatedAt,
+                    hasSnapshot = true,
                     message = if (persisted) null else "Scores are current, but could not be saved for offline use."
                 )
                 AppLogRecorder.record("Scoreboard", "REFRESH_OK · entries=${snapshot.index.entries.size} · updatedAt=${snapshot.index.updatedAt} · saved=$persisted")

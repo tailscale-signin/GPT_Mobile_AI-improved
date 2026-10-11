@@ -110,7 +110,12 @@ internal fun BenchmarkScoreboardPanel(kind: ScoreboardKind, onRun: () -> Unit, v
         if (online) community.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         if (filtered.isEmpty() && (!online || (!community.loading && community.hasSnapshot))) {
             ScoreboardSurface {
-                Text(if (query.isNotBlank()) "No matching models" else if (online) "No shared results for this plan yet" else "The next result starts with a run", style = MaterialTheme.typography.titleMedium)
+                val title = when {
+                    query.isNotBlank() -> "No matching models"
+                    online -> "No shared results for this plan yet"
+                    else -> "The next result starts with a run"
+                }
+                Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(if (online) "Open a completed remote-model result in Local, then choose Share to publish it. A run stays on your device until you choose to share it." else "A complete remote-model ${plan.label.lowercase()} run can join this board. Unsupported, canceled and incomplete runs stay in History.", style = MaterialTheme.typography.bodySmall)
                 BenchmarkAction("Run tests", Icons.Rounded.PlayArrow, onClick = onRun)
             }

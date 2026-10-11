@@ -24,12 +24,14 @@ class ScoreboardFeedTest {
     private val emptyIndex = """{"schemaVersion":1,"updatedAt":100,"entries":[]}"""
 
     @Test fun `published empty feed is a successful anonymous response`() = runTest {
-        HttpClient(MockEngine { request ->
-            assertEquals(ScoreboardFeed.URL, request.url.toString())
-            assertNull(request.headers[HttpHeaders.Authorization])
-            assertNull(request.headers[HttpHeaders.IfNoneMatch])
-            respond(emptyIndex, headers = headersOf(HttpHeaders.ETag, "first"))
-        }).use { client ->
+        HttpClient(
+            MockEngine { request ->
+                assertEquals(ScoreboardFeed.URL, request.url.toString())
+                assertNull(request.headers[HttpHeaders.Authorization])
+                assertNull(request.headers[HttpHeaders.IfNoneMatch])
+                respond(emptyIndex, headers = headersOf(HttpHeaders.ETag, "first"))
+            }
+        ).use { client ->
             val result = ScoreboardFeed(client).fetch(null)
             assertTrue(result.index.entries.isEmpty())
             assertEquals("first", result.etag)
@@ -39,10 +41,12 @@ class ScoreboardFeedTest {
 
     @Test fun `ETag revalidation retains the validated cached scores`() = runTest {
         val saved = ScoreboardFeedSnapshot(emptyIndex, ScoreboardFeed.decode(emptyIndex), "saved")
-        HttpClient(MockEngine { request ->
-            assertEquals("saved", request.headers[HttpHeaders.IfNoneMatch])
-            respond("", HttpStatusCode.NotModified)
-        }).use { client -> assertEquals(saved, ScoreboardFeed(client).fetch(saved)) }
+        HttpClient(
+            MockEngine { request ->
+                assertEquals("saved", request.headers[HttpHeaders.IfNoneMatch])
+                respond("", HttpStatusCode.NotModified)
+            }
+        ).use { client -> assertEquals(saved, ScoreboardFeed(client).fetch(saved)) }
     }
 
     @Test fun `unpublished rate limited and unavailable feeds never become an empty success`() = runTest {

@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,9 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet as AlertDialog
 
 @Composable
 internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false, onExport: (ChatExportFormat) -> Unit) {
@@ -35,7 +34,7 @@ internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false,
         title = { Text("Export conversation") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Choose how to save this conversation.", style = MaterialTheme.typography.bodyMedium)
+                Text("Text and Markdown contain selected response revisions and source links. Prompts, thinking and tool activity are excluded.", style = MaterialTheme.typography.bodyMedium)
                 ExportFormatCard(
                     "Plain text",
                     ".txt",
@@ -67,11 +66,11 @@ internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false,
 
 @Composable
 private fun ExportFormatCard(title: String, extension: String, subtitle: String, icon: ImageVector, help: String, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))) {
+    Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(icon, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("$title · $extension", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                Text("$title · $extension", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             SettingsHelpIcon(help)

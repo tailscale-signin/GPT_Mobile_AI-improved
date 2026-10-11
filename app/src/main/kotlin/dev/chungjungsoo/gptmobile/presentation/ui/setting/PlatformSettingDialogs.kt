@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1121,9 +1122,9 @@ private fun SystemPromptDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldPrompt by remember { mutableStateOf(prompt) }
+    var textFieldPrompt by rememberSaveable { mutableStateOf(prompt) }
 
-    AlertDialog(
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
@@ -1166,12 +1167,12 @@ private fun GeminiSafetySettingsDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var harassment by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.harassmentSafetyThreshold)) }
-    var hateSpeech by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.hateSpeechSafetyThreshold)) }
-    var sexuallyExplicit by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.sexuallyExplicitSafetyThreshold)) }
-    var dangerousContent by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.dangerousContentSafetyThreshold)) }
+    var harassment by rememberSaveable { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.harassmentSafetyThreshold)) }
+    var hateSpeech by rememberSaveable { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.hateSpeechSafetyThreshold)) }
+    var sexuallyExplicit by rememberSaveable { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.sexuallyExplicitSafetyThreshold)) }
+    var dangerousContent by rememberSaveable { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.dangerousContentSafetyThreshold)) }
 
-    AlertDialog(
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
@@ -1316,16 +1317,16 @@ private fun OllamaAdvancedSettingsDialog(
         } ?: OllamaOptions.createDefault()
     }
 
-    var numGpuText by remember { mutableStateOf((initialParsed.numGpu ?: OllamaOptions.DEFAULT_NUM_GPU).toString()) }
-    var numCtxText by remember { mutableStateOf((initialParsed.numCtx ?: OllamaOptions.DEFAULT_NUM_CTX).toString()) }
-    var numBatchText by remember { mutableStateOf((initialParsed.numBatch ?: OllamaOptions.DEFAULT_NUM_BATCH).toString()) }
-    var numThreadText by remember { mutableStateOf((initialParsed.numThread ?: OllamaOptions.DEFAULT_NUM_THREAD).toString()) }
-    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OllamaOptions.DEFAULT_TEMPERATURE).toString()) }
-    var topPText by remember { mutableStateOf((initialParsed.topP ?: OllamaOptions.DEFAULT_TOP_P).toString()) }
-    var topKText by remember { mutableStateOf((initialParsed.topK ?: OllamaOptions.DEFAULT_TOP_K).toString()) }
-    var repeatPenaltyText by remember { mutableStateOf((initialParsed.repeatPenalty ?: OllamaOptions.DEFAULT_REPEAT_PENALTY).toString()) }
-    var seedText by remember { mutableStateOf((initialParsed.seed ?: OllamaOptions.DEFAULT_SEED).toString()) }
-    var stopTokensText by remember { mutableStateOf((initialParsed.stop ?: OllamaOptions.DEFAULT_STOP).joinToString(", ")) }
+    var numGpuText by rememberSaveable { mutableStateOf((initialParsed.numGpu ?: OllamaOptions.DEFAULT_NUM_GPU).toString()) }
+    var numCtxText by rememberSaveable { mutableStateOf((initialParsed.numCtx ?: OllamaOptions.DEFAULT_NUM_CTX).toString()) }
+    var numBatchText by rememberSaveable { mutableStateOf((initialParsed.numBatch ?: OllamaOptions.DEFAULT_NUM_BATCH).toString()) }
+    var numThreadText by rememberSaveable { mutableStateOf((initialParsed.numThread ?: OllamaOptions.DEFAULT_NUM_THREAD).toString()) }
+    var temperatureText by rememberSaveable { mutableStateOf((initialParsed.temperature ?: OllamaOptions.DEFAULT_TEMPERATURE).toString()) }
+    var topPText by rememberSaveable { mutableStateOf((initialParsed.topP ?: OllamaOptions.DEFAULT_TOP_P).toString()) }
+    var topKText by rememberSaveable { mutableStateOf((initialParsed.topK ?: OllamaOptions.DEFAULT_TOP_K).toString()) }
+    var repeatPenaltyText by rememberSaveable { mutableStateOf((initialParsed.repeatPenalty ?: OllamaOptions.DEFAULT_REPEAT_PENALTY).toString()) }
+    var seedText by rememberSaveable { mutableStateOf((initialParsed.seed ?: OllamaOptions.DEFAULT_SEED).toString()) }
+    var stopTokensText by rememberSaveable { mutableStateOf((initialParsed.stop ?: OllamaOptions.DEFAULT_STOP).joinToString(", ")) }
 
     var flashAttentionEnabled by remember {
         mutableStateOf(initialParsed.flashAttention ?: OllamaOptions.DEFAULT_FLASH_ATTENTION)
@@ -1353,7 +1354,7 @@ private fun OllamaAdvancedSettingsDialog(
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
 
-    AlertDialog(
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
@@ -1629,15 +1630,15 @@ private fun OpenRouterAdvancedSettingsDialog(
         } ?: OpenRouterOptions.createDefault()
     }
 
-    var streamEnabled by remember { mutableStateOf(initialParsed.stream ?: OpenRouterOptions.DEFAULT_STREAM) }
-    var maxTokensText by remember { mutableStateOf((initialParsed.maxTokens ?: OpenRouterOptions.DEFAULT_MAX_TOKENS).toString()) }
-    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OpenRouterOptions.DEFAULT_TEMPERATURE).toString()) }
-    var topPText by remember { mutableStateOf((initialParsed.topP ?: OpenRouterOptions.DEFAULT_TOP_P).toString()) }
-    var topKText by remember { mutableStateOf((initialParsed.topK ?: OpenRouterOptions.DEFAULT_TOP_K).toString()) }
-    var freqPenaltyText by remember { mutableStateOf((initialParsed.frequencyPenalty ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY).toString()) }
-    var presPenaltyText by remember { mutableStateOf((initialParsed.presencePenalty ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY).toString()) }
-    var repPenaltyText by remember { mutableStateOf((initialParsed.repetitionPenalty ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY).toString()) }
-    var seedText by remember { mutableStateOf((initialParsed.seed ?: OpenRouterOptions.DEFAULT_SEED).toString()) }
+    var streamEnabled by rememberSaveable { mutableStateOf(initialParsed.stream ?: OpenRouterOptions.DEFAULT_STREAM) }
+    var maxTokensText by rememberSaveable { mutableStateOf((initialParsed.maxTokens ?: OpenRouterOptions.DEFAULT_MAX_TOKENS).toString()) }
+    var temperatureText by rememberSaveable { mutableStateOf((initialParsed.temperature ?: OpenRouterOptions.DEFAULT_TEMPERATURE).toString()) }
+    var topPText by rememberSaveable { mutableStateOf((initialParsed.topP ?: OpenRouterOptions.DEFAULT_TOP_P).toString()) }
+    var topKText by rememberSaveable { mutableStateOf((initialParsed.topK ?: OpenRouterOptions.DEFAULT_TOP_K).toString()) }
+    var freqPenaltyText by rememberSaveable { mutableStateOf((initialParsed.frequencyPenalty ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY).toString()) }
+    var presPenaltyText by rememberSaveable { mutableStateOf((initialParsed.presencePenalty ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY).toString()) }
+    var repPenaltyText by rememberSaveable { mutableStateOf((initialParsed.repetitionPenalty ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY).toString()) }
+    var seedText by rememberSaveable { mutableStateOf((initialParsed.seed ?: OpenRouterOptions.DEFAULT_SEED).toString()) }
 
     var allowFallbacks by remember {
         mutableStateOf(initialParsed.provider?.allowFallbacks ?: OpenRouterOptions.DEFAULT_PROVIDER_ALLOW_FALLBACKS)
@@ -1646,7 +1647,7 @@ private fun OpenRouterAdvancedSettingsDialog(
         mutableStateOf(initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)
     }
 
-    var sortExpanded by remember { mutableStateOf(false) }
+    var sortExpanded by rememberSaveable { mutableStateOf(false) }
 
     val sortOptions = listOf("price-asc", "price", "throughput", "latency")
 
@@ -1654,7 +1655,7 @@ private fun OpenRouterAdvancedSettingsDialog(
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
 
-    AlertDialog(
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
@@ -1849,39 +1850,39 @@ private fun LlamaAdvancedSettingsDialog(
     onConfirmRequest: (AdvancedSettings) -> Unit,
     onResetRequest: () -> Unit
 ) {
-    var serverUrl by remember { mutableStateOf(initialSettings.serverUrl) }
-    var apiTimeoutText by remember { mutableStateOf(initialSettings.apiTimeout.toString()) }
-    var routerModeEnabled by remember { mutableStateOf(initialSettings.routerModeEnabled) }
-    var selectedModel by remember { mutableStateOf(initialSettings.selectedModel) }
-    var nGpuLayersText by remember { mutableStateOf(initialSettings.nGpuLayers.toString()) }
-    var nThreadsText by remember { mutableStateOf(initialSettings.nThreads.toString()) }
-    var nBatchText by remember { mutableStateOf(initialSettings.nBatch.toString()) }
-    var nCtxText by remember { mutableStateOf(initialSettings.nCtx.toString()) }
-    var nParallelText by remember { mutableStateOf(initialSettings.nParallel.toString()) }
-    var kvUnified by remember { mutableStateOf(initialSettings.kvUnified) }
-    var temperatureText by remember { mutableStateOf(initialSettings.temperature.toString()) }
-    var topPText by remember { mutableStateOf(initialSettings.topP.toString()) }
-    var topKText by remember { mutableStateOf(initialSettings.topK.toString()) }
-    var repeatPenaltyText by remember { mutableStateOf(initialSettings.repeatPenalty.toString()) }
-    var seedText by remember { mutableStateOf(initialSettings.seed.toString()) }
-    var stopTokensText by remember { mutableStateOf(initialSettings.stop) }
-    var useMmap by remember { mutableStateOf(initialSettings.useMmap) }
-    var useMlock by remember { mutableStateOf(initialSettings.useMlock) }
-    var useFlashAttn by remember { mutableStateOf(initialSettings.useFlashAttn) }
-    var verbose by remember { mutableStateOf(initialSettings.verbose) }
+    var serverUrl by rememberSaveable { mutableStateOf(initialSettings.serverUrl) }
+    var apiTimeoutText by rememberSaveable { mutableStateOf(initialSettings.apiTimeout.toString()) }
+    var routerModeEnabled by rememberSaveable { mutableStateOf(initialSettings.routerModeEnabled) }
+    var selectedModel by rememberSaveable { mutableStateOf(initialSettings.selectedModel) }
+    var nGpuLayersText by rememberSaveable { mutableStateOf(initialSettings.nGpuLayers.toString()) }
+    var nThreadsText by rememberSaveable { mutableStateOf(initialSettings.nThreads.toString()) }
+    var nBatchText by rememberSaveable { mutableStateOf(initialSettings.nBatch.toString()) }
+    var nCtxText by rememberSaveable { mutableStateOf(initialSettings.nCtx.toString()) }
+    var nParallelText by rememberSaveable { mutableStateOf(initialSettings.nParallel.toString()) }
+    var kvUnified by rememberSaveable { mutableStateOf(initialSettings.kvUnified) }
+    var temperatureText by rememberSaveable { mutableStateOf(initialSettings.temperature.toString()) }
+    var topPText by rememberSaveable { mutableStateOf(initialSettings.topP.toString()) }
+    var topKText by rememberSaveable { mutableStateOf(initialSettings.topK.toString()) }
+    var repeatPenaltyText by rememberSaveable { mutableStateOf(initialSettings.repeatPenalty.toString()) }
+    var seedText by rememberSaveable { mutableStateOf(initialSettings.seed.toString()) }
+    var stopTokensText by rememberSaveable { mutableStateOf(initialSettings.stop) }
+    var useMmap by rememberSaveable { mutableStateOf(initialSettings.useMmap) }
+    var useMlock by rememberSaveable { mutableStateOf(initialSettings.useMlock) }
+    var useFlashAttn by rememberSaveable { mutableStateOf(initialSettings.useFlashAttn) }
+    var verbose by rememberSaveable { mutableStateOf(initialSettings.verbose) }
 
-    var gatewayPerformanceProfile by remember { mutableStateOf(initialSettings.gatewayPerformanceProfile) }
-    var gatewayReasoningEffort by remember { mutableStateOf(initialSettings.gatewayReasoningEffort) }
-    var gatewaySlotPinning by remember { mutableStateOf(initialSettings.gatewaySlotPinning) }
-    var gatewayCachePrompt by remember { mutableStateOf(initialSettings.gatewayCachePrompt) }
-    var gatewayToolOptimization by remember { mutableStateOf(initialSettings.gatewayToolOptimization) }
-    var gatewayStableToolSurface by remember { mutableStateOf(initialSettings.gatewayStableToolSurface) }
-    var gatewaySlotCountText by remember { mutableStateOf(initialSettings.gatewaySlotCount.toString()) }
-    var gatewayCacheReuseText by remember { mutableStateOf(initialSettings.gatewayCacheReuse.toString()) }
-    var gatewayToolSurfaceLimitText by remember { mutableStateOf(initialSettings.gatewayToolSurfaceLimit.toString()) }
-    var gatewayIntermediateMaxTokensText by remember { mutableStateOf(initialSettings.gatewayIntermediateMaxTokens.toString()) }
-    var gatewaySoftSynthesisRoundText by remember { mutableStateOf(initialSettings.gatewaySoftSynthesisRound.toString()) }
-    var gatewayResultCharLimitText by remember { mutableStateOf(initialSettings.gatewayResultCharLimit.toString()) }
+    var gatewayPerformanceProfile by rememberSaveable { mutableStateOf(initialSettings.gatewayPerformanceProfile) }
+    var gatewayReasoningEffort by rememberSaveable { mutableStateOf(initialSettings.gatewayReasoningEffort) }
+    var gatewaySlotPinning by rememberSaveable { mutableStateOf(initialSettings.gatewaySlotPinning) }
+    var gatewayCachePrompt by rememberSaveable { mutableStateOf(initialSettings.gatewayCachePrompt) }
+    var gatewayToolOptimization by rememberSaveable { mutableStateOf(initialSettings.gatewayToolOptimization) }
+    var gatewayStableToolSurface by rememberSaveable { mutableStateOf(initialSettings.gatewayStableToolSurface) }
+    var gatewaySlotCountText by rememberSaveable { mutableStateOf(initialSettings.gatewaySlotCount.toString()) }
+    var gatewayCacheReuseText by rememberSaveable { mutableStateOf(initialSettings.gatewayCacheReuse.toString()) }
+    var gatewayToolSurfaceLimitText by rememberSaveable { mutableStateOf(initialSettings.gatewayToolSurfaceLimit.toString()) }
+    var gatewayIntermediateMaxTokensText by rememberSaveable { mutableStateOf(initialSettings.gatewayIntermediateMaxTokens.toString()) }
+    var gatewaySoftSynthesisRoundText by rememberSaveable { mutableStateOf(initialSettings.gatewaySoftSynthesisRound.toString()) }
+    var gatewayResultCharLimitText by rememberSaveable { mutableStateOf(initialSettings.gatewayResultCharLimit.toString()) }
     val gatewaySettingsValid =
         gatewaySlotCountText.toIntOrNull() in 1..64 &&
             gatewayCacheReuseText.toIntOrNull() in 0..8192 &&
@@ -1891,7 +1892,7 @@ private fun LlamaAdvancedSettingsDialog(
             gatewayResultCharLimitText.toIntOrNull() in 4000..200000
 
     var routerModels by remember { mutableStateOf<List<LlamaModelInfo>>(emptyList()) }
-    var isFetchingRouterModels by remember { mutableStateOf(false) }
+    var isFetchingRouterModels by rememberSaveable { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val routerClient = remember { LlamaRouterClient() }
 
@@ -1921,7 +1922,7 @@ private fun LlamaAdvancedSettingsDialog(
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
 
-    AlertDialog(
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)

@@ -25,4 +25,15 @@ class ThemeAndBackupDefaultsTest {
         assertEquals(theme, Json.decodeFromString<ThemeBackupDto>(Json.encodeToString(theme)))
         assertNull(Json.decodeFromString<ThemeBackupDto>("""{"themeMode":0,"dynamicTheme":false}""").customPalette)
     }
+
+    @Test
+    fun newAppearancePreferencesRoundTripWithoutChangingLegacyArgb() {
+        val palette = CustomThemePalette(0x80123456, 0xFFAABBCC, 0xFF112233, 0xFF445566)
+        val theme = ThemeBackupDto(themeFamily = "Iris", reducedMotion = true, customPalette = palette)
+        assertEquals(theme, Json.decodeFromString<ThemeBackupDto>(Json.encodeToString(theme)))
+        val legacy = Json.decodeFromString<ThemeBackupDto>("""{"themeMode":2,"customPrimaryArgb":4279383126}""")
+        assertNull(legacy.themeFamily)
+        assertFalse(legacy.reducedMotion)
+        assertEquals(4279383126L, legacy.customPrimaryArgb)
+    }
 }

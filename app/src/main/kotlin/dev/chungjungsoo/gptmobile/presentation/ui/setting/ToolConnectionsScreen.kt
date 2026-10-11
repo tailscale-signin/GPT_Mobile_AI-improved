@@ -126,7 +126,8 @@ fun ToolConnectionsScreen(
     onActivity: () -> Unit = {},
     onGitHub: () -> Unit = {},
     onDelegation: () -> Unit = {},
-    onMemory: () -> Unit = {}
+    onMemory: () -> Unit = {},
+    onPreferences: (String) -> Unit = {}
 ) {
     val features by viewModel.features.collectAsStateWithLifecycle()
     var search by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
@@ -137,7 +138,7 @@ fun ToolConnectionsScreen(
         }
     }
     var showAccessAudit by remember { mutableStateOf(false) }
-    var toolkitFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitFilter.ALL) }
+    var toolkitFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitFilter.PLUGINS) }
     var toolkitSort by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitSort.NAME) }
     val marketplaceViewModel: dev.chungjungsoo.gptmobile.presentation.ui.mcp.MarketplaceViewModel = hiltViewModel()
     val installations by marketplaceViewModel.installations.collectAsStateWithLifecycle()
@@ -317,20 +318,11 @@ fun ToolConnectionsScreen(
             Modifier.padding(innerPadding).verticalScroll(scrollState).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SettingsTabs(listOf("Installed", "Connections"), if (toolkitFilter == ToolkitFilter.MCP) 1 else 0) { toolkitFilter = if (it == 1) ToolkitFilter.MCP else ToolkitFilter.ALL }
+            SettingsTabs(listOf("Installed", "Connections"), if (toolkitFilter == ToolkitFilter.MCP) 1 else 0) { toolkitFilter = if (it == 1) ToolkitFilter.MCP else ToolkitFilter.PLUGINS }
             dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("GitHub workspace", "Repositories, files and changes", Icons.Rounded.Code, onGitHub)
+            SettingsTabs(listOf("Research", "Execution", "GitHub efficiency"), -1) { onPreferences(listOf("RESEARCH", "TOOLS", "GITHUB")[it]) }
             TextButton(onClick = { showAccessAudit = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_title)) }
             ToolkitControls(search, { search = it }, toolkitFilter, { toolkitFilter = it }, toolkitSort, { toolkitSort = it })
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onMarketplaceClick, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Storefront, null, Modifier.size(18.dp))
-                    Text("Marketplace", Modifier.padding(start = 6.dp))
-                }
-                OutlinedButton(onClick = onAddConnectionClick, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                    Text("Connect", Modifier.padding(start = 6.dp))
-                }
-            }
             Text("Plugins run in this app. MCP tools run on a connected remote server. Profile switches are available in AI → Profile → Tools.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (toolkitFilter != ToolkitFilter.PLUGINS) {
                 Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -972,7 +964,7 @@ private fun ToolConnectionsTopBar(
             IconButton(
                 onClick = onMarketplaceClick
             ) {
-                Icon(imageVector = Icons.Rounded.Storefront, contentDescription = "MCP Marketplace")
+                Icon(imageVector = Icons.Rounded.Storefront, contentDescription = "Marketplace")
             }
             IconButton(
                 onClick = onAddClick

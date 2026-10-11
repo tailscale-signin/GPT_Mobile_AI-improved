@@ -25,6 +25,7 @@ object Route {
     const val CHAT_ROOM = "chat_room/{chatRoomId}?enabled={enabledPlatforms}&mode={conversationMode}&targetMessageId={targetMessageId}&regenerate={regenerate}&incomingShare={incomingShare}"
 
     const val SETTING_ROUTE = "setting_route"
+    const val FEATURE_CONTROLS = "feature_controls"
     const val ACTIVITY = "activity"
     const val DELEGATION = "ai_delegation"
     const val CONVERSATION_PREFERENCES = "conversation_preferences"

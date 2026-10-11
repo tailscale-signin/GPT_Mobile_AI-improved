@@ -13,8 +13,8 @@ class SettingsSearchRegistryTest {
         assertEquals(entries.size, entries.map { it.key }.distinct().size)
         AppFeature.entries.forEach { feature ->
             val target = entries.single { it.key == "feature.${feature.name}" }
-            assertEquals(SettingsSearchDestination.ADVANCED, target.destination)
-            assertEquals(feature.name, target.focus)
+            assertEquals(SettingsSearchDestination.FEATURE_CONTROLS, target.destination)
+            assertEquals("${featureHome(feature).name}|${feature.name}", target.focus)
         }
         DebugMetric.entries.forEach { metric ->
             assertEquals(metric.name, entries.single { it.key == "debug.${metric.name}" }.focus)

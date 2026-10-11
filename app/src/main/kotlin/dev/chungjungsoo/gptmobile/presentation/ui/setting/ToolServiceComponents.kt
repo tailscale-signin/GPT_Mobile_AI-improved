@@ -224,7 +224,7 @@ internal fun ToolServiceCard(
     var expanded by rememberSaveable(service.id) { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -248,7 +248,7 @@ internal fun ToolServiceCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(48.dp)) {
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse ${service.definition.name}" else "Expand ${service.definition.name}")
                 }
             }

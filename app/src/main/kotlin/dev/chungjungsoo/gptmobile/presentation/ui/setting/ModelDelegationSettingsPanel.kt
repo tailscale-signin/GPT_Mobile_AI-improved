@@ -22,10 +22,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -96,7 +94,7 @@ internal fun ModelDelegationSettingsContent(
     cloudRecallBusy: Boolean = false,
     onCloudRecallChange: (Boolean) -> Unit = {}
 ) {
-    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    var showAdvanced by rememberSaveable { mutableStateOf(true) }
     var settingsTab by rememberSaveable { mutableIntStateOf(0) }
     val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (it.isPrivateDestination() || config.remoteWorkersAllowed()) }
     val configuredReviewer = eligible.firstOrNull { it.uid == config.reviewerProfileUid }
@@ -115,7 +113,7 @@ internal fun ModelDelegationSettingsContent(
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -127,13 +125,13 @@ internal fun ModelDelegationSettingsContent(
                             Text("Model Delegation", style = MaterialTheme.typography.headlineSmall)
                             SettingsHelpIcon("A delegate can research, read pages, and compress tool results so the main model receives a focused answer with evidence.")
                         }
-                        Text(if (config.enabled) "${100 - config.processingOwnership}% Delegation Amount · ${config.strategy} Research Depth" else "Turn On To Give Tasks To A Delegate", style = MaterialTheme.typography.bodyMedium)
+                        Text(if (config.enabled) "${100 - config.processingOwnership}% Delegation Amount · ${config.strategy} Research Depth" else "Choose how helpers contribute to your conversations", style = MaterialTheme.typography.bodyMedium)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             if (config.enabled) "Enabled" else "Disabled",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         androidx.compose.material3.Switch(
                             checked = config.enabled,
@@ -151,22 +149,9 @@ internal fun ModelDelegationSettingsContent(
                 }
             }
         }
-        PrimaryTabRow(selectedTabIndex = settingsTab) {
-            Tab(
-                selected = settingsTab == 0,
-                onClick = { settingsTab = 0 },
-                text = { Text("Delegation") },
-                icon = { Icon(Icons.Rounded.Bolt, null) }
-            )
-            Tab(
-                selected = settingsTab == 1,
-                onClick = { settingsTab = 1 },
-                text = { Text("Reviewer") },
-                icon = { Icon(Icons.Rounded.AutoAwesome, null) }
-            )
-        }
+        SettingsTabs(listOf("Overview", "Helper", "Reviewer", "Limits"), settingsTab) { settingsTab = it }
 
-        if (settingsTab == 0) {
+        if (settingsTab == 1) {
             Card(shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("Delegate Model", "Choose an AI profile to handle delegated work.")
@@ -198,7 +183,7 @@ internal fun ModelDelegationSettingsContent(
                 }
             }
         }
-        if (settingsTab == 1) {
+        if (settingsTab == 2) {
             Card(shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("Reviewer", "Use a second, different model to fact-check the delegate before the handoff reaches the primary model.")
@@ -322,10 +307,12 @@ internal fun ModelDelegationSettingsContent(
                     }
                 }
             }
+        }
+        if (settingsTab == 3) {
             Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { SectionHeading("Advanced Controls", "Fine-tune budgets, timeouts, and research breadth.") }
+                        Column(Modifier.weight(1f)) { SectionHeading("Limits", "Fine-tune budgets, timeouts, and research breadth.") }
                         IconButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.testTag("delegation_advanced")) { Icon(if (showAdvanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, "Toggle advanced controls") }
                     }
                     if (!showAdvanced) {

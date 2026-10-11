@@ -6,6 +6,7 @@ import java.util.Locale
 
 internal enum class SettingsSearchDestination {
     ADVANCED,
+    FEATURE_CONTROLS,
     APPEARANCE,
     MEMORY,
     LOCAL_MODELS,
@@ -45,7 +46,7 @@ internal object SettingsSearchRegistry {
     }
 
     val entries: List<SettingsSearchEntry> = AppFeature.entries.map {
-        SettingsSearchEntry("feature.${it.name}", it.title, "All advanced controls › ${group(it)}", SettingsSearchDestination.ADVANCED, it.name, it.description)
+        SettingsSearchEntry("feature.${it.name}", it.title, "${featureHome(it).breadcrumb} › ${group(it)}", SettingsSearchDestination.FEATURE_CONTROLS, "${featureHome(it).name}|${it.name}", it.description)
     } + DebugMetric.entries.map {
         SettingsSearchEntry("debug.${it.name}", it.title, "Debug › Display", SettingsSearchDestination.DEBUG, it.name, it.description)
     } + listOf(

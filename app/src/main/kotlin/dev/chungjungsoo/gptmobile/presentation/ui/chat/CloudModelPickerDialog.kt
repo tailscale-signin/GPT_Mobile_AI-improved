@@ -22,7 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelOption
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet as AlertDialog
 import kotlinx.coroutines.CancellationException
 
 @Composable

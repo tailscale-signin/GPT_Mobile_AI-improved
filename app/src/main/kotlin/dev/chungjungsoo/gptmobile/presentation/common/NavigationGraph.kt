@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -163,7 +164,8 @@ private fun AppNavHost(
 private fun isSettingsDestination(route: String?): Boolean {
     if (route == null) return false
     val baseRoute = route.substringBefore('?')
-    return baseRoute == Route.APPEARANCE ||
+    return baseRoute in setOf(Route.ACTIVITY, Route.DELEGATION, Route.CONVERSATION_PREFERENCES, Route.PRIVACY_DATA, Route.FEATURE_CONTROLS) ||
+        baseRoute == Route.APPEARANCE ||
         baseRoute == Route.SETTINGS ||
         route == Route.AI_PLATFORMS ||
         route == Route.ADD_PLATFORM ||
@@ -231,6 +233,7 @@ fun NavGraphBuilder.setupNavigation(
         }
         composable(route = Route.SETUP_LOCAL_MODELS) {
             LocalModelsScreen(
+                onRuntimePreferences = { navController.navigate(Route.FEATURE_CONTROLS + "?category=LOCAL") },
                 startInMarketplace = true,
                 onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
                 onNavigationClick = { navController.navigateUp() }
@@ -323,6 +326,7 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun NavGraphBuilder.settingNavigation(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
@@ -358,6 +362,7 @@ fun NavGraphBuilder.settingNavigation(
                     val encoded = android.net.Uri.encode(focus)
                     val target = when (destination) {
                         "ADVANCED" -> if (focus.startsWith("privacy")) Route.PRIVACY_DATA + "?focus=$encoded" else Route.ADVANCED_SETTINGS + "?focus=$encoded"
+                        "FEATURE_CONTROLS" -> Route.FEATURE_CONTROLS + "?category=${focus.substringBefore('|')}&focus=${android.net.Uri.encode(focus.substringAfter('|', ""))}"
                         "CONVERSATIONS" -> Route.CONVERSATION_PREFERENCES
                         "PRIVACY" -> Route.PRIVACY_DATA
                         "BACKUP" -> Route.PRIVACY_DATA + "?backup=true"
@@ -412,13 +417,22 @@ fun NavGraphBuilder.settingNavigation(
             } else if (githubConnection != null) {
                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
                     connection = githubConnection,
-                    onDismiss = { navController.navigateUp() }
+                    onDismiss = { navController.navigateUp() },
+                    asDialog = false
                 )
             } else {
-                androidx.compose.material3.Text(
-                    "GitHub Workspace is available when the GitHub API plugin is enabled.",
-                    modifier = Modifier.fillMaxSize()
-                )
+                androidx.compose.material3.Scaffold(topBar = {
+                    androidx.compose.material3.TopAppBar(title = { androidx.compose.material3.Text("GitHub workspace") }, navigationIcon = {
+                        androidx.compose.material3.TextButton(onClick = { navController.navigateUp() }) { androidx.compose.material3.Text("Back") }
+                    })
+                }) { padding ->
+                    dev.chungjungsoo.gptmobile.presentation.designsystem.AppEmptyState(
+                        "Connect and enable the GitHub API plugin to browse repositories and prepare changes.",
+                        "Open Tools",
+                        { navController.navigate(Route.TOOL_CONNECTIONS) },
+                        Modifier.padding(padding)
+                    )
+                }
             }
         }
         composable(Route.ACTIVITY + "?tab={tab}", arguments = listOf(navArgument("tab") { defaultValue = "Runs" })) { entry ->
@@ -435,13 +449,29 @@ fun NavGraphBuilder.settingNavigation(
         composable(Route.DELEGATION) {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalToolConfigurationDialog("delegation", { navController.navigateUp() }, asDialog = false)
         }
+        composable(
+            Route.FEATURE_CONTROLS + "?category={category}&focus={focus}",
+            arguments = listOf(navArgument("category") { defaultValue = "CONVERSATIONS" }, navArgument("focus") { defaultValue = "" })
+        ) { entry ->
+            val parentEntry = remember(entry) { navController.getBackStackEntry(Route.SETTING_ROUTE) }
+            val category = dev.chungjungsoo.gptmobile.presentation.ui.setting.FeatureHome.entries.firstOrNull { it.name == entry.arguments?.getString("category") }
+                ?: dev.chungjungsoo.gptmobile.presentation.ui.setting.FeatureHome.CONVERSATIONS
+            AdvancedSettingsScreen(
+                hiltViewModel<SettingViewModelV2>(parentEntry),
+                { navController.navigateUp() },
+                title = category.title,
+                initialFocus = entry.arguments?.getString("focus").orEmpty(),
+                featureHomeFilter = category,
+                showPrivacy = false
+            )
+        }
         composable(Route.CONVERSATION_PREFERENCES) { entry ->
             val parentEntry = remember(entry) { navController.getBackStackEntry(Route.SETTING_ROUTE) }
             AdvancedSettingsScreen(
                 viewModel = hiltViewModel<SettingViewModelV2>(parentEntry),
                 onNavigationClick = { navController.navigateUp() },
                 title = "Conversations",
-                groupFilter = setOf("Reading & Motion", "Composer & Organisation", "Background & Notifications"),
+                featureHomeFilter = dev.chungjungsoo.gptmobile.presentation.ui.setting.FeatureHome.CONVERSATIONS,
                 showPrivacy = false,
                 onAllControls = { navController.navigate(Route.ADVANCED_SETTINGS) }
             )
@@ -483,7 +513,8 @@ fun NavGraphBuilder.settingNavigation(
             dev.chungjungsoo.gptmobile.presentation.ui.setting.ThemeSettingsScreen(
                 onDismiss = { navController.navigateUp() },
                 asDialog = false,
-                initialTab = entry.arguments?.getString("tab")?.toIntOrNull() ?: 0
+                initialTab = entry.arguments?.getString("tab")?.toIntOrNull() ?: 0,
+                onDisplayPreferences = { navController.navigate(Route.FEATURE_CONTROLS + "?category=APPEARANCE") }
             )
         }
         composable(Route.ADVANCED_SETTINGS + "?focus={focus}", arguments = listOf(navArgument("focus") { defaultValue = "" })) {
@@ -538,6 +569,7 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigationClick = { navController.navigateUp() },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
                 onDelegation = { navController.navigate(Route.DELEGATION) },
+                onPreferences = { category -> navController.navigate(Route.FEATURE_CONTROLS + "?category=$category") },
                 onWorkspace = { tab -> navController.navigate("workspaces?tab=$tab") },
                 onActivity = { navController.navigate(Route.ACTIVITY) },
                 onNavigateToAddPlatform = { navController.navigate(Route.ADD_PLATFORM) },
@@ -650,6 +682,7 @@ fun NavGraphBuilder.settingNavigation(
             )
         ) { entry ->
             LocalModelsScreen(
+                onRuntimePreferences = { navController.navigate(Route.FEATURE_CONTROLS + "?category=LOCAL") },
                 startInMarketplace = entry.arguments?.getBoolean("marketplace") == true,
                 startInDelegation = entry.arguments?.getBoolean("runtime") == true,
                 onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
@@ -664,6 +697,7 @@ fun NavGraphBuilder.settingNavigation(
                 onActivity = { navController.navigate(Route.ACTIVITY) },
                 onGitHub = { navController.navigate("workspaces?tab=GitHub") },
                 onDelegation = { navController.navigate(Route.DELEGATION) },
+                onPreferences = { category -> navController.navigate(Route.FEATURE_CONTROLS + "?category=$category") },
                 onMemory = { navController.navigate(Route.FACT_VAULT) },
                 onMarketplaceClick = { navController.navigate(Route.MCP_MARKETPLACE) },
                 onAddConnectionClick = { navController.navigate(Route.ADD_TOOL_CONNECTION) },

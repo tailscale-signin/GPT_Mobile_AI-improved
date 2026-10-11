@@ -541,7 +541,7 @@ fun UserMessageEditDialog(
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var question by remember { mutableStateOf(initialQuestion.content) }
+    var question by rememberSaveable(initialQuestion.id) { mutableStateOf(initialQuestion.content) }
     val questionFieldMaxLines = 8
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -560,7 +560,7 @@ fun UserMessageEditDialog(
         }
     }
 
-    AlertDialog(
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
@@ -568,6 +568,7 @@ fun UserMessageEditDialog(
         title = { Text(text = stringResource(R.string.edit_question)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text("Editing this prompt creates a branch and sends the revised prompt.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -623,8 +624,8 @@ fun AssistantMessageEditDialog(
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var responseText by remember { mutableStateOf(initialMessage.effectiveContent()) }
-    var thoughtsText by remember { mutableStateOf(initialMessage.effectiveThoughts()) }
+    var responseText by rememberSaveable(initialMessage.id) { mutableStateOf(initialMessage.effectiveContent()) }
+    var thoughtsText by rememberSaveable(initialMessage.id) { mutableStateOf(initialMessage.effectiveThoughts()) }
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -642,7 +643,7 @@ fun AssistantMessageEditDialog(
         }
     }
 
-    AlertDialog(
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
@@ -650,6 +651,7 @@ fun AssistantMessageEditDialog(
         title = { Text(text = stringResource(R.string.edit_assistant_message)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text("Save a response revision. The original response remains in revision history.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(
                     modifier = Modifier
                         .fillMaxWidth()

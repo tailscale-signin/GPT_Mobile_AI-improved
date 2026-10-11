@@ -26,8 +26,9 @@ internal object AppSpacing {
 }
 
 internal object AppShapes {
-    val card = RoundedCornerShape(18.dp)
-    val panel = RoundedCornerShape(24.dp)
+    val card = RoundedCornerShape(20.dp)
+    val panel = RoundedCornerShape(20.dp)
+    val sheet = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     val input = RoundedCornerShape(16.dp)
 }
 

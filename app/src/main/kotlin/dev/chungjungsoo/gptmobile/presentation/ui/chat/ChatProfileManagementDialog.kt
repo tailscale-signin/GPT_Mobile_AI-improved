@@ -17,7 +17,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet as FadingAlertDialog
 
 /** Resuming is always safe; pausing must leave an unpaused participant. */
 internal fun canPauseChatProfile(uid: String, members: Set<String>, paused: Set<String>): Boolean =

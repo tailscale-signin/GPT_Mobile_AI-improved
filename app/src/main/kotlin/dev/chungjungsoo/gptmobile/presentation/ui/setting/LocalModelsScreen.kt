@@ -79,6 +79,7 @@ fun LocalModelsScreen(
     viewModel: LocalModelsViewModel = hiltViewModel(),
     runtimeViewModel: LocalRuntimeSettingsViewModel = hiltViewModel(),
     onOpenProfile: (String) -> Unit = {},
+    onRuntimePreferences: () -> Unit = {},
     onNavigationClick: () -> Unit
 ) {
     val scrollState = rememberLazyListState()
@@ -143,12 +144,13 @@ fun LocalModelsScreen(
                         item {
                             androidx.compose.material3.PrimaryTabRow(selectedTabIndex = selectedTab) {
                                 androidx.compose.material3.Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Library") })
-                                androidx.compose.material3.Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Settings") })
+                                androidx.compose.material3.Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Runtime") })
                             }
                         }
                     }
                     if (!marketplace && selectedTab == 1) {
                         item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
+                        item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Cache, metrics & fallback", "Local runtime feature controls", Icons.Rounded.Memory, onRuntimePreferences) }
                     } else if (!marketplace) {
                         item(key = "overview") { LocalModelsOverviewCard(uiState) }
                         item(key = "download-policy") {

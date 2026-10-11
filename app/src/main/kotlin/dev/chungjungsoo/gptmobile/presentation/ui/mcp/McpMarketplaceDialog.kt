@@ -83,7 +83,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -310,19 +309,14 @@ fun McpMarketplaceScreen(
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme.surfaceContainerLow)
-                        )
-                    ).padding(16.dp)
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
             ) {
                 val activeScroll = if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll
                 if (activeScroll.firstVisibleItemIndex == 0 && activeScroll.firstVisibleItemScrollOffset < 48) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(30.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Find your next tool", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("Discover tools", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "${installations.size} in-app integrations · ${connectionsState.connections.size} connections",
                                 style = MaterialTheme.typography.bodySmall,
@@ -596,7 +590,7 @@ fun McpMarketplaceScreen(
                 onDismiss = { configuring = null }
             )
         } else if (native != null) {
-            dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalToolConfigurationDialog(native) { configuring = null }
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalToolConfigurationDialog(native, onDismiss = { configuring = null })
         } else {
             McpPresetConfigureDialog(preset, onDismissRequest = { configuring = null }, onConfirm = { name, alias, endpoint, auth, key, cleartext ->
                 onInstallPresetWithConfig(preset, name, alias, endpoint, auth, key, cleartext)

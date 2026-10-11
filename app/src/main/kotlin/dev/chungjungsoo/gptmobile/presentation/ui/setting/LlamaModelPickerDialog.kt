@@ -47,8 +47,8 @@ import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.llama.LlamaModelInfo
 import dev.chungjungsoo.gptmobile.data.llama.LlamaRouterClient
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet as AlertDialog
 import kotlinx.coroutines.launch
 
 @Composable

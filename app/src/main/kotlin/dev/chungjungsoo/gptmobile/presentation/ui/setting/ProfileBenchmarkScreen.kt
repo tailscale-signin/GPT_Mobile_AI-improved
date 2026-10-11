@@ -122,15 +122,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val detail = everyday.firstOrNull { it.key == detailKey }
     Scaffold(topBar = {
         if (!embedded) {
-            TopAppBar(title = { Text("AI profile benchmarks") }, navigationIcon = {
+            TopAppBar(title = { Text("Benchmarks") }, navigationIcon = {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
             }, actions = {
                 IconButton(onClick = onUsage) { Icon(Icons.Rounded.BarChart, "Usage") }
             })
         }
     }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded tests · ${profiles.size} profiles") }
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item { Text("${history.size} recorded tests · ${profiles.size} profiles", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             item { SettingsTabs(listOf("Results", "Run", "Delegation", "History"), listOf(2, 0, 4, 3).indexOf(tab).coerceAtLeast(0)) { tab = listOf(2, 0, 4, 3)[it] } }
             item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {

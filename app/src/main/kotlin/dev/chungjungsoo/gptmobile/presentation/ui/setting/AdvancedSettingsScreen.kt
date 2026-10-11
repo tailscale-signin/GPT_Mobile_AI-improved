@@ -35,14 +35,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
 import dev.chungjungsoo.gptmobile.presentation.common.LocalSettingSearchFocus
-import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.designsystem.AppShapes
 import dev.chungjungsoo.gptmobile.presentation.designsystem.AppSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdvancedSettingsScreen(
+internal fun AdvancedSettingsScreen(
     viewModel: SettingViewModelV2,
     onNavigationClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -50,11 +49,12 @@ fun AdvancedSettingsScreen(
     title: String = "All advanced controls",
     groupFilter: Set<String>? = null,
     showPrivacy: Boolean = true,
+    featureHomeFilter: FeatureHome? = null,
     onAllControls: (() -> Unit)? = null
 ) {
     val settings by viewModel.featureSettings.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val groups = remember(groupFilter) { AppFeature.entries.groupBy(SettingsSearchRegistry::group).filterKeys { groupFilter == null || it in groupFilter } }
+    val groups = remember(groupFilter, featureHomeFilter) { AppFeature.entries.filter { featureHomeFilter == null || featureHome(it) == featureHomeFilter }.groupBy(SettingsSearchRegistry::group).filterKeys { groupFilter == null || it in groupFilter } }
     val rows = remember(groups) { groups.values.flatMap { listOf<AppFeature?>(null) + it } }
     LaunchedEffect(initialFocus) {
         val target = if (initialFocus.startsWith("privacy")) 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus((if (showPrivacy) 1 else 0) + (if (onAllControls != null) 1 else 0))
@@ -90,8 +90,9 @@ fun AdvancedSettingsScreen(
                                 Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                                     Column(Modifier.weight(1f)) {
                                         Text(feature.title, style = MaterialTheme.typography.bodyLarge)
+                                        Text(feature.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (feature == AppFeature.PARALLEL_SEARCH) Text("Always on for the current execution policy", style = MaterialTheme.typography.labelMedium)
                                     }
-                                    SettingsHelpIcon(feature.description, title = feature.title)
                                     Switch(
                                         checked = settings.withFeature(feature, true) == settings,
                                         onCheckedChange = { viewModel.updateFeature(feature, it) },

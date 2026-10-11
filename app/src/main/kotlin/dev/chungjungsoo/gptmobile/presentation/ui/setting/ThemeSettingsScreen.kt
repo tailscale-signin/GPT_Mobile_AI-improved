@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -62,7 +62,7 @@ private val themeDraftSaver = Saver<ThemeSetting, String>(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initialTab: Int = 0) {
+fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initialTab: Int = 0, onDisplayPreferences: () -> Unit = {}) {
     val viewModel = LocalThemeViewModel.current
     val saved by viewModel.themeSetting.collectAsStateWithLifecycle()
     var draft by rememberSaveable(stateSaver = themeDraftSaver) { mutableStateOf(saved) }
@@ -70,12 +70,14 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
     var valid by rememberSaveable { mutableStateOf(true) }
     var saveError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
-    if (saveError != null) dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
-        onDismissRequest = { saveError = null },
-        title = { Text("Appearance was not saved") },
-        text = { Text(saveError.orEmpty()) },
-        confirmButton = { TextButton(onClick = { saveError = null }) { Text("Keep editing") } }
-    )
+    if (saveError != null) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
+            onDismissRequest = { saveError = null },
+            title = { Text("Appearance was not saved") },
+            text = { Text(saveError.orEmpty()) },
+            confirmButton = { TextButton(onClick = { saveError = null }) { Text("Keep editing") } }
+        )
+    }
     val body: @Composable () -> Unit = {
         AppEditorScaffold(
             title = "Appearance",
@@ -158,7 +160,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     2 -> {
                         ThemeModePicker(draft.themeMode) { draft = draft.copy(themeMode = it) }
                         ThemeSwitch("Reduce motion", "Use immediate transitions and minimise decorative movement", draft.reducedMotion) { draft = draft.copy(reducedMotion = it) }
-                        Text("Conversation density, streaming, edge fades and response animation remain available in Conversations → Reading.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = onDisplayPreferences) { Text("Conversation density, edge fades & response animation") }
                     }
                 }
                 TextButton(onClick = {

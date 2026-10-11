@@ -3,9 +3,11 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -66,13 +68,13 @@ fun CompleteBackupDialog(
 ) {
     var pendingAction by rememberSaveable { mutableStateOf<BackupAction?>(null) }
 
-    Dialog(onDismissRequest = { if (!state.isBusy) onDismiss() }) {
+    Dialog(onDismissRequest = { if (!state.isBusy) onDismiss() }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             shape = MaterialTheme.shapes.extraLarge
         ) {
             Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(22.dp),
+                Modifier.systemBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(if (restoreOnly) "Restore" else stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)

@@ -75,6 +75,7 @@ fun AiPlatformsScreen(
     onDelegation: () -> Unit = {},
     onWorkspace: (String) -> Unit = {},
     onActivity: () -> Unit = {},
+    onPreferences: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val allPlatforms by settingViewModel.platformState.collectAsStateWithLifecycle()
@@ -124,6 +125,7 @@ fun AiPlatformsScreen(
                     if (connection.compatibleType == ClientType.OPENROUTER) TextButton(onClick = onNavigateToOpenRouterSettings) { Text("OpenRouter options") }
                 }
             }
+            if (tab == 1) item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Provider discovery", "Automatic model catalogue discovery", Icons.Rounded.Tune, { onPreferences("CONNECTIONS") }) }
             item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppSectionTitle("Configure your AI", Modifier.padding(top = 16.dp)) }
             item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Delegation", "Helpers, reviewer, research depth and limits", Icons.Rounded.AutoAwesome, onDelegation) }
             item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Recipes", "Reusable task instructions", Icons.Rounded.Description, { onWorkspace("Recipes") }) }

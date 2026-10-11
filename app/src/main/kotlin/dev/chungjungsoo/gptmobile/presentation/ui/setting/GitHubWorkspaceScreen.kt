@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.ClipData
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,6 +50,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,7 +80,7 @@ import kotlinx.serialization.json.jsonObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, viewModel: GitHubWorkspaceViewModel = hiltViewModel()) {
+fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, viewModel: GitHubWorkspaceViewModel = hiltViewModel(), asDialog: Boolean = true) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
@@ -109,7 +112,8 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
         }
     }
     val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty()
-    Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    val body: @Composable () -> Unit = {
+        BackHandler { close() }
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
@@ -213,54 +217,70 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         TextButton(onClick = { viewModel.browse(segments.take(index + 1).joinToString("/")) }, enabled = !state.busy && !editorDirty) { Text(segment) }
                                     }
                                 }
-                                if (state.file == null) {
-                                    OutlinedTextField(fileQuery, { fileQuery = it }, singleLine = true, label = { Text("Filter loaded files") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, modifier = Modifier.fillMaxWidth())
-                                    val entries = state.entries.filter { it.text("name").contains(fileQuery, true) }.sortedWith(compareBy({ it.text("type") != "dir" }, { it.text("name").lowercase() }))
-                                    if (entries.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.Search, if (fileQuery.isBlank()) "This folder is empty" else "No matching files", if (state.moreEntries) "Load more files to keep looking." else "Try another folder or search.")
-                                    entries.forEach { entry ->
-                                        Surface(onClick = { if (entry.text("type") == "dir") viewModel.browse(entry.text("path")) else viewModel.readFile(entry.text("path")) }, enabled = !state.busy, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                                Icon(if (entry.text("type") == "dir") Icons.Rounded.Folder else Icons.Rounded.Description, null, Modifier.size(22.dp))
-                                                Text(entry.text("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                if (state.staged.any { it.path == entry.text("path") }) WorkspaceBadge("Staged")
+                                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                                    val expanded = maxWidth >= 840.dp
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                                        if (expanded || state.file == null) {
+                                            key("file-list") {
+                                                Column(Modifier.weight(if (expanded) 0.38f else 1f).heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    OutlinedTextField(fileQuery, { fileQuery = it }, singleLine = true, label = { Text("Filter loaded files") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, modifier = Modifier.fillMaxWidth())
+                                                    val entries = state.entries.filter { it.text("name").contains(fileQuery, true) }.sortedWith(compareBy({ it.text("type") != "dir" }, { it.text("name").lowercase() }))
+                                                    if (entries.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.Search, if (fileQuery.isBlank()) "This folder is empty" else "No matching files", if (state.moreEntries) "Load more files to keep looking." else "Try another folder or search.")
+                                                    entries.forEach { entry ->
+                                                        Surface(onClick = { if (entry.text("type") == "dir") viewModel.browse(entry.text("path")) else viewModel.readFile(entry.text("path")) }, enabled = !state.busy && !editorDirty, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                                                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                                Icon(if (entry.text("type") == "dir") Icons.Rounded.Folder else Icons.Rounded.Description, null, Modifier.size(22.dp))
+                                                                Text(entry.text("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                                if (state.staged.any { it.path == entry.text("path") }) WorkspaceBadge("Staged")
+                                                            }
+                                                        }
+                                                    }
+                                                    if (state.moreEntries) TextButton(onClick = viewModel::moreFiles, enabled = !state.busy) { Text("Load more files") }
+                                                }
                                             }
                                         }
-                                    }
-                                    if (state.moreEntries) TextButton(onClick = viewModel::moreFiles, enabled = !state.busy) { Text("Load more files") }
-                                } else {
-                                    val file = requireNotNull(state.file)
-                                    val original = file.text("content")
-                                    val path = file.text("path")
-                                    var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.staged.firstOrNull { it.path == path }?.content ?: original) }
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        Text(path.substringAfterLast('/'), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                        IconButton(onClick = { copy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
-                                        file.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open file on GitHub") } }
-                                    }
-                                    Text("${original.lines().size} lines · ${original.toByteArray().size} bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    TextButton(onClick = { viewModel.browse(state.directory) }, enabled = !state.busy && !editorDirty) { Text("Back to files") }
-                                    if (file.flag("has_more")) {
-                                        Text("Preview of the first 2,000 lines. Open the complete file on GitHub to edit it.", style = MaterialTheme.typography.bodySmall)
-                                        WorkspaceCode(original)
-                                    } else {
-                                        OutlinedTextField(edited, {
-                                            if (it.toByteArray().size <= 256_000) {
-                                                edited = it
-                                                editorDirty = edited != (state.staged.firstOrNull { staged -> staged.path == path }?.content ?: original)
+                                        if (state.file != null) {
+                                            key("file-editor") {
+                                                Column(Modifier.weight(if (expanded) 0.62f else 1f).heightIn(max = 640.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                    val file = requireNotNull(state.file)
+                                                    val original = file.text("content")
+                                                    val path = file.text("path")
+                                                    var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.staged.firstOrNull { it.path == path }?.content ?: original) }
+                                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(path.substringAfterLast('/'), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                                        IconButton(onClick = { copy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
+                                                        file.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open file on GitHub") } }
+                                                    }
+                                                    Text("${original.lines().size} lines · ${original.toByteArray().size} bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    TextButton(onClick = { viewModel.browse(state.directory) }, enabled = !state.busy && !editorDirty) { Text("Back to files") }
+                                                    if (file.flag("has_more")) {
+                                                        Text("Preview of the first 2,000 lines. Open the complete file on GitHub to edit it.", style = MaterialTheme.typography.bodySmall)
+                                                        WorkspaceCode(original)
+                                                    } else {
+                                                        OutlinedTextField(edited, {
+                                                            if (it.toByteArray().size <= 256_000) {
+                                                                edited = it
+                                                                editorDirty = edited != (state.staged.firstOrNull { staged -> staged.path == path }?.content ?: original)
+                                                            }
+                                                        }, modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 480.dp), label = { Text("File content") }, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), readOnly = !state.canWrite || state.busy || state.selection?.ref == state.defaultBranch)
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            Button(onClick = { if (viewModel.stage(path, original, edited)) editorDirty = false }, enabled = state.canWrite && !state.busy && state.selection?.ref != state.defaultBranch && editorDirty) {
+                                                                Icon(Icons.Rounded.Add, null, Modifier.padding(end = 6.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                                                                Text("Stage")
+                                                            }
+                                                            TextButton(onClick = {
+                                                                edited = state.staged.firstOrNull { it.path == path }?.content ?: original
+                                                                editorDirty = false
+                                                            }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
+                                                        }
+                                                        if (state.selection?.ref == state.defaultBranch) Text("Create a working branch in Changes to start editing.", style = MaterialTheme.typography.bodySmall)
+                                                        if (editorDirty) Text("Stage or reset your edits before leaving this file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                }
                                             }
-                                        }, modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 480.dp), label = { Text("File content") }, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), readOnly = !state.canWrite || state.busy || state.selection?.ref == state.defaultBranch)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Button(onClick = { if (viewModel.stage(path, original, edited)) editorDirty = false }, enabled = state.canWrite && !state.busy && state.selection?.ref != state.defaultBranch && editorDirty) {
-                                                Icon(Icons.Rounded.Add, null, Modifier.padding(end = 6.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                                Text("Stage")
-                                            }
-                                            TextButton(onClick = {
-                                                edited = state.staged.firstOrNull { it.path == path }?.content ?: original
-                                                editorDirty = false
-                                            }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
+                                        } else if (expanded) {
+                                            Column(Modifier.weight(0.62f)) { WorkspaceEmpty(Icons.Rounded.Code, "Inspect a file", "Choose a file to view its contents beside the repository list.") }
                                         }
-                                        if (state.selection?.ref == state.defaultBranch) Text("Create a working branch in Changes to start editing.", style = MaterialTheme.typography.bodySmall)
-                                        if (editorDirty) Text("Stage or reset your edits before leaving this file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     }
                                 }
                             }
@@ -358,6 +378,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
             )
         }
     }
+    if (asDialog) Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) { body() } else body()
 }
 
 @Composable

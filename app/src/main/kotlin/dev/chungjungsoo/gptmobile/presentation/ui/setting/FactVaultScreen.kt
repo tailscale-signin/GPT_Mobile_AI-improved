@@ -80,12 +80,13 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     var filter by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
     var inspecting by remember { mutableStateOf<VaultFact?>(null) }
-    var editing by remember { mutableStateOf<VaultFact?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf("") }
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = vault.facts.firstOrNull { it.id == editingId }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var draft by rememberSaveable { mutableStateOf("") }
     var selectedMemories by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var restructuring by remember { mutableStateOf(false) }
-    var replacementText by remember { mutableStateOf("") }
+    var restructuring by rememberSaveable { mutableStateOf(false) }
+    var replacementText by rememberSaveable { mutableStateOf("") }
     var deleting by remember { mutableStateOf<String?>(null) }
     var clearing by remember { mutableStateOf(false) }
     var advancedControls by rememberSaveable { mutableStateOf(initialTab.contains(':')) }
@@ -132,9 +133,9 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 }
             )
         }) { padding ->
-            LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -152,12 +153,16 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                     }
                 }
                 item {
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Overview", "Memories", "Documents", "Review", "Controls", "Topics").forEach { label ->
-                            FilterChip(tab == label, {
-                                tab = label
-                                query = ""
-                            }, label = { Text(if (label == "Memories") "Saved Facts" else label) })
+                    val section = when (tab) {
+                        "Review" -> 1
+                        "Controls" -> 2
+                        else -> 0
+                    }
+                    SettingsTabs(listOf("Library", "Review", "Controls"), section) { tab = listOf("Memories", "Review", "Controls")[it] }
+                    if (section == 0) {
+                        SettingsTabs(listOf("Saved facts", "Documents", "Topics", "Overview"), listOf("Memories", "Documents", "Topics", "Overview").indexOf(tab)) {
+                            tab = listOf("Memories", "Documents", "Topics", "Overview")[it]
+                            query = ""
                         }
                     }
                 }
@@ -168,7 +173,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         TextButton(onClick = viewModel::refresh) { Text(stringResource(R.string.attachment_retry)) }
                     }
                 }
-                status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) } }
+                status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
                 indexWarning?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } }
                 when (tab) {
                     "Overview" -> {
@@ -195,7 +200,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                     }
                     "Memories", "Review" -> {
                         item {
-                            OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.ui_v2_find_a_memory)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            dev.chungjungsoo.gptmobile.presentation.designsystem.AppSearchField(query, { query = it }, stringResource(R.string.ui_v2_find_a_memory))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf("All", "Pinned", "Review").forEach { label -> FilterChip(filter == label, { filter = label }, label = { Text(label) }) }
                             }
@@ -229,7 +234,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(if (entry.fact.relation.relationType == "REMEMBERS" || entry.source == "local_model_observation") entry.fact.target.name else "${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.titleMedium)
-                                    Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("${entry.scope} · ${entry.occurrences} supporting messages · ${(entry.confidence * 100).toInt()}% extraction confidence", style = MaterialTheme.typography.labelSmall)
                                     TextButton(onClick = { inspecting = entry }) { Text(stringResource(R.string.ui_v2_source_and_history)) }
                                     if (entry.pendingReplacements.isNotEmpty()) {
@@ -263,7 +268,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                         androidx.compose.material3.Checkbox(entry.id in selectedMemories, { selectedMemories = if (it) selectedMemories + entry.id else selectedMemories - entry.id }, enabled = !busy)
                                         Switch(entry.enabled, { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy && entry.pendingReplacements.isEmpty(), modifier = Modifier.semantics { contentDescription = "Recall this memory" })
                                         TextButton(onClick = {
-                                            editing = entry
+                                            editingId = entry.id
                                             draft = entry.fact.target.name
                                         }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.fact_vault_screen_label_12)) }
                                         IconButton(onClick = { viewModel.pin(entry.id, !entry.pinned) }, enabled = !busy) { Icon(Icons.Rounded.PushPin, if (entry.pinned) "Unpin" else "Pin", tint = if (entry.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline) }
@@ -431,10 +436,10 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
             }
         }
         if (adding || editing != null) {
-            AlertDialog(
+            dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
                 onDismissRequest = {
                     adding = false
-                    editing = null
+                    editingId = null
                 },
                 title = { Text(stringResource(R.string.ui_v2_remember_something)) },
                 text = { OutlinedTextField(draft, { draft = it.take(1000) }, label = { Text(stringResource(R.string.ui_v2_fact_preference_or_note)) }, supportingText = { Text("${draft.length}/1000") }) },
@@ -442,19 +447,19 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                     TextButton(enabled = draft.isNotBlank(), onClick = {
                         viewModel.saveFact(draft, editing?.id)
                         adding = false
-                        editing = null
+                        editingId = null
                     }) { Text(stringResource(R.string.local_tools_settings_panel_label_13)) }
                 },
                 dismissButton = {
                     TextButton(onClick = {
                         adding = false
-                        editing = null
+                        editingId = null
                     }) { Text(stringResource(R.string.fact_vault_screen_label_19)) }
                 }
             )
         }
         if (restructuring) {
-            AlertDialog(onDismissRequest = { restructuring = false }, title = { Text(stringResource(R.string.ui_v2_merge_or_split_selected_memories)) }, text = {
+            dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(onDismissRequest = { restructuring = false }, title = { Text(stringResource(R.string.ui_v2_merge_or_split_selected_memories)) }, text = {
                 Column {
                     Text(stringResource(R.string.ui_v2_one_replacement_memory_per_line_use_one_line_to_merge_scope_and_c))
                     OutlinedTextField(replacementText, { replacementText = it }, label = { Text(stringResource(R.string.ui_v2_reviewed_memories)) }, maxLines = 8)

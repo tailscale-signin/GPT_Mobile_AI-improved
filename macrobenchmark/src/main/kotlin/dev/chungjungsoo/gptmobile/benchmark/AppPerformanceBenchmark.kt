@@ -46,6 +46,20 @@ class AppPerformanceBenchmark {
         }
     }
 
+    @Test fun settingsDiscovery() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { startActivityAndWait(fixture().putExtra("screen", "settings")) }) {
+        check(device.wait(Until.hasObject(By.res("settings_search")), 10000))
+        val field = device.findObject(By.res("settings_search"))
+        field.click()
+        field.text = "local"
+        device.pressBack()
+        val list = device.findObject(By.res("benchmark_settings"))
+        list.setGestureMargin(device.displayWidth / 5)
+        repeat(2) {
+            list.fling(Direction.DOWN)
+            device.waitForIdle()
+        }
+    }
+
     @Test fun foregroundServiceStartupRace() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.None(), iterations = 5, setupBlock = { pressHome() }) {
         startActivityAndWait(fixture().putExtra("serviceRace", true))
         check(device.wait(Until.hasObject(By.res("benchmark_service_done")), 15000)) { "Service start/cancel/restart fixture did not finish; inspect process crash logs." }

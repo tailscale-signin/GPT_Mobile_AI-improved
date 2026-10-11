@@ -247,3 +247,8 @@ fun endpointLocality(url: String): EndpointLocality {
     val privateIpv6 = host.contains(':') && (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe8") || host.startsWith("fe9") || host.startsWith("fea") || host.startsWith("feb"))
     return if (privateIpv4 || privateIpv6) EndpointLocality.PRIVATE_NETWORK else EndpointLocality.EXTERNAL
 }
+
+/** UI workload presets only own breadth; they preserve permissions, profiles and safety settings. */
+enum class DelegationWorkloadPreset(val depth: Int) { FOCUSED(20), BALANCED(70), THOROUGH(100) }
+
+fun ModelDelegationSettings.withWorkloadPreset(preset: DelegationWorkloadPreset): ModelDelegationSettings = withStrategy(preset.depth)

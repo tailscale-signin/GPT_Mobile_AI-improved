@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +34,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,15 +61,32 @@ fun DebugDiagnosticsScreen(
     onStatisticsClick: () -> Unit,
     onBenchmarksClick: () -> Unit,
     viewModel: DebugDiagnosticsViewModel = hiltViewModel(),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialFocus: String = "",
+    toolConnectionsViewModel: ToolConnectionsViewModel = hiltViewModel()
 ) {
+    val toolHealth by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
     val analytics by viewModel.analytics.collectAsStateWithLifecycle()
     val settings by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     val runtime by settingViewModel.localRuntimeState.collectAsStateWithLifecycle()
     val debugEnabled by settingViewModel.debugMode.collectAsStateWithLifecycle()
     var workspaceTab by rememberSaveable { mutableIntStateOf(0) }
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable {
+        mutableIntStateOf(
+            when (initialFocus) {
+                "health" -> 4
+                "runs" -> 1
+                "logs" -> 2
+                "", "live" -> 0
+                else -> 3
+            }
+        )
+    }
     var frozen by remember { mutableStateOf<DebugAnalyticsState?>(null) }
+    val diagnosticsList = rememberLazyListState()
+    LaunchedEffect(initialFocus, selectedTab) {
+        if (selectedTab == 3) DebugMetric.entries.indexOfFirst { it.name == initialFocus }.takeIf { it >= 0 }?.let { diagnosticsList.scrollToItem(it + 2) }
+    }
     val state = frozen ?: analytics
     val live = workspaceTab == 0 && frozen == null && selectedTab == 0
     val now = rememberLiveClock(live)
@@ -87,9 +109,9 @@ fun DebugDiagnosticsScreen(
             if (workspaceTab == 1) UsageStatisticsScreen(onBack = onNavigationClick, embedded = true)
             if (workspaceTab == 2) ProfileBenchmarkScreen(onBack = onNavigationClick, onUsage = { workspaceTab = 1 }, embedded = true)
             if (workspaceTab == 0) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state = diagnosticsList, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     item { SettingsHero("Observatory", "Your AI, in focus", "${activeRequests.size} active requests · ${activeTools.size} tools · ${state.failedRuns} failed runs") }
-                    item { SettingsTabs(listOf("Live", "Runs", "Logs", "Display"), selectedTab) { selectedTab = it } }
+                    item { SettingsTabs(listOf("Live", "Runs", "Logs", "Display", "Health"), selectedTab) { selectedTab = it } }
                     when (selectedTab) {
                         0 -> {
                             item {
@@ -150,14 +172,43 @@ fun DebugDiagnosticsScreen(
                             }
                             if (state.recentRuns.isEmpty()) item { Text("No recorded runs yet.") }
                         }
+                        4 -> {
+                            item {
+                                SettingsPanel("Connection & Runtime Health") {
+                                    Text("Health is observed from recorded runtime state and explicit connection checks. Catalog eligibility is not proof of a successful inference.", style = MaterialTheme.typography.bodySmall)
+                                    MetricLine("Loaded local engine", runtime.engineSpec?.modelPath?.let { java.io.File(it).name } ?: "No engine loaded")
+                                    MetricLine("Actual backend", runtime.backend?.displayName ?: "Not observed")
+                                    MetricLine("Accelerator", runtime.engineSpec?.accelerator ?: "Not observed")
+                                    runtime.fallbackReason?.let { Text(DiagnosticRedactor.redact(it), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                            items(toolHealth.connections, key = { "health.${it.connectionUid}" }) { connection ->
+                                val health = toolHealth.connectionHealth[connection.connectionUid]
+                                SettingsPanel(connection.name) {
+                                    MetricLine("Connection check", health?.status?.name ?: "Not checked")
+                                    MetricLine("Last check", health?.checkedAt?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "Not recorded")
+                                    health?.message?.let { Text(DiagnosticRedactor.redact(it), style = MaterialTheme.typography.bodySmall) }
+                                    TextButton(onClick = { toolConnectionsViewModel.probeConnection(connection) }, enabled = health?.status != ToolConnectionHealthStatus.CHECKING) { Text("Check connection") }
+                                }
+                            }
+                            item {
+                                SettingsPanel("Provider request evidence") {
+                                    state.invocations.groupBy { it.provider }.forEach { (provider, requests) ->
+                                        val last = requests.maxByOrNull { it.startedAt }
+                                        MetricLine(provider, last?.let { "Latest recorded request: ${it.status}" } ?: "Not recorded")
+                                    }
+                                    Text("A completed historical request does not establish that a provider is reachable now.", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
                         2 -> item { AppLogPanel() }
-                        3 -> item {
-                            SettingsPanel("Conversation diagnostics") {
-                                DebugMetric.entries.forEach { metric ->
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(metric.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                                        SettingsHelpIcon(metric.description)
-                                        Switch(settings.shows(metric), { settingViewModel.updateDebugMetric(metric, it) })
+                        3 -> {
+                            val metrics = DebugMetric.entries
+                            items(metrics, key = { "metric.${it.name}" }) { metric ->
+                                SettingsPanel(metric.title) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("debug_setting_${metric.name}")) {
+                                        Text(metric.description, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                        Switch(settings.shows(metric), { settingViewModel.updateDebugMetric(metric, it) }, modifier = Modifier.semantics { contentDescription = metric.title })
                                     }
                                 }
                             }

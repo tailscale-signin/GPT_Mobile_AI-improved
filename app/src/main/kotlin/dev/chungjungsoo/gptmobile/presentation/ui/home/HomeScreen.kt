@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -138,6 +139,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
@@ -189,6 +192,7 @@ fun HomeScreen(
 ) {
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val homeFeatures by homeViewModel.featureSettings.collectAsStateWithLifecycle()
     val currentTab by homeViewModel.currentTab.collectAsStateWithLifecycle()
     val chatListState by homeViewModel.chatListState.collectAsStateWithLifecycle()
     val showSelectModelDialog by homeViewModel.showSelectModelDialog.collectAsStateWithLifecycle()
@@ -220,6 +224,7 @@ fun HomeScreen(
     val conversationFolders by homeViewModel.folders.collectAsStateWithLifecycle()
     val selectedFolderId by homeViewModel.selectedFolderId.collectAsStateWithLifecycle()
     val folderError by homeViewModel.folderError.collectAsStateWithLifecycle()
+    var movingChatId by rememberSaveable { mutableStateOf<Int?>(null) }
     var creatingFolderForChat by remember { mutableStateOf<Int?>(null) }
     var editingFolder by remember { mutableStateOf<dev.chungjungsoo.gptmobile.data.chat.ConversationFolder?>(null) }
     val folderBounds = remember { mutableStateMapOf<String, Rect>() }
@@ -514,6 +519,25 @@ fun HomeScreen(
                                     val translationY by animateFloatAsState(dragOffset.y, if (dragging) snap() else tween(220), label = "conversationDragY")
                                     FancySwipeChatCard(
                                         dismissState = dismissState,
+                                        rowActions = buildMap {
+                                            put(if (chatRoom.isFavorite) "Unpin" else "Pin") { homeViewModel.moveConversationPin(chatRoom.id, if (chatRoom.isFavorite) -1 else 0) }
+                                            if (chatRoom.isFavorite) {
+                                                val pins = chatListState.chats.filter { it.isFavorite }
+                                                val position = pins.indexOfFirst { it.id == chatRoom.id }
+                                                if (position > 0) put("Move pin up") { homeViewModel.moveConversationPin(chatRoom.id, position - 1) }
+                                                if (position < pins.lastIndex) put("Move pin down") { homeViewModel.moveConversationPin(chatRoom.id, position + 1) }
+                                            }
+                                            put("Move to folder") { movingChatId = chatRoom.id }
+                                            put("Archive") {
+                                                homeViewModel.archiveChat(chatRoom)
+                                                homeScope.launch {
+                                                    val result = archiveSnackbarState.showSnackbar("Conversation archived", "Undo", withDismissAction = true)
+                                                    if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) homeViewModel.unarchiveChat(chatRoom)
+                                                }
+                                            }
+                                            put("Delete") { chatPendingDelete = chatRoom }
+                                        },
+                                        compact = homeFeatures.compactChatList,
                                         chatRoom = chatRoom,
                                         idx = idx,
                                         chatListState = chatListState,
@@ -649,6 +673,35 @@ fun HomeScreen(
             )
         }
 
+        movingChatId?.let { chatId ->
+            AlertDialog(
+                onDismissRequest = { movingChatId = null },
+                title = { Text("Move to folder") },
+                text = {
+                    LazyColumn {
+                        item {
+                            TextButton(onClick = {
+                                homeViewModel.moveToFolder(chatId, null)
+                                movingChatId = null
+                            }) { Text("All conversations") }
+                        }
+                        items(conversationFolders, key = { it.id }) { folder ->
+                            TextButton(onClick = {
+                                homeViewModel.moveToFolder(chatId, folder.id)
+                                movingChatId = null
+                            }) { Text(folder.name) }
+                        }
+                        item {
+                            TextButton(onClick = {
+                                creatingFolderForChat = chatId
+                                movingChatId = null
+                            }) { Text("New folder") }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { movingChatId = null }) { Text(stringResource(R.string.close)) } }
+            )
+        }
         creatingFolderForChat?.let { chatId ->
             ConversationFolderEditor(
                 folder = null,
@@ -737,8 +790,10 @@ fun HomeScreen(
             SelectPlatformDialog(
                 platformState,
                 selectedPlatforms = chatListState.selectedPlatforms,
+                initialCombined = homeFeatures.lastChatMode == ConversationMode.COMBINED,
                 onDismissRequest = { homeViewModel.closeSelectModelDialog() },
                 onConfirmation = { platforms, conversationMode ->
+                    homeViewModel.rememberChatSelection(platforms, conversationMode)
                     navigateToNewChat(platforms, conversationMode)
                     homeViewModel.closeSelectModelDialog()
                 },
@@ -891,6 +946,8 @@ fun FancySwipeChatCard(
     onItemLongClick: () -> Unit,
     revealingLabels: Boolean = false,
     isArchived: Boolean = false,
+    rowActions: Map<String, () -> Unit> = emptyMap(),
+    compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val progress = dismissState.progress
@@ -1041,7 +1098,9 @@ fun FancySwipeChatCard(
                 isServerChat = isServerChat,
                 onItemClick = onItemClick,
                 onItemLongClick = onItemLongClick,
-                revealingLabels = revealingLabels
+                revealingLabels = revealingLabels,
+                rowActions = rowActions,
+                compact = compact
             )
         }
     }
@@ -1060,8 +1119,11 @@ private fun ChatListItem(
     isServerChat: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
-    revealingLabels: Boolean = false
+    revealingLabels: Boolean = false,
+    rowActions: Map<String, () -> Unit> = emptyMap(),
+    compact: Boolean = false
 ) {
+    var menuOpen by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val showLabels = revealingLabels || pressed
@@ -1078,7 +1140,30 @@ private fun ChatListItem(
                 onLongClick = if (chatListState.isSelectionMode || chatListState.isSearchMode) onItemLongClick else null,
                 onClick = onItemClick
             )
+            .semantics {
+                customActions = rowActions.map { (label, action) ->
+                    CustomAccessibilityAction(label) {
+                        action()
+                        true
+                    }
+                }
+            }
             .padding(start = 8.dp, end = 8.dp),
+        trailingContent = {
+            if (rowActions.isNotEmpty()) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conversation_actions)) }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        rowActions.forEach { (label, action) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = {
+                                menuOpen = false
+                                action()
+                            })
+                        }
+                    }
+                }
+            }
+        },
         headlineContent = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1122,7 +1207,9 @@ private fun ChatListItem(
             }
         },
         supportingContent = {
-            if (!chatRoom.draftText.isNullOrBlank()) {
+            if (compact) {
+                Text(usingPlatform, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (!chatRoom.draftText.isNullOrBlank()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1146,7 +1233,7 @@ private fun ChatListItem(
                     Text(
                         text = chatRoom.draftText,
                         style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1156,7 +1243,7 @@ private fun ChatListItem(
                     Text(
                         text = usingPlatform,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.graphicsLayer { alpha = modelAlpha }
                     )
                     Row(
@@ -1576,23 +1663,26 @@ fun SelectPlatformDialog(
     onDismissRequest: () -> Unit,
     onConfirmation: (enabledPlatforms: List<String>, conversationMode: String) -> Unit,
     onPlatformSelect: (idx: Int) -> Unit,
-    onTogglePlatformFavorite: (platformId: Int) -> Unit = {}
+    onTogglePlatformFavorite: (platformId: Int) -> Unit = {},
+    initialCombined: Boolean = false
 ) {
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var combinedMode by rememberSaveable { mutableStateOf(false) }
+    var combinedMode by rememberSaveable { mutableStateOf(initialCombined) }
     val selectedCount = platforms.indices.count { platforms[it].enabled && selectedPlatforms.getOrElse(it) { false } }
     val canCombine = selectedCount >= 2
 
     LaunchedEffect(canCombine) {
         if (!canCombine) combinedMode = false
     }
+    var profileQuery by rememberSaveable { mutableStateOf("") }
     var selectedLabel by rememberSaveable { mutableStateOf<String?>(null) }
     val reusableLabels = remember(platforms) { collectReusableProfileLabels(platforms.map { it.labels }) }
-    val indexedPlatforms = remember(platforms, selectedLabel) {
+    val indexedPlatforms = remember(platforms, selectedLabel, profileQuery) {
         orderedChatProfiles(platforms).filter { (_, profile) ->
-            selectedLabel == null || dev.chungjungsoo.gptmobile.data.model.parseProfileLabels(profile.labels).any { it.key == selectedLabel }
+            dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery(profile, profileQuery) &&
+                (selectedLabel == null || dev.chungjungsoo.gptmobile.data.model.parseProfileLabels(profile.labels).any { it.key == selectedLabel })
         }
     }
 
@@ -1643,6 +1733,7 @@ fun SelectPlatformDialog(
         text = {
             HorizontalDivider()
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField(profileQuery, { profileQuery = it })
                 if (reusableLabels.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PlatformLabelFilter(label = dev.chungjungsoo.gptmobile.data.model.ProfileLabel(stringResource(R.string.all_profile_labels)), selected = selectedLabel == null, onClick = { selectedLabel = null })

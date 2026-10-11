@@ -97,6 +97,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplacePackage
@@ -181,13 +182,7 @@ fun McpMarketplaceScreen(
     val scope = rememberCoroutineScope()
     var section by rememberSaveable { mutableStateOf(MarketplaceSection.PLUGINS) }
     var statusFilter by rememberSaveable { mutableStateOf("All states") }
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(1000)
-            now = System.currentTimeMillis()
-        }
-    }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(MarketplaceSort.RECOMMENDED) }
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf<McpCategory?>(null) }
@@ -280,6 +275,32 @@ fun McpMarketplaceScreen(
         }
     }
 
+    if (showFilters) {
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showFilters = false }) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MarketplaceDropdown(statusFilter, listOf("All states", "Installed", "Needs attention", "Downloading"), statusFilter, { it }) { statusFilter = it }
+                MarketplaceDropdown(
+                    category?.displayName ?: "All categories",
+                    listOf<McpCategory?>(null) + McpCategory.entries,
+                    category,
+                    { it?.displayName ?: "All categories" }
+                ) { category = it }
+                MarketplaceDropdown(
+                    pricing?.let(::pricingLabel) ?: "All pricing",
+                    listOf<McpPricingType?>(null) + McpPricingType.entries,
+                    pricing,
+                    { it?.let(::pricingLabel) ?: "All pricing" }
+                ) { pricing = it }
+                TextButton(onClick = {
+                    category = null
+                    pricing = null
+                    statusFilter = "All states"
+                }) { Text(stringResource(R.string.marketplace_reset)) }
+                Button(onClick = { showFilters = false }) { Text(stringResource(R.string.close)) }
+            }
+        }
+    }
+
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
         TopAppBar(title = { Text("Marketplace", fontWeight = FontWeight.Bold) }, navigationIcon = {
             IconButton(onClick = onNavigationClick) {
@@ -292,29 +313,29 @@ fun McpMarketplaceScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(24.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .65f),
-                                MaterialTheme.colorScheme.surface
-                            )
+                            listOf(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme.surfaceContainerLow)
                         )
                     ).padding(16.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(30.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Find your next tool", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text(
-                            "${installations.size} in-app integrations · ${connectionsState.connections.size} connections",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                val activeScroll = if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll
+                if (activeScroll.firstVisibleItemIndex == 0 && activeScroll.firstVisibleItemScrollOffset < 48) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(30.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Find your next tool", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${installations.size} in-app integrations · ${connectionsState.connections.size} connections",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon(
+                            title = "How marketplace tools work",
+                            description = "In-app adapters run in Android and use the internet for provider data. Hosted services run on the provider’s servers. Your-server tools need a separate running server. Installing an integration does not grant it access to every AI profile; review profile tool permissions separately."
                         )
                     }
-                    dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon(
-                        title = "How marketplace tools work",
-                        description = "In-app adapters run in Android and use the internet for provider data. Hosted services run on the provider’s servers. Your-server tools need a separate running server. Installing an integration does not grant it access to every AI profile; review profile tool permissions separately."
-                    )
+                    Spacer(Modifier.height(12.dp))
                 }
-                Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -341,21 +362,12 @@ fun McpMarketplaceScreen(
                     )
                 }
             }
-            FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarketplaceDropdown(statusFilter, listOf("All states", "Installed", "Needs attention", "Downloading"), statusFilter, { it }) { statusFilter = it }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val count = listOf(category != null, pricing != null, statusFilter != "All states").count { it }
+                OutlinedButton(onClick = { showFilters = true }) {
+                    Text(stringResource(if (count == 0) R.string.marketplace_filters else R.string.marketplace_filter_count, count))
+                }
                 MarketplaceDropdown("Sort: ${sort.label}", MarketplaceSort.entries.toList(), sort, { it.label }) { sort = it }
-                MarketplaceDropdown(
-                    category?.displayName ?: "All categories",
-                    listOf<McpCategory?>(null) + McpCategory.entries,
-                    category,
-                    { it?.displayName ?: "All categories" }
-                ) { category = it }
-                MarketplaceDropdown(
-                    pricing?.let(::pricingLabel) ?: "All pricing",
-                    listOf<McpPricingType?>(null) + McpPricingType.entries,
-                    pricing,
-                    { it?.let(::pricingLabel) ?: "All pricing" }
-                ) { pricing = it }
             }
             Text(
                 "${filtered.size} results",
@@ -398,6 +410,8 @@ fun McpMarketplaceScreen(
                     val entry = GitHubMarketplaceCatalog.find(preset.id)
                     val native = entry?.let(NativeMarketplaceCatalog::supports) == true
                     val installation = installations[preset.id]
+                    val itemVisible = (if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll).layoutInfo.visibleItemsInfo.any { it.key == preset.id }
+                    val now = rememberMarketplaceTime(installation?.nextRequestAt ?: 0L, itemVisible, installation?.takeIf { it.usageCount >= it.dailyLimit }?.usageDay)
                     val providerConnections = resolveMarketplaceConnections(preset, connectionsState.connections)
                     val connection = providerConnections.firstOrNull { it.connectionUid == selectedConnectionUids[preset.id] }
                         ?: providerConnections.firstOrNull()
@@ -761,7 +775,7 @@ private fun MarketplacePackageCard(
                     )
                 }
             }
-            Text(preset.description, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(preset.description, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             if (expanded && onTestConnection != null) {
                 Text("Connection test performs MCP initialization and tool discovery only. It does not execute tools; provider access limits may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -796,7 +810,9 @@ private fun MarketplacePackageCard(
                     }
                     download != null -> {
                         if (download.runtime != MarketplaceRuntime.NATIVE && download.canConnect && !isInstalled) Button(onClick = onAddClick, enabled = !removing, shape = RoundedCornerShape(12.dp)) { Text("Set up connection") }
-                        TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
+                        if (download.runtime == MarketplaceRuntime.NATIVE && needsSetup) {
+                            Button(onClick = { expanded = true }, enabled = !removing) { Text("Set up integration") }
+                        }
                     }
                     preset.integratedTool != null || preset.isPreinstalled -> Button(onClick = onAddClick) { Text("Configure") }
                     !preset.documentationOnly -> Button(onClick = onAddClick) {
@@ -811,14 +827,8 @@ private fun MarketplacePackageCard(
                         )
                     }
                 }
-                enabled?.let { value ->
+                enabled?.takeIf { download?.runtime == MarketplaceRuntime.NATIVE && !needsSetup }?.let { value ->
                     Button(onClick = { onEnabledChange(!value) }, enabled = !removing && !changing && (value || canEnable)) { Text(if (value) "Disable" else "Enable") }
-                }
-                if (download == null && onRemoveConnection != null) TextButton(onClick = onRemoveConnection) { Text("Uninstall") }
-                onTestConnection?.let { test ->
-                    TextButton(onClick = test, enabled = !testingConnection && !removing && !changing) {
-                        Text(if (testingConnection) "Testing…" else "Test connection")
-                    }
                 }
                 TextButton(onClick = { expanded = !expanded }) {
                     Text(if (expanded) "Less" else "Details")
@@ -828,6 +838,16 @@ private fun MarketplacePackageCard(
             if (nativeSettings != null && (needsSetup || expanded)) nativeSettings()
             if (expanded) {
                 HorizontalDivider()
+                enabled?.takeIf { download?.runtime != MarketplaceRuntime.NATIVE || needsSetup }?.let { value ->
+                    TextButton(onClick = { onEnabledChange(!value) }, enabled = !removing && !changing && (value || canEnable)) { Text(if (value) "Disable service access" else "Enable service access") }
+                }
+                if (download != null && downloaded) TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
+                if (download == null && onRemoveConnection != null) TextButton(onClick = onRemoveConnection) { Text("Remove connection") }
+                onTestConnection?.let { test ->
+                    TextButton(onClick = test, enabled = !testingConnection && !removing && !changing) {
+                        Text(if (testingConnection) "Testing…" else "Test connection")
+                    }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (preset.websiteLink.isNotBlank()) {
                         TextButton(onClick = {
@@ -970,4 +990,31 @@ fun McpPresetConfigureDialog(
             }
         }
     }
+}
+
+/** A visible cooldown owns its clock. Idle cards and hidden screens have no ticker. */
+@Composable
+private fun rememberMarketplaceTime(nextRequestAt: Long, visible: Boolean, limitedDay: String? = null): Long {
+    var now by remember(nextRequestAt) { mutableStateOf(System.currentTimeMillis()) }
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(nextRequestAt, visible, limitedDay, owner) {
+        if (visible) {
+            owner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+                do {
+                    now = System.currentTimeMillis()
+                    if (nextRequestAt <= now) {
+                        val day = limitedDay?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+                        val reset = day?.plusDays(1)?.atStartOfDay()?.toInstant(java.time.ZoneOffset.UTC)?.toEpochMilli()
+                        if (reset != null && reset > now) {
+                            kotlinx.coroutines.delay(reset - now)
+                            now = System.currentTimeMillis()
+                        }
+                        break
+                    }
+                    kotlinx.coroutines.delay(minOf(1000L, nextRequestAt - now))
+                } while (true)
+            }
+        }
+    }
+    return now
 }

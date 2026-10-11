@@ -51,6 +51,15 @@ class FreeModelToolConsentStore @Inject constructor(
         tools.forEach { revoke("", it) }
     }
 
+    /** Legacy entries have no stored tool label; keep their actual owner visible without guessing. */
+    fun grants(): List<Pair<String, String>> = preferences.all.entries.filter { it.value == true }.map { (key, _) ->
+        val owner = if (key.startsWith("all-models:")) "All models" else "Profile ${key.substringBefore(':')}"
+        key to "$owner · ${preferences.getString("tool:$key", null) ?: "tool not recorded"} · data-sharing acknowledgement"
+    }
+    fun revokeGrant(key: String) {
+        check(preferences.edit().remove(key).remove("tool:$key").commit()) { "Could not revoke free-model tool permission." }
+    }
+
     private fun globalKey(toolId: String) = key("all-models", toolId)
 
     private fun key(profileUid: String, toolId: String): String {

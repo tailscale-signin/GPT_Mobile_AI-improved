@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -47,6 +48,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.home.FancySwipeChatCard
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeViewModel.ChatListState
@@ -63,6 +65,7 @@ fun ArchivedConversationsBar(
     onChatClick: (ChatRoomV2) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var pendingDelete by androidx.compose.runtime.remember { mutableStateOf<ChatRoomV2?>(null) }
     var expanded by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -80,6 +83,20 @@ fun ArchivedConversationsBar(
                 Icon(Icons.Rounded.Archive, stringResource(R.string.archived_chats), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
             }
         }
+    }
+    pendingDelete?.let { room ->
+        FadingAlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.delete_chat_dialog_title)) },
+            text = { Text(stringResource(R.string.delete_chat_dialog_message, room.title)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    onDeleteChat(room)
+                }) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.cancel)) } }
+        )
     }
     if (expanded && archivedChats.isNotEmpty()) {
         val halfHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * 0.5f }
@@ -114,10 +131,10 @@ fun ArchivedConversationsBar(
                             confirmValueChange = { value ->
                                 when (value) {
                                     SwipeToDismissBoxValue.StartToEnd -> onUnarchiveChat(room)
-                                    SwipeToDismissBoxValue.EndToStart -> onDeleteChat(room)
+                                    SwipeToDismissBoxValue.EndToStart -> pendingDelete = room
                                     SwipeToDismissBoxValue.Settled -> Unit
                                 }
-                                true
+                                false
                             }
                         )
                         val profiles = platformState.filter { it.uid in room.enabledPlatform }
@@ -135,7 +152,11 @@ fun ArchivedConversationsBar(
                                 onChatClick(room)
                             },
                             onItemLongClick = {},
-                            isArchived = true
+                            isArchived = true,
+                            rowActions = mapOf(
+                                "Restore" to { onUnarchiveChat(room) },
+                                "Delete" to { pendingDelete = room }
+                            )
                         )
                     }
                 }

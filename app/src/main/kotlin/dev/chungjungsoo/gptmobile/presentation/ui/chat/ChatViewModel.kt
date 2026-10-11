@@ -81,7 +81,7 @@ import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     @param:ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
     private val settingRepository: SettingRepository,
@@ -353,7 +353,14 @@ class ChatViewModel @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
             )
 
-    private data class QueuedPrompt(val text: String, val attachments: List<ChatAttachmentDraft>)
+    val nextMessageProfileUid = savedStateHandle.getStateFlow<String?>("nextMessageProfileUid", null)
+
+    fun selectNextMessageProfile(uid: String?) {
+        if (uid != null && (_chatRoom.value.conversationMode == ConversationMode.COMBINED || uid !in _activePlatformUids.value || uid in _disabledPlatformUids.value || _platformsInApp.value.none { it.uid == uid && it.enabled })) return
+        savedStateHandle["nextMessageProfileUid"] = uid
+    }
+
+    private data class QueuedPrompt(val text: String, val attachments: List<ChatAttachmentDraft>, val profileUid: String? = null)
     private val queuedPrompts = ArrayDeque<QueuedPrompt>()
     private val _pendingPrompts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.queue.PendingPrompt>>(emptyList())
     val followUpProgress = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore.state
@@ -432,6 +439,11 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
+        val oneMessageUid = nextMessageProfileUid.value
+        if (oneMessageUid != null && (oneMessageUid !in _activePlatformUids.value || oneMessageUid in _disabledPlatformUids.value || _platformsInApp.value.none { it.uid == oneMessageUid && it.enabled })) {
+            _attachmentNotice.value = "The one-message profile is unavailable. Choose another profile; your draft is kept."
+            return
+        }
         if (isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
             if (durablePromptQueue != null) {
                 if (queueSubmissionPending) return
@@ -449,11 +461,12 @@ class ChatViewModel @Inject constructor(
                             questionText,
                             dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload(
                                 snapshot.mapNotNull { it.attachment },
-                                _activePlatformUids.value,
+                                oneMessageUid?.let(::listOf) ?: _activePlatformUids.value,
                                 _chatPlatformModels.value,
                                 _chatToolConfig.value
                             )
                         )
+                        if (nextMessageProfileUid.value == oneMessageUid) savedStateHandle["nextMessageProfileUid"] = null
                         if (question.text.toString() == questionText) question.clearText()
                         _selectedAttachments.update { current -> current.filterNot { it in snapshot } }
                         _attachmentNotice.value = "Queued. Use the buttons beside the message to edit or stop it."
@@ -467,14 +480,16 @@ class ChatViewModel @Inject constructor(
                 }
                 return
             }
-            queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList()))
+            queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList(), oneMessageUid))
+            savedStateHandle["nextMessageProfileUid"] = null
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
             _selectedAttachments.value = emptyList()
 
             return
         }
-        sendQuestion(questionText, attachments)
+        savedStateHandle["nextMessageProfileUid"] = null
+        sendQuestion(questionText, attachments, profileUid = oneMessageUid)
     }
 
     private fun isGenerationBusy(): Boolean =
@@ -485,9 +500,11 @@ class ChatViewModel @Inject constructor(
     private fun drainPromptQueueIfIdle() {
         if (durablePromptQueue != null) return
         if (isGenerationBusy() || queuedPrompts.isEmpty() || !hasUnpausedProfile()) return
+        val selected = queuedPrompts.first().profileUid
+        if (selected != null && (selected !in _activePlatformUids.value || selected in _disabledPlatformUids.value)) return
         val next = queuedPrompts.removeFirst()
         _queuedPromptCount.value = queuedPrompts.size
-        sendQuestion(next.text, next.attachments, clearComposer = false)
+        sendQuestion(next.text, next.attachments, clearComposer = false, profileUid = next.profileUid)
     }
 
     fun removeQueuedPrompt(id: String) {
@@ -1030,6 +1047,17 @@ class ChatViewModel @Inject constructor(
         )
     }
 
+    fun retrySelectedFile(filePath: String) {
+        if (_selectedAttachments.value.none { it.sourceFilePath == filePath && it.status == ChatAttachmentDraft.Status.Failed }) return
+        _selectedAttachments.update { list -> list.map { if (it.sourceFilePath == filePath) it.copy(status = ChatAttachmentDraft.Status.Preparing, errorMessage = null) else it } }
+        preprocessDraftAttachment(
+            currentAttachments = { _selectedAttachments.value },
+            updateAttachments = { _selectedAttachments.value = it },
+            filePath = filePath,
+            onNotice = { _attachmentNotice.value = it }
+        )
+    }
+
     fun removeSelectedFile(filePath: String) {
         removeDraftFile(
             currentAttachments = { _selectedAttachments.value },
@@ -1272,7 +1300,7 @@ class ChatViewModel @Inject constructor(
         return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to content
     }
 
-    private fun completeChat(persistSnapshotFirst: Boolean = false) {
+    private fun completeChat(persistSnapshotFirst: Boolean = false, oneMessageUid: String? = null) {
         // Update all the platform loading states to Loading
         _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Loading } }
         val turnIndex = _groupedMessages.value.assistantMessages.lastIndex
@@ -1283,7 +1311,7 @@ class ChatViewModel @Inject constructor(
                 val disabled = _disabledPlatformUids.value
                 val activeUids = _activePlatformUids.value.filterNot { it in disabled }.toSet()
                 val platforms = resolveSelectedPlatforms(enabledPlatformsInChat, _platformsInApp.value)
-                    .filter { it.value.uid in activeUids }
+                    .filter { it.value.uid in activeUids && (oneMessageUid == null || it.value.uid == oneMessageUid) }
                     .map { IndexedValue(it.index, resolvePlatformModel(it.value)) }
                 val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
                 _loadingStates.update { states ->
@@ -1548,7 +1576,8 @@ class ChatViewModel @Inject constructor(
     private fun sendQuestion(
         questionText: String,
         attachments: List<ChatAttachmentDraft>,
-        clearComposer: Boolean = true
+        clearComposer: Boolean = true,
+        profileUid: String? = null
     ) {
         MessageV2(
             chatId = chatRoomId,
@@ -1561,7 +1590,11 @@ class ChatViewModel @Inject constructor(
             question.clearText()
             clearSelectedFiles()
         }
-        completeChat()
+        profileUid?.let { uid ->
+            val index = enabledPlatformsInChat.indexOf(uid)
+            if (index >= 0) _indexStates.update { states -> states.dropLast(1) + index }
+        }
+        completeChat(oneMessageUid = profileUid)
     }
 
     private fun rejectDraftAttachment(

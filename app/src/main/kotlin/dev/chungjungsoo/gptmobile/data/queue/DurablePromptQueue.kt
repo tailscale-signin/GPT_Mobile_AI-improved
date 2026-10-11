@@ -57,6 +57,12 @@ class DurablePromptQueue @Inject constructor(
                         val pausedProfiles = preferences.getStringSet("paused_$chatId", emptySet()).orEmpty()
                         if (payload.profileUids.any { it in pausedProfiles }) return@forEach
                         if (!database.agentPersistenceDao().queuedTurnReady(chatId, pausedProfiles)) return@forEach
+                        val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return@forEach
+                        if (payload.profileUids.any { it !in room.activePlatform }) {
+                            // Preserve the requested model snapshot for explicit review; never silently reroute.
+                            dao.pause(prompt.id, true)
+                            return@forEach
+                        }
                         val targets = payload.profileUids.mapNotNull { uid -> profiles.firstOrNull { it.uid == uid && it.enabled } }
                         if (targets.isEmpty() || targets.size != payload.profileUids.size) {
                             dao.pause(prompt.id, true)
@@ -68,7 +74,6 @@ class DurablePromptQueue @Inject constructor(
                             dao.pause(prompt.id, true)
                             return@forEach
                         }
-                        val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return@forEach
                         val before = chats.fetchMessagesV2(chatId)
                         val resolved = targets.map { it.copy(model = payload.models[it.uid] ?: it.model, reasoning = payload.tools.reasoning ?: it.reasoning) }
                         val result = chats.persistAgentTurn(

@@ -45,9 +45,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.DelegationWorkloadPreset
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import dev.chungjungsoo.gptmobile.data.model.withWorkloadPreset
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlin.math.roundToInt
@@ -270,6 +272,12 @@ internal fun ModelDelegationSettingsContent(
             Card(shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("Workload", "Adjust how much the delegate does and how widely it researches.")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DelegationWorkloadPreset.entries.forEach { preset ->
+                            FilterChip(selected = config.strategy == preset.depth, enabled = !busy, onClick = { onChange { it.withWorkloadPreset(preset) } }, label = { Text(preset.name.lowercase().replaceFirstChar { it.titlecase() }) })
+                        }
+                    }
+                    Text("Presets change research breadth. Your profile choices, reviewer settings and permission controls are preserved.", style = MaterialTheme.typography.bodySmall)
                     DelegationSlider(
                         "Delegation Amount",
                         100 - config.processingOwnership,

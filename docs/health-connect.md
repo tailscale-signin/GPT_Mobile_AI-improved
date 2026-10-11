@@ -21,7 +21,9 @@ or the integrated-plugin marketplace. Its themed screen has **Overview**,
    Android read permissions. Partial grants are supported. Existing permissions
    are removed through Health Connect settings, not by unchecking a request box.
 3. Refresh the local Overview to verify records. This does not contact an AI and
-   does not require the AI-sharing switch.
+   does not require the AI-sharing switch. Optionally, use Access → Import Google
+   Health data locally to save a bounded 1–30 day summary on this phone. The saved
+   snapshot is for local review; it does not grant AI access.
 4. For AI questions, separately confirm **Share permitted health results with
    AI**, enable the plugin, and opt in each desired AI profile on the AI Tools
    tab. Local tools must be enabled for that profile. Per-chat tool exclusions
@@ -89,9 +91,13 @@ heart rate bpm, HRV milliseconds, oxygen percent and respiratory rate breaths/mi
   unlocked-device checks precede and follow measurement reads.
 * Results are not eligible for cross-profile shared-result caching. Recovery
   cannot reuse old health tool results instead of making a fresh authorized read.
-* The plugin has no health-record DB, disk cache, scheduled worker or independent
-  upload endpoint. UI preview is cleared on leaving the activity and is never
-  stored in `SavedStateHandle`.
+* The plugin has no health-record database, scheduled worker or independent
+  upload endpoint. By default, measurements are not written to disk. The optional
+  user-triggered import stores one bounded summary snapshot in app-private
+  `noBackupFilesDir`; it is excluded from Android backup, stays until deleted or
+  disconnected, and is not automatically supplied to an AI. The transient Overview
+  preview is cleared when leaving the activity and is never stored in
+  `SavedStateHandle`.
 * AI-sharing consent lives in `noBackupFilesDir`, outside configuration/complete
   backup payloads. An imported configuration cannot by itself authorize sharing
   on a new installation. Global/profile flags may be backed up; consent is separate.
@@ -104,9 +110,10 @@ heart rate bpm, HRV milliseconds, oxygen percent and respiratory rate breaths/mi
   app settings. Trace redaction is not a promise of end-to-end deletion. The UI's
   explicit consent dialog explains that profiles, gateways and delegates can
   receive data and that those existing retention rules apply.
-* Disconnect disables the plugin, revokes AI sharing and requests revocation of
-  this app's Health Connect permissions. It does not delete watch/Health Connect
-  records, previously generated conversations or provider-held data.
+* Disconnect disables the plugin, revokes AI sharing, deletes this app's saved
+  local snapshot and requests revocation of this app's Health Connect permissions.
+  It does not delete watch/Health Connect records, previously generated
+  conversations or provider-held data.
 
 The public Android permission-rationale activity contains static policy only;
 it cannot read data or accept sharing consent. The dashboard is not exported,
@@ -114,7 +121,8 @@ uses the app-lock activity base and prevents screenshots of its health view.
 
 ## Architecture
 
-- `data/health`: bounded query contract, SDK reader, explicit no-backup consent.
+- `data/health`: bounded query contract, SDK reader, explicit no-backup consent
+  and optional bounded local-import snapshot store.
 - `data/agent/tool/HealthConnectTool`: per-call policy gate and AI schemas.
 - `di/HealthConnectModule`: Hilt binding for the native reader.
 - `presentation/ui/health`: permission launcher, dashboard and rationale.
@@ -151,3 +159,4 @@ Verified for this implementation on 2026-10-11. Stable SDK pin: 1.1.0 (not the
 - https://developer.android.com/health-and-fitness/health-connect/aggregate-data
 - https://developer.android.com/health-and-fitness/health-connect/read-data
 - https://developer.android.com/health-and-fitness/health-connect/plan/data-types
+

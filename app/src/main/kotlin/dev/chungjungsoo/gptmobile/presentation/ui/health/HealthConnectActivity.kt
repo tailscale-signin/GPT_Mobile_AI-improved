@@ -89,6 +89,7 @@ class HealthConnectActivity : ProtectedActivity() {
 
     override fun onStop() {
         model.clearPreview()
+        model.cancelImport()
         super.onStop()
     }
 
@@ -204,6 +205,35 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                             TextButton(onClick = openSystem) { Text("Open Health Connect permissions & sources") }
                         }
                         item {
+                            HealthCard("Import Google Health data locally") {
+                                Text("Save a snapshot of permitted Health Connect data in this app's private storage on this phone. It is excluded from Android backup and is not sent to an AI. This does not grant AI access.")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(1, 7, 30).forEach { period ->
+                                        FilterChip(
+                                            selected = days == period,
+                                            onClick = { days = period },
+                                            enabled = !state.importing && !state.busy,
+                                            label = { Text(if (period == 1) "Today" else "$period days") }
+                                        )
+                                    }
+                                }
+                                Button(
+                                    onClick = { model.importLocally(days) },
+                                    enabled = state.availability == "available" && state.permissions.isNotEmpty() && !state.importing && !state.busy
+                                ) { Text(if (state.localImport == null) "Import to this phone" else "Update local import") }
+                                if (state.importing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                                state.localImport?.let { imported ->
+                                    Text("Saved ${imported.days}-day snapshot · ${imported.importedAt}", style = MaterialTheme.typography.bodySmall)
+                                    Text("The snapshot remains on this phone until you delete it or disconnect Health Connect.", style = MaterialTheme.typography.bodySmall)
+                                    val importedMetrics = (imported.summary["metrics"] as? JsonObject).orEmpty()
+                                    importedMetrics.entries.forEach { (_, element) ->
+                                        (element as? JsonObject)?.let { HealthMetricCard(it) }
+                                    }
+                                    TextButton(onClick = model::clearLocalImport, enabled = !state.importing && !state.busy) { Text("Delete local import") }
+                                }
+                            }
+                        }
+                        item {
                             HealthCard("2 · Allow AI conversation use") {
                                 HealthSwitch("Share permitted health results with AI", aiAllowed, !state.busy) { allowed -> if (allowed) confirmAi = true else model.setAiAllowed(false) }
                                 Text("Off by default. Android permission alone never authorizes AI sharing. Local previews do not require this switch.", style = MaterialTheme.typography.bodySmall)
@@ -261,7 +291,7 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
         AlertDialog(
             onDismissRequest = { confirmRevoke = false },
             title = { Text("Disconnect Health Connect?") },
-            text = { Text("Disables this plugin, turns off AI sharing and revokes this app's Health Connect permissions. Watch records and existing conversations are not deleted.") },
+            text = { Text("Disables this plugin, turns off AI sharing, deletes this app's saved local import and revokes this app's Health Connect permissions. Watch records and existing conversations are not deleted.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmRevoke = false
@@ -317,3 +347,4 @@ private fun HealthMetricCard(metric: JsonObject) {
 }
 
 private fun friendly(value: String): String = value.replace('_', ' ').replaceFirstChar { it.titlecase() }
+

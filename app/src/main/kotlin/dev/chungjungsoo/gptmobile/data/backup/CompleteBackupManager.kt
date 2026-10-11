@@ -48,7 +48,9 @@ class CompleteBackupManager @Inject constructor(
     private val settings: SettingRepository,
     private val legacy: AppBackupManager,
     private val nativePlugins: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
-    private val benchmarkStore: BenchmarkStore
+    private val benchmarkStore: BenchmarkStore,
+    private val healthImportStore: dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore =
+        dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context)
 ) {
     private val mutex = Mutex()
     private val protectionMutex = Mutex()
@@ -254,11 +256,8 @@ class CompleteBackupManager @Inject constructor(
                     .forEach { sources["internal/research-history/${it.name}"] = it }
             }
             if (selected.includes(CompleteBackupSection.HEALTH_DATA)) {
-                val healthImport = File(context.filesDir, "health-connect/local-import-v1")
-                if (healthImport.isFile) {
-                    require(healthImport.length() in 1..dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportCodec.MAX_BYTES.toLong()) {
-                        "The saved Health Connect import is invalid. Open Smartwatch settings and import it again."
-                    }
+                val healthImport = File(work, "health-connect-local-import-v1")
+                if (healthImportStore.copyTo(healthImport)) {
                     sources["internal/health-connect/local-import-v1"] = healthImport
                 }
             }

@@ -97,6 +97,20 @@ class HealthConnectLocalImportStore @Inject constructor(@param:ApplicationContex
         }
     }
 
+    suspend fun copyTo(destination: File): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (!file.baseFile.isFile) return@withLock false
+            val bytes = file.readFully()
+            try {
+                check(HealthConnectLocalImportCodec.decode(bytes) != null) { "The saved Health Connect import is invalid." }
+                destination.writeBytes(bytes)
+                true
+            } finally {
+                bytes.fill(0)
+            }
+        }
+    }
+
     suspend fun clear() = withContext(Dispatchers.IO) {
         mutex.withLock {
             file.delete()

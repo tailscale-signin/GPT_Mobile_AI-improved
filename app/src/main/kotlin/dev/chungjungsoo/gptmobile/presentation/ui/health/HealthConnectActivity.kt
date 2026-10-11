@@ -151,7 +151,10 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                                 Text("Sync your watch in its companion app and enable that app's Health Connect sharing first. Available data varies by watch and companion app.")
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(1, 7, 30).forEach { period ->
-                                        FilterChip(selected = days == period, onClick = { days = period; model.clearPreview() }, label = { Text(if (period == 1) "Today" else "$period days") })
+                                        FilterChip(selected = days == period, onClick = {
+                                            days = period
+                                            model.clearPreview()
+                                        }, label = { Text(if (period == 1) "Today" else "$period days") })
                                     }
                                 }
                                 Button(onClick = { model.preview(days) }, enabled = state.availability == "available" && !state.loading && !state.busy) { Text("Refresh local statistics") }
@@ -190,7 +193,11 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                         }
                         item {
                             Button(onClick = {
-                                try { permissionLauncher.launch(selected) } catch (_: Exception) { model.showError("Could not open the permission request. Install or update Health Connect, then retry.") }
+                                try {
+                                    permissionLauncher.launch(selected)
+                                } catch (_: Exception) {
+                                    model.showError("Could not open the permission request. Install or update Health Connect, then retry.")
+                                }
                             }, enabled = state.availability == "available" && selected.isNotEmpty() && !state.busy) { Text("Request selected permissions") }
                             TextButton(onClick = openSystem) { Text("Open Health Connect permissions & sources") }
                         }
@@ -234,20 +241,34 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
             }
         }
     }
-    if (confirmAi) AlertDialog(
-        onDismissRequest = { confirmAi = false },
-        title = { Text("Allow health data in AI conversations?") },
-        text = { Text(HealthConnectPrivacy.AI_DISCLOSURE) },
-        confirmButton = { TextButton(onClick = { confirmAi = false; model.setAiAllowed(true) }) { Text("Allow AI use") } },
-        dismissButton = { TextButton(onClick = { confirmAi = false }) { Text("Keep private") } }
-    )
-    if (confirmRevoke) AlertDialog(
-        onDismissRequest = { confirmRevoke = false },
-        title = { Text("Disconnect Health Connect?") },
-        text = { Text("Disables this plugin, turns off AI sharing and revokes this app's Health Connect permissions. Watch records and existing conversations are not deleted.") },
-        confirmButton = { TextButton(onClick = { confirmRevoke = false; model.revoke() }) { Text("Disconnect") } },
-        dismissButton = { TextButton(onClick = { confirmRevoke = false }) { Text("Cancel") } }
-    )
+    if (confirmAi) {
+        AlertDialog(
+            onDismissRequest = { confirmAi = false },
+            title = { Text("Allow health data in AI conversations?") },
+            text = { Text(HealthConnectPrivacy.AI_DISCLOSURE) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmAi = false
+                    model.setAiAllowed(true)
+                }) { Text("Allow AI use") }
+            },
+            dismissButton = { TextButton(onClick = { confirmAi = false }) { Text("Keep private") } }
+        )
+    }
+    if (confirmRevoke) {
+        AlertDialog(
+            onDismissRequest = { confirmRevoke = false },
+            title = { Text("Disconnect Health Connect?") },
+            text = { Text("Disables this plugin, turns off AI sharing and revokes this app's Health Connect permissions. Watch records and existing conversations are not deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRevoke = false
+                    model.revoke()
+                }) { Text("Disconnect") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRevoke = false }) { Text("Cancel") } }
+        )
+    }
 }
 
 @Composable

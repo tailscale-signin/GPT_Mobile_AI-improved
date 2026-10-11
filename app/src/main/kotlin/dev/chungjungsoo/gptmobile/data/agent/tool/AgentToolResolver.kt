@@ -143,15 +143,22 @@ class AgentToolResolver @Inject constructor(
 
         val resolved = mutableListOf<ResolvedAgentTool>()
 
-        if (!disableLocal && platform?.enabled == true && healthReader != null && healthConsent != null &&
+        if (!disableLocal &&
+            platform?.enabled == true &&
+            healthReader != null &&
+            healthConsent != null &&
             featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
         ) {
             dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.operations.keys.forEach { operation ->
                 val tool = HealthConnectTool(
-                    operation, healthReader,
+                    operation,
+                    healthReader,
                     accessAllowed = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                        current == platform && current?.enabled == true && !current.disableAllTools && !current.disableLocalTools &&
+                        current == platform &&
+                            current?.enabled == true &&
+                            !current.disableAllTools &&
+                            !current.disableLocalTools &&
                             chatToolConfig?.allToolsDisabled != true &&
                             settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
                     },

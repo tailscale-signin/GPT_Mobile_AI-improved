@@ -60,7 +60,9 @@ internal class ResponseRecoveryContext(
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
             if (dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(realName) ||
                 dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(definition.name)
-            ) return tool.execute(callId, arguments)
+            ) {
+                return tool.execute(callId, arguments)
+            }
             val match = events.lastOrNull { event ->
                 event.toolName == realName &&
                     event.connectionUidSnapshot == connectionUid &&

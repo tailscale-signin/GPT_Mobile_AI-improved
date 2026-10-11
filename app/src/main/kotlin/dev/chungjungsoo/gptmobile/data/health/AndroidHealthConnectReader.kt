@@ -1,9 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.health
 
-import android.content.Context
 import android.app.KeyguardManager
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ProcessLifecycleOwner
+import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.aggregate.AggregateMetric
 import androidx.health.connect.client.aggregate.AggregationResult
@@ -25,6 +23,8 @@ import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Duration
 import java.time.Instant
@@ -53,10 +53,12 @@ class AndroidHealthConnectReader private constructor(
     @Inject constructor(@ApplicationContext context: Context) : this(
         { HealthConnectClient.getSdkStatus(context) },
         { HealthConnectClient.getOrCreate(context) },
-        { withContext(Dispatchers.Main.immediate) {
-            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
-                context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
-        } }
+        {
+            withContext(Dispatchers.Main.immediate) {
+                ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                    context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
+            }
+        }
     )
 
     internal constructor(client: HealthConnectClient) : this({ HealthConnectClient.SDK_AVAILABLE }, { client }, { true })
@@ -79,23 +81,30 @@ class AndroidHealthConnectReader private constructor(
         withTimeout(20_000L) {
             require(operation in HealthConnectTools.operations) { "Unsupported health operation." }
             val available = availability()
-            if (available != "available") return@withTimeout buildJsonObject {
-                put("schema", HealthConnectTools.SCHEMA)
-                put("status", available)
-                put("action", "Open Smartwatch Health Connect settings to install or update Health Connect.")
+            if (available != "available") {
+                return@withTimeout buildJsonObject {
+                    put("schema", HealthConnectTools.SCHEMA)
+                    put("status", available)
+                    put("action", "Open Smartwatch Health Connect settings to install or update Health Connect.")
+                }
             }
             val permissions = grantedPermissions()
-            if (operation == "status") return@withTimeout buildJsonObject {
-                put("schema", HealthConnectTools.SCHEMA)
-                put("status", available)
-                put("read_only", true)
-                put("live_sensor_stream", false)
-                put("background_reads", false)
-                put("maximum_lookback_days", 30)
-                put("permissions", buildJsonObject {
-                    HealthMetric.entries.forEach { put(it.id, if (it.permission in permissions) "granted" else "not_granted") }
-                })
-                put("note", "Supported record types do not prove that a watch provides them. Sync the watch companion app to Health Connect.")
+            if (operation == "status") {
+                return@withTimeout buildJsonObject {
+                    put("schema", HealthConnectTools.SCHEMA)
+                    put("status", available)
+                    put("read_only", true)
+                    put("live_sensor_stream", false)
+                    put("background_reads", false)
+                    put("maximum_lookback_days", 30)
+                    put(
+                        "permissions",
+                        buildJsonObject {
+                            HealthMetric.entries.forEach { put(it.id, if (it.permission in permissions) "granted" else "not_granted") }
+                        }
+                    )
+                    put("note", "Supported record types do not prove that a watch provides them. Sync the watch companion app to Health Connect.")
+                }
             }
             if (!foregroundAllowed()) return@withTimeout foregroundRequired()
             val requested = HealthConnectTools.operations.getValue(operation)
@@ -123,13 +132,16 @@ class AndroidHealthConnectReader private constructor(
             val statuses = results.values.map { (it["status"] as? JsonPrimitive)?.content }
             buildJsonObject {
                 put("schema", HealthConnectTools.SCHEMA)
-                put("status", when {
-                    statuses.all { it == "available" } -> "available"
-                    statuses.all { it == "no_data" } -> "no_data"
-                    statuses.all { it == "permission_required" } -> "permission_required"
-                    statuses.none { it == "available" || it == "no_data" } -> "access_or_provider_error"
-                    else -> "partial"
-                })
+                put(
+                    "status",
+                    when {
+                        statuses.all { it == "available" } -> "available"
+                        statuses.all { it == "no_data" } -> "no_data"
+                        statuses.all { it == "permission_required" } -> "permission_required"
+                        statuses.none { it == "available" || it == "no_data" } -> "access_or_provider_error"
+                        else -> "partial"
+                    }
+                )
                 put("operation", operation)
                 put("window_start", query.start.toString())
                 put("window_end_exclusive", query.end.toString())
@@ -202,35 +214,43 @@ class AndroidHealthConnectReader private constructor(
         HealthMetric.SLEEP -> {
             val total = aggregate(metric, q, setOf(SleepSessionRecord.SLEEP_DURATION_TOTAL)) { number("total", it[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.toMillis()?.div(60_000.0)) }
             val page = readBounded(SleepSessionRecord::class, q)
-            JsonObject(total + mapOf(
-                "sessions" to JsonArray(page.records.map { record ->
-                    buildJsonObject {
-                        put("start", record.startTime.toString())
-                        put("end", record.endTime.toString())
-                        put("session_span_minutes", Duration.between(record.startTime, record.endTime).toMillis() / 60_000.0)
-                        put("source_package", record.metadata.dataOrigin.packageName)
-                        put("note", "Session span is time in bed, not necessarily time asleep. Totals above are independently aggregated.")
-                    }
-                }),
-                "sessions_complete" to JsonPrimitive(page.complete)
-            ))
+            JsonObject(
+                total + mapOf(
+                    "sessions" to JsonArray(
+                        page.records.map { record ->
+                            buildJsonObject {
+                                put("start", record.startTime.toString())
+                                put("end", record.endTime.toString())
+                                put("session_span_minutes", Duration.between(record.startTime, record.endTime).toMillis() / 60_000.0)
+                                put("source_package", record.metadata.dataOrigin.packageName)
+                                put("note", "Session span is time in bed, not necessarily time asleep. Totals above are independently aggregated.")
+                            }
+                        }
+                    ),
+                    "sessions_complete" to JsonPrimitive(page.complete)
+                )
+            )
         }
         HealthMetric.WORKOUTS -> {
             val total = aggregate(metric, q, setOf(ExerciseSessionRecord.EXERCISE_DURATION_TOTAL)) { number("total", it[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.toMillis()?.div(60_000.0)) }
             val page = readBounded(ExerciseSessionRecord::class, q)
-            JsonObject(total + mapOf(
-                "sessions" to JsonArray(page.records.map { record ->
-                    buildJsonObject {
-                        put("start", record.startTime.toString())
-                        put("end", record.endTime.toString())
-                        put("exercise_type_code", record.exerciseType)
-                        put("session_span_minutes", Duration.between(record.startTime, record.endTime).toMillis() / 60_000.0)
-                        put("source_package", record.metadata.dataOrigin.packageName)
-                        put("routes_included", false)
-                    }
-                }),
-                "sessions_complete" to JsonPrimitive(page.complete)
-            ))
+            JsonObject(
+                total + mapOf(
+                    "sessions" to JsonArray(
+                        page.records.map { record ->
+                            buildJsonObject {
+                                put("start", record.startTime.toString())
+                                put("end", record.endTime.toString())
+                                put("exercise_type_code", record.exerciseType)
+                                put("session_span_minutes", Duration.between(record.startTime, record.endTime).toMillis() / 60_000.0)
+                                put("source_package", record.metadata.dataOrigin.packageName)
+                                put("routes_included", false)
+                            }
+                        }
+                    ),
+                    "sessions_complete" to JsonPrimitive(page.complete)
+                )
+            )
         }
     }
 
@@ -262,12 +282,15 @@ class AndroidHealthConnectReader private constructor(
             put("label", metric.label)
             put("unit", metric.unit)
             put("status", if (records.isEmpty()) "no_data" else "available")
-            put("values", buildJsonObject {
-                number("latest", latest?.let(value))
-                number("sample_average", values.takeIf { it.isNotEmpty() }?.average())
-                number("sample_minimum", values.minOrNull())
-                number("sample_maximum", values.maxOrNull())
-            })
+            put(
+                "values",
+                buildJsonObject {
+                    number("latest", latest?.let(value))
+                    number("sample_average", values.takeIf { it.isNotEmpty() }?.average())
+                    number("sample_minimum", values.minOrNull())
+                    number("sample_maximum", values.maxOrNull())
+                }
+            )
             put("latest_measurement_at", latest?.let { JsonPrimitive(time(it).toString()) } ?: JsonNull)
             put("records_examined", records.size)
             put("records_complete", page.complete)

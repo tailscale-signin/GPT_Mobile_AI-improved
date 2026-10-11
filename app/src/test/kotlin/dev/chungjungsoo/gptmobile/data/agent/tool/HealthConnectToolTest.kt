@@ -105,7 +105,10 @@ class HealthConnectToolTest {
             calls++
             this.operation = operation
             onRead()
-            return buildJsonObject { put("status", "available"); if (operation != "status") put("value", "private-measurement") }
+            return buildJsonObject {
+                put("status", "available")
+                if (operation != "status") put("value", "private-measurement")
+            }
         }
     }
 }

@@ -33,7 +33,9 @@ class AndroidHealthConnectReaderTest {
     private val now = Instant.parse("2026-10-11T19:00:00Z")
     private val query = HealthQuery(now.minusSeconds(3600), now, ZoneId.of("UTC"))
 
-    init { every { client.permissionController } returns permissions }
+    init {
+        every { client.permissionController } returns permissions
+    }
 
     @Test fun deniedCategoriesNeverReachTheProvider() = runBlocking {
         coEvery { permissions.getGrantedPermissions() } returns emptySet()

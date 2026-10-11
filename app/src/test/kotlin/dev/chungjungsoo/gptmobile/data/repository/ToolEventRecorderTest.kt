@@ -37,8 +37,13 @@ import org.junit.Test
 class ToolEventRecorderTest {
     @Test fun healthMeasurementsNeverEnterPersistedTracesOrRecoveryCheckpoints() = runBlocking {
         val event = recorder.startTool("health-run", 0, "health-call", "health_connect_summary", "health_connect_summary", buildJsonObject { put("sensitive_argument", "private-987654") }, startedAt = 1L)
-        val live = AgentToolResult("health-call", ToolResultContent.Text("private-987654"), true,
-            traceContent = ToolResultContent.Text("short display"), retainedContent = ToolResultContent.Text("full-private-987654"))
+        val live = AgentToolResult(
+            "health-call",
+            ToolResultContent.Text("private-987654"),
+            true,
+            traceContent = ToolResultContent.Text("short display"),
+            retainedContent = ToolResultContent.Text("full-private-987654")
+        )
         recorder.finishTool(event.eventId, live, 2L, "private-987654 error")
         val stored = dao.rows.single()
         assertEquals("{}", stored.arguments)

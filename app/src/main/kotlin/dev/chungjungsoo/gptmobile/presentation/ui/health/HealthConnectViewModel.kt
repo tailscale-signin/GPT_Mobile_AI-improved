@@ -123,7 +123,9 @@ class HealthConnectViewModel @Inject constructor(
         mutable.update { it.copy(permissions = emptySet()) }
     }
 
-    fun showError(message: String) { mutable.update { it.copy(error = message) } }
+    fun showError(message: String) {
+        mutable.update { it.copy(error = message) }
+    }
 
     private fun mutate(action: suspend () -> Unit) {
         viewModelScope.launch {

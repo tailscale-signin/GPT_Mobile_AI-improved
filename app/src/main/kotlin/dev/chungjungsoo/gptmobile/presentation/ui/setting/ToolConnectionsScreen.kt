@@ -37,9 +37,9 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Cable
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Hub

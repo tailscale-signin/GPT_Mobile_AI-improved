@@ -9,6 +9,7 @@ import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.response.ReadRecordsResponse
+import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.health.connect.client.units.Mass
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -53,8 +54,14 @@ class AndroidHealthConnectReaderTest {
         val request = slot<AggregateRequest>()
         coEvery { client.aggregate(capture(request)) } returns aggregate
         val result = AndroidHealthConnectReader(client).read("activity", query.copy(sourcePackage = "com.example.health"))
-        assertEquals(setOf(StepsRecord.COUNT_TOTAL), request.captured.metrics)
-        assertEquals(setOf(DataOrigin("com.example.health")), request.captured.dataOriginFilter)
+        assertEquals(
+            AggregateRequest(
+                metrics = setOf(StepsRecord.COUNT_TOTAL),
+                timeRangeFilter = TimeRangeFilter.between(query.start, query.end),
+                dataOriginFilter = setOf(DataOrigin("com.example.health")),
+            ),
+            request.captured,
+        )
         assertEquals(JsonPrimitive(1234L), result.getValue("metrics").jsonObject.getValue("steps").jsonObject.getValue("values").jsonObject["total"])
         assertEquals(JsonPrimitive("partial"), result["status"])
         assertEquals(JsonNull, result["last_source_sync_at"])

@@ -84,6 +84,7 @@ data class HealthQuery(
             val end = endText?.let(::timestamp) ?: now
             val start = startText?.let(::timestamp)
                 ?: now.atZone(zone).toLocalDate().minusDays(days - 1L).atStartOfDay(zone).toInstant()
+                    .let { maxOf(it, now.minus(Duration.ofDays(30))) }
                     .let { if (it == now) now.minusNanos(1) else it }
             require(start < end) { "start_time must be before end_time." }
             require(end <= now) { "Future records cannot be requested." }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -145,6 +146,7 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
         iconName == "folder" -> Icons.Rounded.Folder
         iconName == "news" -> Icons.Rounded.Newspaper
         iconName == "airbnb" -> Icons.Rounded.Home
+        iconName == "health" -> Icons.Rounded.Favorite
         category == McpCategory.SEARCH -> Icons.Rounded.Search
         category == McpCategory.DEVELOPMENT -> Icons.Rounded.Code
         category == McpCategory.DATABASE -> Icons.Rounded.Dns

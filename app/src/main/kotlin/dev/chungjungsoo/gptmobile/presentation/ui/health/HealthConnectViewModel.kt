@@ -15,6 +15,9 @@ import java.time.Instant
 import java.time.ZoneId
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -86,6 +89,9 @@ class HealthConnectViewModel @Inject constructor(
                 val query = HealthQuery.parse(buildJsonObject { put("days", days) }, Instant.now(), ZoneId.systemDefault())
                 val result = reader.read("summary", query)
                 if (previewGeneration == generation) mutable.update { it.copy(preview = result) }
+            } catch (_: TimeoutCancellationException) {
+                currentCoroutineContext().ensureActive()
+                if (previewGeneration == generation) showError("Health Connect did not respond in time. Keep this screen open and retry.")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

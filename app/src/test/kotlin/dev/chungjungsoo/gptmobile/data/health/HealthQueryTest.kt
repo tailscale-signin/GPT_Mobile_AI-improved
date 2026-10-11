@@ -14,6 +14,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HealthQueryTest {
+    @Test
+    fun thirtyCalendarDaysAcrossFallBackAreClippedToTheHistoryLimit() {
+        val now = Instant.parse("2026-11-20T04:30:00Z")
+        val query = HealthQuery.parse(buildJsonObject { put("days", 30) }, now, ZoneId.of("America/Toronto"))
+        assertEquals(now.minus(java.time.Duration.ofDays(30)), query.start)
+        assertEquals(now, query.end)
+    }
+
     private val now = Instant.parse("2026-10-11T19:00:00Z")
     private val zone = ZoneId.of("America/Toronto")
 

@@ -54,7 +54,9 @@ remains unchanged. An install/update/unavailable state is not a zero measurement
 ```
 
 `days` is optional (default today), integer 1–30, interpreted as calendar days
-including today in the phone's current time zone. Alternatively supply **both**
+including today in the phone's current time zone. At a fall daylight-saving
+transition, the default 30-day range is clipped to the rolling 30-day history
+limit; it is never expanded. Alternatively supply **both**
 `start_time` and `end_time` as ISO-8601 timestamps with `Z` or an explicit offset.
 The end is exclusive. Reject reversed, future, ambiguous-offset, unknown-field
 and out-of-window requests; never silently extend the requested window.

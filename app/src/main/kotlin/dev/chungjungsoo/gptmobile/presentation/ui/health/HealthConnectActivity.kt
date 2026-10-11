@@ -47,6 +47,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
@@ -184,7 +186,7 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                         }
                         items(HealthMetric.entries, key = { it.id }) { metric ->
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = metric.permission in selected, onCheckedChange = { checked -> selected = if (checked) selected + metric.permission else selected - metric.permission })
+                                Checkbox(modifier = Modifier.semantics { contentDescription = metric.label }, checked = metric.permission in selected, onCheckedChange = { checked -> selected = if (checked) selected + metric.permission else selected - metric.permission })
                                 Column(Modifier.weight(1f)) {
                                     Text(metric.label)
                                     Text(if (metric.permission in state.permissions) "Granted" else "Not granted", style = MaterialTheme.typography.bodySmall)
@@ -285,7 +287,7 @@ private fun HealthCard(title: String, content: @Composable () -> Unit) {
 private fun HealthSwitch(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(label, Modifier.weight(1f))
-        Switch(checked, onChange, enabled = enabled)
+        Switch(checked, onChange, modifier = Modifier.semantics { contentDescription = label }, enabled = enabled)
     }
 }
 

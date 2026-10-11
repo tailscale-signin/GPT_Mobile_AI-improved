@@ -1,0 +1,42 @@
+[
+  {
+    "provider": "openalex",
+    "httpStatus": 200,
+    "anonymous": true,
+    "parsedRecords": 1,
+    "checked": "2026-10-11",
+    "fixture": "app/src/test/resources/academic/openalex.json"
+  },
+  {
+    "provider": "crossref",
+    "httpStatus": 200,
+    "anonymous": true,
+    "parsedRecords": 1,
+    "checked": "2026-10-11",
+    "fixture": "app/src/test/resources/academic/crossref.json"
+  },
+  {
+    "provider": "arxiv",
+    "httpStatus": 200,
+    "anonymous": true,
+    "parsedRecords": 1,
+    "checked": "2026-10-11",
+    "fixture": "app/src/test/resources/academic/arxiv.xml"
+  },
+  {
+    "provider": "europepmc",
+    "httpStatus": 200,
+    "anonymous": true,
+    "parsedRecords": 1,
+    "checked": "2026-10-11",
+    "fixture": "app/src/test/resources/academic/europepmc.json"
+  },
+  {
+    "provider": "datacite",
+    "httpStatus": 200,
+    "anonymous": true,
+    "parsedRecords": 1,
+    "checked": "2026-10-11",
+    "fixture": "app/src/test/resources/academic/datacite.json"
+  }
+]

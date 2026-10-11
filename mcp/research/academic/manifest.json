@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "deep_research",
+  "implementation": "repository-native public HTTPS adapters",
+  "routerSha256": "3c0992ff99b8f90409c50c9f65647658a90bd44ede31fe98676a8d6e2195dd8a",
+  "defaultProviders": [
+    "openalex",
+    "crossref",
+    "arxiv",
+    "europepmc",
+    "datacite"
+  ],
+  "readOnly": true,
+  "upstreamPackageInstall": "none",
+  "pdfReader": "optional OS-installed pdftotext; no automatic download"
+}

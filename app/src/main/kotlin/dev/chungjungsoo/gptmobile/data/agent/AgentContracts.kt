@@ -20,14 +20,19 @@ sealed interface ProviderEvent {
         val outputTokens: Int? = null,
         val totalTokens: Int? = null,
         val cumulative: Boolean = true,
-        val decodeTokensPerSecond: Double? = null
+        val decodeTokensPerSecond: Double? = null,
+        val finishReason: String? = null,
+        val effectiveSettingsConfirmed: Boolean = false,
+        val retryDurationMs: Long? = null,
+        val retryAttempts: Int? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */
     data class RequestConfigured(
         val configuredProfileOutputTokens: Int? = null,
         val requestedOutputTokens: Int? = null,
-        val effectiveOutputTokens: Int? = null
+        val effectiveOutputTokens: Int? = null,
+        val reasoningEffort: String? = null
     ) : ProviderEvent
 
     // GatewayProgressUpdate is observational only. AgentRunner must never

@@ -103,6 +103,8 @@ class OpenAIAPIImpl @Inject constructor(
         var receivedAssistantPayload = false
         var receivedGatewayToolActivity = false
         var receivedTerminal = false
+        var transportRetries = 0
+        val transportStartedNs = System.nanoTime()
         try {
             val free = config.freeProvider
             if (free != null) {
@@ -147,6 +149,7 @@ class OpenAIAPIImpl @Inject constructor(
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
+                if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -154,6 +157,7 @@ class OpenAIAPIImpl @Inject constructor(
                     accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                     config.token?.takeIf { it.isNotBlank() && free == null }?.let { bearerAuth(it) }
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
+                    if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                 }.execute { response ->
                     if (free != null && response.status.value == 429) {
                         throw FreeAiRateLimitException(free, FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter]))
@@ -327,6 +331,8 @@ class OpenAIAPIImpl @Inject constructor(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
                     shouldRetry = { !receivedAssistantPayload && !receivedGatewayToolActivity },
                     onRetry = { attempt, delay, failure ->
+                        transportRetries = attempt
+                        if (ResilientStreamingClient.isPrematureConnectionClose(failure)) LocalEndpointConnectionPolicy.peerClosed(endpoint)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "ProviderRetry",
                             "CHAT_RETRY · attempt=$attempt delayMs=$delay · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",

@@ -200,7 +200,7 @@ class AgentRunForegroundService : Service() {
                 this,
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
             )
             isForeground = true
             AppLogRecorder.record("AgentService", "FOREGROUND_ENTERED · elapsedMs=${SystemClock.elapsedRealtime()}")

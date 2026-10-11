@@ -45,6 +45,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,6 +93,7 @@ fun ChatModelDialog(
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
     ollamaModels: List<UnifiedModelOption.Ollama> = emptyList(),
     initialSelectedProfile: String = "",
+    onSelectedProfileChanged: (String) -> Unit = {},
     initialCreativity: Float = 0.5f,
     locationToolsEnabled: Boolean = false,
     webSearchToolsEnabled: Boolean = false,
@@ -109,6 +111,12 @@ fun ChatModelDialog(
     delegationSettings: ModelDelegationSettings = ModelDelegationSettings(),
     delegationProfiles: List<PlatformV2> = emptyList(),
     usesDefaultDelegation: Boolean = true,
+    researchSelection: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(),
+    researchUnlockReason: String? = "Research is off",
+    academicGateways: Map<String, String> = emptyMap(),
+    onResearchChanged: (dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) -> Unit = {},
+    onAcademicConsent: () -> Unit = {},
+    onSaveResearchDefault: () -> Unit = {},
     initialReasoning: Boolean = false,
     onReasoningChanged: (Boolean) -> Unit = {},
     onDelegationChanged: (ConversationDelegationSettings?) -> Unit = {},
@@ -132,6 +140,7 @@ fun ChatModelDialog(
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var section by rememberSaveable { mutableStateOf("Models") }
     var selectedProfile by rememberSaveable(platformOrder) { mutableStateOf(initialSelectedProfile.takeIf { it in platformOrder } ?: platformOrder.firstOrNull { it in activePlatformUids && it !in disabledPlatformUids } ?: platformOrder.firstOrNull().orEmpty()) }
+    LaunchedEffect(selectedProfile) { onSelectedProfileChanged(selectedProfile) }
     var profileMenuOpen by remember { mutableStateOf(false) }
     var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
 
@@ -331,6 +340,7 @@ fun ChatModelDialog(
                                 onCheckedChange = onWebSearchToolsChanged
                             )
                         }
+                        MultiSearchResearchPanel(researchSelection, delegationSettings, researchUnlockReason, academicGateways, onResearchChanged, onAcademicConsent, onSaveResearchDefault)
                         var showConnectedTools by rememberSaveable { mutableStateOf(false) }
                         FilledTonalButton(onClick = { showConnectedTools = !showConnectedTools }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                             Icon(Icons.Rounded.Hub, null)
@@ -390,7 +400,9 @@ fun ChatModelDialog(
         },
         onDismissRequest = onDismissRequest,
         confirmButton = {
-            val hasBlank = activePlatformUids.any { models[it].orEmpty().trim().isBlank() }
+            val hasBlank = activePlatformUids.any { uid ->
+                models[uid].orEmpty().trim().isBlank() || downloadedLocalModels.any { it.catalogEntryId == models[uid] && it.compatibilityIssue != null }
+            }
             Button(
                 enabled = !hasBlank,
                 onClick = {

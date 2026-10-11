@@ -22,7 +22,6 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
-import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
@@ -47,18 +46,18 @@ class GPTMobileApp :
     lateinit var context: Context
 
     @Inject
-    lateinit var workerFactory: HiltWorkerFactory
+    lateinit var workerFactory: javax.inject.Provider<HiltWorkerFactory>
 
     @Inject
-    lateinit var gatewayNetworkRecoveryMonitor: GatewayNetworkRecoveryMonitor
+    lateinit var gatewayNetworkRecoveryMonitor: javax.inject.Provider<GatewayNetworkRecoveryMonitor>
 
     @Inject
-    lateinit var durablePromptQueue: dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
+    lateinit var durablePromptQueue: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue>
 
     @Inject
-    lateinit var semanticMemory: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
+    lateinit var semanticMemory: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory>
 
-    @Inject lateinit var conversationDatabase: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+    @Inject lateinit var conversationDatabase: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2>
 
     @Volatile
     var secretMigrationErrors: List<SecretMigrationError> = emptyList()
@@ -75,37 +74,31 @@ class GPTMobileApp :
         }.getOrDefault(false)
     }
 
-    @javax.inject.Inject lateinit var invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger
+    @javax.inject.Inject lateinit var invocationLedger: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger>
 
-    @javax.inject.Inject lateinit var toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
+    @javax.inject.Inject lateinit var toolApprovals: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager>
 
-    @javax.inject.Inject lateinit var conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion
+    @javax.inject.Inject lateinit var conversationDeletion: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion>
 
     override fun onCreate() {
         val startupStartTime = SystemClock.elapsedRealtime()
 
-        // Configure Qualcomm QNN / FastRPC environment variables (ADSP_LIBRARY_PATH & LD_LIBRARY_PATH)
-        // at the earliest opportunity BEFORE any native library is loaded or dlopened.
-        runCatching {
-            QnnEnvironment.initialize(this)
-        }.onFailure { error ->
-            Log.w(TAG, "Failed initializing QNN environment in Application.onCreate: ${error.message}")
-        }
-
-        SanitizedChatBackup.restoreIfPresent(this)
+        // Provider fields keep the child process from eagerly opening Room or starting app services.
+        if (!dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
+        if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
             val startup = startupDependencies()
-            val temporary = conversationDatabase.chatRoomDao().temporaryChats()
+            val temporary = conversationDatabase.get().chatRoomDao().temporaryChats()
             if (temporary.isNotEmpty()) {
                 temporary.forEach { androidx.work.WorkManager.getInstance(this@GPTMobileApp).cancelAllWorkByTag("memory-chat-${it.id}") }
-                conversationDeletion.delete(temporary)
+                conversationDeletion.get().delete(temporary)
             }
-            toolApprovals.recover()
-            invocationLedger.recover()
+            toolApprovals.get().recover()
+            invocationLedger.get().recover()
             startup.pendingLocalPlatformActivator().start()
             secretMigrationErrors = runStartupMaintenance(
                 interruptPersistedWork = {
@@ -130,15 +123,15 @@ class GPTMobileApp :
             }
             startup.localModelRepository().reconcile()
             startup.localModelRepository().awaitActiveDownloadScheduling()
-            gatewayNetworkRecoveryMonitor.start()
-            durablePromptQueue.start()
+            gatewayNetworkRecoveryMonitor.get().start()
+            durablePromptQueue.get().start()
             Log.i(TAG, "Startup maintenance completed in ${SystemClock.elapsedRealtime() - gateStartTime}ms")
         }
 
         applicationScope.launch {
             while (isActive) {
                 delay(60_000L)
-                semanticMemory.releaseWhenIdle()
+                semanticMemory.get().releaseWhenIdle()
                 val idleMinutes = startupDependencies().settingRepository().getFeatureSettings().localIdleMinutes.coerceIn(0, 60)
                 if (idleMinutes > 0) startupDependencies().localRuntime().unloadIfIdle(idleMinutes * 60_000L)
             }
@@ -149,7 +142,8 @@ class GPTMobileApp :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        applicationScope.launch { semanticMemory.releaseWhenIdle(0) }
+        if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
+        applicationScope.launch { semanticMemory.get().releaseWhenIdle(0) }
         dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
         val hasActiveRuns = runCatching {
             startupDependencies().agentRunCoordinator().activeRuns.value.isNotEmpty()
@@ -178,9 +172,12 @@ class GPTMobileApp :
     }
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
-            .setWorkerFactory(workerFactory)
-            .build()
+        get() {
+            check(!dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) { "WorkManager belongs to the main process" }
+            return Configuration.Builder()
+                .setWorkerFactory(workerFactory.get())
+                .build()
+        }
 
     private fun startupDependencies(): StartupDependencies = EntryPointAccessors.fromApplication(
         this,

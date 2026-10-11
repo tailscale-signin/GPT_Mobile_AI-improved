@@ -39,6 +39,8 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
             Text(if (active) "Research · ${snapshot.phase}" else "Research evidence", style = MaterialTheme.typography.titleSmall)
             Text("${snapshot.searches} searches · ${snapshot.engineResponses} engine reports · ${snapshot.engineFailures} unavailable", style = MaterialTheme.typography.bodySmall)
             Text("${snapshot.sources.count { it.readable }} read · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
+            val papers = snapshot.sources.filter { it.paperId.isNotBlank() }
+            if (papers.isNotEmpty()) Text("${papers.size} academic works · ${papers.flatMap { it.engines }.distinct().size} underlying sources · ${papers.count { it.readable }} passages read", style = MaterialTheme.typography.bodySmall)
             Row {
                 TextButton(onClick = { expanded = true }) { Text("Evidence") }
                 if (active) TextButton(onClick = { activeSessions.forEach { stop(it.runId) } }) { Text("Stop and summarize") }
@@ -61,6 +63,10 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(source.title, style = MaterialTheme.typography.titleSmall)
                                 Text(source.status + if (source.originId.isNotBlank()) " · Related content: ${source.originId}" else "", style = MaterialTheme.typography.labelSmall)
+                                if (source.paperId.isNotBlank()) {
+                                    Text("${source.doi.ifBlank { source.paperId }} · ${source.reviewStatus} · ${source.engines.distinct().size} providers", style = MaterialTheme.typography.bodySmall)
+                                    Text("Version: ${source.versionId.take(100)} · ${source.providerReceipts.size} receipts", style = MaterialTheme.typography.labelSmall)
+                                }
                                 if (source.publishedAt.isNotBlank()) Text("Published: ${source.publishedAt}", style = MaterialTheme.typography.bodySmall)
                                 if (source.retrievedAt > 0) Text("Read: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(source.retrievedAt))}", style = MaterialTheme.typography.bodySmall)
                                 session.snapshot.claims.filter { it.sourceId == source.id }.forEach { claim ->

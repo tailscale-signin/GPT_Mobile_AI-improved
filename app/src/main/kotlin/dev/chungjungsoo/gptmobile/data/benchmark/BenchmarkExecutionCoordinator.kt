@@ -38,12 +38,14 @@ class BenchmarkExecutionCoordinator @Inject constructor(
     var stopReason: String? = null
         private set
 
+    private var recovery: Job? = null
+
     init {
         if (preferences.getBoolean(KEY_RUNNING, false)) {
             preferences.edit().putBoolean(KEY_RUNNING, false).apply()
             preferences.edit().putString("status", "INTERRUPTED").apply()
             errorMutable.value = "The previous benchmark was interrupted when Android stopped the app. Its completed runs remain saved."
-            scope.launch { benchmarkStore.markInterruptedRuns() }
+            recovery = scope.launch { benchmarkStore.markInterruptedRuns() }
         }
     }
 
@@ -56,6 +58,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         val id = java.util.UUID.randomUUID().toString()
         sessionMutable.value = id
         val job = scope.launch(start = CoroutineStart.LAZY) {
+            recovery?.join()
             preferences.edit().putBoolean(KEY_RUNNING, true).putString("session_id", id).putString("status", "RUNNING").commit()
             block()
         }

@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 
+@kotlinx.serialization.Serializable
 data class LocalEngineSpec(
     val modelPath: String,
     val accelerator: String,
@@ -16,20 +17,30 @@ data class LocalEngineSpec(
     val cpuThreads: Int? = null,
     val cacheEnabled: Boolean = true,
     val speculativeDecoding: Boolean? = null,
-    val nativeMetricsEnabled: Boolean = false
+    val nativeMetricsEnabled: Boolean = false,
+    val tuningLocked: Boolean = false,
+    val samplerIdentity: String = "runtime_default",
+    val workload: String = "plain_text",
+    val expectedOutputTokens: Int = 128
 )
 
+/** Workload labels affect plan selection, but do not invalidate the native engine configuration. */
+internal fun LocalEngineSpec.engineConfiguration() = copy(samplerIdentity = "runtime_default", workload = "plain_text", expectedOutputTokens = 128)
+
+@kotlinx.serialization.Serializable
 data class LocalSamplerConfig(
     val topK: Int,
     val topP: Float,
     val temperature: Float
 )
 
+@kotlinx.serialization.Serializable
 enum class LocalHistoryRole {
     USER,
     MODEL
 }
 
+@kotlinx.serialization.Serializable
 data class LocalHistoryMessage(
     val role: LocalHistoryRole,
     val text: String,
@@ -50,6 +61,7 @@ data class LocalHistoryMessage(
     }
 }
 
+@kotlinx.serialization.Serializable
 data class LocalToolDescriptor(
     val name: String,
     val description: String,
@@ -68,7 +80,8 @@ data class LocalConversationConfig(
     val isConstrainedDecodingEnabled: Boolean = false,
     val toolExecutor: LocalToolExecutor? = null,
     val maxOutputTokens: Int? = null,
-    val thinkingEnabled: Boolean? = null
+    val thinkingEnabled: Boolean? = null,
+    val speculativeDecoding: Boolean? = null
 )
 
 /** Execution phase of local on-device inference. */
@@ -78,6 +91,7 @@ enum class LocalInferencePhase {
 }
 
 /** Performance and generation telemetry emitted during local model execution. */
+@kotlinx.serialization.Serializable
 data class LocalInferenceMetrics(
     val timeToFirstTokenMs: Long = 0L,
     val totalDurationMs: Long = 0L,
@@ -89,7 +103,12 @@ data class LocalInferenceMetrics(
     val metricSource: String = "estimated_characters",
     val firstVisibleAnswerMs: Long? = null,
     val decodeDurationMs: Long? = null,
-    val segmentId: String? = null
+    val segmentId: String? = null,
+    val schemaVersion: Int = 2,
+    val metricScope: String = "last_segment",
+    val requestedMtp: Boolean? = null,
+    val effectiveMtp: Boolean? = null,
+    val planId: String? = null
 )
 
 /** Native counters cover the last prefill/decode segment, not an entire multi-tool turn. */
@@ -109,6 +128,8 @@ data class NativeInferenceMetrics(
 }
 
 sealed interface LocalRuntimeEvent {
+    /** Internal ordering fence, consumed by the native adapter before crossing IPC. */
+    data class Drain(val acknowledged: kotlinx.coroutines.CompletableDeferred<Unit>) : LocalRuntimeEvent
     data class PhaseChanged(val phase: LocalInferencePhase) : LocalRuntimeEvent
     data class TextDelta(val text: String) : LocalRuntimeEvent
     data class ThinkingDelta(val text: String) : LocalRuntimeEvent
@@ -118,11 +139,17 @@ sealed interface LocalRuntimeEvent {
 }
 
 /** The engine that actually initialized, independent of the saved preference. */
+@kotlinx.serialization.Serializable
 data class LocalRuntimeState(
     val backend: LocalRuntimeBackend? = null,
     val engineSpec: LocalEngineSpec? = null,
     val fallbackReason: String? = null,
-    val preferredBackend: LocalRuntimeBackend? = null
+    val preferredBackend: LocalRuntimeBackend? = null,
+    val decision: LocalPlanDecision? = null,
+    val processIsolated: Boolean = false,
+    val lifecycle: String = "IDLE",
+    val requestedMtp: Boolean? = null,
+    val effectiveMtp: Boolean? = null
 )
 
 private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
@@ -143,9 +170,12 @@ class LocalNpuPackageException(cause: Throwable) :
 interface LocalRuntime {
     val isBusy: Boolean get() = false
     val handlesEngineFallback: Boolean get() = false
+    val ownsEngineSwitching: Boolean get() = false
     val state: StateFlow<LocalRuntimeState> get() = EMPTY_RUNTIME_STATE
 
     fun loadedEngineSpec(): LocalEngineSpec? = null
+
+    val processPssBytes: Long? get() = null
 
     val deviceRamGb: Long get() = 8L
 
@@ -155,6 +185,11 @@ interface LocalRuntime {
         DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), deviceRamGb >= 10L)
 
     suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = null
+
+    /** Only an explicit user-requested isolated verification may clear an exact quarantine tuple. */
+    suspend fun allowVerification(spec: LocalEngineSpec) {
+        error("Controlled verification is unavailable in this runtime")
+    }
 
     suspend fun loadEngine(spec: LocalEngineSpec)
     suspend fun createConversation(config: LocalConversationConfig)

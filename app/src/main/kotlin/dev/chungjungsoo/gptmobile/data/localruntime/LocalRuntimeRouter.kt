@@ -13,10 +13,12 @@ import kotlinx.coroutines.withContext
 
 /** Selects the runtime, owns QNN fallback, and publishes the engine that actually loaded. */
 class LocalRuntimeRouter(
-    private val settingRepository: SettingRepository,
+    private val settingRepository: SettingRepository? = null,
     private val qnnRuntime: LocalRuntime,
     private val liteRtRuntime: LocalRuntime,
-    private val artifactRuntime: LocalRuntime? = null
+    private val artifactRuntime: LocalRuntime? = null,
+    private val settingsSnapshot: (() -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings)? = null,
+    private val backendSnapshot: (() -> LocalRuntimeBackend)? = null
 ) : LocalRuntime {
     override val handlesEngineFallback = true
     private val _state = MutableStateFlow(LocalRuntimeState())
@@ -40,16 +42,24 @@ class LocalRuntimeRouter(
         (activeLoadedRuntime ?: liteRtRuntime).getAdaptiveThrottlingPolicy()
     override fun loadedEngineSpec(): LocalEngineSpec? = state.value.engineSpec
 
+    override suspend fun allowVerification(spec: LocalEngineSpec) {
+        if (spec.accelerator == LocalAccelerators.NPU) qnnRuntime.allowVerification(spec) else liteRtRuntime.allowVerification(spec)
+    }
+
     override suspend fun loadEngine(requested: LocalEngineSpec) {
         if (isEngineLoaded(requested)) return
-        val tuning = settingRepository.getFeatureSettings().localEngineTuning()
-        val spec = requested.copy(
-            cpuThreads = tuning.cpuThreads,
-            cacheEnabled = tuning.cacheEnabled,
-            speculativeDecoding = tuning.speculativeDecoding,
-            nativeMetricsEnabled = tuning.nativeMetricsEnabled
-        )
-        val preferred = settingRepository.getLocalRuntimeBackend()
+        val tuning = featureSettings().localEngineTuning()
+        val spec = if (requested.tuningLocked) {
+            requested
+        } else {
+            requested.copy(
+                cpuThreads = tuning.cpuThreads,
+                cacheEnabled = tuning.cacheEnabled,
+                speculativeDecoding = tuning.speculativeDecoding,
+                nativeMetricsEnabled = tuning.nativeMetricsEnabled
+            )
+        }
+        val preferred = preferredBackend()
         unloadEngine()
         try {
             if (spec.modelPath.endsWith("manifest.json")) {
@@ -72,11 +82,11 @@ class LocalRuntimeRouter(
                     if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) {
                         throw LocalNpuPackageException(error)
                     }
-                    if (!settingRepository.getFeatureSettings().qnnAutomaticFallback) {
+                    if (!featureSettings().qnnAutomaticFallback) {
                         throw LocalRuntimeFallbackDisabledException(error)
                     }
                     Log.w(TAG, "QNN initialization failed; trying a compatible LiteRT-LM accelerator", error)
-                    val fallback = loadLiteRt(spec.copy(accelerator = LocalAccelerators.GPU, litertDispatchLibDir = null))
+                    val fallback = loadLiteRt(spec.copy(accelerator = LocalAccelerators.GPU, litertDispatchLibDir = null), error)
                     activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, requested, fallback, preferred, error.message)
                     return
                 }
@@ -96,17 +106,16 @@ class LocalRuntimeRouter(
         }
     }
 
-    private suspend fun loadLiteRt(spec: LocalEngineSpec): LocalEngineSpec {
-        val accelerators = if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) {
-            listOf(LocalAccelerators.NPU)
-        } else {
-            when (LocalAccelerators.normalize(spec.accelerator)) {
-                LocalAccelerators.NPU -> listOf(LocalAccelerators.NPU, LocalAccelerators.GPU, LocalAccelerators.CPU)
-                LocalAccelerators.GPU -> listOf(LocalAccelerators.GPU, LocalAccelerators.CPU)
-                else -> listOf(LocalAccelerators.CPU)
-            }
+    private suspend fun loadLiteRt(spec: LocalEngineSpec, prior: Throwable? = null): LocalEngineSpec {
+        val metadata = liteRtRuntime.inspectModel(spec.modelPath)
+        val accelerators = compatibleFallbacks(spec.accelerator, metadata?.backends)
+        val attempts = mutableListOf<LocalLoadAttempt>()
+        if (prior != null) attempts += LocalLoadAttempt.failed("npu", "initialize", prior)
+        var primaryError: Throwable? = prior
+        val excluded = listOf(spec.accelerator, LocalAccelerators.CPU).distinct().filter { it !in accelerators }
+        val exclusions = excluded.map {
+            LocalLoadAttempt(it, "capability_preflight", "UnsupportedBackend", "This package does not declare $it support. Download a separate compatible export.", skipped = true)
         }
-        var lastError: Throwable? = null
         for (accelerator in accelerators) {
             val candidate = spec.copy(
                 accelerator = accelerator,
@@ -119,11 +128,12 @@ class LocalRuntimeRouter(
                 throw cancelled
             } catch (error: Throwable) {
                 if (error !is Exception && error !is LinkageError) throw error
-                lastError = error
+                if (primaryError == null) primaryError = error
+                attempts += LocalLoadAttempt.failed(accelerator, "initialize", error)
                 liteRtRuntime.unloadEngine()
             }
         }
-        val failure = checkNotNull(lastError)
+        val failure = LocalLoadFailure(attempts + exclusions, primaryError)
         if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) {
             throw LocalNpuPackageException(failure)
         }
@@ -149,9 +159,9 @@ class LocalRuntimeRouter(
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
         val runtime = activeLoadedRuntime ?: return false
         // Read the current preference so switching settings invalidates a warm engine.
-        if (preferenceAtLoad != settingRepository.getLocalRuntimeBackend() ||
-            requestedSpec != spec ||
-            tuningAtLoad != settingRepository.getFeatureSettings().localEngineTuning()
+        if (preferenceAtLoad != preferredBackend() ||
+            requestedSpec?.engineConfiguration() != spec.engineConfiguration() ||
+            (!spec.tuningLocked && tuningAtLoad != featureSettings().localEngineTuning())
         ) {
             return false
         }
@@ -189,6 +199,9 @@ class LocalRuntimeRouter(
             liteRtRuntime.unloadEngine()
         }
     }
+
+    private suspend fun featureSettings() = settingsSnapshot?.invoke() ?: checkNotNull(settingRepository).getFeatureSettings()
+    private suspend fun preferredBackend() = backendSnapshot?.invoke() ?: checkNotNull(settingRepository).getLocalRuntimeBackend()
 
     private companion object {
         const val TAG = "LocalRuntimeRouter"

@@ -43,7 +43,11 @@ data class ResearchSource(
         "Failed" -> "EMPTY"
         else -> "LEAD"
     },
-    val equivalenceGroup: String = SourceIdentity.create(url, title, passage, doi, pmid, pmcid, publicationYear).equivalenceKey
+    val equivalenceGroup: String = SourceIdentity.create(url, title, passage, doi, pmid, pmcid, publicationYear).equivalenceKey,
+    val paperId: String = "",
+    val versionId: String = "",
+    val providerReceipts: List<String> = emptyList(),
+    val reviewStatus: String = "unknown"
 ) {
     val readable: Boolean get() = retrievalQuality in setOf("FULL_TEXT", "ABSTRACT") && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
@@ -69,6 +73,10 @@ data class ResearchSource(
         put("contentFingerprint", contentFingerprint)
         put("retrievalQuality", retrievalQuality)
         put("equivalenceGroup", equivalenceGroup)
+        put("paperId", paperId)
+        put("versionId", versionId)
+        put("providerReceipts", JsonArray(providerReceipts.map(::JsonPrimitive)))
+        put("reviewStatus", reviewStatus)
     }
 }
 
@@ -184,10 +192,13 @@ data class ResearchSnapshot(
                             else -> "LEAD"
                         },
                     equivalenceGroup = s.text("equivalenceGroup").takeIf { it.length <= 512 }
-                        ?: SourceIdentity.create(source.url, source.title, source.passage).equivalenceKey
+                        ?: SourceIdentity.create(source.url, source.title, source.passage).equivalenceKey,
+                    paperId = s.text("paperId").take(512), versionId = s.text("versionId").take(700),
+                    providerReceipts = s.strings("providerReceipts").take(30), reviewStatus = s.text("reviewStatus").ifBlank { "unknown" }
                 )
             }.distinctBy { source ->
                 when {
+                    source.paperId.isNotBlank() -> "${source.paperId}:${source.versionId}"
                     source.doi.isNotBlank() -> "doi:${source.doi}"
                     source.pmid.isNotBlank() -> "pmid:${source.pmid}"
                     source.pmcid.isNotBlank() -> "pmcid:${source.pmcid}"

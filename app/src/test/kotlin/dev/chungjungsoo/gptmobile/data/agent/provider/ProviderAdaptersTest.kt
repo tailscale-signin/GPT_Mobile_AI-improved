@@ -463,9 +463,12 @@ class ProviderAdaptersTest {
         val adapter = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
         val session = adapter.openSession(turns(), platform(ClientType.CUSTOM))
 
-        assertEquals(listOf(call, ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed),
+            listOf(ProviderEvent.Usage(finishReason = "tool_calls"), call, ProviderEvent.Completed),
+            session.streamRound(listOf(definition), emptyList()).toList()
+        )
+        assertEquals(
+            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         val continuation = api.chatRequests.last().messages.takeLast(2)
@@ -566,9 +569,12 @@ class ProviderAdaptersTest {
         val session = OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder())
             .openSession(turns(), platform(ClientType.GROQ))
 
-        assertEquals(listOf(call, ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed),
+            listOf(ProviderEvent.Usage(finishReason = "tool_calls"), call, ProviderEvent.Completed),
+            session.streamRound(listOf(definition), emptyList()).toList()
+        )
+        assertEquals(
+            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         assertEquals("weather", groq.requests.first().tools!!.single().function.name)

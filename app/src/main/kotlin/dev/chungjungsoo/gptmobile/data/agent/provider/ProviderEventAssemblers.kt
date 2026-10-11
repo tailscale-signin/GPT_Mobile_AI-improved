@@ -130,6 +130,7 @@ class ChatCompletionsEventAssembler {
             delta.function?.name?.let { call.name = it }
             delta.function?.arguments?.let { call.arguments.append(it) }
         }
+        finishReason?.let { events += ProviderEvent.Usage(finishReason = it) }
         when (finishReason) {
             "tool_calls", "stop" -> events += finish()
             null -> Unit
@@ -302,6 +303,7 @@ object GeminiEventMapper {
                 events += event
             }
         }
+        response.candidates.orEmpty().mapNotNull { it.finishReason }.firstOrNull()?.let { events += ProviderEvent.Usage(finishReason = it) }
         if (response.candidates.orEmpty().any { it.finishReason == "MAX_TOKENS" }) {
             events += ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request.")
         }

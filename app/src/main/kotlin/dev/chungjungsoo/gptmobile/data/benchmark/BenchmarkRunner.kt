@@ -68,7 +68,8 @@ class BenchmarkRunner(
             inputTokens = first.inputTokens + retry.inputTokens,
             outputTokens = first.outputTokens + retry.outputTokens,
             estimatedTokens = first.estimatedTokens || retry.estimatedTokens,
-            reconnectAttempts = 1
+            reconnectAttempts = 1,
+            retryDurationMs = first.durationMs + retry.retryDurationMs
         )
     }
 
@@ -98,6 +99,13 @@ class BenchmarkRunner(
         var roundStart = 0
         var roundAccounted = true
         var providerFailure: String? = null
+        var finishReason: String? = null
+        var effectiveSettingsConfirmed = false
+        var retryDurationMs = 0L
+        var reconnectAttempts = 0
+        var requestedOutputTokens: Int? = null
+        var effectiveRequestOutputTokens: Int? = null
+        var requestedReasoningEffort: String? = null
         var nativeMetrics: dev.chungjungsoo.gptmobile.data.localruntime.NativeInferenceMetrics? = null
         val calls = linkedMapOf<String, ProviderEvent.ToolCall>()
         val successful = mutableSetOf<String>()
@@ -113,7 +121,21 @@ class BenchmarkRunner(
             tokenBasis = ReferenceTextTokenizer.VERSION,
             warmup = test.warmup,
             workload = test.workload,
-            firstChunkCharacters = firstChunkCharacters
+            firstChunkCharacters = firstChunkCharacters,
+            finishReason = finishReason,
+            retryDurationMs = retryDurationMs,
+            reconnectAttempts = reconnectAttempts,
+            requestedOutputTokens = requestedOutputTokens,
+            effectiveRequestOutputTokens = effectiveRequestOutputTokens,
+            requestedReasoningEffort = requestedReasoningEffort,
+            completionKind = when {
+                finishReason in setOf("length", "MAX_TOKENS") && test.category == "speed" -> "benchmark_cutoff"
+                finishReason in setOf("length", "MAX_TOKENS") -> "output_limit"
+                outcome == BenchmarkOutcome.ERROR -> "interrupted_or_failed"
+                outcome == BenchmarkOutcome.PASSED || outcome == BenchmarkOutcome.FAILED -> "complete"
+                else -> "unknown"
+            },
+            effectiveSettingsConfirmed = effectiveSettingsConfirmed
         )
         try {
             val finished = withTimeoutOrNull(limitMs) {
@@ -156,7 +178,16 @@ class BenchmarkRunner(
                             is ProviderEvent.ToolResult -> if (!event.result.isError && event.call.name == fixture.definition.name && validArguments(event.call.arguments)) {
                                 successful.add(event.call.callId)
                             }
+                            is ProviderEvent.RequestConfigured -> {
+                                requestedOutputTokens = event.requestedOutputTokens ?: event.configuredProfileOutputTokens
+                                effectiveRequestOutputTokens = event.effectiveOutputTokens
+                                requestedReasoningEffort = event.reasoningEffort
+                            }
                             is ProviderEvent.Usage -> {
+                                event.retryDurationMs?.let { retryDurationMs = maxOf(retryDurationMs, it) }
+                                event.retryAttempts?.let { reconnectAttempts = maxOf(reconnectAttempts, it) }
+                                if (event.finishReason != null) finishReason = event.finishReason
+                                effectiveSettingsConfirmed = effectiveSettingsConfirmed || event.effectiveSettingsConfirmed
                                 event.inputTokens?.takeIf { it >= 0 }?.let { count ->
                                     roundInputTokens = if (event.cumulative) maxOf(roundInputTokens, count) else roundInputTokens + count
                                 }
@@ -170,8 +201,9 @@ class BenchmarkRunner(
                             else -> Unit
                         }
                     }
-                    providerFailure?.let { error(it) }
-                    check(completed) { "Provider ended without a completion event" }
+                    val throughputCutoff = test.category == "speed" && finishReason in setOf("length", "MAX_TOKENS") && text.length >= 100 && calls.isEmpty()
+                    providerFailure?.takeUnless { throughputCutoff }?.let { error(it) }
+                    check(completed || throughputCutoff) { "Provider ended without a completion event" }
                     if (roundTokens == null) estimated = true
                     tokens += roundTokens ?: ((text.length - roundStart + 3) / 4)
                     inputTokens += roundInputTokens
@@ -238,7 +270,13 @@ class BenchmarkRunner(
                 detail.contains("disabled", ignoreCase = true) || detail.contains("unsupported", ignoreCase = true) -> "UNSUPPORTED"
                 else -> "UNKNOWN"
             }
-            return sample(BenchmarkOutcome.ERROR, DiagnosticRedactor.redact(detail.ifBlank { "Benchmark request failed" }).take(500)).copy(
+            val outcome = when {
+                detail.contains("free allowance", true) || detail.contains("429") || detail.contains("quota", true) || detail.contains("cooldown", true) -> BenchmarkOutcome.QUOTA_BLOCKED
+                detail.contains("POLICY_RESTRICTED", true) || detail.contains("training violation", true) -> BenchmarkOutcome.POLICY_BLOCKED
+                finishReason in setOf("length", "MAX_TOKENS") -> BenchmarkOutcome.PARTIAL
+                else -> BenchmarkOutcome.ERROR
+            }
+            return sample(outcome, DiagnosticRedactor.redact(detail.ifBlank { "Benchmark request failed" }).take(500)).copy(
                 failureCategory = category,
                 runtimeStage = qnn?.stage?.name ?: reportedQnnStage
             )
@@ -280,6 +318,7 @@ private fun fixtureTool(code: String): AgentTool = object : AgentTool {
 
 /** Infrastructure errors are not model-quality failures, even in full-suite mode. */
 internal fun benchmarkInfrastructureFailure(sample: BenchmarkSample): Boolean {
+    if (sample.outcome in setOf(BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED)) return true
     if (sample.outcome == BenchmarkOutcome.PASSED) return false
     val detail = listOfNotNull(sample.error).plus(sample.delegation?.diagnosticEvents.orEmpty().map { it.message }).joinToString("\n")
     return listOf(

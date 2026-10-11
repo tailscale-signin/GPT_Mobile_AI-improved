@@ -26,4 +26,22 @@ class NativeOperationJournalTest {
         journal.finished()
         NativeOperationJournal(root).before("tuple")
     }
+
+    @Test fun lowMemoryExitDoesNotBrandTheArtifactIncompatible() {
+        val root = temporary.newFolder()
+        NativeOperationJournal(root).before("tuple")
+        val recovered = NativeOperationJournal(root, exitCause = { _, _ -> "LOW_MEMORY" })
+        recovered.before("tuple")
+        recovered.finished()
+        assertTrue(root.resolve("last-interruption").readText().contains("LOW_MEMORY"))
+    }
+
+    @Test fun nativeCrashRemainsQuarantinedUntilExplicitVerification() {
+        val root = temporary.newFolder()
+        NativeOperationJournal(root).before("tuple")
+        val recovered = NativeOperationJournal(root, exitCause = { _, _ -> "NATIVE_CRASH" })
+        assertTrue(runCatching { recovered.before("tuple") }.isFailure)
+        recovered.allowVerification("tuple")
+        recovered.before("tuple")
+    }
 }

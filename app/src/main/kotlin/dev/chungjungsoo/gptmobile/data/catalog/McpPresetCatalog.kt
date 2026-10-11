@@ -111,6 +111,7 @@ typealias McpServerPreset = McpPreset
  */
 object McpPresetCatalog {
     val presets = LocalMcpPresets.presets + listOf(
+        McpPreset(id = "deep-research", name = "Deep Research · Academic MCP Gateway", description = "One private academic facade with keyless discovery, bounded OA PDF extraction, citation edges and exact-passage verification.", category = McpCategory.SEARCH, commandOrUrl = "", alias = "deep_research", suggestedAuthType = "BEARER", requiredFields = listOf("endpointUrl", "token"), setupInstructions = "Run mcp/research/academic.config.example.json with the research bridge on your PC. Set a locally generated bridge bearer token, private TLS endpoint and host allowlist. Select this connection in Multi Search → Research. No Python or Node process runs on Android. Academic provider credentials are not required.", toolCapabilities = listOf("academic research", "open access", "citations")),
         McpPreset(
             id = "free-search-mcp", name = "Free Search", description = "Keyless multi-engine search and page reading through your computer.",
             category = McpCategory.SEARCH, commandOrUrl = "", alias = "free_search_mcp", iconName = "search",

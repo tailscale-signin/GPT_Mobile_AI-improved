@@ -117,20 +117,20 @@ object DeviceHardwareGovernor {
         isHighRamDevice: Boolean
     ): AdaptiveThrottlingPolicy = when {
         hardwareState.isThrottlingRequired -> {
-            // Severe thermal or low battery: throttle dispatch interval to 250ms, clamp tokens, reduce top-k
+            // Admission controls native work; UI cadence must not alter answer semantics.
             AdaptiveThrottlingPolicy(
                 streamPublishIntervalMillis = 250L,
-                topKReductionRatio = 0.5f,
-                maxTokensClamp = 1024,
+                topKReductionRatio = 1.0f,
+                maxTokensClamp = null,
                 isCooperativeYieldAggressive = true
             )
         }
         hardwareState.isModeratePressure -> {
-            // Moderate thermal: throttle dispatch interval to 33ms (~30 FPS), mild top-k reduction
+            // Moderate pressure reduces UI update frequency only.
             AdaptiveThrottlingPolicy(
                 streamPublishIntervalMillis = 33L,
-                topKReductionRatio = 0.75f,
-                maxTokensClamp = 2048,
+                topKReductionRatio = 1.0f,
+                maxTokensClamp = null,
                 isCooperativeYieldAggressive = false
             )
         }

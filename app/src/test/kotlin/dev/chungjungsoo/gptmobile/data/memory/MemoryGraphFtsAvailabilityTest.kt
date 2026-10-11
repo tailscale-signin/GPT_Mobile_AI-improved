@@ -32,6 +32,7 @@ class MemoryGraphFtsAvailabilityTest {
         every { helper.writableDatabase } returns sql
         every { database.openHelper } returns helper
         every { database.memoryGraphDao() } returns dao
+        every { sql.query("PRAGMA compile_options") } returns cursor(emptyList())
         coEvery { dao.searchLike(any(), any(), any()) } returns emptyList()
     }
 
@@ -56,6 +57,42 @@ class MemoryGraphFtsAvailabilityTest {
         verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts5") }) }
         verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts4") }) }
         verify(exactly = 2) { sql.query(any<SupportSQLiteQuery>()) }
+    }
+
+    @Test
+    fun `known missing FTS5 avoids its failed creation probe and caches FTS4`() = runBlocking {
+        every { sql.query("SELECT sql FROM sqlite_master WHERE name = 'memory_graph_fts'") } returns cursor(emptyList())
+        every { sql.query("PRAGMA compile_options") } returns cursor(listOf("ENABLE_FTS4", "THREADSAFE=1"))
+        every { sql.query(any<SupportSQLiteQuery>()) } returns cursor(emptyList())
+        val repository = MemoryGraphRepository(database)
+        repeat(2) { assertTrue(repository.searchNodes("astronomy", null).isEmpty()) }
+        verify(exactly = 1) { sql.query("PRAGMA compile_options") }
+        verify(exactly = 0) { sql.execSQL(match { it.contains("USING fts5") }) }
+        verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts4") }) }
+    }
+
+    @Test
+    fun `known FTS5 support creates and reuses the FTS5 index`() = runBlocking {
+        every { sql.query("SELECT sql FROM sqlite_master WHERE name = 'memory_graph_fts'") } returns cursor(emptyList())
+        every { sql.query("PRAGMA compile_options") } returns cursor(listOf("ENABLE_FTS5", "THREADSAFE=1"))
+        every { sql.query(any<SupportSQLiteQuery>()) } returns cursor(emptyList())
+        val repository = MemoryGraphRepository(database)
+        repeat(2) { assertTrue(repository.searchNodes("astronomy", null).isEmpty()) }
+        verify(exactly = 1) { sql.query("PRAGMA compile_options") }
+        verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts5") }) }
+        verify(exactly = 0) { sql.execSQL(match { it.contains("USING fts4") }) }
+    }
+
+    @Test
+    fun `failed compile diagnostics still allow the actual FTS5 capability probe`() = runBlocking {
+        every { sql.query("SELECT sql FROM sqlite_master WHERE name = 'memory_graph_fts'") } returns cursor(emptyList())
+        every { sql.query("PRAGMA compile_options") } throws IllegalStateException("diagnostics unavailable")
+        every { sql.query(any<SupportSQLiteQuery>()) } returns cursor(emptyList())
+        val repository = MemoryGraphRepository(database)
+        repeat(2) { assertTrue(repository.searchNodes("astronomy", null).isEmpty()) }
+        verify(exactly = 1) { sql.query("PRAGMA compile_options") }
+        verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts5") }) }
+        verify(exactly = 0) { sql.execSQL(match { it.contains("USING fts4") }) }
     }
 
     @Test

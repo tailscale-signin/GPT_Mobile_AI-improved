@@ -78,7 +78,7 @@ internal object DynamicScoreEngine {
             }.sortedByDescending { it.startedAt }.take(5)
             val run = group.maxBy { it.startedAt }
             val source = complete.ifEmpty { listOf(run) }
-            val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome == BenchmarkOutcome.CANCELED }
+            val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) }
             val verified = run.mode in setOf(BenchmarkMode.FULL, BenchmarkMode.AGENT) &&
                 complete.isNotEmpty() &&
                 complete.all { block -> listOf("short", "medium", "long").all { band -> block.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED } >= 5 } }

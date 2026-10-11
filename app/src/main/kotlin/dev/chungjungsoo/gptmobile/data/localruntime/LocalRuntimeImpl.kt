@@ -24,16 +24,19 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.transform
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -53,6 +56,13 @@ class LocalRuntimeImpl(
     private var loadedSpec: LocalEngineSpec? = null
     private val policyStabilizer = AdaptivePolicyStabilizer()
     private var capabilities: LocalModelCapabilities? = null
+
+    @Volatile private var nativeCompletion: CompletableDeferred<Unit>? = null
+
+    @Volatile private var activeBuffer: LocalEventBuffer? = null
+    private var conversationMtp: Boolean? = null
+    private val operationJournal by lazy { NativeExitEvidence.journal(context, java.io.File(context.noBackupFilesDir, "local-native-operations")) }
+    private var nativeIdentity: String? = null
 
     private val activityManager: ActivityManager? by lazy {
         context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -77,19 +87,25 @@ class LocalRuntimeImpl(
 
     override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy {
         val policy = DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), isHighRamDevice)
-        val memoryInfo = ActivityManager.MemoryInfo()
-        activityManager?.getMemoryInfo(memoryInfo)
-        val lowMemory = activityManager != null &&
-            (memoryInfo.lowMemory || memoryInfo.availMem < 500L * 1024L * 1024L)
-        // Report the same limit to history compaction and engine initialization.
-        val candidate = if (lowMemory) policy.copy(maxTokensClamp = minOf(policy.maxTokensClamp ?: 1024, 1024)) else policy
-        return policyStabilizer.update(candidate, SystemClock.elapsedRealtime())
+        return policyStabilizer.update(policy, SystemClock.elapsedRealtime())
     }
 
     override fun loadedEngineSpec(): LocalEngineSpec? = loadedSpec
 
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = withContext(Dispatchers.IO) {
-        inspectMetadata(modelPath)
+        val identity = "inspection|" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(modelPath, "cpu", 1)).toString()
+        operationJournal.before(identity, "INSPECT")
+        try {
+            inspectMetadata(modelPath)
+        } finally {
+            operationJournal.finished()
+        }
+    }
+
+    override suspend fun allowVerification(spec: LocalEngineSpec) = withContext(Dispatchers.IO) {
+        check(isInferenceProcess()) { "Verification reset requires the isolated worker" }
+        operationJournal.allowVerification(RuntimeEvidenceIdentity.key(context, spec).toString())
+        operationJournal.allowVerification("inspection|" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(spec.modelPath, "cpu", 1)).toString())
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
@@ -131,20 +147,25 @@ class LocalRuntimeImpl(
             val inspected = inspectModel(spec.modelPath)
             inspected?.validate(spec)
             unloadEngine()
-            val nextEngine = createEngine(
-                EngineConfig(
-                    modelPath = spec.modelPath,
-                    backend = backendFor(spec.accelerator, spec.litertDispatchLibDir, spec.cpuThreads),
-                    visionBackend = visionBackendFor(spec, spec.litertDispatchLibDir),
-                    audioBackend = null,
-                    maxNumTokens = spec.maxTokens,
-                    maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null,
-                    cacheDir = if (spec.cacheEnabled) context.cacheDir.resolve("litert-lm").apply { mkdirs() }.absolutePath else ":nocache"
-                )
-            )
+            val identity = RuntimeEvidenceIdentity.key(context, spec).toString()
+            val cacheIdentity = if (spec.cacheEnabled) RuntimeEvidenceIdentity.hash(identity) else "disabled"
+            operationJournal.before(identity, "LOAD")
+            var nextEngine: Engine? = null
             try {
+                nextEngine = createEngine(
+                    EngineConfig(
+                        modelPath = spec.modelPath,
+                        backend = backendFor(spec.accelerator, spec.litertDispatchLibDir, spec.cpuThreads),
+                        visionBackend = visionBackendFor(spec, spec.litertDispatchLibDir),
+                        audioBackend = null,
+                        maxNumTokens = spec.maxTokens,
+                        maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null,
+                        cacheDir = if (spec.cacheEnabled) context.cacheDir.resolve("litert-lm/" + cacheIdentity).apply { mkdirs() }.absolutePath else ":nocache"
+                    )
+                )
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("LocalModel", "NATIVE_ENGINE_INITIALIZE_BEGIN · accelerator=${spec.accelerator} · maxContext=${spec.maxTokens} · vision=${spec.isVisionEnabled}")
                 LiteRtExperimentalSettings.engine(spec) { nextEngine.initialize() }
+                nativeIdentity = identity
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("LocalModel", "NATIVE_ENGINE_INITIALIZE_SUCCEEDED · accelerator=${spec.accelerator} · executionQualified=false")
                 // JNI initialization is blocking. Release the result if its caller was
                 // cancelled while native code was working.
@@ -154,8 +175,10 @@ class LocalRuntimeImpl(
                 loadedSpec = spec
                 capabilities = inspected
             } catch (error: Throwable) {
-                if (nextEngine.isInitialized()) runCatching { nextEngine.close() }
+                nextEngine?.let { if (it.isInitialized()) runCatching { it.close() } }
                 throw error
+            } finally {
+                operationJournal.finished()
             }
         }
     }
@@ -174,14 +197,18 @@ class LocalRuntimeImpl(
             closeConversation()
             yield() // Cooperative yield checkpoint before creating conversation and allocating KV-cache
             val toolProviders = config.tools.map { descriptor ->
-                tool(BridgedOpenApiTool(descriptor, config.toolExecutor) { activeRequestJob })
+                tool(
+                    BridgedOpenApiTool(descriptor, config.toolExecutor, beforeTool = {
+                        val barrier = CompletableDeferred<Unit>()
+                        check(activeBuffer?.offer(LocalRuntimeEvent.Drain(barrier)) == true) { "Native stream stopped before tool dispatch" }
+                        barrier.await()
+                    }) { activeRequestJob }
+                )
             }
-            val throttling = getAdaptiveThrottlingPolicy()
-            val effectiveTopK = if (throttling.topKReductionRatio < 1.0f) {
-                (config.sampler.topK * throttling.topKReductionRatio).toInt().coerceAtLeast(1)
-            } else {
-                config.sampler.topK
-            }
+            val requestedMtp = config.speculativeDecoding ?: loadedSpec?.speculativeDecoding
+            require(requestedMtp != true || capabilities?.speculative == true) { "This artifact has no verified drafter support." }
+            conversationMtp = requestedMtp
+            nativeIdentity?.let { operationJournal.before(it, "OPEN") }
             try {
                 conversation = LiteRtExperimentalSettings.conversation(config.isConstrainedDecodingEnabled) {
                     currentEngine.createConversation(
@@ -195,10 +222,11 @@ class LocalRuntimeImpl(
                             },
                             tools = toolProviders,
                             maxOutputToken = config.maxOutputTokens,
+                            enableSpeculativeDecoding = requestedMtp,
                             thinkingConfig = config.thinkingEnabled?.let { ThinkingConfig(enableThinking = it) },
                             samplerConfig = if (LocalAccelerators.shouldApplySampler(loadedAccelerator)) {
                                 SamplerConfig(
-                                    topK = effectiveTopK,
+                                    topK = config.sampler.topK,
                                     topP = config.sampler.topP.toDouble(),
                                     temperature = config.sampler.temperature.toDouble()
                                 )
@@ -211,37 +239,27 @@ class LocalRuntimeImpl(
             } catch (error: Throwable) {
                 conversation = null
                 throw error
+            } finally {
+                operationJournal.finished()
             }
         }
     }
 
-    @OptIn(ExperimentalApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class)
-    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = callbackFlow {
+    @OptIn(ExperimentalApi::class)
+    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = channelFlow {
+        awaitNativeCompletion()
         val activeConversation = conversation
         if (activeConversation == null) {
-            trySend(LocalRuntimeEvent.Error("LiteRT-LM conversation is not ready"))
-            close()
-            return@callbackFlow
+            send(LocalRuntimeEvent.Error("LiteRT-LM conversation is not ready"))
+            return@channelFlow
         }
-
-        fun offer(event: LocalRuntimeEvent): Boolean {
-            if (trySend(event).isSuccess) return true
-            // The binding has no suspendable callback. Fail explicitly rather than
-            // dropping text or growing a queue without bounds. Accepted deltas drain.
-            close(IllegalStateException("Local output buffering limit reached. Generation stopped without replaying tools; retry with a shorter output budget."))
-            return false
-        }
-        fun offerText(text: String, thinking: Boolean) {
-            for (chunk in text.chunked(4096)) {
-                if (!offer(if (thinking) LocalRuntimeEvent.ThinkingDelta(chunk) else LocalRuntimeEvent.TextDelta(chunk))) break
-            }
-        }
+        val buffer = LocalEventBuffer()
+        activeBuffer = buffer
+        nativeIdentity?.let { operationJournal.before(it, "PREFILL_DECODE") }
+        val completion = CompletableDeferred<Unit>()
+        nativeCompletion = completion
         val requestJob = coroutineContext[Job]
         activeRequestJob = requestJob
-
-        // Notify downstream consumers that prompt prefill is underway
-        trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
-
         val startTimeMs = SystemClock.elapsedRealtime()
         val firstTokenTimeMs = AtomicLong(0L)
         val firstVisibleTimeMs = AtomicLong(0L)
@@ -249,105 +267,138 @@ class LocalRuntimeImpl(
         val chunkCount = AtomicInteger(0)
         val totalCharacters = AtomicInteger(0)
         val finished = AtomicBoolean(false)
-
+        val overflow = AtomicBoolean(false)
+        fun offer(event: LocalRuntimeEvent) {
+            if (!buffer.offer(event) && overflow.compareAndSet(false, true)) {
+                launch(Dispatchers.IO) { runCatching { activeConversation.cancelProcess() } }
+            }
+        }
+        fun offerText(value: String, thinking: Boolean) {
+            for (chunk in value.unicodeChunks(4096)) {
+                offer(if (thinking) LocalRuntimeEvent.ThinkingDelta(chunk) else LocalRuntimeEvent.TextDelta(chunk))
+            }
+        }
+        offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
         try {
-            activeConversation.sendMessageAsync(
-                contentsOf(text, images),
-                object : MessageCallback {
-                    override fun onMessage(message: Message) {
-                        if (finished.get() || isClosedForSend) return
-                        val now = SystemClock.elapsedRealtime()
-                        if (firstTokenTimeMs.compareAndSet(0L, now)) {
-                            offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
-                        }
-
-                        message.channels[THOUGHT_CHANNEL]?.takeIf { it.isNotEmpty() }?.let { thought ->
-                            offerText(thought, thinking = true)
-                        }
-                        val visibleText = message.visibleText()
-                        if (visibleText.isNotEmpty()) {
-                            firstVisibleTimeMs.compareAndSet(0L, now)
-                            chunkCount.incrementAndGet()
-                            totalCharacters.addAndGet(visibleText.length)
-                            offerText(visibleText, thinking = false)
-                        }
-                    }
-
-                    override fun onDone() {
-                        if (isClosedForSend || !finished.compareAndSet(false, true)) return
-                        val finishTimeMs = SystemClock.elapsedRealtime()
-                        val totalDuration = finishTimeMs - startTimeMs
-                        val ttft = if (firstTokenTimeMs.get() > 0L) firstTokenTimeMs.get() - startTimeMs else totalDuration
-                        val chars = totalCharacters.get()
-                        // Rough approximation: ~4 characters per token for English/general text
-                        val estimatedTokens = (chars / 4).coerceAtLeast(chunkCount.get())
-                        val tps = if (totalDuration > 0) (estimatedTokens.toDouble() / (totalDuration.toDouble() / 1000.0)) else 0.0
-
-                        val metrics = LocalInferenceMetrics(
-                            timeToFirstTokenMs = ttft,
-                            totalDurationMs = totalDuration,
-                            totalChunks = chunkCount.get(),
-                            totalCharacters = chars,
-                            estimatedTokens = estimatedTokens,
-                            tokensPerSecond = tps,
-                            firstVisibleAnswerMs = firstVisibleTimeMs.get().takeIf { it > 0L }?.minus(startTimeMs),
-                            decodeDurationMs = firstTokenTimeMs.get().takeIf { it > 0L }?.let { finishTimeMs - it },
-                            segmentId = segmentId,
-                            native = if (loadedSpec?.nativeMetricsEnabled == true) {
-                                // Instrumentation failure must never turn a completed answer into an error.
-                                runCatching {
-                                    val info = activeConversation.getBenchmarkInfo()
-                                    NativeInferenceMetrics(
-                                        info.lastPrefillTokenCount,
-                                        info.lastDecodeTokenCount,
-                                        info.lastPrefillTokensPerSecond,
-                                        info.lastDecodeTokensPerSecond
-                                    ).takeIf { it.isValid }
-                                }.getOrNull()
-                            } else {
-                                null
+            launch(Dispatchers.IO) {
+                activeConversation.sendMessageAsync(
+                    contentsOf(text, images),
+                    object : MessageCallback {
+                        override fun onMessage(message: Message) {
+                            if (finished.get() || overflow.get()) return
+                            val now = SystemClock.elapsedRealtime()
+                            val visible = message.visibleText()
+                            val thought = message.channels[THOUGHT_CHANNEL].orEmpty()
+                            if ((visible.isNotEmpty() || thought.isNotEmpty()) && firstTokenTimeMs.compareAndSet(0L, now)) {
+                                offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
                             }
-                        )
-                        offer(LocalRuntimeEvent.Metrics(metrics.copy(metricSource = if (metrics.native != null) "native_segment" else "estimated_characters")))
-                        offer(LocalRuntimeEvent.Done)
-                        close()
-                    }
-
-                    override fun onError(throwable: Throwable) {
-                        finished.set(true)
-                        if (throwable is CancellationException) {
-                            close(throwable)
-                            return
-                        } else {
-                            offer(
-                                LocalRuntimeEvent.Error(
-                                    message = throwable.message ?: "Local inference failed",
-                                    cause = throwable
-                                )
-                            )
+                            if (thought.isNotEmpty()) offerText(thought, true)
+                            if (visible.isNotEmpty()) {
+                                firstVisibleTimeMs.compareAndSet(0L, now)
+                                chunkCount.incrementAndGet()
+                                totalCharacters.addAndGet(visible.length)
+                                offerText(visible, false)
+                            }
                         }
-                        close()
+
+                        override fun onDone() {
+                            if (!finished.compareAndSet(false, true)) return
+                            try {
+                                val end = SystemClock.elapsedRealtime()
+                                val duration = end - startTimeMs
+                                val chars = totalCharacters.get()
+                                val tokens = (chars / 4).coerceAtLeast(chunkCount.get())
+                                val native = if (loadedSpec?.nativeMetricsEnabled == true) {
+                                    runCatching {
+                                        val info = activeConversation.getBenchmarkInfo()
+                                        NativeInferenceMetrics(info.lastPrefillTokenCount, info.lastDecodeTokenCount, info.lastPrefillTokensPerSecond, info.lastDecodeTokensPerSecond).takeIf { it.isValid }
+                                    }.getOrNull()
+                                } else {
+                                    null
+                                }
+                                offer(
+                                    LocalRuntimeEvent.Metrics(
+                                        LocalInferenceMetrics(
+                                            timeToFirstTokenMs = firstTokenTimeMs.get().takeIf { it > 0 }?.minus(startTimeMs) ?: duration,
+                                            totalDurationMs = duration,
+                                            totalChunks = chunkCount.get(),
+                                            totalCharacters = chars,
+                                            estimatedTokens = tokens,
+                                            tokensPerSecond = if (duration > 0) tokens * 1000.0 / duration else 0.0,
+                                            native = native,
+                                            metricSource = if (native != null) "native_segment" else "estimated_characters",
+                                            firstVisibleAnswerMs = firstVisibleTimeMs.get().takeIf { it > 0 }?.minus(startTimeMs),
+                                            decodeDurationMs = firstTokenTimeMs.get().takeIf { it > 0 }?.let { end - it },
+                                            segmentId = segmentId,
+                                            requestedMtp = conversationMtp
+                                        )
+                                    )
+                                )
+                                offer(LocalRuntimeEvent.Done)
+                            } finally {
+                                completion.complete(Unit)
+                            }
+                        }
+
+                        override fun onError(throwable: Throwable) {
+                            if (!finished.compareAndSet(false, true)) return
+                            buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))
+                            completion.complete(Unit)
+                        }
+                    }
+                )
+            }
+            while (true) {
+                val event = buffer.take() ?: break
+                if (event is LocalRuntimeEvent.Error && event.cause is CancellationException) throw event.cause
+                send(event)
+            }
+        } finally {
+            withContext(NonCancellable) {
+                if (!completion.isCompleted) {
+                    withContext(Dispatchers.IO) { runCatching { activeConversation.cancelProcess() } }
+                    if (withTimeoutOrNull(5000) {
+                            completion.await()
+                            true
+                        } != true
+                    ) {
+                        throw NativeCancellationTimeoutException()
                     }
                 }
-            )
-
-            awaitClose { }
-        } finally {
-            if (!finished.get()) runCatching { activeConversation.cancelProcess() }
-            if (activeRequestJob === requestJob) activeRequestJob = null
+                operationJournal.finished()
+                if (activeRequestJob === requestJob) {
+                    activeRequestJob = null
+                    activeBuffer = null
+                }
+            }
         }
-    }.buffer(64)
+    }.transform { event ->
+        // Previous downstream emits have returned before a tool is allowed to cross IPC.
+        if (event is LocalRuntimeEvent.Drain) event.acknowledged.complete(Unit) else emit(event)
+    }
 
     override fun cancelActive() {
         activeRequestJob?.cancel()
-        runCatching { conversation?.cancelProcess() }
+        // Native cancellation runs on the request's IO cleanup path, never on the UI thread.
+    }
+
+    private suspend fun awaitNativeCompletion() {
+        val completion = nativeCompletion ?: return
+        if (withTimeoutOrNull(5000) {
+                completion.await()
+                true
+            } != true
+        ) {
+            throw NativeCancellationTimeoutException()
+        }
     }
 
     override fun hasOpenConversation(): Boolean = conversation != null
 
-    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = engine != null && loadedSpec == spec
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = engine != null && loadedSpec?.engineConfiguration() == spec.engineConfiguration()
 
     override suspend fun closeConversation() {
+        awaitNativeCompletion()
         withContext(Dispatchers.IO) {
             runCatching { conversation?.close() }
             conversation = null
@@ -355,6 +406,7 @@ class LocalRuntimeImpl(
     }
 
     override suspend fun unloadEngine() {
+        awaitNativeCompletion()
         withContext(Dispatchers.IO) {
             runCatching { conversation?.close() }
             conversation = null
@@ -415,6 +467,7 @@ class LocalRuntimeImpl(
 internal class BridgedOpenApiTool(
     private val descriptor: LocalToolDescriptor,
     private val executor: LocalToolExecutor?,
+    private val beforeTool: suspend () -> Unit = {},
     private val requestJob: () -> Job?
 ) : OpenApiTool {
     override fun getToolDescriptionJsonString(): String = buildJsonObject {
@@ -428,6 +481,7 @@ internal class BridgedOpenApiTool(
     ) {
         val current = executor ?: error("LiteRT-LM tool executor is not registered")
         try {
+            beforeTool()
             current.execute(descriptor.name, paramsJsonString)
         } catch (error: LocalToolLimitException) {
             throw error

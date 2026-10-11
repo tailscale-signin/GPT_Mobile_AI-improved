@@ -39,6 +39,33 @@ class LocalRuntimeRouterTest {
     }
 
     @Test
+    fun gpuOnlyFailureDoesNotAttemptCpuAndKeepsGpuCause() = runTest {
+        liteRtRuntime.capabilities = LocalModelCapabilities(backends = setOf("gpu"))
+        val original = IllegalStateException("GPU driver initialization rejected")
+        liteRtRuntime.failLoadEngineIf = { original }
+        val failure = runCatching { router.loadEngine(testEngineSpec().copy(accelerator = "gpu")) }.exceptionOrNull() as LocalLoadFailure
+        assertEquals(listOf("gpu"), liteRtRuntime.loadEngineCalls.map { it.accelerator })
+        assertTrue(failure.cause === original)
+        assertEquals("gpu", failure.attempts.first().backend)
+        assertTrue(failure.attempts.last().skipped)
+    }
+
+    @Test
+    fun allCompatibleFailuresKeepOrderedCauses() = runTest {
+        liteRtRuntime.capabilities = LocalModelCapabilities(backends = setOf("gpu", "cpu"))
+        liteRtRuntime.failLoadEngineIf = { IllegalStateException("${it.accelerator} failure") }
+        val failure = runCatching { router.loadEngine(testEngineSpec().copy(accelerator = "gpu")) }.exceptionOrNull() as LocalLoadFailure
+        assertEquals(listOf("gpu", "cpu"), failure.attempts.map { it.backend })
+        assertEquals("gpu failure", failure.cause?.message)
+    }
+
+    @Test
+    fun unknownCapabilitiesNeverAuthorizeAnAlternateExport() {
+        assertEquals(listOf("gpu"), compatibleFallbacks("gpu", null))
+        assertEquals(emptyList<String>(), compatibleFallbacks("gpu", setOf("npu")))
+    }
+
+    @Test
     fun gpuSelectionUsesLiteRtEvenWhenQnnIsPreferredAndFallbackDisabled() = runTest {
         fakeSettingRepository.features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(qnnAutomaticFallback = false)
         val spec = testEngineSpec().copy(accelerator = LocalAccelerators.GPU)
@@ -48,6 +75,14 @@ class LocalRuntimeRouterTest {
         assertEquals(listOf(spec), liteRtRuntime.loadEngineCalls)
         assertEquals(LocalRuntimeBackend.LITERT_LM, router.state.value.backend)
         assertEquals(LocalRuntimeBackend.QUALCOMM_QNN, fakeSettingRepository.backend)
+    }
+
+    @Test
+    fun workloadLabelsDoNotRebuildTheSameNativeEngine() = runTest {
+        val spec = testEngineSpec().copy(accelerator = LocalAccelerators.GPU)
+        router.loadEngine(spec)
+        router.loadEngine(spec.copy(workload = "tools", samplerIdentity = "40|0.9|0.7", expectedOutputTokens = 512))
+        assertEquals(1, liteRtRuntime.loadEngineCalls.size)
     }
 
     @Test

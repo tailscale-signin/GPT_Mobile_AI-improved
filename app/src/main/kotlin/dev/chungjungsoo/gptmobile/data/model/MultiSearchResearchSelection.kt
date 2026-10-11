@@ -1,0 +1,51 @@
+package dev.chungjungsoo.gptmobile.data.model
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+enum class ResearchContentScope { WEB_AND_PAPERS, PAPERS_ONLY, WEB_ONLY }
+
+/** Per-chat intent. The profile's existing strategy is the sole persistent default depth. */
+@Serializable
+data class MultiSearchResearchSelection(
+    val researchToggle: Boolean = false,
+    val depth: Int = 0,
+    val scope: ResearchContentScope = ResearchContentScope.WEB_AND_PAPERS,
+    val gatewayConnectionUid: String? = null,
+    val allowNativeFallback: Boolean = false,
+    val enabledProviders: Set<String> = emptySet()
+) {
+    val academicEligibleByUi: Boolean get() = researchToggle && depth > 0 && scope != ResearchContentScope.WEB_ONLY
+    fun normalized() = copy(depth = depth.coerceIn(0, 100), enabledProviders = enabledProviders.take(26).toSet())
+    fun intensity(): ResearchIntensity? = when {
+        !researchToggle || depth <= 0 -> null
+        depth <= 34 -> ResearchIntensity.QUICK
+        depth <= 74 -> ResearchIntensity.RESEARCH
+        else -> ResearchIntensity.EXHAUSTIVE
+    }
+    fun applyTo(defaults: ModelDelegationSettings): ModelDelegationSettings {
+        val tier = intensity() ?: return defaults
+        val scaled = defaults.withStrategy(depth)
+        val caps = defaults.deepResearch.preset(tier)
+        return scaled.copy(
+            deepResearch = defaults.deepResearch.copy(
+                intensity = tier,
+                contentScope = scope,
+                maxPages = minOf(defaults.deepResearch.maxPages, caps.maxPages),
+                maxRounds = minOf(defaults.deepResearch.maxRounds, caps.maxRounds),
+                linkDepth = minOf(defaults.deepResearch.linkDepth, caps.linkDepth)
+            ).normalized()
+        )
+    }
+}
+
+fun academicUnlockReason(selection: MultiSearchResearchSelection, settings: AppFeatureSettings, profileUid: String, networkAllowed: Boolean): String? = when {
+    !selection.researchToggle -> "Research is off"
+    selection.depth <= 0 -> "Increase Research Depth to unlock"
+    selection.scope == ResearchContentScope.WEB_ONLY -> "Web-only scope selected"
+    !settings.delegationFor(profileUid).deepResearch.academicSources -> "Enable Papers and studies consent"
+    !settings.isToolPluginEnabled(ToolPluginId.DEEP_RESEARCH) -> "Enable Deep Research in Plugins & Tools"
+    !settings.isToolPluginSelected(profileUid, ToolPluginId.DEEP_RESEARCH) -> "Enable Deep Research for this AI profile"
+    !networkAllowed -> "Network tools are disabled for this profile"
+    else -> null
+}

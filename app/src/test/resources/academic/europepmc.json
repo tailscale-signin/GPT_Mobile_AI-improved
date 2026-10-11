@@ -1,0 +1,40 @@
+{
+  "resultList": {
+    "result": [
+      {
+        "id": "12345678",
+        "source": "MED",
+        "pmid": "12345678",
+        "doi": "10.1234/2013/999990",
+        "title": "Denpasar Declaration on Population and Development.",
+        "authorString": "Ministerial Meeting on Population of the Non-Aligned Movement (1993: Bali).",
+        "journalTitle": "Integration",
+        "issue": "40",
+        "pubYear": "1994",
+        "journalIssn": "0916-0582",
+        "pageInfo": "27-29",
+        "pubType": "journal article",
+        "isOpenAccess": "N",
+        "inEPMC": "N",
+        "inPMC": "N",
+        "citedByCount": 6,
+        "hasReferences": "N",
+        "hasTextMinedTerms": "N",
+        "hasDbCrossReferences": "Y",
+        "dbCrossReferenceList": {
+          "dbName": [
+            "EMBL",
+            "PRIDE"
+          ]
+        },
+        "hasPDF": "N",
+        "hasBook": "N",
+        "hasSuppl": "N",
+        "hasLabsLinks": "Y",
+        "hasTMAccessionNumbers": "N",
+        "firstPublicationDate": "1994-06-01",
+        "firstIndexDate": "2008-01-29"
+      }
+    ]
+  }
+}

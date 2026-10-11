@@ -25,6 +25,7 @@ class LocalEngineHolder(
     private val delegate: LocalRuntime,
     private val timeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) : LocalRuntime {
+    override val processPssBytes get() = delegate.processPssBytes
     override val handlesEngineFallback get() = delegate.handlesEngineFallback
     override val state get() = delegate.state
     override fun loadedEngineSpec(): LocalEngineSpec? = delegate.loadedEngineSpec()
@@ -50,14 +51,18 @@ class LocalEngineHolder(
     val lastAccessedTimestamp: Long
         get() = lastAccessedElapsedRealtimeMs
 
+    override suspend fun allowVerification(spec: LocalEngineSpec) = withGenerationLock { delegate.allowVerification(spec) }
+
     override suspend fun loadEngine(spec: LocalEngineSpec) = withGenerationLock {
         markAccessed()
         if (loadedSpec == spec && delegate.isEngineLoaded(spec)) {
+            LocalReuseDiagnostics.record("engine_hit")
             return@withGenerationLock
         }
+        LocalReuseDiagnostics.record("engine_rebuild")
         if (loadedSpec != null) {
             delegate.closeConversation()
-            delegate.unloadEngine()
+            if (!delegate.ownsEngineSwitching) delegate.unloadEngine()
             loadedSpec = null
         }
         try {

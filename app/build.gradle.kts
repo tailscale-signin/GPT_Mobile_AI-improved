@@ -108,6 +108,7 @@ configurations.configureEach {
 }
 
 dependencies {
+    implementation("org.slf4j:slf4j-api:2.0.19")
     artifactTypes.maybeCreate("aar").attributes.attribute(privateMemoryAttribute, false)
     registerTransform(PrivateMemoryRuntime::class) {
         from.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar").attribute(privateMemoryAttribute, false)
@@ -123,6 +124,7 @@ extensions.configure<ApplicationExtension> {
     // AGP's built-in Kotlin compiler does not consume Kotlin files added to Java source roots.
     sourceSets.getByName("main").kotlin.directories += if (geniexRuntime) "src/geniex/kotlin" else "src/litertOnly/kotlin"
     defaultConfig {
+        buildConfigField("boolean", "LOCAL_INFERENCE_PROCESS", (providers.gradleProperty("localInferenceProcess").orNull != "false").toString())
         applicationId = if (geniexRuntime) "dev.melo.gptmobile.improved.geniex" else "dev.melo.gptmobile.improved"
         buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())
         // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.

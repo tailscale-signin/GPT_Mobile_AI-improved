@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -434,6 +435,45 @@ class CompleteBackupManagerTest {
     }
 
     @Test
+    fun fiveYearHealthImportSurvivesPasswordlessEncryptedBackupAndRestore() = runBlocking {
+        val store = dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context)
+        val snapshot = dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImport(
+            importedAt = "2026-10-11T20:00:00Z",
+            days = 1825,
+            summary = kotlinx.serialization.json.buildJsonObject {
+                put("schema", dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.SCHEMA)
+                put("status", "available")
+                put("metrics", kotlinx.serialization.json.buildJsonObject {
+                    put("steps", kotlinx.serialization.json.buildJsonObject {
+                        put("status", "available")
+                    })
+                })
+            }
+        )
+        val archive = File(context.cacheDir, "health-years.gptbackup")
+        val keyFile = File(context.cacheDir, "health-years.gptkey")
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.HEALTH_DATA))
+        try {
+            store.clear()
+            store.save(snapshot)
+            val saved = manager.backup(Uri.fromFile(archive), selection, recoveryKeyUri = Uri.fromFile(keyFile))
+            assertTrue(saved.message, saved.success)
+            val header = archive.inputStream().use { input ->
+                ByteArray(8).also { input.read(it) }.decodeToString()
+            }
+            assertEquals("GPTFULL3", header)
+            store.clear()
+            val restored = manager.restore(Uri.fromFile(archive), selection = selection, recoveryKeyUri = Uri.fromFile(keyFile))
+            assertTrue(restored.message, restored.success)
+            assertEquals(snapshot, store.read())
+        } finally {
+            store.clear()
+            archive.delete()
+            keyFile.delete()
+        }
+    }
+
+    @Test
     fun defaultsNeverExportCredentialsOrMemoryAndEncryptionRequiresRecoveryMaterial() = runBlocking {
         seed(File(context.cacheDir, "default-file").apply { writeText("file") })
         vault.put("provider", "sentinel-original-token".toByteArray())
@@ -457,6 +497,7 @@ class CompleteBackupManagerTest {
         assertEquals("new-memory", vault.read(dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository.VAULT_REFERENCE)!!.decodeToString())
         assertFalse(manager.backup(Uri.fromFile(archive), CompleteBackupSelection(setOf(CompleteBackupSection.MEMORY))).success)
         assertFalse(manager.backup(Uri.fromFile(archive), CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS))).success)
+        assertFalse(manager.backup(Uri.fromFile(archive), CompleteBackupSelection(setOf(CompleteBackupSection.HEALTH_DATA)), encrypt = false).success)
     }
 
     @Test

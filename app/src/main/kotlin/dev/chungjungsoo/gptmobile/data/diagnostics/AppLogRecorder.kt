@@ -21,8 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String) {
-    fun line() = "${Instant.ofEpochMilli(time)} $level/$tag: $message"
+data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString()) {
+    fun line() = "${Instant.ofEpochMilli(time)} $level/$tag: $message · eventId=$eventId"
 }
 
 /** Opt-in, app-process-only diagnostics. No network upload and no HTTP bodies. */
@@ -194,7 +194,7 @@ object AppLogRecorder {
             }
             if (pending.isNotEmpty()) append(pending.joinToString("\n"))
             listOf("critical-previous.log", "critical.log", "previous.log", "current.log").map { File(folder, it) }
-                .filter { it.isFile }.map { it.readBytes() }
+                .filter { it.isFile }.map { it.name to it.readBytes() }
         }
         val folder = File(context.cacheDir, "diagnostics").also { it.mkdirs() }
         // Independent exports cannot overwrite a file still being shared/read.
@@ -202,9 +202,13 @@ object AppLogRecorder {
         try {
             target.bufferedWriter().use { output ->
                 if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
-                snapshot.forEach { bytes ->
+                val seen = mutableSetOf<String>()
+                snapshot.forEach { (source, bytes) ->
                     bytes.inputStream().bufferedReader().useLines { lines ->
-                        lines.forEach { output.appendLine(if (structured) structuredDiagnosticLine(it) else it) }
+                        lines.forEach { line ->
+                            val identity = diagnosticEventIdentity(line)
+                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity)) else line)
+                        }
                     }
                 }
             }

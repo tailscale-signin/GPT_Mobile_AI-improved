@@ -9,10 +9,11 @@ data class ProfileBehaviorSettings(
     val crawlersEnabled: Boolean = false,
     val crawlerToolIds: Set<String> = emptySet(),
     val maxCrawlPages: Int = 5,
-    val toolPluginStates: Map<String, Boolean> = emptyMap()
+    val toolPluginStates: Map<String, Boolean> = emptyMap(),
+    val researchDepthOverride: Int? = null
 ) {
     fun normalized() = copy(maxCrawlPages = maxCrawlPages.coerceIn(1, 20))
 }
 
 fun AppFeatureSettings.delegationFor(profileUid: String): ModelDelegationSettings =
-    delegation.copy(enabled = delegation.enabled && profileBehavior[profileUid]?.delegationEnabled == true)
+    delegation.copy(enabled = delegation.enabled && profileBehavior[profileUid]?.delegationEnabled == true).let { value -> profileBehavior[profileUid]?.researchDepthOverride?.let(value::withStrategy) ?: value }

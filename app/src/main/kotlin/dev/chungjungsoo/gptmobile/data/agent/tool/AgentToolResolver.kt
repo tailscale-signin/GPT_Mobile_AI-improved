@@ -73,6 +73,7 @@ class AgentToolResolver @Inject constructor(
     private val amazonPublicHistory: dev.chungjungsoo.gptmobile.data.amazon.AmazonPublicHistoryProvider? = null,
     private val publicNews: PublicNewsClient? = null,
     private val publicAirbnb: PublicAirbnbClient? = null,
+    private val academicClient: dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient? = null,
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val documentContext: android.content.Context? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
@@ -111,6 +112,8 @@ class AgentToolResolver @Inject constructor(
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
         val featureSettings = settingRepository.getFeatureSettings()
+        val researchSelection = chatToolConfig?.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(profileUid).strategy)
+        val academicAllowed = dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(researchSelection, featureSettings, profileUid, !disableRemote && platform?.disableAllTools != true) == null && chatToolConfig?.allToolsDisabled != true
         val allowRemoteMcp = !disableRemote && featureSettings.remoteMcpConnections
         val allowDeviceLocation =
             !disableLocal &&
@@ -280,6 +283,7 @@ class AgentToolResolver @Inject constructor(
             val mcpGroups = bindings
                 .filter { it.connection?.type == ToolConnectionType.MCP }
                 .filter { pluginEnabledForBinding(featureSettings, profileUid, it) }
+                .filter { it.connection?.alias != "deep_research" || academicAllowed && it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
                 .filterNot { binding ->
                     // Prefer the native GitHub API surface when it is connected.
                     // Keeping GitHub Official MCP visible at the same time causes
@@ -307,6 +311,43 @@ class AgentToolResolver @Inject constructor(
             mcpResults.forEach { (tools, error) ->
                 resolved += tools
                 error?.let(onConnectionError)
+            }
+        }
+
+        val academicRemote = resolved.filter { tool -> DeepResearchTool.OPERATIONS.any { operation -> tool.realToolName == "deep_research_$operation" || tool.realToolName == "academic__deep_research_$operation" } }
+        resolved.removeAll(academicRemote.toSet())
+        if (academicAllowed && academicClient != null) {
+            val access: suspend () -> Boolean = {
+                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                val features = settingRepository.getFeatureSettings()
+                val selection = userMessage?.chatId?.let { features.conversationResearch[it] } ?: chatToolConfig?.research ?: researchSelection
+                selection == researchSelection &&
+                    current?.enabled == true &&
+                    !current.disableAllTools &&
+                    dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, !current.disableRemoteTools) == null
+            }
+            val academicOptions = researchSelection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch
+            val academicBudget = AcademicRunBudget(maxReads = academicOptions.maxPages)
+            DeepResearchTool.OPERATIONS.forEach { operation ->
+                val remote = academicRemote.singleOrNull {
+                    it.connectionUid == researchSelection.gatewayConnectionUid && it.shareableReadOnly && it.realToolName.endsWith("deep_research_$operation")
+                }
+                val liveAccess: suspend () -> Boolean = {
+                    access() &&
+                        (
+                            remote == null ||
+                                (
+                                    settingRepository.getFeatureSettings().remoteMcpConnections &&
+                                        toolConnectionRepository.getConnection(remote.connectionUid!!)?.let { current ->
+                                            current.authType != ToolConnectionAuthType.NONE &&
+                                                remote.realToolName in current.approvedReadTools.lines().map(String::trim) &&
+                                                toolConnectionRepository.listBindingsWithConnections(profileUid).any { it.binding.connectionUid == remote.connectionUid && it.binding.toolName == remote.realToolName }
+                                        } == true
+                                    )
+                            )
+                }
+                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget)
+                resolved += ResolvedAgentTool(facade, remote?.connectionUid, "Deep Research", remote?.realToolName ?: facade.definition.name, facade.definition.name, shareableReadOnly = false, canReuseResult = access)
             }
         }
 
@@ -365,7 +406,7 @@ class AgentToolResolver @Inject constructor(
                     "news" -> ToolPluginId.NEWS
                     "airbnb" -> ToolPluginId.AIRBNB
                     "github" -> ToolPluginId.GITHUB
-                    else -> ""
+                    else -> if (resolved.realToolName.startsWith("deep_research_")) ToolPluginId.DEEP_RESEARCH else ""
                 }
                 val fallback = when {
                     resolved.isWebSearchEngine() -> ToolPluginId.WEB_SEARCH

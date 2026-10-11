@@ -51,7 +51,8 @@ class ProviderEventAssemblerTest {
             listOf(ChatToolCallDelta(function = ChatFunctionDelta("device_location", "{}"))),
             "stop"
         )
-        val call = events.single() as ProviderEvent.ToolCall
+        assertEquals(ProviderEvent.Usage(finishReason = "stop"), events.first())
+        val call = events.filterIsInstance<ProviderEvent.ToolCall>().single()
         assertEquals("device_location", call.name)
         assertEquals("{}", call.arguments.toString())
         assertTrue(call.callId.isNotBlank())
@@ -78,7 +79,10 @@ class ProviderEventAssemblerTest {
         ).forEach { (name, args, reason) ->
             val assembler = ChatCompletionsEventAssembler()
             val events = assembler.accept(null, null, listOf(ChatToolCallDelta(function = ChatFunctionDelta(name, args))), reason)
-            assertTrue(events.single() is ProviderEvent.Failed)
+            assertEquals(ProviderEvent.Usage(finishReason = reason), events.first())
+            assertEquals(2, events.size)
+            assertTrue(events.last() is ProviderEvent.Failed)
+            assertTrue(events.none { it is ProviderEvent.ToolCall })
             assertTrue(assembler.finish().isEmpty())
         }
     }
@@ -94,7 +98,10 @@ class ProviderEventAssemblerTest {
         assertTrue(interrupted.discardIncomplete().single() is ProviderEvent.Failed)
         assertTrue(interrupted.finish().isEmpty())
         val prose = "Testing device_location() {\"permission_status\":\"granted\"}"
-        assertEquals(listOf(ProviderEvent.TextDelta(prose)), interrupted.accept(prose, null, null, "stop"))
+        assertEquals(
+            listOf(ProviderEvent.TextDelta(prose), ProviderEvent.Usage(finishReason = "stop")),
+            interrupted.accept(prose, null, null, "stop")
+        )
     }
 
     @Test
@@ -140,6 +147,7 @@ class ProviderEventAssemblerTest {
 
         assertEquals(
             listOf(
+                ProviderEvent.Usage(finishReason = "tool_calls"),
                 ProviderEvent.ToolCall(
                     callId = "call_exact_2",
                     name = "search",

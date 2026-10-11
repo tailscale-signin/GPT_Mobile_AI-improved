@@ -132,7 +132,7 @@ class LocalRuntimeImplTest {
     }
 
     @Test
-    fun synchronousSendFailureCancelsNativeWorkAndNextRequestCanComplete() = runTest {
+    fun unacknowledgedNativeWorkCannotBeReusedAfterSynchronousFailure() = runTest {
         val engine = mockk<Engine>(relaxed = true)
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation
@@ -143,7 +143,7 @@ class LocalRuntimeImplTest {
         assertTrue(runCatching { runtime.sendMessage("first").toList() }.isFailure)
         verify(exactly = 1) { conversation.cancelProcess() }
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } answers { secondArg<MessageCallback>().onDone() }
-        assertTrue(runtime.sendMessage("second").toList().any { it is LocalRuntimeEvent.Done })
+        assertTrue(runCatching { runtime.sendMessage("second").toList() }.exceptionOrNull() is NativeCancellationTimeoutException)
         verify(exactly = 1) { conversation.cancelProcess() }
     }
 

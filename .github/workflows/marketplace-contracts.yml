@@ -2,14 +2,21 @@ name: Marketplace contracts
 
 on:
   push:
-    branches: ['feat/combined-marketplace-gateway-14-2-2026-10-10']
-    paths: ['app/**', 'mcp/**', '.github/workflows/marketplace-contracts.yml']
+    branches: ['feat/combined-marketplace-gateway-14-2-2026-10-10', 'feat/gpu-npu-execution-plans-2026-10-11']
+    paths: ['app/**', 'mcp/**', 'gateway/v14/academic.py', 'gateway/tests/test_academic.py', '.github/workflows/marketplace-contracts.yml']
   pull_request:
     paths:
       - '.github/workflows/marketplace-contracts.yml'
       - 'mcp/marketplace/**'
       - 'mcp/amazon/**'
       - 'mcp/research/**'
+      - 'gateway/v14/academic.py'
+      - 'gateway/tests/test_academic.py'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchTool.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/MultiSearchResearchSelection.kt'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/**'
+      - 'app/src/test/resources/academic/**'
       - 'scripts/tests/test_marketplace_companion.py'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/McpPresetCatalog.kt'
@@ -45,6 +52,8 @@ jobs:
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      OBX_DISABLE_ANALYTICS: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,6 +93,9 @@ jobs:
           --tests 'dev.chungjungsoo.gptmobile.data.research.EvidenceGainPolicyTest'
           --tests 'dev.chungjungsoo.gptmobile.data.research.SourceIdentityTest'
           --tests 'dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflowTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.research.academic.AcademicContractsTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRunBudgetTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.backup.PluginBackupPreferencesTest'
 
       - name: Test Amazon HTTP and stdio bridge contracts
         working-directory: mcp/amazon
@@ -97,6 +109,11 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm test
           npm run prepare-upstreams
+
+      - name: Test bounded academic router and source lock
+        run: |
+          python3 -m unittest discover -s gateway/tests -p test_academic.py
+          python3 -c "import hashlib,json,pathlib; p=pathlib.Path('gateway/v14/academic.py'); assert hashlib.sha256(p.read_bytes()).hexdigest() == json.loads(pathlib.Path('mcp/research/academic/manifest.json').read_text())['routerSha256']"
 
       - name: Test companion transport and package integrity
         run: |

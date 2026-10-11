@@ -40,7 +40,9 @@ data class ChatCompletionChunk(
 
     // Transport-owned signal: only an explicit SSE [DONE], never an arbitrary socket EOF.
     @Transient
-    val streamFinished: Boolean = false
+    val streamFinished: Boolean = false,
+    @Transient val retryDurationMs: Long? = null,
+    @Transient val retryAttempts: Int? = null
 )
 
 @Serializable

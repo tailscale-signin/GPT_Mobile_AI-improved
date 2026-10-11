@@ -1461,7 +1461,7 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `severe thermal status clamps engine context and throttles topK`() = runBlocking {
+    fun `thermal state does not silently change requested context or sampling`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             deviceRamGb = 16L
             simulatedHardwareState = DeviceHardwareState(
@@ -1478,14 +1478,13 @@ class LiteRtLmAdapterTest {
             localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192, topK = 40)
         ).streamRound(emptyList(), emptyList()).toList()
 
-        // 8192 should be clamped to 1024 by adaptive throttling policy
-        assertEquals(1024, runtime.loadEngineCalls.single().maxTokens)
-        // topK of 40 should be halved to 20
-        assertEquals(20, runtime.createConversationCalls.single().sampler.topK)
+        // Production admission rejects unsafe work; the adapter preserves quality settings.
+        assertEquals(8192, runtime.loadEngineCalls.single().maxTokens)
+        assertEquals(40, runtime.createConversationCalls.single().sampler.topK)
     }
 
     @Test
-    fun `severe thermal status clamps rolling compaction context budget`() = runBlocking {
+    fun `thermal state does not silently discard history through a smaller budget`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             deviceRamGb = 16L
             simulatedHardwareState = DeviceHardwareState(
@@ -1496,7 +1495,7 @@ class LiteRtLmAdapterTest {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
         val adapter = adapter(runtime)
-        // 8192 max tokens requested on 16GB RAM, but severe thermal forces clamp to 1024 tokens (~4096 chars)
+        // Admission and thermal policy must not silently shrink the requested history budget.
         val platform = localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192)
 
         val anchor = completedTurn("Anchor turn prompt setup", "Anchor reply")
@@ -1515,8 +1514,8 @@ class LiteRtLmAdapterTest {
         // Anchor must be preserved
         assertEquals("Anchor turn prompt setup", config.initialMessages[0].text)
         assertEquals("Anchor reply", config.initialMessages[1].text)
-        // Middle turns should be compacted out to stay safely within the 1024 clamped tokens ceiling
-        assertTrue(config.initialMessages.size < (intermediateTurns.size * 2) + 2)
+        // All history that fits the explicitly requested context remains available.
+        assertEquals((intermediateTurns.size * 2) + 2, config.initialMessages.size)
     }
 
     @Test
@@ -1641,7 +1640,7 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `cpu fallback failure surfaces a clean engine error instead of the native dump`() = runBlocking {
+    fun `cpu fallback failure retains the original GPU cause and secondary CPU failure`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             failLoadEngineIf = {
                 IllegalStateException("Failed to create engine … CreateSharedMemoryManager unimplemented")
@@ -1652,9 +1651,11 @@ class LiteRtLmAdapterTest {
         val events = adapter.openSession(turns("hello"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
 
         val failed = events.filterIsInstance<ProviderEvent.Failed>().single()
-        assertEquals(LiteRtLmAdapter.DEFAULT_ENGINE_LOAD_FAILED, failed.message)
-        assertFalse(failed.message.contains("CreateSharedMemoryManager"))
-        assertFalse(failed.message.contains("Failed to create engine"))
+        assertTrue(failed.message.startsWith(LiteRtLmAdapter.DEFAULT_ENGINE_LOAD_FAILED))
+        assertTrue(failed.message.contains("GPU:"))
+        assertTrue(failed.message.contains("CPU fallback:"))
+        assertTrue(failed.message.contains("CreateSharedMemoryManager"))
+        assertTrue(failed.message.indexOf("GPU:") < failed.message.indexOf("CPU fallback:"))
     }
 
     @Test

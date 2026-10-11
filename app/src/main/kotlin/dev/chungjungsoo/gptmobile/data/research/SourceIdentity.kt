@@ -14,10 +14,12 @@ data class SourceIdentity(
     val host: String = "",
     val publicationYear: Int? = null,
     val titleFingerprint: String = "",
-    val contentFingerprint: String = ""
+    val contentFingerprint: String = "",
+    val scholarlyVersionKey: String = ""
 ) {
     val equivalenceKey: String
         get() = when {
+            scholarlyVersionKey.isNotBlank() -> scholarlyVersionKey
             doi.isNotBlank() -> "doi:$doi"
             pmid.isNotBlank() -> "pmid:$pmid"
             pmcid.isNotBlank() -> "pmcid:$pmcid"
@@ -52,8 +54,21 @@ data class SourceIdentity(
                 host = runCatching { URI(canonical).host?.lowercase(Locale.ROOT).orEmpty() }.getOrDefault(""),
                 publicationYear = publicationYear?.takeIf { it in 1500..3000 },
                 titleFingerprint = normalizedTitle.takeIf(String::isNotBlank)?.let(::researchHash).orEmpty(),
-                contentFingerprint = normalizedPassage.takeIf(String::isNotBlank)?.let(::researchHash).orEmpty()
+                contentFingerprint = normalizedPassage.takeIf(String::isNotBlank)?.let(::researchHash).orEmpty(),
+                scholarlyVersionKey = scholarlyIdentity(canonical)
             )
+        }
+
+        private fun scholarlyIdentity(url: String): String {
+            val uri = runCatching { URI(url) }.getOrNull() ?: return ""
+            val path = uri.path.orEmpty().trim('/')
+            return when (uri.host) {
+                "arxiv.org", "export.arxiv.org" -> path.removePrefix("abs/").removePrefix("pdf/").removeSuffix(".pdf").takeIf { it.matches(Regex("(?:[0-9]{4}\\.[0-9]{4,5}|[a-z-]+/[0-9]{7})(?:v[0-9]+)?")) }?.let { "arxiv:$it" }.orEmpty()
+                "aclanthology.org" -> path.removeSuffix(".pdf").takeIf { it.matches(Regex("[A-Za-z0-9.-]+")) }?.let { "acl:$it" }.orEmpty()
+                "openreview.net" -> uri.query.orEmpty().split('&').firstOrNull { it.startsWith("id=") }?.removePrefix("id=")?.takeIf { it.matches(Regex("[A-Za-z0-9_-]+")) }?.let { "openreview:$it" }.orEmpty()
+                "zenodo.org" -> path.removePrefix("records/").removePrefix("record/").takeIf { it.matches(Regex("[0-9]+")) }?.let { "zenodo:$it" }.orEmpty()
+                else -> ""
+            }
         }
 
         fun canonicalResearchUrl(raw: String): String {

@@ -12,7 +12,8 @@ class ThermalForecastTest {
         val state = DeviceHardwareState(thermalHeadroom = 1.05f)
         assertEquals(DeviceThermalState.NORMAL, state.thermalState)
         assertTrue(state.isThrottlingRequired)
-        assertEquals(1024, DeviceHardwareGovernor.computeThrottlingPolicy(state, true).maxTokensClamp)
+        assertNull(DeviceHardwareGovernor.computeThrottlingPolicy(state, true).maxTokensClamp)
+        assertEquals(1f, DeviceHardwareGovernor.computeThrottlingPolicy(state, true).topKReductionRatio)
     }
 
     @Test

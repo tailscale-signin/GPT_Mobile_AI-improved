@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.BuildConfig
 import java.io.File
 
 /** Export metadata is a capability declaration, not an on-device qualification badge. */
+@kotlinx.serialization.Serializable
 data class LocalModelCapabilities(
     val contextTokens: Int? = null,
     val dynamicContext: Boolean = false,
@@ -15,12 +16,14 @@ data class LocalModelCapabilities(
     val thinking: Boolean? = null,
     val speculative: Boolean? = null,
     val soc: String? = null,
-    val minRuntimeVersion: String? = null
+    val minRuntimeVersion: String? = null,
+    val visionBackends: Set<String> = emptySet()
 ) {
     fun validate(spec: LocalEngineSpec) {
         require(contextTokens == null || spec.maxTokens <= contextTokens) { "Requested context ${spec.maxTokens} exceeds this export's $contextTokens-token ceiling." }
         require(backends.isEmpty() || spec.accelerator.lowercase() in backends) { "This artifact does not support ${spec.accelerator}. Choose a compatible variant; a backend switch cannot convert compiled weights." }
         require(!spec.isVisionEnabled || vision != false) { "This export is text-only; image input is unsupported." }
+        require(!spec.isVisionEnabled || visionBackends.isEmpty() || spec.visionAccelerator in visionBackends) { "This export does not support the requested vision backend." }
         require(spec.speculativeDecoding != true || speculative == true) { "This export has no verified speculative-decoding support. Use Model default or Off." }
         if (spec.accelerator.equals("npu", true) && !soc.isNullOrBlank()) {
             require(QualcommSocSupport.canonicalSoc(soc) == QualcommSocSupport.canonicalSoc(android.os.Build.SOC_MODEL)) { "This NPU export targets $soc; it cannot run on ${android.os.Build.SOC_MODEL}." }
@@ -64,7 +67,8 @@ internal object LiteRtModelInspector {
                 thinking = llm?.supportsThinking(),
                 speculative = llm?.hasSpeculativeDecodingSupport(),
                 soc = info.socName(Modality.TEXT),
-                minRuntimeVersion = info.minRuntimeVersion()
+                minRuntimeVersion = info.minRuntimeVersion(),
+                visionBackends = if (info.inputModalities().vision) info.supportedBackends(Modality.VISION).map { it.name.lowercase() }.toSet() else emptySet()
             )
         }.also {
             if (cache.size >= 32) cache.remove(cache.keys.first())

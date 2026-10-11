@@ -92,7 +92,12 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         } catch (error: ModernMcpError) {
             val unsupportedMethod = error.code == -32601 && error.status in setOf(200, 400, 404, 405)
             val legacyHttpResponse = error.status in setOf(400, 404, 405) && error.code !in MODERN_ERRORS
-            if (unsupportedMethod || legacyHttpResponse) null else throw error
+            if (unsupportedMethod || legacyHttpResponse) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=legacy_fallback · connection=${config.connectionUid}")
+                null
+            } else {
+                throw error
+            }
         } catch (error: Exception) {
             dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
             // Transport failure says nothing about protocol support. Never open a second

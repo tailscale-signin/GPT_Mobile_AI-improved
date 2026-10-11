@@ -50,7 +50,8 @@ fun LocalModelPicker(
                     value = option.catalogEntryId,
                     selected = option.catalogEntryId == selectedCatalogEntryId,
                     title = option.displayName,
-                    description = option.catalogEntryId,
+                    description = option.compatibilityIssue?.let { "Blocked package: $it" } ?: option.catalogEntryId,
+                    enabled = option.compatibilityIssue == null,
                     onSelected = onModelSelected,
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
@@ -71,7 +72,7 @@ fun LocalModelCatalogPicker(
 ) {
     LocalModelPicker(
         models = items.filter { it.status == dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelItemStatus.READY }
-            .map { DownloadedLocalModelOption(it.entry.id, it.entry.displayName) },
+            .map { DownloadedLocalModelOption(it.entry.id, it.entry.displayName, dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.unsupportedReason("", it.entry.downloadUrl.substringBefore('?'))) },
         selectedCatalogEntryId = selectedCatalogEntryId,
         onModelSelected = onModelSelected,
         onNavigateToLocalModels = { onNavigateToLocalModels?.invoke() },

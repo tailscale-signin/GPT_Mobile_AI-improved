@@ -22,8 +22,12 @@ object LocalRuntimeModule {
     @Singleton
     fun provideLocalRuntime(
         @ApplicationContext context: Context,
-        settingRepository: SettingRepository
+        settingRepository: SettingRepository,
+        benchmarkStore: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
     ): LocalRuntime {
+        if (dev.chungjungsoo.gptmobile.BuildConfig.LOCAL_INFERENCE_PROCESS) {
+            return LocalEngineHolder(dev.chungjungsoo.gptmobile.data.localruntime.PlannedLocalRuntime(context, dev.chungjungsoo.gptmobile.data.localruntime.ProcessLocalRuntime(context, settingRepository), settingRepository, benchmarkStore))
+        }
         val liteRtRuntime = LocalRuntimeImpl(context)
         val qnnRuntime = LocalRuntimeQnnImpl(context)
         val router = LocalRuntimeRouter(
@@ -32,7 +36,7 @@ object LocalRuntimeModule {
             liteRtRuntime = liteRtRuntime,
             artifactRuntime = dev.chungjungsoo.gptmobile.data.localruntime.NativeArtifactRuntimeFactory.create(context)
         )
-        return LocalEngineHolder(router)
+        return LocalEngineHolder(dev.chungjungsoo.gptmobile.data.localruntime.PlannedLocalRuntime(context, router, settingRepository, benchmarkStore))
     }
 
     @Provides

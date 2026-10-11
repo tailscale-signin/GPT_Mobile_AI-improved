@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -80,6 +81,12 @@
         </activity>
 
         <service
+            android:name=".data.localruntime.LocalInferenceService"
+            android:process=":local_inference"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <service
             android:name=".data.service.GptTileService"
             android:exported="true"
             android:icon="@drawable/splash_icon_inset"
@@ -95,12 +102,16 @@
         <service
             android:name=".presentation.service.AgentRunForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-initiated interactive AI generation and research, including on-device inference with progress and cancellation" />
+        </service>
 
         <service
             android:name=".presentation.service.BenchmarkForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-initiated on-device AI runtime performance comparison and stability measurements with progress and cancellation" />
+        </service>
 
         <activity android:name="dev.chungjungsoo.gptmobile.presentation.ui.setting.ServerPairingActivity" android:exported="true">
             <intent-filter>

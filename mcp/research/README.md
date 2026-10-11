@@ -58,3 +58,42 @@ npm run prepare-upstreams
 ```
 
 Contract tests use real stdio MCP fixture servers and an HTTP client to check multi-provider routing, optional credential handling, authentication and media extraction. Preparation builds the pinned Airbnb and Hacker News sources. Live upstream searches require network access and may be blocked or rate limited by providers. Upstream license notices remain in their checkouts; this project does not vendor their source.
+
+## Deep Research academic facade
+
+The new **Deep Research · Academic MCP Gateway** preset uses one local composite child with six read-only operations. Android exposes the stable `deep_research_*` names, binds the approved `academic__deep_research_*` connection tools and keeps provider credentials out of the model context. The public keyless core is also available natively on Android; the gateway adds bounded PC PDF reading.
+
+Requirements: Node 22+, Python 3.12+, and optional operator-installed Poppler `pdftotext` for PDFs. Python academic routing uses the standard library. From `mcp/research`:
+
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm test
+export RESEARCH_MCP_CONFIG=academic.config.example.json
+export RESEARCH_MCP_PORT=8114
+export RESEARCH_MCP_TOKEN="$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))")"
+# Optional absolute interpreter/state paths; do not put secrets in them:
+# export GPT_ACADEMIC_PYTHON=/path/to/python3
+# export GPT_ACADEMIC_STATE_DIR=/private/writable/academic-state
+npm start
+```
+
+PowerShell equivalents after `npm ci` and `npm test`:
+
+```powershell
+$env:RESEARCH_MCP_CONFIG = 'academic.config.example.json'
+$env:RESEARCH_MCP_PORT = '8114'
+$env:RESEARCH_MCP_TOKEN = node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))"
+# $env:GPT_ACADEMIC_PYTHON = 'C:\Python312\python.exe'
+npm start
+```
+
+The bridge binds loopback by default. Configure a private TLS/Tailscale route and the exact `RESEARCH_MCP_ALLOWED_HOSTS` as described above; do not expose it anonymously. The app's preset needs the private `/mcp` URL, its Bearer credential, six discovered tools explicitly approved as read-only and profile bindings. In the chat Research panel choose that connection. A missing gateway does not silently switch owners; native fallback is a separate opt-in.
+
+The example is tested with the repository-local child, not a runtime `npx`/`uvx` download. `academic/manifest.json` pins the Python router digest; modifications must be reviewed and deliberately repinned. Source status, budgets, disabled specialist providers, evidence limitations, Linux/Windows parser isolation and device launch gates are in [the implementation guide](../../docs/deep-research-implementation.md). The operator's state directory contains shared SQLite quotas and bounded captured evidence; protect it as research data. Removing quota state is not a supported way to evade provider limits.
+
+```sh
+# From the repository root; no provider requests in these tests:
+python3 -m unittest discover -s gateway/tests -p test_academic.py
+```
+
+Installing an APK does not deploy or change an already-running PC bridge. Upgrade both sides deliberately, restart the bridge and run status/authentication checks before selecting it in Android. Rollback consists of disabling Deep Research and stopping the optional bridge; ordinary Web Search, News and Airbnb retain their existing routes.

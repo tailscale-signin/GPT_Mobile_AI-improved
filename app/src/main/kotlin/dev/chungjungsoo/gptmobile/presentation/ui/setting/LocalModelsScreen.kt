@@ -768,6 +768,8 @@ private fun LocalModelItem(
             if (item.entry.precision.isNotBlank()) {
                 Text("Precision: ${item.entry.precision} · Candidate; device qualification required", style = MaterialTheme.typography.bodySmall)
             }
+            val blockedReason = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.installedPackageIssue(item.entry.downloadUrl, item.entry.downloadUrl.substringBefore('?'))
+            if (blockedReason != null) Text("Blocked package: $blockedReason", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             LocalModelRequirements(item = item)
             LocalModelDownloadStatus(
                 item = item,
@@ -777,7 +779,7 @@ private fun LocalModelItem(
                 onDelete = onDelete
             )
             if (item.status == LocalModelItemStatus.READY) {
-                Button(onClick = onCreateProfile, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text(if (hasProfile) "Profile" else "Create AI profile") }
+                Button(onClick = onCreateProfile, enabled = blockedReason == null, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text(if (hasProfile) "Profile" else "Create AI profile") }
             }
         }
     }

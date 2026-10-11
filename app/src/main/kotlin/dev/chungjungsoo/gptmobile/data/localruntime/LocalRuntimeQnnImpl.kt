@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.Flow
 internal interface QnnLoadGuard {
     fun beforeLoad(spec: LocalEngineSpec)
     fun loadFinished()
+    fun allowVerification(spec: LocalEngineSpec) {
+        error("Verification reset unavailable")
+    }
 }
 
 /**
@@ -17,9 +20,9 @@ internal interface QnnLoadGuard {
 internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
     private val app = context.applicationContext
     private val marker = File(app.noBackupFilesDir, "qnn_dispatch/native-init.marker")
-    private val journal = NativeOperationJournal(File(app.noBackupFilesDir, "qnn_dispatch/operations"))
+    private val journal = NativeExitEvidence.journal(app, File(app.noBackupFilesDir, "qnn_dispatch/operations"))
 
-    override fun beforeLoad(spec: LocalEngineSpec) {
+    private fun signature(spec: LocalEngineSpec): String {
         val model = File(spec.modelPath)
         val dispatchDirectory = spec.litertDispatchLibDir?.let(::File) ?: File(app.applicationInfo.nativeLibraryDir)
         val dispatchHash = runCatching {
@@ -27,7 +30,7 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
                 File(dispatchDirectory, "libLiteRtDispatch_Qualcomm.so")
             )
         }.getOrDefault("unavailable")
-        val signature = listOf(
+        return listOf(
             BuildConfig.LITERT_LM_VERSION,
             BuildConfig.QAIRT_VERSION,
             dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.journalIdentity(model, marker.parentFile!!),
@@ -37,6 +40,15 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
             spec.maxTokens,
             dispatchHash
         ).joinToString("|")
+    }
+
+    override fun allowVerification(spec: LocalEngineSpec) {
+        check(isInferenceProcess()) { "Verification reset requires the isolated worker" }
+        journal.allowVerification(signature(spec))
+    }
+
+    override fun beforeLoad(spec: LocalEngineSpec) {
+        val signature = signature(spec)
         if (marker.isFile) {
             // Migrate the previous marker, dropping app-install fields and paths.
             journal.quarantine(marker.readText().split('|').takeLast(8).take(6).joinToString("|"))
@@ -75,6 +87,11 @@ internal class LocalRuntimeQnnImpl(
     }
 
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = runtime.inspectModel(modelPath)
+    override suspend fun allowVerification(spec: LocalEngineSpec) {
+        val verified = spec.copy(litertDispatchLibDir = probeEnvironment().dispatchDir)
+        loadGuard.allowVerification(verified)
+        runtime.allowVerification(verified)
+    }
 
     override val deviceRamGb: Long get() = runtime.deviceRamGb
     override fun getHardwareState(): DeviceHardwareState = runtime.getHardwareState()
@@ -153,6 +170,10 @@ internal class LocalRuntimeQnnImpl(
             throw cancelled
         } catch (error: Throwable) {
             if (error is VirtualMachineError || error is ThreadDeath) throw error
+            if (error is NativeCancellationTimeoutException) {
+                admitted = false
+                throw error
+            }
             val failure = classifyQnnFailure(if (admitted) stage else QnnRuntimeStage.CRASH_JOURNAL, error)
             checkpoint("QNN_INIT_TERMINAL", failure.stage, "status=FAILED · code=${failure.code} · nativeDetail=${failure.nativeDetail}")
             throw failure

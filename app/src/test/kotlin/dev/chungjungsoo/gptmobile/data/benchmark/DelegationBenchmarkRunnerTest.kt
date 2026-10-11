@@ -140,15 +140,20 @@ class DelegationBenchmarkRunnerTest {
             val reviews = mutableListOf<String>()
             val runner = DelegationBenchmarkRunner(
                 createCoordinator = { tools ->
-                    LocalDelegationCoordinator(source, { settings }, { listOf(worker, judge) }, { profile, prompt, _ ->
-                        if (profile.uid == judge.uid) {
-                            reviews += prompt
-                            """{"review_score":${if (correct) 85 else 30},"verdict":"PASS","issues":[],"corrections":null}"""
-                        } else {
+                    LocalDelegationCoordinator(
+                        source,
+                        { settings },
+                        { listOf(worker, judge) },
+                        { _, _, _ ->
                             val result = tools.single().execute("fixture", buildJsonObject { put("key", "parcel") })
                             if (correct) (result.content as ToolResultContent.Text).text else "WRONG"
+                        },
+                        generateReviewerWithProgress = { profile, prompt, _, _, _ ->
+                            assertEquals(judge.uid, profile.uid)
+                            reviews += prompt
+                            """{"review_score":${if (correct) 85 else 30},"verdict":"PASS","issues":[],"corrections":null}"""
                         }
-                    })
+                    )
                 },
                 target = worker,
                 config = settings,
@@ -158,7 +163,7 @@ class DelegationBenchmarkRunnerTest {
                 reviewerUsage = { ReviewerBenchmarkUsage(calls = reviews.size) }
             )
             val sample = runner.run(delegationBenchmarkSuite(BenchmarkMode.QUICK).first { it.id == "delegation-tools" })
-            assertEquals(if (correct) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED, sample.outcome)
+            assertEquals(sample.error, if (correct) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED, sample.outcome)
             assertEquals(if (correct) 85 else 30, sample.delegation?.reviewerScore)
             assertTrue(reviews.last().contains("Trusted fixture truth"))
         }

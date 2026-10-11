@@ -10,9 +10,12 @@ import dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardSubmission
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -21,9 +24,10 @@ data class ScoreboardShareState(val accounts: List<ToolConnection> = emptyList()
 
 @HiltViewModel
 class ScoreboardViewModel @Inject constructor(store: BenchmarkStore, private val repository: ScoreboardRepository) : ViewModel() {
-    val submissions = store.history.map { history -> history.mapNotNull(BenchmarkScoreboard::fromRun) }
+    val submissions = store.history.map { runs -> runs.filter { it.finished } }.distinctUntilChanged()
+        .map { history -> history.mapNotNull(BenchmarkScoreboard::fromRun) }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val local = submissions.map(BenchmarkScoreboard::best).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val local = submissions.map(BenchmarkScoreboard::best).flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val online = repository.state
     private val mutableShare = MutableStateFlow(ScoreboardShareState())
     val share = mutableShare.asStateFlow()

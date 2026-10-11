@@ -42,6 +42,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -70,6 +72,11 @@ class ProfileBenchmarkViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     internal val scoreSnapshot = store.snapshot
     val history = store.history
+    private val finishedRuns = history.map { runs -> runs.filter { it.finished } }.distinctUntilChanged()
+    internal val retests = finishedRuns.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRetests(it) }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val scoreboardRuns = finishedRuns.map { runs -> runs.mapNotNull(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::fromRun) }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val localEnvironment = combine(settings.observeLocalRuntimeBackend(), settings.observeFeatureSettings()) { backend, features ->
         "$backend|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|" +
             "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${features.localExecutionPolicy}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}"
@@ -445,12 +452,13 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }
 
     private fun logDelegationRating(run: BenchmarkRun) {
+        val portable = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard.fromRun(run)?.let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::evaluate)
         val rating = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkRating(listOf(run))
         val rankings = dev.chungjungsoo.gptmobile.data.benchmark.delegateRankings(store.history.value, run.configKey, run.delegationSettings)
         val rank = rankings.indexOfFirst { it.run.id == run.id }.takeIf { it >= 0 }?.plus(1)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "DelegationBenchmark",
-            "DELEGATION_SCORE · run=${run.id} score=${rating.score} rank=$rank passed=${rating.passed}/${rating.attempts} " +
+            "DELEGATION_SCORE · run=${run.id} score=${portable?.score ?: rating.score} rank=$rank passed=${rating.passed}/${rating.attempts} " +
                 "toolSuccessPercent=${rating.toolTaskSuccessPercent} tokPerSec=${rating.medianDecodeSpeed} estimated=${rating.estimated}"
         )
     }

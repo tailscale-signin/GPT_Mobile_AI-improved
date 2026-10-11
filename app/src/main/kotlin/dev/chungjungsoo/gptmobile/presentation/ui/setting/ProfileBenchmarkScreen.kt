@@ -18,13 +18,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.Deselect
-import androidx.compose.material.icons.rounded.SelectAll
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Deselect
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
@@ -49,11 +48,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -89,6 +88,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profile by viewModel.selected.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
+    val retests by viewModel.retests.collectAsStateWithLifecycle()
+    val scoreboardRuns by viewModel.scoreboardRuns.collectAsStateWithLifecycle()
     val localEnvironment by viewModel.localEnvironment.collectAsStateWithLifecycle()
     val delegationSettings by viewModel.delegationSettings.collectAsStateWithLifecycle()
     val snapshot by viewModel.scoreSnapshot.collectAsStateWithLifecycle()
@@ -121,7 +122,6 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val tint = benchmarkTint(local)
     val profileHistory = remember(history, selected?.uid) { history.filter { it.profileUid == selected?.uid } }
     val matching = remember(profileHistory, selected, mode, localEnvironment) { selected?.let { comparableRuns(profileHistory, it, mode, localEnvironment) }.orEmpty() }
-    val retests = remember(history) { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRetests(history) }
     val activeRetest = retests.filter { it.current.profileUid == selected?.uid && it.current.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment) } && it.current.cohort.startsWith(mode.name + "|") }
         .maxByOrNull { retest -> history.firstOrNull { it.id == retest.current.sourceRunIds.firstOrNull() }?.startedAt ?: 0 }
     val activeScore = activeRetest?.current
@@ -130,7 +130,6 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
         val dimensions = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkScoreDimensions(activeScore, local)
         benchmarkRating(matching, local).copy(score = activeScore?.overall?.roundToInt(), medianSpeed = activeScore?.speed, estimatedSpeed = false, dimensions = dimensions, measuredWeight = dimensions.filter { it.score != null }.sumOf { it.weight })
     }
-    val scoreboardRuns = remember(history) { history.mapNotNull(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::fromRun) }
     val latestScoreboard = scoreboardRuns.filter {
         it.kind == dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.MODEL && it.plan == mode && it.provider == selected?.compatibleType?.name && it.model == selected?.model?.trim()?.let { model -> if (selected.compatibleType == ClientType.OPENROUTER) model.removeSuffix(":batch") else model }
     }.maxByOrNull { it.startedAt }?.let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::evaluate)
@@ -146,7 +145,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
         }
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded tests · ${profiles.size} profiles") }
+            item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded runs · ${profiles.size} profiles") }
             item { BenchmarkNavigation(tab) { tab = it } }
             if (tab != 2 && tab != 5 && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {
@@ -545,7 +544,8 @@ private fun EverydayPerformanceCard(row: ProfilePerformance, local: Boolean, onC
 private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete: Boolean, onDelete: () -> Unit) {
     var expanded by rememberSaveable(run.id) { mutableStateOf(false) }
     val rating = remember(run) { benchmarkRating(listOf(run)) }
-    val score = if (run.mode == BenchmarkMode.DELEGATION) delegationBenchmarkRating(listOf(run)).score else rating.score
+    val portable = remember(run) { dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard.fromRun(run)?.let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::evaluate) }
+    val score = portable?.score?.roundToInt() ?: if (run.mode == BenchmarkMode.DELEGATION) delegationBenchmarkRating(listOf(run)).score else rating.score
     Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(20.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -564,9 +564,10 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                     fontWeight = FontWeight.SemiBold
                 )
             }
-            Text("${run.mode.label} · ${benchmarkDate(run.startedAt)}", style = MaterialTheme.typography.titleSmall)
+            Text("${run.mode.label}${run.delegationPlan?.let { " · ${it.label}" }.orEmpty()} · ${benchmarkDate(run.startedAt)}", style = MaterialTheme.typography.titleSmall)
+            if (portable != null) Text("Capability score · complete single run", style = MaterialTheme.typography.labelSmall)
             Text(run.model, style = MaterialTheme.typography.bodySmall)
-            Text("${run.samples.count { it.outcome == BenchmarkOutcome.PASSED }} passed · ${run.samples.size} / ${benchmarkSuite(run.mode).size} tests · ${if (current) "current configuration" else "previous configuration"}", style = MaterialTheme.typography.labelSmall)
+            Text("${run.samples.count { it.outcome == BenchmarkOutcome.PASSED }} passed · ${run.samples.size} / ${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuiteForRun(run).size} tests · ${if (current) "current configuration" else "previous configuration"}", style = MaterialTheme.typography.labelSmall)
             run.stoppedReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             Text(if (expanded) "Hide test details" else "Show test details", style = MaterialTheme.typography.labelLarge, color = benchmarkTint(run.local))
             if (expanded) {

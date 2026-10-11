@@ -48,6 +48,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun healthToolsRequireIndependentOptInsStayPhoneOwnedAndHonorChatControls() = runBlocking {
+        val profile = PlatformV2(uid = "health-profile", name = "Health", disableRemoteTools = true)
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val reader = mockk<dev.chungjungsoo.gptmobile.data.health.HealthDataReader>()
+        val consent = mockk<dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore>()
+        coEvery { consent.isAllowed() } returns false
+        val resolver = resolver(settings = settings, healthReader = reader, healthConsent = consent)
+        fun List<ResolvedAgentTool>.health() = filter { it.modelToolName.startsWith("health_connect_") }
+        assertTrue(resolver.resolve(profile.uid).health().isEmpty())
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.HEALTH_CONNECT, true)
+        assertTrue(resolver.resolve(profile.uid).health().isEmpty())
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, ToolPluginId.HEALTH_CONNECT, true)
+        val tools = resolver.resolve(profile.uid).health()
+        assertEquals(9, tools.size)
+        assertTrue(tools.all { !it.shareableReadOnly && it.connectionUid == null })
+        assertTrue(tools.all { (it.tool as? dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool)?.executionOwner == dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner.CLIENT })
+        assertEquals("ai_consent_required", tools.first { it.modelToolName.endsWith("summary") }.tool.execute("c", buildJsonObject {}).errorCode)
+        assertTrue(resolver.resolve(profile.uid, ChatMcpToolConfig(allToolsDisabled = true)).health().isEmpty())
+        val selected = resolver.resolve(profile.uid, ChatMcpToolConfig(disabledToolIds = setOf("health_connect_sleep"))).health()
+        assertEquals(8, selected.size)
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, ToolPluginId.HEALTH_CONNECT, false)
+        assertEquals("plugin_disabled", tools.first().tool.execute("revoked", buildJsonObject {}).errorCode)
+        val localDisabled = ResolverFakeSettingRepository(listOf(profile.copy(disableLocalTools = true)), settings.features.withProfileToolPluginEnabled(profile.uid, ToolPluginId.HEALTH_CONNECT, true))
+        assertTrue(resolver(settings = localDisabled, healthReader = reader, healthConsent = consent).resolve(profile.uid).health().isEmpty())
+    }
+
     @Test fun googleMcpApiKeyUsesDedicatedHeaderConfigurationAndClearsVaultBytes() = runBlocking {
         val vault = ResolverFakeSecretVault(mapOf("google-key" to "test-google-key".toByteArray()))
         val connection = connection("google", ToolConnectionType.MCP, "https://mapstools.googleapis.com/mcp", "google-key", ToolConnectionAuthType.API_KEY)
@@ -960,7 +986,9 @@ class AgentToolResolverTest {
         history: dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository? = null,
         access: dev.chungjungsoo.gptmobile.data.amazon.AmazonAccessPolicy? = null,
         news: PublicNewsClient? = null,
-        airbnb: PublicAirbnbClient? = null
+        airbnb: PublicAirbnbClient? = null,
+        healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
+        healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -981,7 +1009,9 @@ class AgentToolResolverTest {
             amazonHistory = history,
             amazonAccess = access,
             publicNews = news,
-            publicAirbnb = airbnb
+            publicAirbnb = airbnb,
+            healthReader = healthReader,
+            healthConsent = healthConsent
         )
     }
 

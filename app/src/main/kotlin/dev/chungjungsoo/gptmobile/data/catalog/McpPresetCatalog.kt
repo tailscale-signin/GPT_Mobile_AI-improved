@@ -341,6 +341,22 @@ object McpPresetCatalog {
             isPreinstalled = true
         ),
         McpPreset(
+            id = "builtin-health-connect",
+            name = "Smartwatch Health Connect",
+            description = "Read-only, phone-owned wellness tools for synced smartwatch records. No API key or separate MCP server. Android permissions and explicit AI-sharing consent are required.",
+            category = McpCategory.SYSTEM,
+            commandOrUrl = "builtin://health_connect",
+            transportType = McpTransportType.STDIO,
+            iconName = "health",
+            author = "GPT Mobile AI",
+            alias = "health_connect",
+            integratedTool = "health_connect",
+            suggestedAuthType = "NONE",
+            pricing = McpPricingType.FREE,
+            toolCapabilities = dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.operations.keys.map { "health_connect_$it" },
+            isPreinstalled = true
+        ),
+        McpPreset(
             id = "device-location",
             name = "Device Location",
             description = "Native Android location tool. Profiles that enable it can request the phone's current coordinates after Android location permission is granted.",

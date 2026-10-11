@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Cable
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderOpen
@@ -363,6 +364,7 @@ fun ToolConnectionsScreen(
                             val plugin = INTEGRATED_PLUGINS.first { it.id == service.id }
                             OutlinedButton(onClick = {
                                 when (service.id) {
+                                    ToolPluginId.HEALTH_CONNECT -> context.startActivity(Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.health.HealthConnectActivity::class.java))
                                     ToolPluginId.MODEL_DELEGATION -> delegationSettingsOpen = true
                                     ToolPluginId.LOCAL_MEMORY -> memorySettingsOpen = true
                                     else -> pluginSettings = plugin
@@ -543,6 +545,7 @@ private data class IntegratedPluginUi(
 )
 
 private val INTEGRATED_PLUGINS = listOf(
+    IntegratedPluginUi(ToolPluginId.HEALTH_CONNECT, "Smartwatch Health Connect", "Read-only synced health statistics with granular permissions and explicit AI-sharing consent.", Icons.Rounded.Favorite),
     IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured delegate model.", Icons.Rounded.Psychology),
     IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context.", Icons.Rounded.Memory),
     IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & Time", "Provides current date context without a remote MCP server.", Icons.Rounded.Schedule),

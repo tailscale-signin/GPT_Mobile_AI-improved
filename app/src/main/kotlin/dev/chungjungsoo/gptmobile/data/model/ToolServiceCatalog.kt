@@ -35,6 +35,7 @@ object ToolServiceCatalog {
         }
 
     val integrated = listOf(
+        ToolServiceDefinition(ToolPluginId.HEALTH_CONNECT, "Smartwatch Health Connect", "Read synced wellness statistics on this phone. Separate Android permissions, profile opt-in and AI-sharing consent.", "health"),
         ToolServiceDefinition(ToolPluginId.DEEP_RESEARCH, "Deep Research", "Opt-in academic discovery, open-access evidence and quote verification. Native keyless sources; optional private gateway for PDFs.", "search", true),
         ToolServiceDefinition(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Let a configured helper research and process information.", "delegation"),
         ToolServiceDefinition(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recall and capture private memory on your device.", "memory"),

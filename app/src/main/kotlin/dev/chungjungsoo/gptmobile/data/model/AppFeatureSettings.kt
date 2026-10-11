@@ -235,8 +235,9 @@ object ToolPluginId {
     const val DEEP_RESEARCH = "deep_research"
     const val WEB_SEARCH = "web_search"
     const val DEVICE_LOCATION = "device_location"
+    const val HEALTH_CONNECT = "health_connect"
 
-    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES, DEEP_RESEARCH)
+    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES, DEEP_RESEARCH, HEALTH_CONNECT)
 
     fun nativeOperation(packageId: String, operation: String): String = "native:$packageId:$operation"
 

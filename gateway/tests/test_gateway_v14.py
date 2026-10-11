@@ -216,7 +216,13 @@ class RuntimeTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[1]
         self.assertEqual(validate_package(root)['version'],'14.2.0')
         with tempfile.TemporaryDirectory() as target:
-            shutil.copytree(root,target,dirs_exist_ok=True)
+            # A running package owns a byte-range lock on Windows. Distribution
+            # validation copies only immutable manifest files, never live state.
+            manifest = validate_package(root)
+            for relative in list(manifest['files']) + ['manifest-v14.json']:
+                destination = Path(target) / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(root / relative, destination)
             (Path(target)/'gateway_v13_runtime.py').unlink()
             with self.assertRaises(ValueError): validate_package(target)
 

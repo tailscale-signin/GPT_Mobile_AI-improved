@@ -197,7 +197,7 @@ class CompleteBackupManager @Inject constructor(
         val storage = files()
         val sources = linkedMapOf<String, File>()
         val lockToolState = selected.includes(CompleteBackupSection.TOOLS)
-        var toolPreferencesSnapshot: Map<String, String>? = null
+        var toolPreferencesSnapshot: Map<String, BackupValue>? = null
         var toolSecretsSnapshot: Map<String, String>? = null
         if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
         try {

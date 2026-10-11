@@ -1,4 +1,5 @@
 """Focused durable action-ledger tests; intentionally independent of FastAPI."""
+from contextlib import closing
 import sqlite3
 import sys
 import tempfile
@@ -146,7 +147,7 @@ class ActionLedgerTests(unittest.TestCase):
                 ("job-3", False),
                 self.ledger.admit_request("owner", "POST /chat", "idem-retained", {"x": 1}, "job-3", ttl_seconds=1),
             )
-            with self.ledger._connect() as db:
+            with closing(self.ledger._connect()) as db:
                 row = db.execute("SELECT job_id FROM gateway_requests WHERE principal_id=?", ("owner",)).fetchall()
             self.assertEqual([("job-3",)], row)
 

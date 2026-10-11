@@ -317,6 +317,20 @@ class AndroidResearchWorkflowTest {
         assertEquals(0, remoteReads)
     }
 
+    @Test fun ordinaryReaderFailureCanUseAnEnabledFallback() = runBlocking {
+        val journal = Journal()
+        var remoteReads = 0
+        val native = reader { id, _ -> AgentToolResult(id, ToolResultContent.Text("HTTP 503 temporarily unavailable"), true) }
+        val remote = reader { id, _ ->
+            remoteReads++
+            AgentToolResult(id, ToolResultContent.Text(passage), false)
+        }.copy(connectionUid = "remote", modelToolName = "remote_reader")
+        val settings = config().copy(deepResearch = config().deepResearch.copy(allowRemoteReaders = true))
+        val result = AndroidResearchWorkflow(settings, listOf(search(), native, remote), ::model, journal).run("Research", "transient")
+        assertEquals(1, remoteReads)
+        assertEquals(1, result.pagesRead)
+    }
+
     @Test fun accessDeniedDoesNotEscalateToAnotherReader() = runBlocking {
         val journal = Journal()
         var remoteReads = 0

@@ -79,6 +79,24 @@ class LocalResearchWorkflowTest {
         assertEquals(2, healthyCalls)
     }
 
+    @Test fun `explicit site denial does not retry the page through another reader`() = runTest {
+        var fallbackReads = 0
+        val denied = tool("read_url") { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("HTTP 403 access denied"), true)
+        }
+        val fallback = tool("read_url") { id, _ ->
+            fallbackReads++
+            response(id, """{"content":"Verified latency is 42 ms.","links":[]}""")
+        }.copy(modelToolName = "reader_fallback")
+        val result = LocalResearchWorkflow(
+            config.copy(maxPages = 1, crawlDepth = 0),
+            listOf(denied, fallback),
+            { prompt, _ -> if (prompt.startsWith("Plan")) """{"queries":[],"urls":[]}""" else worker(prompt) }
+        ).run("Read https://example.org/latency", "site-denial")
+        assertEquals(0, fallbackReads)
+        assertEquals(0, result.pagesRead)
+    }
+
     @Test fun `target forbidden response is host scoped and leaves other hosts available`() {
         val health = dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth()
         val outcome = researchReaderOutcome(AgentToolResult("read", ToolResultContent.Text("HTTP 403 Forbidden"), true), "")

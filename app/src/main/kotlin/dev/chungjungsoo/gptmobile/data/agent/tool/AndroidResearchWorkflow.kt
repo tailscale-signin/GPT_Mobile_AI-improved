@@ -450,6 +450,9 @@ internal class AndroidResearchWorkflow(
                                             recordedAt = now()
                                         )
                                     )
+                                    // An explicit target-site denial is terminal for this page.
+                                    // Do not switch providers to retrieve it after access was refused.
+                                    if (last?.isError == true && readOutcome == ToolOutcome.BLOCKED) break
                                     if (last?.toolCallBudgetExhausted == true || last?.outputBudgetExhausted == true) break
                                     val text = last?.takeUnless { it.isError }?.pageEvidenceText().orEmpty()
                                     if (text.length >= 80 && !looksLikeConsentOrScriptShell(text)) break

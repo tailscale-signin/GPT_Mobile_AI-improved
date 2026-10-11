@@ -331,6 +331,8 @@ internal class LocalResearchWorkflow(
                                         billingFailure = researchReaderBillingFailure(response),
                                         pageFailure = looksLikeConsentOrScriptShell(text)
                                     )
+                                    // Keep explicit site access denials terminal for this page.
+                                    if (response?.isError == true && outcome == ToolOutcome.BLOCKED) break
                                     if (outcome != ToolOutcome.SUCCESS || response == null) continue
                                     accepted = response
                                     acceptedText = text

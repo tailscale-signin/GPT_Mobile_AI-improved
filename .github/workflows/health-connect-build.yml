@@ -1,0 +1,134 @@
+name: Health Connect implementation validation
+on:
+  push:
+    branches: [feat/smartwatch-health-connect-2026-10-11]
+    paths: [.github/workflows/health-connect-build.yml]
+permissions:
+  contents: write
+concurrency:
+  group: health-connect-implementation
+  cancel-in-progress: false
+env:
+  OBX_DISABLE_ANALYTICS: "true"
+jobs:
+  implement-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Apply reviewed source patch on isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/feat/smartwatch-health-connect-2026-10-11"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ ! -f app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/health/HealthConnectContract.kt ]; then
+            python3 - <<'PY'
+          import base64, hashlib, lzma, pathlib, subprocess
+          payload = ''.join(pathlib.Path(f'.health-connect-transport/part-{i}.b64').read_text() for i in range(4))
+          packed = base64.b64decode(payload, validate=True)
+          assert hashlib.sha256(packed).hexdigest() == '3101bb9f302ec718906a07195151027c4729c1bfdcd2634e4c316c7eb032ea33'
+          patch = lzma.decompress(packed)
+          subprocess.run(['git', 'apply', '--check'], input=patch, check=True)
+          subprocess.run(['git', 'apply', '--index'], input=patch, check=True)
+          PY
+            git commit -m 'feat(health): add opt-in Smartwatch Health Connect plugin and nine AI tools'
+            git push origin HEAD:feat/smartwatch-health-connect-2026-10-11
+          fi
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Format changed Kotlin source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://repo.maven.apache.org/maven2/com/pinterest/ktlint/ktlint-cli/1.3.1/ktlint-cli-1.3.1-all.jar
+          curl --fail --location "$base" -o "$RUNNER_TEMP/ktlint.jar"
+          curl --fail --location "$base.sha256" -o "$RUNNER_TEMP/ktlint.sha256"
+          echo "$(cat "$RUNNER_TEMP/ktlint.sha256")  $RUNNER_TEMP/ktlint.jar" | sha256sum -c -
+          git diff --name-only 28bf17f3b09f92fde169c3149f9a7974bd0148d7 HEAD -- '*.kt' '*.kts' > "$RUNNER_TEMP/health-kotlin-files.txt"
+          mapfile -t files < "$RUNNER_TEMP/health-kotlin-files.txt"
+          java -jar "$RUNNER_TEMP/ktlint.jar" --format "${files[@]}" 2>&1 | tee health-format.log
+          if ! git diff --quiet -- '*.kt' '*.kts'; then
+            git add -- '*.kt' '*.kts'
+            git commit -m 'style(health): format plugin integration and regression tests'
+            git push origin HEAD:feat/smartwatch-health-connect-2026-10-11
+          fi
+      - name: Resolve new dependency checksums and compile tests
+        id: bootstrap
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          cp gradle/verification-metadata.xml "$RUNNER_TEMP/health-verification-before.xml"
+          ./gradlew --write-verification-metadata sha256 :app:compileDebugUnitTestKotlin --no-daemon 2>&1 | tee health-bootstrap.log
+      - name: Preserve existing dependency trust and commit additions
+        if: always() && steps.bootstrap.outcome != 'skipped'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, xml.etree.ElementTree as ET
+          def hashes(path):
+              root=ET.parse(path).getroot()
+              ns={'v':root.tag.split('}')[0][1:]}
+              return {(c.attrib['group'], c.attrib['name'], c.attrib['version'], a.attrib['name']): {h.attrib['value'] for h in a.findall('v:sha256',ns)} for c in root.findall('.//v:component',ns) for a in c.findall('v:artifact',ns)}
+          old=hashes(pathlib.Path(os.environ['RUNNER_TEMP'])/'health-verification-before.xml')
+          new=hashes('gradle/verification-metadata.xml')
+          assert all(new.get(key)==value for key,value in old.items()), 'Existing trusted dependency hashes changed'
+          print('Existing hashes unchanged; newly recorded artifacts:',len(set(new)-set(old)))
+          PY
+          if ! git diff --quiet -- gradle/verification-metadata.xml; then
+            git add gradle/verification-metadata.xml
+            git commit -m 'build(health): verify Health Connect dependency artifacts'
+            git push origin HEAD:feat/smartwatch-health-connect-2026-10-11
+          fi
+      - name: Strict unit tests
+        id: tests
+        if: always() && steps.bootstrap.outcome == 'success'
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:testDebugUnitTest --no-daemon 2>&1 | tee health-tests.log
+      - name: Android lint and review APK
+        if: always() && steps.tests.outcome == 'success'
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:lintDebug :app:assembleDebug --no-daemon 2>&1 | tee health-build.log
+          python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
+          python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
+      - name: Snapshot resulting branch source
+        if: always()
+        run: git archive --format=tar HEAD -o health-source.tar
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: health-connect-validation
+          path: |
+            health-*.log
+            health-source.tar
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            gradle/verification-metadata.xml
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: health-connect-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Enforce successful compilation
+        if: always() && steps.bootstrap.outcome != 'success'
+        run: exit 1

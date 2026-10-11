@@ -28,11 +28,11 @@ data class HealthConnectLocalImport(
 
 internal object HealthConnectLocalImportCodec {
     private const val SCHEMA = "gptmobile.health.local-import.v1"
-    const val MAX_BYTES = 1_000_000
+    const val MAX_BYTES = 16 * 1024 * 1024
     private val json = Json
 
     fun encode(value: HealthConnectLocalImport): ByteArray {
-        require(value.days in 1..30)
+        require(value.days in 1..3650)
         require(runCatching { java.time.Instant.parse(value.importedAt) }.isSuccess)
         require((value.summary["schema"] as? JsonPrimitive)?.content == HealthConnectTools.SCHEMA)
         val encoded = buildJsonObject {
@@ -53,7 +53,7 @@ internal object HealthConnectLocalImportCodec {
             val importedAt = root["imported_at"]?.jsonPrimitive?.contentOrNull ?: return null
             java.time.Instant.parse(importedAt)
             val days = root["days"]?.jsonPrimitive?.intOrNull ?: return null
-            require(days in 1..30)
+            require(days in 1..3650)
             val summary = root["summary"]?.jsonObject ?: return null
             require((summary["schema"] as? JsonPrimitive)?.content == HealthConnectTools.SCHEMA)
             HealthConnectLocalImport(importedAt, days, summary)
@@ -61,10 +61,10 @@ internal object HealthConnectLocalImportCodec {
     }
 }
 
-/** Explicitly saved health snapshot in app-private storage excluded from Android backup. */
+/** Explicitly saved health snapshot in app-private storage. It is included only in an explicitly selected, encrypted complete backup. */
 @Singleton
 class HealthConnectLocalImportStore @Inject constructor(@param:ApplicationContext context: Context) {
-    private val file = AtomicFile(File(context.noBackupFilesDir, "health-connect-local-import-v1"))
+    private val file = AtomicFile(File(context.filesDir, "health-connect/local-import-v1"))
     private val mutex = Mutex()
 
     suspend fun read(): HealthConnectLocalImport? = withContext(Dispatchers.IO) {
@@ -83,6 +83,7 @@ class HealthConnectLocalImportStore @Inject constructor(@param:ApplicationContex
     suspend fun save(value: HealthConnectLocalImport) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val bytes = HealthConnectLocalImportCodec.encode(value)
+            check(file.baseFile.parentFile?.mkdirs() == true || file.baseFile.parentFile?.isDirectory == true) { "Could not create local health storage." }
             val stream = file.startWrite()
             try {
                 stream.write(bytes)

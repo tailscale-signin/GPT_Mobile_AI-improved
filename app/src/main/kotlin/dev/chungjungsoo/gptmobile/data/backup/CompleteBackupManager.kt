@@ -191,6 +191,7 @@ class CompleteBackupManager @Inject constructor(
     ): BackupRestoreResult = operation { work ->
         val selected = selection.normalized()
         require(selected.sections.isNotEmpty()) { "Select at least one backup section." }
+        require(!selected.requiresEncryption || encrypt) { "Encrypt backups that contain health data, credentials or memory." }
 
         require(!encrypt || password.isNullOrBlank() || password.length >= 8) { "Use a backup password with at least 8 characters." }
         require(!encrypt || !password.isNullOrBlank() || recoveryKeyUri != null) { "Save a separate recovery key file to create a passwordless encrypted backup." }
@@ -251,6 +252,15 @@ class CompleteBackupManager @Inject constructor(
                 File(context.filesDir, "research-history").listFiles().orEmpty()
                     .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.json")) && it.length() <= 512 * 1024 }
                     .forEach { sources["internal/research-history/${it.name}"] = it }
+            }
+            if (selected.includes(CompleteBackupSection.HEALTH_DATA)) {
+                val healthImport = File(context.filesDir, "health-connect/local-import-v1")
+                if (healthImport.isFile) {
+                    require(healthImport.length() in 1..dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportCodec.MAX_BYTES.toLong()) {
+                        "The saved Health Connect import is invalid. Open Smartwatch settings and import it again."
+                    }
+                    sources["internal/health-connect/local-import-v1"] = healthImport
+                }
             }
             if (CompleteBackupSection.STATISTICS in selected.sections) {
                 val benchmarkFile = File(work, "benchmark-results.json").apply {
@@ -443,6 +453,8 @@ class CompleteBackupManager @Inject constructor(
                     effective.includes(CompleteBackupSection.CONVERSATIONS)
                 } else if (path == "internal/benchmark-results/benchmark-results.json") {
                     CompleteBackupSection.STATISTICS in effective.sections
+                } else if (path == "internal/health-connect/local-import-v1") {
+                    CompleteBackupSection.HEALTH_DATA in effective.sections
                 } else if (CompleteBackupFiles.isPluginPath(path)) {
                     effective.includes(CompleteBackupSection.TOOLS)
                 } else {
@@ -454,6 +466,11 @@ class CompleteBackupManager @Inject constructor(
         val benchmarkImportJson = selectedPaths
             .firstOrNull { it == "internal/benchmark-results/benchmark-results.json" }
             ?.let { path -> File(staging, path).readText().also(benchmarkStore::validateBackupJson) }
+        selectedPaths.firstOrNull { it == "internal/health-connect/local-import-v1" }?.let { path ->
+            require(dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportCodec.decode(File(staging, path).readBytes()) != null) {
+                "The Health Connect data in this backup is invalid."
+            }
+        }
         require(selectedPaths.map(storage::target).toSet().size == selectedPaths.size) {
             "Conflicting backup file locations."
         }
@@ -835,7 +852,8 @@ class CompleteBackupManager @Inject constructor(
 
         CompleteBackupSection.CREDENTIALS,
         CompleteBackupSection.ATTACHMENTS,
-        CompleteBackupSection.MEMORY -> false
+        CompleteBackupSection.MEMORY,
+        CompleteBackupSection.HEALTH_DATA -> false
     }
 
     private fun manifestSelection(manifest: CompleteBackupManifest): CompleteBackupSelection {
@@ -885,6 +903,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.AGENT_HISTORY -> "agent history"
         CompleteBackupSection.STATISTICS -> "debug statistics"
         CompleteBackupSection.AMAZON_DATA -> "Amazon observations & manual watches"
+        CompleteBackupSection.HEALTH_DATA -> "Health Connect data"
     }
 
     private fun ensureIdle(restoring: Boolean) {

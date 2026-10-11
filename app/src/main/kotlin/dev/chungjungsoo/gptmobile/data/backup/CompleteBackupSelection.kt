@@ -14,7 +14,8 @@ enum class CompleteBackupSection {
     ATTACHMENTS,
     AGENT_HISTORY,
     STATISTICS,
-    AMAZON_DATA
+    AMAZON_DATA,
+    HEALTH_DATA
 }
 
 /** Presentation groups retain the original archive sections and saved partial selections. */
@@ -33,6 +34,11 @@ enum class CompleteBackupGroup(val title: String, val description: String, val s
         "Settings & tools",
         "Themes, preferences, plugins and MCP connections.",
         setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.TOOLS)
+    ),
+    HEALTH_DATA(
+        "Health data",
+        "Locally imported Health Connect history. Requires encrypted backups.",
+        setOf(CompleteBackupSection.HEALTH_DATA)
     )
 }
 
@@ -41,7 +47,7 @@ data class CompleteBackupSelection(
     val sections: Set<CompleteBackupSection> = DEFAULT_SECTIONS
 ) {
     val requiresEncryption: Boolean
-        get() = includes(CompleteBackupSection.CREDENTIALS) || includes(CompleteBackupSection.MEMORY)
+        get() = includes(CompleteBackupSection.CREDENTIALS) || includes(CompleteBackupSection.MEMORY) || includes(CompleteBackupSection.HEALTH_DATA)
 
     fun includes(section: CompleteBackupSection): Boolean = section in sections
 
@@ -87,7 +93,8 @@ data class CompleteBackupSelection(
             CompleteBackupSection.LOCAL_MODELS,
             CompleteBackupSection.ATTACHMENTS,
             CompleteBackupSection.AGENT_HISTORY,
-            CompleteBackupSection.AMAZON_DATA
+            CompleteBackupSection.AMAZON_DATA,
+            CompleteBackupSection.HEALTH_DATA
         )
         val ALL = CompleteBackupSelection(CompleteBackupSection.entries.toSet())
     }

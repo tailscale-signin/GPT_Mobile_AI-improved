@@ -22,14 +22,16 @@ or the integrated-plugin marketplace. Its themed screen has **Overview**,
    are removed through Health Connect settings, not by unchecking a request box.
 3. Refresh the local Overview to verify records. This does not contact an AI and
    does not require the AI-sharing switch. Optionally, use Access → Import Google
-   Health data locally to save a bounded 1–30 day summary on this phone. The saved
-   snapshot is for local review; it does not grant AI access.
+   Health data locally to save a 1-day to 5-year summary on this phone. Imports
+   beyond 30 days require Health Connect's separately granted history permission.
+   Local imports stay separate from AI access.
 4. For AI questions, separately confirm **Share permitted health results with
    AI**, enable the plugin, and opt in each desired AI profile on the AI Tools
    tab. Local tools must be enabled for that profile. Per-chat tool exclusions
    still apply. Global, profile and AI-sharing defaults are all off.
 5. Keep the app visible and the phone unlocked while tools read health records.
-   The plugin requests neither background-read nor extended-history permission.
+   AI tools are limited to 30 days and the plugin never requests background reads.
+   Extended history is requested only for an explicit local import.
 
 Health Connect is integrated into Android 14+; older supported Android versions
 need the Health Connect provider app. This repository's minimum Android version
@@ -86,18 +88,25 @@ heart rate bpm, HRV milliseconds, oxygen percent and respiratory rate breaths/mi
 * Android grants, a global plugin switch, per-profile selection and a separate
   device-local AI-sharing consent gate apply. Enabled profiles and consent are
   rechecked after a read, and permissions are rechecked before releasing data.
-* The provider is accessed on the IO dispatcher with a 20-second timeout.
-  Cancellation propagates; the API's errors are sanitized. Foreground and
-  unlocked-device checks precede and follow measurement reads.
+* The provider is accessed on the IO dispatcher. AI reads have a 20-second timeout;
+  a user-started local import has a 120-second timeout. Cancellation propagates;
+  provider errors are sanitized. Foreground and unlocked-device checks precede
+  and follow measurement reads. The `READ_HEALTH_DATA_HISTORY` permission is
+  feature-checked and requested only when the selected local import exceeds
+  30 days.
 * Results are not eligible for cross-profile shared-result caching. Recovery
   cannot reuse old health tool results instead of making a fresh authorized read.
 * The plugin has no health-record database, scheduled worker or independent
-  upload endpoint. By default, measurements are not written to disk. The optional
-  user-triggered import stores one bounded summary snapshot in app-private
-  `noBackupFilesDir`; it is excluded from Android backup, stays until deleted or
-  disconnected, and is not automatically supplied to an AI. The transient Overview
-  preview is cleared when leaving the activity and is never stored in
-  `SavedStateHandle`.
+  upload endpoint. The optional user-triggered import stores one summary snapshot
+  in app-private storage. Aggregate totals span the selected 1-day to 5-year
+  window; sampled readings and session examples remain subject to Health Connect
+  paging limits. The snapshot stays on the phone until deleted or disconnected and
+  is never automatically supplied to an AI. It is excluded from Android's device
+  backup. To move it across devices, select **Health data** in the complete
+  backup/restore dialog; that section requires encryption and is separate from
+  conversation data. Restore validates the saved snapshot and preserves its
+  selected time range. The transient Overview preview is cleared when leaving the
+  activity and is never stored in `SavedStateHandle`.
 * AI-sharing consent lives in `noBackupFilesDir`, outside configuration/complete
   backup payloads. An imported configuration cannot by itself authorize sharing
   on a new installation. Global/profile flags may be backed up; consent is separate.
@@ -121,8 +130,8 @@ uses the app-lock activity base and prevents screenshots of its health view.
 
 ## Architecture
 
-- `data/health`: bounded query contract, SDK reader, explicit no-backup consent
-  and optional bounded local-import snapshot store.
+- `data/health`: 30-day AI query contract, explicit history-gated local-import
+  reader, no-backup consent and app-private import store with backup codec.
 - `data/agent/tool/HealthConnectTool`: per-call policy gate and AI schemas.
 - `di/HealthConnectModule`: Hilt binding for the native reader.
 - `presentation/ui/health`: permission launcher, dashboard and rationale.

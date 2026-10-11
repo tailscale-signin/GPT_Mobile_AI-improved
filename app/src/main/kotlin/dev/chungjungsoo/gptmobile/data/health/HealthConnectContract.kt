@@ -97,9 +97,13 @@ data class HealthQuery(
     }
 }
 
+const val HEALTH_HISTORY_PERMISSION = "android.permission.health.READ_HEALTH_DATA_HISTORY"
+
 interface HealthDataReader {
     fun availability(): String
     suspend fun grantedPermissions(): Set<String>
+    suspend fun historyAvailable(): Boolean = false
     suspend fun read(operation: String, query: HealthQuery): JsonObject
+    suspend fun readLocalImport(query: HealthQuery): JsonObject = read("summary", query)
     suspend fun revokePermissions()
 }

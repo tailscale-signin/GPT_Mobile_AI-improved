@@ -62,6 +62,8 @@ class BenchmarkRunnerTest {
 
         assertEquals(BenchmarkOutcome.UNSUPPORTED, result.outcome)
         assertEquals("UNSUPPORTED", result.failureCategory)
+        assertEquals(toolTest.workload, result.workload)
+        assertEquals(ReferenceTextTokenizer.VERSION, result.tokenBasis)
     }
 
     @Test
@@ -78,8 +80,26 @@ class BenchmarkRunnerTest {
             stopOnError = false
         )
         org.junit.Assert.assertEquals(1, calls)
-        org.junit.Assert.assertEquals(1, saved.size)
+        org.junit.Assert.assertEquals(benchmarkSuite(BenchmarkMode.FULL).size, saved.size)
         org.junit.Assert.assertTrue(reason.orEmpty().contains("remaining cases were skipped"))
+    }
+
+    @Test
+    fun `context failure does not prevent later correctness scores`() = runTest {
+        val suite = benchmarkSuite(BenchmarkMode.FULL)
+        val saved = mutableListOf<BenchmarkSample>()
+        val reason = runBenchmarkSuite(suite, { _, test ->
+            BenchmarkSample(test.id, test.label, test.category, if (test.category == "speed") BenchmarkOutcome.ERROR else BenchmarkOutcome.PASSED, failureCategory = if (test.category == "speed") "CONTEXT" else null)
+        }, { saved += it })
+        assertNull(reason)
+        assertEquals(suite.size, saved.size)
+        assertEquals(54, saved.count { it.outcome == BenchmarkOutcome.PASSED })
+    }
+
+    @Test
+    fun `chat only exports are unsupported instead of errors`() = runTest {
+        val runner = BenchmarkRunner({ _, _ -> session(flowOf(ProviderEvent.Failed("This export reports chat-only support. Select a tool-capable artifact."))) })
+        assertEquals(BenchmarkOutcome.UNSUPPORTED, runner.run(toolTest, true).outcome)
     }
 
     @Test
@@ -186,8 +206,9 @@ class BenchmarkRunnerTest {
             }, { saved.add(it) })
             assertEquals("Provider unavailable", reason)
             assertEquals(1, attempted.size)
-            assertEquals(1, saved.size)
-            assertEquals(outcome, saved.single().outcome)
+            assertEquals(benchmarkSuite(BenchmarkMode.FULL).size, saved.size)
+            assertEquals(outcome, saved.first().outcome)
+            assertTrue(saved.drop(1).all { it.outcome == BenchmarkOutcome.SKIPPED })
         }
     }
 

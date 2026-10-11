@@ -73,7 +73,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     val history = store.history
     val localEnvironment = combine(settings.observeLocalRuntimeBackend(), settings.observeFeatureSettings()) { backend, features ->
         "$backend|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|" +
-            "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}"
+            "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${features.localExecutionPolicy}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}"
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
     val delegationSettings = settings.observeFeatureSettings().map { it.delegation.normalized() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings())
@@ -245,8 +245,10 @@ class ProfileBenchmarkViewModel @Inject constructor(
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating profile", 0, benchmarkSuite(mode).size)
         launchBenchmark {
+            var fixtureContext: Int? = null
             try {
                 chats.validateBenchmarkProfile(profile)
+                fixtureContext = chats.benchmarkContextTokens(profile)
                 if (mode == BenchmarkMode.DELEGATION) {
                     check(config.enabled && config.processingOwnership < 100) { "Enable delegation and give the helper a share of the work before testing." }
                     check(config.researchEnabled && config.maxPages > 0) { "Enable delegate research and allow at least one page for the research test." }
@@ -261,7 +263,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 mutableError.value = safeMessage(error)
                 return@launchBenchmark
             }
-            val suite = benchmarkSuite(mode)
+            val suite = benchmarkSuite(mode, fixtureContext)
             var run = BenchmarkRun(
                 UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                 profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
@@ -269,7 +271,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                 engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
-                delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION }
+                delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION },
+                fixtureContextTokens = fixtureContext
             )
             var currentTest = suite.first()
             try {
@@ -307,7 +310,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         )
                         store.save(run)
                     },
-                    stopOnError = mode != BenchmarkMode.DELEGATION
+                    stopOnError = false
                 )
                 if (stoppedReason != null) {
                     run = run.copy(stoppedReason = stoppedReason)
@@ -373,9 +376,12 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         mutableProgress.value = BenchmarkProgress(target.name, "Validating profile", baseProgress, totalTests)
                         chats.validateBenchmarkProfile(target)
                         store.save(run)
+                        val fixtureContext = chats.benchmarkContextTokens(target)
+                        val localSuite = benchmarkSuite(mode, fixtureContext)
+                        run = run.copy(fixtureContextTokens = fixtureContext)
                         val supportsTools = chats.supportsBenchmarkTools(target)
                         val stoppedReason = runBenchmarkSuite(
-                            suite = suite,
+                            suite = localSuite,
                             runCase = { index, test ->
                                 currentTest = test
                                 if (target.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
@@ -395,7 +401,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                                 )
                                 store.save(run)
                             },
-                            stopOnError = true
+                            stopOnError = false
                         )
                         if (stoppedReason != null) {
                             run = run.copy(stoppedReason = stoppedReason)

@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 /** Versioned isolated fixtures. Validation labels are never included in model context. */
 internal object BenchmarkSuiteRegistry {
-    const val VERSION = 3
+    const val VERSION = 5
     private val textSuite by lazy { createStandard(false) }
     private val agentSuite by lazy { createStandard(true) }
     fun standard(agent: Boolean): List<BenchmarkCase> = if (agent) agentSuite else textSuite
@@ -25,6 +25,7 @@ internal object BenchmarkSuiteRegistry {
             add(BenchmarkCase("extract-$seed", "Grounded extraction ${seed + 1}", "task", "Source A: shipment $tag is NOT approved. Measured mass is ${12 + seed} kg on 2026-10-10. Reply with exactly: $tag|not approved|${12 + seed} kg|2026-10-10", "$tag|not approved|${12 + seed} kg|2026-10-10", workload = "extraction", seed = seed))
             add(BenchmarkCase("abstain-$seed", "Insufficient evidence ${seed + 1}", "task", "A shipment exists. No destination or delivery date is known. What is its delivery date? Reply only UNKNOWN.", "UNKNOWN", workload = "abstention", seed = seed))
         }
+        addAll(IntelligenceBenchmark.suite)
         if (agent) {
             repeat(12) { index ->
                 add(BenchmarkCase("tool-$index", "Tool contract ${index + 1}", "tools", "Only the benchmark fixture is allowed. Call benchmark_lookup with exactly key=\"parcel\", then reply with only its returned code. Never guess, use old codes, or invoke a different tool.", workload = "tools", seed = index))

@@ -13,6 +13,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkProfileTest {
+    @Test
+    fun intelligencePreservesReasoningWhileKeepingLocalOutputBounded() {
+        val profile = PlatformV2(name = "Local", compatibleType = ClientType.LITERT_LM, reasoning = true)
+        assertTrue(benchmarkProfile(profile, false, IntelligenceBenchmark.CATEGORY).reasoning)
+        assertEquals(512, benchmarkProfile(profile, false, IntelligenceBenchmark.CATEGORY).maxTokens)
+        assertFalse(benchmarkProfile(profile, false, "speed").reasoning)
+        assertEquals(256, benchmarkProfile(profile, false, "task").maxTokens)
+    }
+
     @Test fun correctnessAndThroughputHaveDifferentBudgetsForMandatoryReasoningModels() {
         val profile = PlatformV2(name = "Groq", model = "openai/gpt-oss-120b", compatibleType = ClientType.GROQ)
         assertEquals(512, benchmarkProfile(profile, false, "speed").maxTokens)

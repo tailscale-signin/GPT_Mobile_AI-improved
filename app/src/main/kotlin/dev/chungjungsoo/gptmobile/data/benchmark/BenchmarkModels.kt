@@ -12,7 +12,7 @@ import kotlinx.serialization.Serializable
 enum class BenchmarkMode(val label: String) { QUICK("Quick Check"), FULL("Core Text Standard"), DELEGATION("Delegation"), AGENT("Agent Standard") }
 
 @Serializable
-enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL }
+enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL, SKIPPED }
 
 data class BenchmarkProgress(val profileName: String, val testName: String, val completed: Int, val total: Int)
 
@@ -151,7 +151,8 @@ data class BenchmarkRun(
     val appCommit: String = "",
     val runtimeVersion: String = "",
     val powerPolicy: String = "interactive-normal-v1",
-    val networkPolicy: String = "client-default-v1"
+    val networkPolicy: String = "client-default-v1",
+    val fixtureContextTokens: Int? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)
@@ -200,7 +201,7 @@ fun comparableRuns(history: List<BenchmarkRun>, profile: PlatformV2, mode: Bench
 /** Versioned app score, not a general intelligence or hardware benchmark. Missing data is never a zero. */
 fun benchmarkRating(runs: List<BenchmarkRun>, local: Boolean = runs.firstOrNull()?.local == true, speedAnchor: Double? = null, latencyAnchor: Long? = null): BenchmarkRating {
     val samples = runs.filter { it.finished && !it.canceled && it.stoppedReason == null }.flatMap { it.samples }
-        .filter { it.outcome !in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.UNSUPPORTED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) }
+        .filter { it.outcome !in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.UNSUPPORTED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED, BenchmarkOutcome.SKIPPED) }
     val completed = samples.filter { it.completed }
     val speedSamples = completed.filter { it.category == "speed" && it.outcome == BenchmarkOutcome.PASSED }
     val speeds = speedSamples.mapNotNull { it.decodeTokensPerSecond }.sorted()

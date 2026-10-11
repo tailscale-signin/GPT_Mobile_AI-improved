@@ -31,20 +31,27 @@ data class BenchmarkCase(
     val seed: Int = 0
 )
 
-fun benchmarkSuite(mode: BenchmarkMode): List<BenchmarkCase> = if (mode == BenchmarkMode.DELEGATION) {
-    delegationBenchmarkSuite()
-} else if (mode == BenchmarkMode.QUICK) {
-    listOf(
-        BenchmarkCase("speed-0", "Delivery", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."),
-        BenchmarkCase("instruction", "Exact instruction", "task", "Reply with exactly BENCHMARK_READY and nothing else.", "BENCHMARK_READY"),
-        BenchmarkCase("json", "Structured JSON", "json", "Return only this JSON object: {\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}"),
-        BenchmarkCase("arithmetic", "Arithmetic", "task", "What is 17 * 23 + 9? Reply with only the integer.", "400"),
-        BenchmarkCase("context", "Conversation recall", "task", "What was the parcel code I gave you? Reply with only the code.", "ORCHID-742"),
-        BenchmarkCase("tool", "Tool readiness", "tools", "Call benchmark_lookup with key=\"parcel\". Reply with only the code returned by that tool. Do not guess.")
-    )
-} else {
-    BenchmarkSuiteRegistry.standard(mode == BenchmarkMode.AGENT)
-}
+fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<BenchmarkCase> = BenchmarkWorkloadPlanner.adapt(
+    if (mode == BenchmarkMode.DELEGATION) {
+        delegationBenchmarkSuite()
+    } else if (mode == BenchmarkMode.QUICK) {
+        listOf(
+            BenchmarkCase("speed-0", "Delivery", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."),
+            BenchmarkCase("instruction", "Exact instruction", "task", "Reply with exactly BENCHMARK_READY and nothing else.", "BENCHMARK_READY"),
+            BenchmarkCase("json", "Structured JSON", "json", "Return only this JSON object: {\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}"),
+            BenchmarkCase("arithmetic", "Arithmetic", "task", "What is 17 * 23 + 9? Reply with only the integer.", "400"),
+            BenchmarkCase("context", "Conversation recall", "task", "What was the parcel code I gave you? Reply with only the code.", "ORCHID-742"),
+            BenchmarkCase("tool", "Tool readiness", "tools", "Call benchmark_lookup with key=\"parcel\". Reply with only the code returned by that tool. Do not guess.")
+        )
+    } else {
+        BenchmarkSuiteRegistry.standard(mode == BenchmarkMode.AGENT)
+    },
+    contextTokens
+)
+
+/** Historical suites keep their own manifest and cohort; saved measurements remain visible. */
+internal fun benchmarkSuiteForRun(run: BenchmarkRun): List<BenchmarkCase> = benchmarkSuite(run.mode, run.fixtureContextTokens)
+    .filter { run.suiteVersion >= 5 || it.category != IntelligenceBenchmark.CATEGORY }
 
 /** Runs only synthetic prompts and an in-memory fixture. No chat history, MCP or device tools. */
 class BenchmarkRunner(
@@ -81,7 +88,10 @@ class BenchmarkRunner(
                 test.category,
                 BenchmarkOutcome.UNSUPPORTED,
                 error = "This model does not advertise tool support; excluded from the rating.",
-                failureCategory = "UNSUPPORTED"
+                failureCategory = "UNSUPPORTED",
+                tokenBasis = ReferenceTextTokenizer.VERSION,
+                warmup = test.warmup,
+                workload = test.workload
             )
         }
         val started = now()
@@ -237,6 +247,7 @@ class BenchmarkRunner(
             }
             val answer = text.toString().trim()
             val passed = when (test.category) {
+                IntelligenceBenchmark.CATEGORY -> IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
                 "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || ReferenceTextTokenizer.starts(answer).size >= 128)
                 "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
                 "tools" -> calls.isNotEmpty() && successful.size == calls.size && answer == code
@@ -267,10 +278,11 @@ class BenchmarkRunner(
                 detail.contains("context", ignoreCase = true) && detail.contains("token", ignoreCase = true) -> "CONTEXT"
                 detail.contains("timeout", ignoreCase = true) -> "TIMEOUT"
                 detail.contains("provider", ignoreCase = true) || detail.contains("http", ignoreCase = true) -> "PROVIDER"
-                detail.contains("disabled", ignoreCase = true) || detail.contains("unsupported", ignoreCase = true) -> "UNSUPPORTED"
+                detail.contains("disabled", ignoreCase = true) || detail.contains("unsupported", ignoreCase = true) || detail.contains("chat-only support", ignoreCase = true) -> "UNSUPPORTED"
                 else -> "UNKNOWN"
             }
             val outcome = when {
+                category == "UNSUPPORTED" -> BenchmarkOutcome.UNSUPPORTED
                 detail.contains("free allowance", true) || detail.contains("429") || detail.contains("quota", true) || detail.contains("cooldown", true) -> BenchmarkOutcome.QUOTA_BLOCKED
                 detail.contains("POLICY_RESTRICTED", true) || detail.contains("training violation", true) -> BenchmarkOutcome.POLICY_BLOCKED
                 finishReason in setOf("length", "MAX_TOKENS") -> BenchmarkOutcome.PARTIAL
@@ -318,7 +330,7 @@ private fun fixtureTool(code: String): AgentTool = object : AgentTool {
 
 /** Infrastructure errors are not model-quality failures, even in full-suite mode. */
 internal fun benchmarkInfrastructureFailure(sample: BenchmarkSample): Boolean {
-    if (sample.outcome in setOf(BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED)) return true
+    if (sample.outcome in setOf(BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) || sample.failureCategory == "INIT") return true
     if (sample.outcome == BenchmarkOutcome.PASSED) return false
     val detail = listOfNotNull(sample.error).plus(sample.delegation?.diagnosticEvents.orEmpty().map { it.message }).joinToString("\n")
     return listOf(
@@ -337,11 +349,16 @@ suspend fun runBenchmarkSuite(
     for ((index, test) in suite.withIndex()) {
         val sample = runCase(index, test)
         onSample(sample)
-        if (benchmarkInfrastructureFailure(sample)) {
-            return "Provider connectivity or authentication is unavailable; remaining cases were skipped. ${sample.error.orEmpty()}"
+        val reason = when {
+            benchmarkInfrastructureFailure(sample) -> "Provider or runtime is unavailable; remaining cases were skipped. ${sample.error.orEmpty()}"
+            stopOnError && sample.outcome in setOf(BenchmarkOutcome.ERROR, BenchmarkOutcome.TIMED_OUT) && sample.failureCategory != "CONTEXT" -> sample.error ?: "The provider could not complete the benchmark request."
+            else -> null
         }
-        if (stopOnError && (sample.outcome == BenchmarkOutcome.ERROR || sample.outcome == BenchmarkOutcome.TIMED_OUT)) {
-            return sample.error ?: "The provider could not complete the benchmark request."
+        if (reason != null) {
+            for (remaining in suite.drop(index + 1)) {
+                onSample(BenchmarkSample(remaining.id, remaining.label, remaining.category, BenchmarkOutcome.SKIPPED, error = reason, failureCategory = "SKIPPED", tokenBasis = ReferenceTextTokenizer.VERSION, warmup = remaining.warmup, workload = remaining.workload))
+            }
+            return reason
         }
     }
     return null

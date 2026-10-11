@@ -95,6 +95,8 @@ fun LocalModelsScreen(
     var architecture by rememberSaveable { mutableStateOf("") }
     var selectedTab by rememberSaveable { mutableStateOf(if (startInDelegation) 1 else 0) }
     val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
+    val runtimeSettings by runtimeViewModel.settings.collectAsStateWithLifecycle()
+    val runtimeBusy by runtimeViewModel.busy.collectAsStateWithLifecycle()
     val profiles by runtimeViewModel.profiles.collectAsStateWithLifecycle()
     val qnnAvailable by runtimeViewModel.qnnAvailable.collectAsStateWithLifecycle()
     val backend by runtimeViewModel.backend.collectAsStateWithLifecycle()
@@ -151,6 +153,9 @@ fun LocalModelsScreen(
                         item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
                     } else if (!marketplace) {
                         item(key = "overview") { LocalModelsOverviewCard(uiState) }
+                        item(key = "local-assist") {
+                            LocalAssistToggle(runtimeSettings.localAssist, { runtimeViewModel.updateTuning(assist = it) }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), enabled = !runtimeBusy)
+                        }
                         item(key = "download-policy") {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {

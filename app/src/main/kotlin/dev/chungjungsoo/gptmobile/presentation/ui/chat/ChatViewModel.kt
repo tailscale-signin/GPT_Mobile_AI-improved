@@ -784,6 +784,21 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun setLocalAssist(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                conversationDelegationMutex.withLock {
+                    val latest = settingRepository.getFeatureSettings()
+                    settingRepository.updateFeatureSettings(latest.copy(localAssist = enabled))
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not save Local Assist. Please try again."
+            }
+        }
+    }
+
     fun setConversationDelegation(value: ConversationDelegationSettings?) {
         _chatToolConfig.update { it.copy(delegation = value) }
         val chatId = _chatRoom.value.id

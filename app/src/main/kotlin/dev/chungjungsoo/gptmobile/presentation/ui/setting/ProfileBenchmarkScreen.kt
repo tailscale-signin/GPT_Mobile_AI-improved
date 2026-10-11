@@ -106,6 +106,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     var tab by rememberSaveable { mutableIntStateOf(2) }
     var mode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
     var typeFilter by rememberSaveable { mutableIntStateOf(0) }
+    var comparisonSort by rememberSaveable { mutableStateOf("App rating") }
     var performanceOrder by rememberSaveable { mutableStateOf(PerformanceOrder.LATENCY) }
     var detailKey by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -115,9 +116,11 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val tint = benchmarkTint(local)
     val profileHistory = remember(history, selected?.uid) { history.filter { it.profileUid == selected?.uid } }
     val matching = remember(profileHistory, selected, mode, localEnvironment) { selected?.let { comparableRuns(profileHistory, it, mode, localEnvironment) }.orEmpty() }
-    val activeScore = snapshot?.rows?.firstOrNull { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(profile, localEnvironment) } && it.cohort.startsWith(mode.name + "|") }
+    val activeScore = snapshot?.rows?.filter { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(profile, localEnvironment) } && it.cohort.startsWith(mode.name + "|") }
+        ?.maxByOrNull { row -> history.filter { it.id in row.sourceRunIds }.maxOfOrNull { it.startedAt } ?: 0L }
     val rating = remember(matching, local, activeScore) {
-        benchmarkRating(matching, local).copy(score = activeScore?.overall?.roundToInt(), medianSpeed = activeScore?.speed, estimatedSpeed = false)
+        val dimensions = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkScoreDimensions(activeScore, local)
+        benchmarkRating(matching, local).copy(score = activeScore?.overall?.roundToInt(), medianSpeed = activeScore?.speed, estimatedSpeed = false, dimensions = dimensions, measuredWeight = dimensions.filter { it.score != null }.sumOf { it.weight })
     }
     val detail = everyday.firstOrNull { it.key == detailKey }
     Scaffold(topBar = {
@@ -264,7 +267,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 MetricLine("Diagnostic events", "${result.diagnosticEvents} total · ${result.warningEvents} warnings · ${result.errorEvents} errors")
                                 if (result.estimated) Text("Token totals include estimates.", style = MaterialTheme.typography.labelSmall)
                                 result.dimensions.forEach { dimension ->
-                                    MetricLine(dimension.label, dimension.score?.let { "${it.roundToInt()} / 100" } ?: "Not measured")
+                                    MetricLine(dimension.label, dimension.score?.let { "${it.roundToInt()} / 100" } ?: benchmarkMissingScoreLabel(activeScore, dimension.label))
                                 }
                                 Text("Measured ${benchmarkDate(row.run.startedAt)} · ${row.run.delegationSettings?.maxOutputTokens} worker output cap", style = MaterialTheme.typography.labelSmall)
                             }
@@ -332,13 +335,13 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     if (mode == BenchmarkMode.QUICK) {
                                         "6 diagnostic trials · provisional only"
                                     } else if (mode == BenchmarkMode.AGENT) {
-                                        "48 trials · 3 warm-ups · text quality and 12 tool contracts"
+                                        "84 trials · 3 warm-ups · 36 intelligence tasks · 12 tool contracts"
                                     } else {
-                                        "36 trials · 3 warm-ups · 18 quality cases"
+                                        "72 trials · 3 warm-ups · 18 quality cases · 36 intelligence tasks"
                                     },
                                     style = MaterialTheme.typography.bodyMedium
                                 )
-                                Text("Up to 512 output tokens per request and 90 seconds per test. Tools use a harmless in-memory fixture. Reasoning follows each model profile instead of being forcibly disabled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("90 seconds per test. Speed uses 512 output tokens; local correctness uses 256 and local intelligence 512. Remote correctness reserves 2,048 tokens (8,192 for GPT-OSS). Intelligence preserves profile reasoning; delivery fixtures disable optional reasoning. Tools use a harmless in-memory fixture.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -403,24 +406,36 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             }
                         }
                         item { BenchmarkScoreCard(rating, local, matching.size, mode) }
-                        if (matching.size > 1) {
-                            item {
-                                BenchmarkPanel("Score over time") {
-                                    val trend = matching.reversed().mapNotNull { run -> benchmarkRating(listOf(run)).score?.let { run.startedAt to it } }
-                                    TrendChart(trend.map { it.second.toDouble() }, trend.map { benchmarkDate(it.first) }, tint, "app score")
-                                }
+                        item {
+                            BenchmarkPanel("Intelligence · text capability") {
+                                IntelligenceResults(activeScore?.intelligence, mode == BenchmarkMode.QUICK)
+                            }
+                        }
+                        item {
+                            BenchmarkPanel("Progress by category") {
+                                BenchmarkCoverage(profileHistory.firstOrNull { it.mode == mode && it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION }, mode)
                             }
                         }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 BenchmarkTile("First response", formatLatency(rating.medianFirstTextMs), "median first text", Modifier.weight(1f), tint)
-                                BenchmarkTile("Generation speed", rating.medianSpeed?.let { "${if (rating.estimatedSpeed) "≈ " else ""}%.1f".format(it) } ?: "—", "tokens / decode second", Modifier.weight(1f), tint)
+                                BenchmarkTile("Generation speed", rating.medianSpeed?.let { "${if (rating.estimatedSpeed) "≈ " else ""}%.1f".format(it) } ?: "—", "reference tokens / second", Modifier.weight(1f), tint)
                             }
                         }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 BenchmarkTile("Completion", rating.sampleCount.takeIf { it > 0 }?.let { "${(100.0 * rating.completed / it).roundToInt()}%" } ?: "—", "${rating.completed} / ${rating.sampleCount} requests", Modifier.weight(1f), tint)
-                                BenchmarkTile("Tool success", percent(rating.toolSuccessPercent), "validated tool tasks", Modifier.weight(1f), tint)
+                                BenchmarkTile(
+                                    "Tool success",
+                                    when {
+                                        mode == BenchmarkMode.FULL -> "Not in this suite"
+                                        "tools" in activeScore?.unsupportedCategories.orEmpty() && rating.toolSuccessPercent == null -> "Unsupported"
+                                        else -> percent(rating.toolSuccessPercent)
+                                    },
+                                    "Agent Standard tests tool use",
+                                    Modifier.weight(1f),
+                                    tint
+                                )
                             }
                         }
                         item {
@@ -428,7 +443,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 rating.dimensions.forEach { dimension ->
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text(dimension.label, style = MaterialTheme.typography.bodyMedium)
-                                        Text(dimension.score?.let { "${it.roundToInt()} / 100" } ?: "Not measured", style = MaterialTheme.typography.labelMedium, color = tint)
+                                        Text(dimension.score?.let { "${it.roundToInt()} / 100" } ?: benchmarkMissingScoreLabel(activeScore, dimension.label), style = MaterialTheme.typography.labelMedium, color = tint)
                                     }
                                     LinearProgressIndicator(progress = { (dimension.score ?: 0.0).toFloat() / 100 }, modifier = Modifier.fillMaxWidth(), color = tint)
                                     Text("${dimension.weight}% weight · ${dimension.detail}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -439,8 +454,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             BenchmarkPanel("Measurement notes") {
                                 MetricLine("p95 first response", formatLatency(rating.p95FirstTextMs))
                                 MetricLine("Median request time", formatLatency(rating.medianDurationMs))
-                                Text("Suite v1 · latest 5 completed ${mode.label.lowercase()} runs with this configuration. Fixed instructions and temperature 0; each profile's reasoning requirement is preserved. Network, model loading and queue time are included in first response. Token estimates use characters ÷ 4 and are marked ≈. One-chunk responses have no measured decode speed.", style = MaterialTheme.typography.bodySmall)
-                                Text("This is an app performance score, not a general intelligence test. Missing measurements are excluded and remaining weights are normalized. Local and remote scores use different speed targets and are ranked separately.", style = MaterialTheme.typography.bodySmall)
+                                Text("Suite ${dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION} · latest 5 complete blocks with this configuration and context tier. Fixed instructions and temperature 0. First response includes model loading and queue time. Throughput uses the shared lexical4 comparison unit; one-chunk responses have no measured decode speed.", style = MaterialTheme.typography.bodySmall)
+                                Text("Quality, reliability, speed, first response and consistency use the same scoring policy here and in Results. Overall needs every dimension; missing timing is never invented. Core Text excludes tools; Agent Standard includes tool fixtures. Quick Check remains provisional. Local context tiers and remote cohorts are ranked separately.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -473,6 +488,9 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("All", "Local", "Remote").forEachIndexed { index, label -> FilterChip(typeFilter == index, { typeFilter = index }, label = { Text(label) }) }
                                 }
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("App rating", "Intelligence", "Speed").forEach { order -> FilterChip(comparisonSort == order, { comparisonSort = order }, label = { Text(order) }) }
+                                }
                                 Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote use separate verified cohort scales.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -482,49 +500,40 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     Text("Scale updates across all eligible profiles", modifier = Modifier.weight(1f))
                                     SettingsHelpIcon("Speed balances each workload band: 100 × its measured rate / its fastest verified compatible rate. Local weights Q/R/S/L/C = 40/25/10/10/15; Remote = 35/20/20/15/10. Overall is capped by quality and reliability. Hidden rows remain in the anchor. Quick and incomplete runs never establish anchors. Reference lexical4 tokenizer v1 is a comparison unit, not provider billing. Five timed trials per workload are required; p95 requires 20 samples.")
                                 }
-                                Text("Snapshot ${snapshot?.generation ?: 0} · 30-day freshness · Quick runs stay provisional", style = MaterialTheme.typography.labelSmall)
+                                Text("Snapshot ${snapshot?.generation ?: 0} · 30-day freshness · Quick runs stay provisional. Intelligence uses absolute answer accuracy, never a speed ranking.", style = MaterialTheme.typography.labelSmall)
                             }
                         }
-                        val rows = snapshot?.rows.orEmpty().filter { row -> typeFilter == 0 || row.cohort.contains("device:") == (typeFilter == 1) }
+                        val rows = snapshot?.rows.orEmpty().filter { row -> row.cohort.startsWith(mode.name + "|") && (typeFilter == 0 || row.cohort.contains("device:") == (typeFilter == 1)) }
                         rows.groupBy { it.cohort }.forEach { (cohort, cohortRows) ->
                             item {
                                 BenchmarkPanel(
                                     if (cohort.contains("device:")) {
-                                        "Local · this device"
+                                        "Local · ${cohort.substringAfter("device:").substringBefore("|")}"
                                     } else if (cohort.contains("self-hosted:")) {
                                         "Self-hosted"
                                     } else {
                                         "Remote · cloud"
                                     }
                                 ) {
-                                    Text(cohort.substringBefore('|'), style = MaterialTheme.typography.labelSmall)
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Profile", modifier = Modifier.weight(1.3f))
-                                        Text("Speed /100", modifier = Modifier.weight(1f))
-                                        Text("Ref tok/s", modifier = Modifier.weight(1f))
-                                        Text("Overall", modifier = Modifier.weight(.8f))
-                                    }
+                                    Text("${mode.label} · Suite ${cohort.split('|').getOrNull(1).orEmpty()} · ${cohort.substringAfterLast('|').substringAfter(':').let { if (it == "remote-standard") "Standard context" else "$it-token context tier" }}", style = MaterialTheme.typography.labelSmall)
+                                    Text("Ratings out of 100 · higher is better", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
-                            items(cohortRows.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow> { it.overall ?: -1.0 }.thenByDescending { it.speed ?: -1.0 }), key = { "v2-${it.profileUid}-${it.cohort}-${it.sourceRunIds.firstOrNull()}" }) { row ->
+                            val sortedRows = cohortRows.sortedWith(
+                                compareByDescending<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow> {
+                                    when (comparisonSort) {
+                                        "Intelligence" -> it.intelligence?.score
+                                        "Speed" -> it.speed
+                                        else -> it.overall
+                                    } ?: -1.0
+                                }.thenByDescending { it.speed ?: -1.0 }
+                            )
+                            items(sortedRows, key = { "v2-${it.profileUid}-${it.cohort}-${it.sourceRunIds.firstOrNull()}" }) { row ->
                                 val item = profiles.firstOrNull { it.uid == row.profileUid }
-                                Card(onClick = {
+                                BenchmarkComparisonCard(item?.name ?: "Retained profile", item?.model.orEmpty(), row) {
                                     if (item != null) {
                                         viewModel.select(item)
                                         tab = 0
-                                    }
-                                }, shape = RoundedCornerShape(16.dp)) {
-                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(item?.name ?: "Retained profile", modifier = Modifier.weight(1.3f), fontWeight = FontWeight.SemiBold)
-                                            Text(row.speedScore?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(1f))
-                                            Text(row.speed?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(1f))
-                                            Text(row.overall?.let { "%.1f".format(it) } ?: "—", modifier = Modifier.weight(.8f), color = MaterialTheme.colorScheme.primary)
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("${if (row.verified) "Verified" else "Provisional"} · ${row.sampleCount} samples · first ${row.firstTextMs?.let { "%.0f ms".format(it) } ?: "—"}", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
-                                            SettingsHelpIcon(row.explanation)
-                                        }
                                     }
                                 }
                             }
@@ -624,7 +633,7 @@ private fun BenchmarkScoreCard(rating: BenchmarkRating, local: Boolean, runs: In
                 Text("${mode.label} · $runs runs · ${rating.measuredWeight}% coverage", style = MaterialTheme.typography.bodySmall)
                 Text(
                     if (rating.score == null) {
-                        "Run tests to build a rating"
+                        "Complete a Standard plan to measure all rating dimensions"
                     } else if (runs < 3) {
                         "Early result · repeat for confidence"
                     } else {

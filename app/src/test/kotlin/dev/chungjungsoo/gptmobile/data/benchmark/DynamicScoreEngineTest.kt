@@ -83,11 +83,47 @@ class DynamicScoreEngineTest {
     }
 
     @Test
+    fun unsupportedAgentToolsKeepTextScoresAndFullCoverage() {
+        val base = run("local", 100, true)
+        val extra = benchmarkSuite(BenchmarkMode.AGENT).filter { it.category == "tools" }.map { test ->
+            BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.UNSUPPORTED, tokenBasis = ReferenceTextTokenizer.VERSION, workload = test.workload, warmup = test.warmup)
+        }
+        val row = DynamicScoreEngine.snapshot(listOf(base.copy(mode = BenchmarkMode.AGENT, samples = base.samples + extra, plannedTrials = 84)), 1, 2000).rows.single()
+        assertTrue(row.verified)
+        assertEquals(100.0, row.reliability!!, .0001)
+        assertEquals(100.0, row.overall!!, .0001)
+        assertEquals(setOf("tools"), row.unsupportedCategories)
+        assertEquals(setOf("task", "json"), row.accuracyByCategory.keys)
+    }
+
+    @Test
+    fun failedCorrectnessRequestsReceiveScoresAndContextTiersStaySeparate() {
+        val failed = run("failed", 100).let { block -> block.copy(samples = block.samples.map { if (it.category == "speed") it else it.copy(outcome = BenchmarkOutcome.ERROR) }) }
+        val row = DynamicScoreEngine.snapshot(listOf(failed), 1, 2000).rows.single()
+        assertEquals(0.0, row.quality!!, .0001)
+        assertEquals(0.0, row.overall!!, .0001)
+        assertTrue(DynamicScoreEngine.cohort(run("a", 100, true).copy(fixtureContextTokens = 4096)) != DynamicScoreEngine.cohort(run("b", 100, true).copy(fixtureContextTokens = 8192)))
+        assertEquals(100, benchmarkScoreDimensions(row, false).sumOf { it.weight })
+    }
+
+    @Test
     fun standardPlansHaveDeclaredCoverage() {
-        assertEquals(36, benchmarkSuite(BenchmarkMode.FULL).size)
-        assertEquals(48, benchmarkSuite(BenchmarkMode.AGENT).size)
+        assertEquals(72, benchmarkSuite(BenchmarkMode.FULL).size)
+        assertEquals(84, benchmarkSuite(BenchmarkMode.AGENT).size)
         assertEquals(6, benchmarkSuite(BenchmarkMode.QUICK).size)
         assertEquals(3, benchmarkSuite(BenchmarkMode.FULL).count { it.warmup })
         assertTrue(ReferenceTextTokenizer.starts("abcd efgh!").size == 3)
+    }
+
+    @Test
+    fun historicalTextMeasurementsKeepTheirOwnScoresWithoutInventedIntelligence() {
+        val historical = run("old", 100).let { block ->
+            block.copy(suiteVersion = 3, plannedTrials = 36, samples = block.samples.filter { it.category != IntelligenceBenchmark.CATEGORY })
+        }
+        val row = DynamicScoreEngine.snapshot(listOf(historical), 1, 2000).rows.single()
+        assertEquals(100.0, row.speedScore!!, .0001)
+        assertEquals(100.0, row.latencyScore!!, .0001)
+        assertEquals(100.0, row.overall!!, .0001)
+        assertNull(row.intelligence)
     }
 }

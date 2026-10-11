@@ -18,24 +18,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - name: Apply reviewed source patch on isolated branch
+      - name: Apply SDK assertion and query-boundary repairs
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/feat/smartwatch-health-connect-2026-10-11"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if [ ! -f app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/health/HealthConnectContract.kt ]; then
-            python3 - <<'PY'
+          python3 - <<'PY'
           import base64, hashlib, lzma, pathlib, subprocess
-          payload = ''.join(pathlib.Path(f'.health-connect-transport/part-{i}.b64').read_text() for i in range(4))
-          packed = base64.b64decode(payload, validate=True)
-          assert hashlib.sha256(packed).hexdigest() == '3101bb9f302ec718906a07195151027c4729c1bfdcd2634e4c316c7eb032ea33'
-          patch = lzma.decompress(packed)
-          subprocess.run(['git', 'apply', '--check'], input=patch, check=True)
-          subprocess.run(['git', 'apply', '--index'], input=patch, check=True)
+          marker=pathlib.Path('app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/health/HealthQueryTest.kt')
+          if 'thirtyCalendarDaysAcrossFallBackAreClippedToTheHistoryLimit' not in marker.read_text():
+              packed=base64.b64decode(pathlib.Path('.health-connect-transport/repair.b64').read_text(), validate=True)
+              assert hashlib.sha256(packed).hexdigest() == '6c92a9795a7555ec1c5f20ae6766e1799c9b1d30bcf670699f6156984615d462'
+              patch=lzma.decompress(packed)
+              subprocess.run(['git','apply','--check'],input=patch,check=True)
+              subprocess.run(['git','apply','--index'],input=patch,check=True)
           PY
-            git commit -m 'feat(health): add opt-in Smartwatch Health Connect plugin and nine AI tools'
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(health): validate public SDK requests and harden DST, timeout and accessibility behavior'
             git push origin HEAD:feat/smartwatch-health-connect-2026-10-11
           fi
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
@@ -59,47 +60,18 @@ jobs:
           java -jar "$RUNNER_TEMP/ktlint.jar" --format "${files[@]}" 2>&1 | tee health-format.log
           if ! git diff --quiet -- '*.kt' '*.kts'; then
             git add -- '*.kt' '*.kts'
-            git commit -m 'style(health): format plugin integration and regression tests'
+            git commit -m 'style(health): format final regression and accessibility fixes'
             git push origin HEAD:feat/smartwatch-health-connect-2026-10-11
           fi
-      - name: Resolve new dependency checksums and compile tests
-        id: bootstrap
-        continue-on-error: true
+      - name: Strict compilation and unit tests
+        id: tests
         shell: bash
         run: |
           set -o pipefail
           chmod +x gradlew
-          cp gradle/verification-metadata.xml "$RUNNER_TEMP/health-verification-before.xml"
-          ./gradlew --write-verification-metadata sha256 :app:compileDebugUnitTestKotlin --no-daemon 2>&1 | tee health-bootstrap.log
-      - name: Preserve existing dependency trust and commit additions
-        if: always() && steps.bootstrap.outcome != 'skipped'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os, pathlib, xml.etree.ElementTree as ET
-          def hashes(path):
-              root=ET.parse(path).getroot()
-              ns={'v':root.tag.split('}')[0][1:]}
-              return {(c.attrib['group'], c.attrib['name'], c.attrib['version'], a.attrib['name']): {h.attrib['value'] for h in a.findall('v:sha256',ns)} for c in root.findall('.//v:component',ns) for a in c.findall('v:artifact',ns)}
-          old=hashes(pathlib.Path(os.environ['RUNNER_TEMP'])/'health-verification-before.xml')
-          new=hashes('gradle/verification-metadata.xml')
-          assert all(new.get(key)==value for key,value in old.items()), 'Existing trusted dependency hashes changed'
-          print('Existing hashes unchanged; newly recorded artifacts:',len(set(new)-set(old)))
-          PY
-          if ! git diff --quiet -- gradle/verification-metadata.xml; then
-            git add gradle/verification-metadata.xml
-            git commit -m 'build(health): verify Health Connect dependency artifacts'
-            git push origin HEAD:feat/smartwatch-health-connect-2026-10-11
-          fi
-      - name: Strict unit tests
-        id: tests
-        if: always() && steps.bootstrap.outcome == 'success'
-        shell: bash
-        run: |
-          set -o pipefail
           ./gradlew :app:testDebugUnitTest --no-daemon 2>&1 | tee health-tests.log
       - name: Android lint and review APK
+        id: apk
         if: always() && steps.tests.outcome == 'success'
         shell: bash
         run: |
@@ -129,6 +101,3 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
           retention-days: 7
-      - name: Enforce successful compilation
-        if: always() && steps.bootstrap.outcome != 'success'
-        run: exit 1

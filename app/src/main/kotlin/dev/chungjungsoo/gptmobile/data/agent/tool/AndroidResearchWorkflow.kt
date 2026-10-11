@@ -3,8 +3,8 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ResearchBudget
 import dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolOutcome
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.research.ResearchJournal
 import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
@@ -49,12 +49,14 @@ internal class AndroidResearchWorkflow(
     private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
     private val options = config.deepResearch.normalized()
+
     // Charge each logical provider/tool operation once; internal physical retries remain
     // tracked by the attempt counters and do not consume another logical slot.
     private val totalLogicalCalls = (maxOf(1, minOf(config.maxSearchQueries, 9)) + options.maxPages * 3 + 30).coerceIn(24, 120)
     private val budget = journal?.budget(totalLogicalCalls) ?: ResearchBudget(totalLogicalCalls)
     private val readerHealth = journal?.readerHealth() ?: ResearchReaderHealth(now)
     private var state = ResearchSnapshot("")
+
     @Volatile private var exhausted = false
     private var collectionDeadlineMs = Long.MAX_VALUE
     private fun collecting(): Boolean = monotonicMs() < collectionDeadlineMs
@@ -296,19 +298,23 @@ internal class AndroidResearchWorkflow(
             failedEngineCount > 0 && failedEngineCount < engines.size -> ToolOutcome.PARTIAL
             else -> ToolOutcome.SUCCESS
         }
-        state = state.copy(toolEvents = (state.toolEvents + ResearchToolEvent(
-            query = query,
-            engine = search.modelToolName,
-            reader = "",
-            argumentsDigest = researchHash(arguments.toString()),
-            outcome = outcome.name,
-            sourceIds = sourceIds,
-            failureReason = result.errorCode.orEmpty(),
-            latencyMs = (monotonicMs() - started).coerceAtLeast(0),
-            cacheHit = result.sharedResult,
-            shared = result.sharedResult,
-            recordedAt = now()
-        )).takeLast(200))
+        state = state.copy(
+            toolEvents = (
+                state.toolEvents + ResearchToolEvent(
+                    query = query,
+                    engine = search.modelToolName,
+                    reader = "",
+                    argumentsDigest = researchHash(arguments.toString()),
+                    outcome = outcome.name,
+                    sourceIds = sourceIds,
+                    failureReason = result.errorCode.orEmpty(),
+                    latencyMs = (monotonicMs() - started).coerceAtLeast(0),
+                    cacheHit = result.sharedResult,
+                    shared = result.sharedResult,
+                    recordedAt = now()
+                )
+                ).takeLast(200)
+        )
         checkpoint()
     }
 
@@ -342,19 +348,23 @@ internal class AndroidResearchWorkflow(
             sourceIds.isEmpty() -> ToolOutcome.EMPTY
             else -> ToolOutcome.SUCCESS
         }
-        state = state.copy(toolEvents = (state.toolEvents + ResearchToolEvent(
-            query = query,
-            engine = "Crossref",
-            reader = reader.modelToolName,
-            argumentsDigest = researchHash(args.toString()),
-            outcome = outcome.name,
-            sourceIds = sourceIds,
-            failureReason = result.errorCode.orEmpty(),
-            latencyMs = (monotonicMs() - started).coerceAtLeast(0),
-            cacheHit = result.sharedResult,
-            shared = result.sharedResult,
-            recordedAt = now()
-        )).takeLast(200))
+        state = state.copy(
+            toolEvents = (
+                state.toolEvents + ResearchToolEvent(
+                    query = query,
+                    engine = "Crossref",
+                    reader = reader.modelToolName,
+                    argumentsDigest = researchHash(args.toString()),
+                    outcome = outcome.name,
+                    sourceIds = sourceIds,
+                    failureReason = result.errorCode.orEmpty(),
+                    latencyMs = (monotonicMs() - started).coerceAtLeast(0),
+                    cacheHit = result.sharedResult,
+                    shared = result.sharedResult,
+                    recordedAt = now()
+                )
+                ).takeLast(200)
+        )
         checkpoint()
     }
 
@@ -425,19 +435,21 @@ internal class AndroidResearchWorkflow(
                                         else -> ToolOutcome.SUCCESS
                                     }
                                     readerHealth.record(reader.modelToolName, source.url, readOutcome, billingFailure = isBillingFailure(last))
-                                    completedEvents.add(ResearchToolEvent(
-                                        query = source.url,
-                                        engine = reader.modelToolName,
-                                        reader = reader.realToolName,
-                                        argumentsDigest = researchHash(callArguments.toString()),
-                                        outcome = readOutcome.name,
-                                        sourceIds = listOf(source.id),
-                                        failureReason = last?.errorCode.orEmpty(),
-                                        latencyMs = (monotonicMs() - readStarted).coerceAtLeast(0),
-                                        cacheHit = last?.sharedResult == true,
-                                        shared = last?.sharedResult == true,
-                                        recordedAt = now()
-                                    ))
+                                    completedEvents.add(
+                                        ResearchToolEvent(
+                                            query = source.url,
+                                            engine = reader.modelToolName,
+                                            reader = reader.realToolName,
+                                            argumentsDigest = researchHash(callArguments.toString()),
+                                            outcome = readOutcome.name,
+                                            sourceIds = listOf(source.id),
+                                            failureReason = last?.errorCode.orEmpty(),
+                                            latencyMs = (monotonicMs() - readStarted).coerceAtLeast(0),
+                                            cacheHit = last?.sharedResult == true,
+                                            shared = last?.sharedResult == true,
+                                            recordedAt = now()
+                                        )
+                                    )
                                     if (last?.toolCallBudgetExhausted == true || last?.outputBudgetExhausted == true) break
                                     val text = last?.takeUnless { it.isError }?.pageEvidenceText().orEmpty()
                                     if (text.length >= 80 && !looksLikeConsentOrScriptShell(text)) break

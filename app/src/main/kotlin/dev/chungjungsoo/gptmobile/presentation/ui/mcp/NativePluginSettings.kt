@@ -58,13 +58,21 @@ fun NativePluginSettings(
     val needsEndpoint = NativeMarketplaceCatalog.requiresEndpoint(entry)
     val isOsm = entry.provider == "openstreetmap"
     val enabledOperations = setOf("geocode", "restrooms") - disabledOperations
-    val validEndpoint = if (isOsm) enabledOperations.isNotEmpty() && enabledOperations.all { operation ->
-        val config = endpointConfigs[operation] ?: NativeEndpointConfig("")
-        val saved = installation.endpointConfig(operation)
-        NativeMarketplaceCatalog.validEndpoint(config.url, config.allowCustomHttpsPort) &&
-            (config.authType == EndpointAuthType.NONE || NativeMarketplaceCatalog.validKey(endpointSecrets[operation].orEmpty()) ||
-                (config.authType == saved.authType && config.url.trim() == saved.url && saved.secretRef != null))
-    } else !needsEndpoint || NativeMarketplaceCatalog.validEndpoint(endpoint)
+    val validEndpoint = if (isOsm) {
+        enabledOperations.isNotEmpty() &&
+            enabledOperations.all { operation ->
+                val config = endpointConfigs[operation] ?: NativeEndpointConfig("")
+                val saved = installation.endpointConfig(operation)
+                NativeMarketplaceCatalog.validEndpoint(config.url, config.allowCustomHttpsPort) &&
+                    (
+                        config.authType == EndpointAuthType.NONE ||
+                            NativeMarketplaceCatalog.validKey(endpointSecrets[operation].orEmpty()) ||
+                            (config.authType == saved.authType && config.url.trim() == saved.url && saved.secretRef != null)
+                        )
+            }
+    } else {
+        !needsEndpoint || NativeMarketplaceCatalog.validEndpoint(endpoint)
+    }
     val validKey = !needsKey || NativeMarketplaceCatalog.validKey(key) || (key.isBlank() && installation.credentialRef != null && !clearKey)
     val validLimits = results.toIntOrNull() in 1..10 && allowance.toIntOrNull() in 1..1000
     val red = MaterialTheme.colorScheme.error
@@ -123,7 +131,8 @@ fun NativePluginSettings(
                 val value = config.url
                 val endpointReady = NativeMarketplaceCatalog.validEndpoint(value, config.allowCustomHttpsPort)
                 val savedEndpoint = installation.endpointConfig(operation)
-                val credentialReady = config.authType == EndpointAuthType.NONE || NativeMarketplaceCatalog.validKey(endpointSecrets[operation].orEmpty()) ||
+                val credentialReady = config.authType == EndpointAuthType.NONE ||
+                    NativeMarketplaceCatalog.validKey(endpointSecrets[operation].orEmpty()) ||
                     (config.authType == savedEndpoint.authType && config.url.trim() == savedEndpoint.url && savedEndpoint.secretRef != null)
                 OutlinedTextField(
                     value = value, onValueChange = { endpointConfigs = endpointConfigs + (operation to config.copy(url = it)) },
@@ -144,7 +153,9 @@ fun NativePluginSettings(
                         label = { Text("Endpoint credential") },
                         placeholder = { Text("Leave blank to retain the credential for this endpoint") },
                         visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth()
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -153,7 +164,16 @@ fun NativePluginSettings(
                         endpointConfigs = endpointConfigs + (operation to config.copy(allowCustomHttpsPort = it))
                     })
                 }
-                Text(if (!operationEnabled) "$label: Disabled" else if (endpointReady && credentialReady) "$label: Ready" else "$label: Not configured", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    if (!operationEnabled) {
+                        "$label: Disabled"
+                    } else if (endpointReady && credentialReady) {
+                        "$label: Ready"
+                    } else {
+                        "$label: Not configured"
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
         if (needsEndpoint) {

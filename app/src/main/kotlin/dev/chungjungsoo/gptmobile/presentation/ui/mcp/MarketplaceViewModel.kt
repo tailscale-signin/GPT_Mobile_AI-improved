@@ -114,27 +114,35 @@ class MarketplaceViewModel @Inject constructor(
                 // endpoint validation behave exactly as they do during setup.
                 val tools = resolver.discoverMcpTools(connection, forceRefresh = true)
                 _uiState.update { state ->
-                    state.copy(connectionTests = state.connectionTests + (connectionUid to MarketplaceConnectionTestResult(
-                        connected = true,
-                        toolCount = tools.size,
-                        completedAt = System.currentTimeMillis(),
-                        message = "Connected; discovered ${tools.size} tool${if (tools.size == 1) "" else "s"}. No tool was executed.",
-                        correlationId = correlationId
-                    )))
+                    state.copy(
+                        connectionTests = state.connectionTests + (
+                            connectionUid to MarketplaceConnectionTestResult(
+                                connected = true,
+                                toolCount = tools.size,
+                                completedAt = System.currentTimeMillis(),
+                                message = "Connected; discovered ${tools.size} tool${if (tools.size == 1) "" else "s"}. No tool was executed.",
+                                correlationId = correlationId
+                            )
+                            )
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 _uiState.update { state ->
-                    state.copy(connectionTests = state.connectionTests + (connectionUid to MarketplaceConnectionTestResult(
-                        connected = false,
-                        completedAt = System.currentTimeMillis(),
-                        failureCode = error::class.simpleName?.take(80) ?: "connection_test_failed",
-                        // Server errors may echo credentials or private endpoint data. Keep
-                        // the UI message actionable and use the correlation ID for support.
-                        message = "Connection discovery failed. Check the saved endpoint and credentials, then retry.",
-                        correlationId = correlationId
-                    )))
+                    state.copy(
+                        connectionTests = state.connectionTests + (
+                            connectionUid to MarketplaceConnectionTestResult(
+                                connected = false,
+                                completedAt = System.currentTimeMillis(),
+                                failureCode = error::class.simpleName?.take(80) ?: "connection_test_failed",
+                                // Server errors may echo credentials or private endpoint data. Keep
+                                // the UI message actionable and use the correlation ID for support.
+                                message = "Connection discovery failed. Check the saved endpoint and credentials, then retry.",
+                                correlationId = correlationId
+                            )
+                            )
+                    )
                 }
             } finally {
                 _uiState.update { it.copy(testingConnectionUids = it.testingConnectionUids - connectionUid) }
@@ -270,11 +278,17 @@ class MarketplaceViewModel @Inject constructor(
                     val previous = state.operations[entry.id]
                     state.copy(
                         errors = state.errors + (entry.id to message),
-                        operations = if (previous == null) state.operations else state.operations + (entry.id to previous.copy(
-                            phase = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED,
-                            updatedAt = System.currentTimeMillis(),
-                            failureCode = error::class.simpleName?.take(80) ?: "operation_failed"
-                        ))
+                        operations = if (previous == null) {
+                            state.operations
+                        } else {
+                            state.operations + (
+                                entry.id to previous.copy(
+                                    phase = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED,
+                                    updatedAt = System.currentTimeMillis(),
+                                    failureCode = error::class.simpleName?.take(80) ?: "operation_failed"
+                                )
+                                )
+                        }
                     )
                 }
             }
@@ -285,12 +299,14 @@ class MarketplaceViewModel @Inject constructor(
                 downloadingIds = if (removing) it.downloadingIds else it.downloadingIds + entry.id,
                 removingIds = if (removing) it.removingIds + entry.id else it.removingIds,
                 errors = it.errors - entry.id,
-                operations = it.operations + (entry.id to dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationState(
-                    operationId = java.util.UUID.randomUUID().toString(),
-                    packageId = entry.id,
-                    phase = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.QUEUED,
-                    startedAt = System.currentTimeMillis()
-                ))
+                operations = it.operations + (
+                    entry.id to dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationState(
+                        operationId = java.util.UUID.randomUUID().toString(),
+                        packageId = entry.id,
+                        phase = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.QUEUED,
+                        startedAt = System.currentTimeMillis()
+                    )
+                    )
             )
         }
         // Also runs if cancellation happens before the coroutine body starts.

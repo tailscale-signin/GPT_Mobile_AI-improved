@@ -4,15 +4,15 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.SystemClock
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunTerminalError
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
-import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig

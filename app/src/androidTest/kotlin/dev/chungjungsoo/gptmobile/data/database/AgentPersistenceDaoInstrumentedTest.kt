@@ -17,8 +17,8 @@ import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import kotlinx.coroutines.runBlocking
 import org.junit.After
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -208,9 +208,11 @@ class AgentPersistenceDaoInstrumentedTest {
         val message = persisted.assistantMessages.single().copy(content = "Saved first segment")
         assertTrue(dao.checkpointRunningMessage(message))
         database.openHelper.writableDatabase.execSQL("CREATE TRIGGER reject_completion BEFORE UPDATE OF status ON agent_runs WHEN NEW.status = 'COMPLETED' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
-        assertTrue(runCatching {
-            dao.finishRunningWithMessage(message.copy(content = "First segment and full continuation"), "run-1", AgentRunStatus.COMPLETED, 102L, null)
-        }.isFailure)
+        assertTrue(
+            runCatching {
+                dao.finishRunningWithMessage(message.copy(content = "First segment and full continuation"), "run-1", AgentRunStatus.COMPLETED, 102L, null)
+            }.isFailure
+        )
         assertEquals("Saved first segment", dao.recoveryMessage(message.id)?.content)
         assertEquals(AgentRunStatus.RUNNING, dao.recoveryRun("run-1")?.status)
     }
@@ -227,11 +229,13 @@ class AgentPersistenceDaoInstrumentedTest {
         assertFalse(dao.finishRunningWithMessage(answer.copy(content = "Late tail"), "run-1", AgentRunStatus.COMPLETED, 103L, null))
         assertEquals(answer.content, dao.recoveryMessage(answer.id)?.content)
 
-        val retried = dao.persistAgentRetry(PersistAgentRetryRequest(
-            userMessage = persisted.userMessage,
-            assistantMessage = answer,
-            run = AgentRunDraft("run-2", "profile-1", "OPENAI", "gpt-5", createdAt = 104L)
-        ))
+        val retried = dao.persistAgentRetry(
+            PersistAgentRetryRequest(
+                userMessage = persisted.userMessage,
+                assistantMessage = answer,
+                run = AgentRunDraft("run-2", "profile-1", "OPENAI", "gpt-5", createdAt = 104L)
+            )
+        )
         database.agentRunDao().updateStatus("run-2", AgentRunStatus.CANCELED, 105L, 106L, null)
         assertFalse(dao.finishRunningWithMessage(retried.assistantMessage.copy(content = "Canceled tail"), "run-2", AgentRunStatus.COMPLETED, 107L, null))
         assertFalse(dao.checkpointRunningMessage(answer))

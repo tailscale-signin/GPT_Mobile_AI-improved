@@ -330,9 +330,13 @@ interface AgentPersistenceDao {
         val run = recoveryRun(runId) ?: return false
         if (run.status != "RUNNING" && !(run.status == "QUEUED" && status != "COMPLETED")) return false
         val current = recoveryMessage(run.assistantMessageId) ?: return false
-        if (current.currentRunId != runId || assistantMessage.currentRunId != runId ||
-            assistantMessage.id != run.assistantMessageId || assistantMessage.chatId != run.chatId
-        ) return false
+        if (current.currentRunId != runId ||
+            assistantMessage.currentRunId != runId ||
+            assistantMessage.id != run.assistantMessageId ||
+            assistantMessage.chatId != run.chatId
+        ) {
+            return false
+        }
         updateMessage(assistantMessage)
         updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
         cancelActiveToolEvents(runId, completedAt)

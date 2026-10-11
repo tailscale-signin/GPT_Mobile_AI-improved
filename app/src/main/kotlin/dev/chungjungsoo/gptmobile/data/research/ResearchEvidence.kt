@@ -176,7 +176,13 @@ data class ResearchSnapshot(
                     titleFingerprint = s.text("titleFingerprint").takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: source.titleFingerprint,
                     contentFingerprint = s.text("contentFingerprint").takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: source.contentFingerprint,
                     retrievalQuality = s.text("retrievalQuality").takeIf { it in setOf("FULL_TEXT", "ABSTRACT", "METADATA", "BLOCKED", "EMPTY", "LEAD") }
-                        ?: when (status) { "Read", "Used as evidence" -> "FULL_TEXT"; "Partially read" -> "ABSTRACT"; "Blocked" -> "BLOCKED"; "Failed" -> "EMPTY"; else -> "LEAD" },
+                        ?: when (status) {
+                            "Read", "Used as evidence" -> "FULL_TEXT"
+                            "Partially read" -> "ABSTRACT"
+                            "Blocked" -> "BLOCKED"
+                            "Failed" -> "EMPTY"
+                            else -> "LEAD"
+                        },
                     equivalenceGroup = s.text("equivalenceGroup").takeIf { it.length <= 512 }
                         ?: SourceIdentity.create(source.url, source.title, source.passage).equivalenceKey
                 )

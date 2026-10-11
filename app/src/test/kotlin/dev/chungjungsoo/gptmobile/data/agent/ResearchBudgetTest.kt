@@ -27,6 +27,7 @@ class ResearchBudgetTest {
         assertEquals(1, budget.snapshot().usedLogical)
         assertEquals(0, budget.snapshot().physicalRequests)
     }
+
     @Test fun smallBudgetPreservesEveryPhaseWithoutIncreasingTotal() {
         val budget = ResearchBudget(4)
         ResearchBudget.Phase.entries.forEach { phase ->
@@ -44,5 +45,4 @@ class ResearchBudgetTest {
         assertTrue(budget.tryCharge(ResearchBudget.Phase.RECOVERY, physicalRequest = true))
         assertTrue(budget.tryCharge(ResearchBudget.Phase.FINALIZATION, physicalRequest = true))
     }
-
 }

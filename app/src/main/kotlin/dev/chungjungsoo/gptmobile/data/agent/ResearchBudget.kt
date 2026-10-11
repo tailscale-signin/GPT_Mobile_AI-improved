@@ -36,8 +36,12 @@ class ResearchBudget(
     ).toMutableMap().also { byPhase ->
         byPhase[Phase.DISCOVERY] = total - byPhase.filterKeys { it != Phase.DISCOVERY }.values.sum()
         // Preserve downstream work even when integer rounding would erase its allowance.
-        val shares = mapOf(Phase.DISCOVERY to reservations.discovery, Phase.VERIFICATION to reservations.verification,
-            Phase.RECOVERY to reservations.recovery, Phase.FINALIZATION to reservations.finalization)
+        val shares = mapOf(
+            Phase.DISCOVERY to reservations.discovery,
+            Phase.VERIFICATION to reservations.verification,
+            Phase.RECOVERY to reservations.recovery,
+            Phase.FINALIZATION to reservations.finalization
+        )
         for (phase in listOf(Phase.FINALIZATION, Phase.RECOVERY, Phase.VERIFICATION, Phase.DISCOVERY)) {
             if (shares.getValue(phase) <= 0 || byPhase.getValue(phase) > 0) continue
             val donor = Phase.entries.filter { it != phase && byPhase.getValue(it) > 1 }.maxByOrNull { byPhase.getValue(it) }

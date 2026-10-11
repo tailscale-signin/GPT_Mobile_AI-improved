@@ -82,7 +82,9 @@ class MarketplaceViewModelTest {
             marketplaceOrigin = "MARKETPLACE", marketplaceProviderId = entry.id, marketplaceInstallationId = "install-1"
         )
         val manualWithSameAlias = owned.copy(
-            connectionUid = "manual", marketplaceOrigin = "MANUAL", marketplaceProviderId = null,
+            connectionUid = "manual",
+            marketplaceOrigin = "MANUAL",
+            marketplaceProviderId = null,
             marketplaceInstallationId = null
         )
         coEvery { connections.listConnections() } returns listOf(owned, manualWithSameAlias)
@@ -233,8 +235,14 @@ class MarketplaceViewModelTest {
     @Test
     fun explicitConnectionTestRunsDiscoveryWithoutCallingTools() = runTest(dispatcher) {
         val connection = ToolConnection(
-            connectionUid = "conn-1", name = "Example", alias = "example", type = ToolConnectionType.MCP,
-            endpointUrl = "https://example.com/mcp", authType = "NONE", secretRef = null, oauthClientId = null
+            connectionUid = "conn-1",
+            name = "Example",
+            alias = "example",
+            type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.com/mcp",
+            authType = "NONE",
+            secretRef = null,
+            oauthClientId = null
         )
         val resolver = mockk<AgentToolResolver>()
         coEvery { connections.getConnection("conn-1") } returns connection
@@ -256,8 +264,14 @@ class MarketplaceViewModelTest {
     @Test
     fun connectionTestDoesNotExposeServerErrorText() = runTest(dispatcher) {
         val connection = ToolConnection(
-            connectionUid = "conn-1", name = "Example", alias = "example", type = ToolConnectionType.MCP,
-            endpointUrl = "https://example.com/mcp", authType = "NONE", secretRef = null, oauthClientId = null
+            connectionUid = "conn-1",
+            name = "Example",
+            alias = "example",
+            type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.com/mcp",
+            authType = "NONE",
+            secretRef = null,
+            oauthClientId = null
         )
         val resolver = mockk<AgentToolResolver>()
         coEvery { connections.getConnection("conn-1") } returns connection
@@ -296,8 +310,14 @@ class MarketplaceViewModelTest {
     fun legacyMarketplaceLookupRequiresExactHistoricalProviderEndpoint() {
         val preset = requireNotNull(McpPresetCatalog.findById("airbnb-openbnb"))
         val legacy = ToolConnection(
-            connectionUid = "legacy", name = "Airbnb", alias = preset.alias, type = ToolConnectionType.MCP,
-            endpointUrl = "https://mcp.openbnb.ai/mcp", authType = "NONE", secretRef = null, oauthClientId = null
+            connectionUid = "legacy",
+            name = "Airbnb",
+            alias = preset.alias,
+            type = ToolConnectionType.MCP,
+            endpointUrl = "https://mcp.openbnb.ai/mcp",
+            authType = "NONE",
+            secretRef = null,
+            oauthClientId = null
         )
         val unrelatedManual = legacy.copy(endpointUrl = "https://example.test/mcp")
 

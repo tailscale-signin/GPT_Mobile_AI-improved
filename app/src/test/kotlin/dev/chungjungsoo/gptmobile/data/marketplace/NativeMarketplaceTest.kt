@@ -151,9 +151,16 @@ class NativeMarketplaceTest {
         val entry = entry("openstreetmap")
         val registry = registry()
         registry.install(entry)
-        registry.configure(entry, "", "", 5, 25, disabledOperations = setOf("restrooms"),
+        registry.configure(
+            entry,
+            "",
+            "",
+            5,
+            25,
+            disabledOperations = setOf("restrooms"),
             endpointConfigs = mapOf("geocode" to NativeEndpointConfig("https://maps.example/search", EndpointAuthType.BEARER)),
-            endpointSecrets = mapOf("geocode" to "endpoint-private-secret"))
+            endpointSecrets = mapOf("geocode" to "endpoint-private-secret")
+        )
         registry.setEnabled(entry, true)
         val definition = NativeMarketplaceCatalog.definitions(entry).first { it.name.endsWith("__geocode") }
         val tool = NativeMarketplaceTool(entry, definition, registry) { request ->
@@ -180,7 +187,15 @@ class NativeMarketplaceTest {
         registry.setEnabled(entry, true)
         val config = registry.configuration(entry)
         val geocode = NativeMarketplaceRequests.build(entry, "geocode", buildJsonObject { put("query", "Toronto") }, config)
-        val restrooms = NativeMarketplaceRequests.build(entry, "restrooms", buildJsonObject { put("latitude", 43.65); put("longitude", -79.38) }, config)
+        val restrooms = NativeMarketplaceRequests.build(
+            entry,
+            "restrooms",
+            buildJsonObject {
+                put("latitude", 43.65)
+                put("longitude", -79.38)
+            },
+            config
+        )
         assertEquals(8443, geocode.url.port)
         assertEquals("Bearer geocode-secret", geocode.header("Authorization"))
         assertEquals(null, geocode.header("X-API-Key"))
@@ -189,9 +204,11 @@ class NativeMarketplaceTest {
         val saved = registry.backupState().decodeToString()
         assertFalse(saved.contains("geocode-secret"))
         assertFalse(saved.contains("restroom-secret"))
-        assertTrue(runCatching {
-            registry.configure(entry, "", "", 5, 25, endpointConfigs = configs + ("geocode" to configs.getValue("geocode").copy(url = "https://other.example/search")))
-        }.isFailure)
+        assertTrue(
+            runCatching {
+                registry.configure(entry, "", "", 5, 25, endpointConfigs = configs + ("geocode" to configs.getValue("geocode").copy(url = "https://other.example/search")))
+            }.isFailure
+        )
         registry.uninstall(entry)
         assertTrue(vault.records.isEmpty())
     }
@@ -200,9 +217,15 @@ class NativeMarketplaceTest {
         val entry = entry("openstreetmap")
         val registry = registry()
         registry.install(entry)
-        registry.configure(entry, "", "", 5, 25,
+        registry.configure(
+            entry,
+            "",
+            "",
+            5,
+            25,
             disabledOperations = setOf("restrooms"),
-            endpointConfigs = mapOf("geocode" to NativeEndpointConfig("https://maps.example/search"), "restrooms" to NativeEndpointConfig("stale invalid endpoint")))
+            endpointConfigs = mapOf("geocode" to NativeEndpointConfig("https://maps.example/search"), "restrooms" to NativeEndpointConfig("stale invalid endpoint"))
+        )
         registry.setEnabled(entry, true)
         assertTrue(registry.configuration(entry).installation.ready(entry))
         assertTrue(runCatching { registry.configure(entry, "", "", 5, 25, endpointConfigs = mapOf("geocode" to NativeEndpointConfig("https://maps.example/search"))) }.isFailure)
@@ -287,6 +310,7 @@ class NativeMarketplaceTest {
         registry.uninstall(entry)
         assertFalse(approvals.authorize(entry.id, "run", "removed", "restrooms", args))
     }
+
     @Test fun echoedKeysAreRedactedAndProviderResultsKeepTheirConfiguredBound() = runBlocking {
         val entry = entry("ticketmaster")
         val registry = registry()

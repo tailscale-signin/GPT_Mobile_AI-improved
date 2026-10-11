@@ -41,9 +41,12 @@ data class NativePluginInstallation(
     fun endpointConfig(operation: String) = endpointConfigs[operation] ?: NativeEndpointConfig(endpoints[operation].orEmpty())
 
     fun ready(entry: GitHubMarketplacePackage) =
-        (entry.provider != "openstreetmap" || (setOf("geocode", "restrooms") - disabledOperations).let { enabled ->
-            enabled.isNotEmpty() && enabled.all { endpointConfig(it).ready() }
-        }) &&
+        (
+            entry.provider != "openstreetmap" ||
+                (setOf("geocode", "restrooms") - disabledOperations).let { enabled ->
+                    enabled.isNotEmpty() && enabled.all { endpointConfig(it).ready() }
+                }
+            ) &&
             (!NativeMarketplaceCatalog.requiresKey(entry) || credentialRef != null) &&
             (!NativeMarketplaceCatalog.requiresEndpoint(entry) || NativeMarketplaceCatalog.validEndpoint(endpoint))
 }
@@ -111,9 +114,15 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         val osmConfigs = if (endpointConfigs.isNotEmpty()) endpointConfigs else endpoints.mapValues { NativeEndpointConfig(it.value.trim()) }
         require(osmConfigs.keys.all { it in setOf("geocode", "restrooms") }) { "Unknown endpoint capability." }
         val enabledOperations = setOf("geocode", "restrooms") - disabledOperations
-        require(entry.provider != "openstreetmap" || (enabledOperations.isNotEmpty() && enabledOperations.all {
-            osmConfigs[it]?.let { config -> NativeMarketplaceCatalog.validEndpoint(config.url, config.allowCustomHttpsPort) } == true
-        })) { "Configure each enabled OpenStreetMap capability." }
+        require(
+            entry.provider != "openstreetmap" ||
+                (
+                    enabledOperations.isNotEmpty() &&
+                        enabledOperations.all {
+                            osmConfigs[it]?.let { config -> NativeMarketplaceCatalog.validEndpoint(config.url, config.allowCustomHttpsPort) } == true
+                        }
+                    )
+        ) { "Configure each enabled OpenStreetMap capability." }
         require(endpointSecrets.keys.all { it in osmConfigs } && endpointSecrets.values.all { it.isBlank() || NativeMarketplaceCatalog.validKey(it) }) { "Invalid endpoint credential." }
         require(!NativeMarketplaceCatalog.requiresEndpoint(entry) || NativeMarketplaceCatalog.validEndpoint(endpoint)) { "Enter a managed/self-hosted HTTPS endpoint." }
         require(key.isBlank() || NativeMarketplaceCatalog.requiresKey(entry)) { "This provider does not use an API key." }
@@ -132,21 +141,33 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
             }
             val newEndpointRefs = mutableListOf<String>()
             val savedEndpointConfigs = try {
-                if (entry.provider == "openstreetmap") osmConfigs.mapValues { (operation, config) ->
-                    val previous = current.endpointConfig(operation)
-                    val secret = endpointSecrets[operation].orEmpty()
-                    val ref = if (config.authType == EndpointAuthType.NONE) null else if (secret.isNotBlank()) {
-                        val newRef = "marketplace_${UUID.randomUUID()}"
-                        newEndpointRefs += newRef
-                        val bytes = secret.encodeToByteArray()
-                        try { vault.put(newRef, bytes) } finally { bytes.fill(0) }
-                        newRef
-                    } else previous.secretRef?.takeIf {
-                        previous.authType == config.authType && previous.url == config.url.trim()
+                if (entry.provider == "openstreetmap") {
+                    osmConfigs.mapValues { (operation, config) ->
+                        val previous = current.endpointConfig(operation)
+                        val secret = endpointSecrets[operation].orEmpty()
+                        val ref = if (config.authType == EndpointAuthType.NONE) {
+                            null
+                        } else if (secret.isNotBlank()) {
+                            val newRef = "marketplace_${UUID.randomUUID()}"
+                            newEndpointRefs += newRef
+                            val bytes = secret.encodeToByteArray()
+                            try {
+                                vault.put(newRef, bytes)
+                            } finally {
+                                bytes.fill(0)
+                            }
+                            newRef
+                        } else {
+                            previous.secretRef?.takeIf {
+                                previous.authType == config.authType && previous.url == config.url.trim()
+                            }
+                        }
+                        require(operation !in enabledOperations || config.authType == EndpointAuthType.NONE || ref != null) { "Add the endpoint credential." }
+                        config.copy(url = config.url.trim(), secretRef = ref)
                     }
-                    require(operation !in enabledOperations || config.authType == EndpointAuthType.NONE || ref != null) { "Add the endpoint credential." }
-                    config.copy(url = config.url.trim(), secretRef = ref)
-                } else emptyMap()
+                } else {
+                    emptyMap()
+                }
             } catch (error: Exception) {
                 newEndpointRefs.forEach { vault.delete(it) }
                 replacement?.let { vault.delete(it) }
@@ -199,7 +220,11 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         val endpointSecrets = record.endpointConfigs.filterKeys { it !in record.disabledOperations }.mapNotNull { (operation, config) ->
             if (config.authType == EndpointAuthType.NONE) return@mapNotNull null
             val bytes = config.secretRef?.let { vault.read(it) } ?: error("Endpoint credential is missing. Add it in plugin settings.")
-            val secret = try { bytes.decodeToString() } finally { bytes.fill(0) }
+            val secret = try {
+                bytes.decodeToString()
+            } finally {
+                bytes.fill(0)
+            }
             check(NativeMarketplaceCatalog.validKey(secret)) { "Endpoint credential is invalid." }
             operation to secret
         }.toMap()

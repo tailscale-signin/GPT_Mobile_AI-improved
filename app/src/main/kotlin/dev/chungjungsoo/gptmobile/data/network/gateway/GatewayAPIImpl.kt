@@ -179,5 +179,4 @@ class GatewayAPIImpl @Inject constructor(
     }
 }
 
-class GatewayEventReplayException(message: String, cause: Throwable? = null) :
-    IllegalStateException(message, cause)
+class GatewayEventReplayException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)

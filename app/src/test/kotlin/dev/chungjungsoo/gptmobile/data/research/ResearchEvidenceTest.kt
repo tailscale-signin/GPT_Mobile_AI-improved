@@ -67,15 +67,20 @@ class ResearchEvidenceTest {
         val legacy = buildJsonObject {
             put("version", 1)
             put("task", "legacy task")
-            put("sources", kotlinx.serialization.json.buildJsonArray {
-                add(buildJsonObject {
-                    put("id", "S1")
-                    put("url", "https://WWW.Example.org/page?utm_source=search")
-                    put("title", "Legacy page")
-                    put("status", "Read")
-                    put("passage", passage)
-                })
-            })
+            put(
+                "sources",
+                kotlinx.serialization.json.buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("id", "S1")
+                            put("url", "https://WWW.Example.org/page?utm_source=search")
+                            put("title", "Legacy page")
+                            put("status", "Read")
+                            put("passage", passage)
+                        }
+                    )
+                }
+            )
         }
 
         val restored = ResearchSnapshot.parse(legacy)!!

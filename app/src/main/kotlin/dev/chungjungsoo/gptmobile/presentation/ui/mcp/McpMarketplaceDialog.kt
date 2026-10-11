@@ -399,7 +399,7 @@ fun McpMarketplaceScreen(
                     val native = entry?.let(NativeMarketplaceCatalog::supports) == true
                     val installation = installations[preset.id]
                     val itemVisible = (if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll).layoutInfo.visibleItemsInfo.any { it.key == preset.id }
-                    val now = rememberMarketplaceTime(installation?.nextRequestAt ?: 0L, itemVisible)
+                    val now = rememberMarketplaceTime(installation?.nextRequestAt ?: 0L, itemVisible, installation?.takeIf { it.usageCount >= it.dailyLimit }?.usageDay)
                     val connection = connectionsState.connections.firstOrNull { it.alias == preset.alias }
                     val connectionHealth = connection?.let { connectionsState.connectionHealth[it.connectionUid] }
                     val builtinId = when (preset.id) {
@@ -874,15 +874,23 @@ fun McpPresetConfigureDialog(
 
 /** A visible cooldown owns its clock. Idle cards and hidden screens have no ticker. */
 @Composable
-private fun rememberMarketplaceTime(nextRequestAt: Long, visible: Boolean): Long {
+private fun rememberMarketplaceTime(nextRequestAt: Long, visible: Boolean, limitedDay: String? = null): Long {
     var now by remember(nextRequestAt) { mutableStateOf(System.currentTimeMillis()) }
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    LaunchedEffect(nextRequestAt, visible, owner) {
+    LaunchedEffect(nextRequestAt, visible, limitedDay, owner) {
         if (visible) {
             owner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
                 do {
                     now = System.currentTimeMillis()
-                    if (nextRequestAt <= now) break
+                    if (nextRequestAt <= now) {
+                        val day = limitedDay?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+                        val reset = day?.plusDays(1)?.atStartOfDay()?.toInstant(java.time.ZoneOffset.UTC)?.toEpochMilli()
+                        if (reset != null && reset > now) {
+                            kotlinx.coroutines.delay(reset - now)
+                            now = System.currentTimeMillis()
+                        }
+                        break
+                    }
                     kotlinx.coroutines.delay(minOf(1000L, nextRequestAt - now))
                 } while (true)
             }

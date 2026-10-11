@@ -47,7 +47,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         }
     }
 
-    val isRunning: Boolean get() = active?.isActive == true
+    val isRunning: Boolean get() = active?.isCompleted == false
 
     @Synchronized
     fun launch(block: suspend () -> Unit): Job? {
@@ -57,17 +57,27 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         sessionMutable.value = id
         val job = scope.launch(start = CoroutineStart.LAZY) {
             preferences.edit().putBoolean(KEY_RUNNING, true).putString("session_id", id).putString("status", "RUNNING").commit()
-            try {
-                block()
-            } finally {
-                progressMutable.value = null
-                sessionMutable.value = null
-                preferences.edit().putBoolean(KEY_RUNNING, false).putString("status", if (stopReason == null) "FINISHED" else "STOPPED").commit()
-                appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
-            }
+            block()
         }
         // Reserve ownership before Android can deliver a service cancellation.
         active = job
+        job.invokeOnCompletion { failure ->
+            synchronized(this) {
+                if (active === job) {
+                    progressMutable.value = null
+                    sessionMutable.value = null
+                    val outcome = when {
+                        stopReason != null -> "STOPPED"
+                        failure is kotlinx.coroutines.CancellationException -> "INTERRUPTED"
+                        failure != null -> "FAILED"
+                        else -> "FINISHED"
+                    }
+                    preferences.edit().putBoolean(KEY_RUNNING, false).putString("status", outcome).apply()
+                    appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
+                    active = null
+                }
+            }
+        }
         try {
             ContextCompat.startForegroundService(appContext, Intent(appContext, BenchmarkForegroundService::class.java))
         } catch (error: Exception) {

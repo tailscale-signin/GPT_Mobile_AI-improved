@@ -216,7 +216,17 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                                                     selected = days == period,
                                                     onClick = { days = period },
                                                     enabled = !state.importing && !state.busy,
-                                                    label = { Text(when (period) { 1 -> "Today"; 365 -> "1 year"; 1095 -> "3 years"; 1825 -> "5 years"; else -> "$period days" }) }
+                                                    label = {
+                                                        Text(
+                                                            when (period) {
+                                                                1 -> "Today"
+                                                                365 -> "1 year"
+                                                                1095 -> "3 years"
+                                                                1825 -> "5 years"
+                                                                else -> "$period days"
+                                                            }
+                                                        )
+                                                    }
                                                 )
                                             }
                                         }
@@ -232,14 +242,20 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                                 }
                                 Button(
                                     onClick = { model.importLocally(days) },
-                                    enabled = state.availability == "available" && state.permissions.any { it in HealthMetric.entries.map(HealthMetric::permission) } &&
+                                    enabled = state.availability == "available" && state.permissions.any { it in HealthMetric.entries.map { metric -> metric.permission } } &&
                                         (days <= 30 || state.historyAvailable && HEALTH_HISTORY_PERMISSION in state.permissions) &&
                                         !state.importing && !state.busy
                                 ) { Text(if (state.localImport == null) "Import to this phone" else "Update local import") }
                                 if (state.importing) LinearProgressIndicator(Modifier.fillMaxWidth())
                                 state.localImport?.let { imported ->
-                                    Text("Saved summary covering ${imported.days} days · ${imported.importedAt}", style = MaterialTheme.typography.bodySmall)
-                                    Text("Aggregated totals cover the selected period; individual readings and sessions follow Health Connect's paging limits. This local data can be included in an encrypted backup.", style = MaterialTheme.typography.bodySmall)
+                                    Text(
+                                        "Saved summary covering ${imported.days} days · ${imported.importedAt}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        "Aggregated totals cover the selected period; individual readings and sessions follow Health Connect's paging limits. This local data can be included in an encrypted backup.",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
                                     val importedMetrics = (imported.summary["metrics"] as? JsonObject).orEmpty()
                                     importedMetrics.entries.forEach { (_, element) ->
                                         (element as? JsonObject)?.let { HealthMetricCard(it) }

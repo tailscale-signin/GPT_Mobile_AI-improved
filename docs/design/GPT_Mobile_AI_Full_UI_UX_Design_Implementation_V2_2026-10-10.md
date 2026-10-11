@@ -1091,4 +1091,3 @@ These cases extend §11–12 and are high-signal for this repository's existing 
 - [Android predictive back](https://developer.android.com/develop/ui/compose/system/predictive-back-setup)
 
 **Implementation sign-off:** This V2 is a source-grounded design and implementation specification. Existing code/features are marked as existing rather than proposed anew; confirmed gaps get targeted changes; changes that cannot be proven from code remain explicit test hypotheses. Actual source implementation, CI and device sign-off are outside this documentation artifact.
-

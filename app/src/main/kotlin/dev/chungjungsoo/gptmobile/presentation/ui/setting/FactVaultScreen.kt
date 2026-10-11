@@ -107,7 +107,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         "Status: ${if (entry.pendingReplacements.isNotEmpty()) {
                             "Needs conflict review"
                         } else if (entry.enabled) {
-                            "Available for recall"
+                            "Enabled fact; recall still follows your memory and profile controls"
                         } else {
                             "Disabled or awaiting review"
                         }}"

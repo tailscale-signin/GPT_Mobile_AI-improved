@@ -49,7 +49,7 @@ class AgentPersistenceDaoInstrumentedTest {
         val payload = dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload(profileUids = listOf("profile-2"))
         database.pendingPromptDao().enqueue(dev.chungjungsoo.gptmobile.data.queue.PendingPrompt("queued-1", id, "Keep my prompt", kotlinx.serialization.json.Json.encodeToString(payload), 0))
         val failure = runCatching {
-            database.agentPersistenceDao().persistAgentTurn(PersistAgentTurnRequest(stale.copy(id = id), MessageV2(content = "Keep my prompt"), listOf(AgentRunDraft("removed-run", "profile-2", "OPENAI", "model")), mapOf("profile-2" to "model"), queuedPromptId = "queued-1"))
+            database.agentPersistenceDao().persistAgentTurn(PersistAgentTurnRequest(stale.copy(id = id), MessageV2(content = "Keep my prompt", platformType = null), listOf(AgentRunDraft("removed-run", "profile-2", "OPENAI", "model")), mapOf("profile-2" to "model"), queuedPromptId = "queued-1"))
         }.exceptionOrNull()
         assertTrue(failure is IllegalArgumentException)
         assertEquals(listOf("profile-1"), database.agentPersistenceDao().getChatRoom(id)?.activePlatform)

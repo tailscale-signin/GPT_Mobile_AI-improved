@@ -26,10 +26,12 @@ import org.robolectric.annotation.Config
 class BenchmarkExecutionCoordinatorTest {
     @Test fun workWaitsForForegroundAndFastCompletionStopsOnlyAfterPromotion() = runBlocking {
         var stops = 0
+        val stopped = CompletableDeferred<Unit>()
         val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
             override fun getApplicationContext(): Context = this
             override fun stopService(service: Intent): Boolean {
                 stops++
+                stopped.complete(Unit)
                 return true
             }
         }
@@ -42,17 +44,22 @@ class BenchmarkExecutionCoordinatorTest {
         assertFalse(coordinator.serviceReady("stale-session"))
         assertFalse(ran.isCompleted)
         assertTrue(coordinator.serviceReady(coordinator.sessionId.value))
-        withTimeout(5000) { job.join() }
+        withTimeout(5000) {
+            job.join()
+            stopped.await()
+        }
         assertTrue(ran.isCompleted)
         assertEquals(1, stops)
     }
 
     @Test fun cancellationBeforePromotionLetsTheServiceAcknowledgeAndroidBeforeStopping() = runBlocking {
         var stops = 0
+        val stopped = CompletableDeferred<Unit>()
         val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
             override fun getApplicationContext(): Context = this
             override fun stopService(service: Intent): Boolean {
                 stops++
+                stopped.complete(Unit)
                 return true
             }
         }
@@ -66,7 +73,10 @@ class BenchmarkExecutionCoordinatorTest {
         assertFalse(coordinator.serviceReady(firstId))
         assertTrue(coordinator.serviceReady(coordinator.sessionId.value))
         coordinator.cancel()
-        withTimeout(5000) { second.join() }
+        withTimeout(5000) {
+            second.join()
+            stopped.await()
+        }
         assertEquals(1, stops)
     }
 

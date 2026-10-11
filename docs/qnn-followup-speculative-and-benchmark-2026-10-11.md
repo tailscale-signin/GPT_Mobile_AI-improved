@@ -37,6 +37,8 @@ The crash log does not identify the precise service scheduling interleaving. Cod
 
 ## Device check
 
+Local validation passed: Android main/test compilation, Kotlin formatting, whitespace checks, and 117 focused tests across the adapter, runtime implementation, QNN wrapper, runtime router, execution planner and benchmark coordinator. The local JVM needed the existing Byte Buddy test agent preloaded because dynamic attachment is unavailable in this execution environment. Cache writes were disabled after a transient disappearing synchronization-file error. No app settings or production dependencies were altered for those environment fixes. Full CI validation and APK packaging are separate checks.
+
 For the currently installed APK, choose **NPU** for the SM8750 package and **Speculative decoding: Off** (Model default also avoids forced On). Start with a short plain-text request. This removes the observed settings rejection but does not establish successful NPU execution.
 
 For the patched build, repeat with global On: expect an ordinary-decoding notice and an actual NPU load attempt. Then confirm nonempty completed output. Start/cancel/restart a benchmark, including an immediately failing profile, and verify the app remains alive. Any subsequent native error needs its own diagnosis; no hardware success is claimed here.

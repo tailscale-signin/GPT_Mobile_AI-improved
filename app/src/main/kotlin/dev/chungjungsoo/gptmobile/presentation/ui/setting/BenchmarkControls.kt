@@ -42,7 +42,7 @@ internal fun BenchmarkNavigation(selected: Int, onSelect: (Int) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             Triple(0, "Run", Icons.Rounded.PlayArrow),
-            Triple(2, "Results", Icons.Rounded.BarChart),
+            Triple(2, "Scoreboard", Icons.Rounded.BarChart),
             Triple(5, "Compare", Icons.Rounded.CompareArrows),
             Triple(4, "Delegation", Icons.Rounded.Hub),
             Triple(3, "History", Icons.Rounded.History)

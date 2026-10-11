@@ -29,10 +29,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -50,7 +48,7 @@ import kotlin.math.abs
 private fun BenchmarkScoreRow.selectionKey(): String = "$profileUid|$revision|$cohort"
 
 @Composable
-internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<PlatformV2>) {
+internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<PlatformV2>, retests: List<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRetest> = emptyList()) {
     var firstKey by rememberSaveable { mutableStateOf<String?>(null) }
     var secondKey by rememberSaveable { mutableStateOf<String?>(null) }
     val first = rows.firstOrNull { it.selectionKey() == firstKey } ?: rows.firstOrNull()
@@ -82,6 +80,11 @@ internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<P
                 ComparisonPicker("2 · Challenger", second, candidates, ::name) { secondKey = it.selectionKey() }
             }
             val metrics = benchmarkComparisonMetrics(first, second)
+            val priorFirst = retests.firstOrNull { it.current.selectionKey() == first.selectionKey() }?.previous
+            val priorSecond = retests.firstOrNull { it.current.selectionKey() == second.selectionKey() }?.previous
+            val firstChanges = priorFirst?.let { benchmarkComparisonMetrics(first, it).associate { metric -> metric.label to metric.second } }.orEmpty()
+            val secondChanges = priorSecond?.let { benchmarkComparisonMetrics(second, it).associate { metric -> metric.label to metric.second } }.orEmpty()
+            if (priorFirst != null || priorSecond != null) Text("Retest bars · theme: retained points · red: lost · yellow: gained. Deltas in the table compare model 2 to model 1.", style = MaterialTheme.typography.bodySmall)
             if (first.cohort != second.cohort) {
                 Text("Different test conditions. Charts show each model's own scale; score differences require a matching suite and execution cohort.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
@@ -93,8 +96,8 @@ internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<P
                 val scroll = rememberScrollState()
                 Column {
                     Row(Modifier.horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ComparisonChart("1", name(first), metrics, true, Modifier.width(chartWidth))
-                        ComparisonChart("2", name(second), metrics, false, Modifier.width(chartWidth))
+                        ComparisonChart("1", name(first), metrics, true, Modifier.width(chartWidth), firstChanges)
+                        ComparisonChart("2", name(second), metrics, false, Modifier.width(chartWidth), secondChanges)
                     }
                     if (viewportWidth < chartWidth * 2 + 12.dp) Text("Swipe horizontally to see both charts", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall)
                 }
@@ -165,7 +168,7 @@ private fun ComparisonPicker(label: String, selected: BenchmarkScoreRow, rows: L
 }
 
 @Composable
-private fun ComparisonChart(number: String, name: String, metrics: List<BenchmarkComparisonMetric>, first: Boolean, modifier: Modifier) {
+private fun ComparisonChart(number: String, name: String, metrics: List<BenchmarkComparisonMetric>, first: Boolean, modifier: Modifier, previous: Map<String, Double?> = emptyMap()) {
     Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -174,7 +177,7 @@ private fun ComparisonChart(number: String, name: String, metrics: List<Benchmar
             }
             HorizontalDivider()
             metrics.take(10).forEachIndexed { index, metric ->
-                BenchmarkRatingBar("${index + 1}. ${metric.label}", if (first) metric.first else metric.second, missing = "—", stacked = true)
+                BenchmarkRatingBar("${index + 1}. ${metric.label}", if (first) metric.first else metric.second, missing = "—", stacked = true, previous = previous[metric.label])
             }
         }
     }

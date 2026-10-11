@@ -1,0 +1,144 @@
+package dev.chungjungsoo.gptmobile.data.benchmark
+
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
+import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
+import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
+import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
+
+data class OnlineScoreboardState(
+    val entries: List<ScoreboardEntry> = emptyList(),
+    val loading: Boolean = false,
+    val updatedAt: Long = 0,
+    val cached: Boolean = false,
+    val message: String? = null
+)
+
+@Singleton
+class ScoreboardRepository @Inject constructor(
+    @param:ApplicationContext context: Context,
+    private val connections: ToolConnectionRepository,
+    private val vault: SecretVault
+) {
+    private val preferences = context.getSharedPreferences("community_scoreboard_v1", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = false }
+    private val mutex = Mutex()
+    private val mutableState = MutableStateFlow(OnlineScoreboardState())
+    val state = mutableState.asStateFlow()
+
+    suspend fun refresh() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val saved = preferences.getString("index", null)?.let { runCatching { json.decodeFromString<ScoreboardIndex>(it) }.getOrNull() }
+                ?.takeIf { it.schemaVersion == 1 && it.entries.size <= 1000 && it.entries.all { entry -> BenchmarkScoreboard.evaluate(entry) != null } }
+            if (saved == null) preferences.edit().remove("etag").apply()
+            if (mutableState.value.entries.isEmpty() && saved != null) {
+                mutableState.value = OnlineScoreboardState(BenchmarkScoreboard.best(saved.entries), updatedAt = saved.updatedAt, cached = true)
+            }
+            mutableState.value = mutableState.value.copy(loading = true, message = null)
+            try {
+                val response = client.get("https://api.github.com/repos/$REPOSITORY/contents/scoreboards/index.json?ref=scoreboard-data") {
+                    header(HttpHeaders.Accept, "application/vnd.github.raw+json")
+                    header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+                    preferences.getString("etag", null)?.let { header(HttpHeaders.IfNoneMatch, it) }
+                }
+                when (response.status.value) {
+                    304 -> mutableState.value = mutableState.value.copy(loading = false, cached = false)
+                    200 -> {
+                        val raw = response.boundedMetadata(MAX_INDEX_BYTES)
+                        val index = json.decodeFromString<ScoreboardIndex>(raw)
+                        check(index.schemaVersion == 1 && index.entries.size <= 1000) { "This scoreboard needs a newer app." }
+                        val entries = index.entries.map { checkNotNull(BenchmarkScoreboard.evaluate(it)) { "The shared scoreboard contains an invalid result." } }
+                        check(entries.map { it.submission.key }.distinct().size == entries.size) { "The shared scoreboard contains duplicate models." }
+                        check(preferences.edit().putString("index", raw).putString("etag", response.headers[HttpHeaders.ETag]).commit()) { "Could not cache the shared scoreboard." }
+                        mutableState.value = OnlineScoreboardState(BenchmarkScoreboard.best(index.entries), updatedAt = index.updatedAt)
+                    }
+                    404 -> throw IOException("Community data is not published yet, or the repository is not publicly accessible. Local results remain available.")
+                    403, 429 -> throw IOException("GitHub is limiting scoreboard requests. Try again later; saved results remain available.")
+                    else -> throw IOException("Could not refresh the community scoreboard (HTTP ${response.status.value}).")
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                mutableState.value = mutableState.value.copy(loading = false, cached = true, message = error.message?.take(240) ?: "Could not load the online scoreboard.")
+            }
+        }
+    }
+
+    suspend fun sharingAccounts(): List<ToolConnection> = connections.listConnections().filter {
+        it.type == ToolConnectionType.GITHUB && it.toolPolicy != "READ_ONLY" && it.secretRef != null
+    }
+
+    /** Called only after an explicit Publish action with a selected connected account. */
+    suspend fun submit(data: ScoreboardSubmission, connectionUid: String): Long = withContext(Dispatchers.IO) {
+        require(BenchmarkScoreboard.evaluate(data) != null && data.issueNumber == null) { "Only a complete local remote-model result can be shared." }
+        val account = checkNotNull(sharingAccounts().firstOrNull { it.connectionUid == connectionUid }) { "Choose a GitHub connection that permits writes in Settings → Tools." }
+        val bytes = account.secretRef?.let { vault.read(it) }
+        val token = try { bytes?.decodeToString()?.trim() } finally { bytes?.fill(0) }
+        check(!token.isNullOrBlank()) { "Reconnect this GitHub account before sharing." }
+        val body = "Community scoreboard submission. Self-reported; no prompts, responses, keys or endpoint URLs.\n\n```json\n${json.encodeToString(data)}\n```"
+        require(body.toByteArray().size <= 60_000) { "This result is too large to share." }
+        val response = client.post("https://api.github.com/repos/$REPOSITORY/issues") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            header(HttpHeaders.Accept, "application/vnd.github+json")
+            header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("title", "[Scoreboard v1] ${data.kind.name} ${data.plan.label} ${data.id}")
+                put("body", body)
+            }.toString())
+        }
+        check(response.status.value == 201) {
+            when (response.status.value) {
+                401, 403 -> "GitHub refused sharing. Reconnect with permission to create issues in $REPOSITORY."
+                404 -> "The scoreboard repository is unavailable to this account."
+                429 -> "GitHub is limiting submissions. Try again later."
+                else -> "Could not submit scores (HTTP ${response.status.value}). Check GitHub before retrying."
+            }
+        }
+        checkNotNull(json.parseToJsonElement(response.boundedMetadata(500_000)).jsonObject["number"]?.jsonPrimitive?.longOrNull) { "GitHub did not return a submission number." }
+    }
+
+    companion object {
+        const val REPOSITORY = "tailscale-signin/GPT_Mobile_AI-improved"
+        const val MAX_INDEX_BYTES = 8_000_000
+        private val client by lazy {
+            HttpClient(OkHttp) {
+                followRedirects = false
+                install(HttpTimeout) {
+                    requestTimeoutMillis = 30_000
+                    connectTimeoutMillis = 10_000
+                    socketTimeoutMillis = 20_000
+                }
+            }
+        }
+    }
+}

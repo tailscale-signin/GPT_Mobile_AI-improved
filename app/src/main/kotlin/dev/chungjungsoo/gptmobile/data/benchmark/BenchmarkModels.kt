@@ -153,7 +153,11 @@ data class BenchmarkRun(
     val runtimeVersion: String = "",
     val powerPolicy: String = "interactive-normal-v1",
     val networkPolicy: String = "client-default-v1",
-    val fixtureContextTokens: Int? = null
+    val fixtureContextTokens: Int? = null,
+    val delegationPlan: BenchmarkMode? = null,
+    val delegationSuiteVersion: Int = 0,
+    val reviewerProvider: String? = null,
+    val reviewerModel: String? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

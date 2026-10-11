@@ -79,3 +79,45 @@ Versions 3–5 retain their original manifests, workloads and cohorts. Existing 
 The new Compare view offers two explicit model pickers, a baseline swap button, side-by-side numbered bar charts and a results table with model 1, model 2 and model 2 minus model 1. Score differences use percentage points. Raw throughput uses reference tokens/second; response latency uses milliseconds. Deltas are withheld for incompatible cohorts or missing values. Charts retain a minimum readable width on very narrow displays and support horizontal scrolling. Navigation, filters and main actions use labelled icon buttons, and verbose local diagnostics are collapsed by default.
 
 Regression coverage checks exact 5/50 plans, all five Quick categories, all 36 Full Intelligence questions, partial domain credit, incomplete/duplicate outcomes, old suite manifests, signed comparison deltas, incompatible scales and local context budgets. Prior PR revision 51a5b01 passed Kotlin lint, Android unit tests/lint, review APK/runtime packaging and CodeQL; this follow-up requires its own CI result.
+
+## Provider/model scoreboards and delegation lab
+
+Results is now Scoreboard, with Local and Online sources and separate Quick/Full
+rankings. Each best entry is one complete remote-model run identified by provider
+and actual model ID; renaming a profile cannot duplicate it. Opening an entry
+shows weighted score bars, intelligence domains, raw timings, tokens, every test
+outcome, protocol and provenance. Device models retain Run/Compare/History.
+
+Capability rankings use an absolute, versioned policy rather than timing anchors;
+see `scoreboards/README.md` for the formulas and limitations. Existing cohort
+performance ratings remain in Run/Compare. Shared results are self-reported and
+cannot independently establish real provider execution or complete intelligence.
+
+Delegation has Run and Scoreboard views with its own Local/Online data. New plans
+contain exactly five or fifty fixtures. They force a reproducible research and
+reviewer preset without changing conversation settings, require an independent
+reviewer, and score the delegate while retaining primary/reviewer identities.
+A final assessment receives trusted synthetic fixture truth; it cannot rewrite
+or repair the candidate. Completed outputs require a valid independent score.
+The legacy 24-test delegation manifest remains available for historical records.
+
+Online publishing is explicit, previewed and uses a selected connected GitHub
+account. The app ships no repository write credential. The trusted default-branch
+issues workflow validates allowlisted numeric/boolean data, recomputes scores,
+archives accepted submissions and updates the `scoreboard-data` branch with
+non-forced, race-retried writes. There are no prompts, replies, keys, endpoint
+URLs, profile names or private diagnostics in the payload. Public reads require
+a public repository; the workflow becomes active only after merge. Nothing is
+merged, released or submitted to the live scoreboard as part of this change.
+
+Retest bars retain the theme colour up to the overlapping score, add yellow for
+gained points, and extend red to the prior score for lost points. Numeric deltas
+and accessibility text accompany colour. Comparisons use matching protocols and
+plans. Run shows the latest retest even when it loses; Scoreboard preserves the
+best run. Cohort performance charts compare individual runs using one current
+cohort scale, avoiding changes hidden inside five-run averages.
+
+Validation includes a shared Android/Python score contract (both 5/50 plans and
+both kinds), malformed/private/oversized payload rejection, manifest integrity,
+immutable accepted issues, non-fast-forward publishing retries, best-run identity,
+independent review of correct/incorrect outputs, and exact gain/loss segment math.

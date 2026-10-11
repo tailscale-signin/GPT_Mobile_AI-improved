@@ -166,6 +166,13 @@ internal class LocalDelegationCoordinator(
             reviewerEligible(it, config, source) && !sameDelegationModel(delegate, it)
         }
 
+    /** One independent benchmark assessment; no repairs or candidate rewriting. */
+    internal suspend fun benchmarkReview(delegate: PlatformV2, task: String, output: String): Int? {
+        val before = reviewerScores.size
+        runReviewer(delegate, task, output, settings().copy(reviewerEnabled = true, reviewerRetryLimit = 0, reviewerAutoCorrect = false, reviewerMinimumScore = 0))
+        return reviewerScores.toList().drop(before).lastOrNull()
+    }
+
     private suspend fun runReviewer(delegate: PlatformV2, task: String, delegateOutput: String, config: ModelDelegationSettings): String =
         withTimeoutOrNull(config.reviewTimeoutSeconds * 1000L) {
             reviewWithinBudget(delegate, task, delegateOutput, config)

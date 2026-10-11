@@ -18,11 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.CompareArrows
 import androidx.compose.material.icons.rounded.Deselect
-import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.SelectAll
-import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -51,12 +48,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -73,7 +68,6 @@ import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRating
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite
 import dev.chungjungsoo.gptmobile.data.benchmark.comparableRuns
-import dev.chungjungsoo.gptmobile.data.benchmark.delegateRankings
 import dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkRating
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -98,7 +92,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val snapshot by viewModel.scoreSnapshot.collectAsStateWithLifecycle()
     val health by dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.state.collectAsStateWithLifecycle()
     val delegates by viewModel.delegates.collectAsStateWithLifecycle()
-    val delegate by viewModel.delegate.collectAsStateWithLifecycle()
+    val benchmarkReviewers by viewModel.benchmarkReviewers.collectAsStateWithLifecycle()
+    val benchmarkReviewer by viewModel.benchmarkReviewer.collectAsStateWithLifecycle()
     val selectedDelegates by viewModel.selectedDelegates.collectAsStateWithLifecycle()
     val benchmarkCandidates by viewModel.benchmarkCandidates.collectAsStateWithLifecycle()
     val selectedBenchmarks by viewModel.selectedBenchmarks.collectAsStateWithLifecycle()
@@ -112,8 +107,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val rangeLabel = if (days == 0) "stored history" else "$days days"
     var tab by rememberSaveable { mutableIntStateOf(2) }
     var mode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
-    var typeFilter by rememberSaveable { mutableIntStateOf(0) }
-    var comparisonSort by rememberSaveable { mutableStateOf("App rating") }
+    var delegationBoard by rememberSaveable { mutableStateOf(false) }
+    var delegationMode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
     var performanceOrder by rememberSaveable { mutableStateOf(PerformanceOrder.LATENCY) }
     var detailKey by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -124,12 +119,20 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val tint = benchmarkTint(local)
     val profileHistory = remember(history, selected?.uid) { history.filter { it.profileUid == selected?.uid } }
     val matching = remember(profileHistory, selected, mode, localEnvironment) { selected?.let { comparableRuns(profileHistory, it, mode, localEnvironment) }.orEmpty() }
-    val activeScore = snapshot?.rows?.filter { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(profile, localEnvironment) } && it.cohort.startsWith(mode.name + "|") }
-        ?.maxByOrNull { row -> history.filter { it.id in row.sourceRunIds }.maxOfOrNull { it.startedAt } ?: 0L }
+    val retests = remember(history) { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRetests(history) }
+    val activeRetest = retests.filter { it.current.profileUid == selected?.uid && it.current.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment) } && it.current.cohort.startsWith(mode.name + "|") }
+        .maxByOrNull { retest -> history.firstOrNull { it.id == retest.current.sourceRunIds.firstOrNull() }?.startedAt ?: 0 }
+    val activeScore = activeRetest?.current
+    val previousScore = activeRetest?.previous
     val rating = remember(matching, local, activeScore) {
         val dimensions = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkScoreDimensions(activeScore, local)
         benchmarkRating(matching, local).copy(score = activeScore?.overall?.roundToInt(), medianSpeed = activeScore?.speed, estimatedSpeed = false, dimensions = dimensions, measuredWeight = dimensions.filter { it.score != null }.sumOf { it.weight })
     }
+    val scoreboardRuns = remember(history) { history.mapNotNull(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::fromRun) }
+    val latestScoreboard = scoreboardRuns.filter {
+        it.kind == dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.MODEL && it.plan == mode && it.provider == selected?.compatibleType?.name && it.model == selected?.model?.trim()?.let { model -> if (selected.compatibleType == ClientType.OPENROUTER) model.removeSuffix(":batch") else model }
+    }.maxByOrNull { it.startedAt }?.let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::evaluate)
+    val previousScoreboard = latestScoreboard?.let { previousScoreboardEntry(it.submission, scoreboardRuns) }
     val detail = everyday.firstOrNull { it.key == detailKey }
     Scaffold(topBar = {
         if (!embedded) {
@@ -143,7 +146,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded tests · ${profiles.size} profiles") }
             item { BenchmarkNavigation(tab) { tab = it } }
-            if (tab != 2 && tab != 5) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
+            if (tab != 2 && tab != 5 && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -154,7 +157,18 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     }
                 }
             }
-            if (selected == null) {
+            if (tab == 4) item {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BenchmarkAction("Run delegates", Icons.Rounded.PlayArrow, !delegationBoard, { delegationBoard = false })
+                    BenchmarkAction("Scoreboard", Icons.Rounded.BarChart, delegationBoard, { delegationBoard = true })
+                }
+            }
+            if (tab == 2) {
+                item { BenchmarkScoreboardPanel(dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.MODEL, onRun = { tab = 0 }) }
+                item { BenchmarkAction("Everyday statistics", Icons.Rounded.BarChart, onClick = { tab = 1 }) }
+            } else if (tab == 4 && delegationBoard) {
+                item { BenchmarkScoreboardPanel(dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.DELEGATION, onRun = { delegationBoard = false }) }
+            } else if (selected == null) {
                 item { BenchmarkPanel("No AI profiles yet") { Text("Create an AI profile in Settings, choose its model, then return here to measure it.") } }
             } else {
                 progress?.let { current ->
@@ -184,140 +198,44 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                 when (tab) {
                     4 -> {
                         item {
-                            BenchmarkPanel("Delegation pipeline") {
-                                Text("Primary: ${selected.name}")
-                                Text("Delegates to test", style = MaterialTheme.typography.labelLarge)
-                                Text("Select one or more helpers. Each model is benchmarked sequentially with the same primary and settings.", style = MaterialTheme.typography.bodySmall)
+                            BenchmarkPanel("Delegation lab") {
+                                BenchmarkPlanPicker(delegationMode, progress == null) { delegationMode = it }
+                                Text("Research on · independent reviewer on", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                                Text("A fixed benchmark preset evaluates evidence, tools, research, handoff and robustness. Full repeats all eight pipeline checks. Research uses controlled source fixtures. Conversation settings are unchanged.", style = MaterialTheme.typography.bodySmall)
+                                Text("Primary: ${selected.name}", fontWeight = FontWeight.SemiBold)
+                                Text("Independent reviewer", style = MaterialTheme.typography.labelLarge)
+                                BenchmarkProfilePicker(benchmarkReviewers, benchmarkReviewer, progress == null, viewModel::selectBenchmarkReviewer)
+                                Text("Choose a reviewer different from the primary and delegate. Its score contributes 20%; objective fixture accuracy caps the result.", style = MaterialTheme.typography.bodySmall)
+                                Text("Delegates to evaluate", style = MaterialTheme.typography.titleSmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     BenchmarkAction("Select all", Icons.Rounded.SelectAll, onClick = viewModel::selectAllDelegates, enabled = progress == null)
                                     BenchmarkAction("Clear", Icons.Rounded.Deselect, onClick = viewModel::clearDelegates, enabled = progress == null)
                                 }
                                 delegates.forEach { helper ->
-                                    val checked = selectedDelegates.any { it.uid == helper.uid }
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Checkbox(checked = checked, onCheckedChange = { viewModel.toggleDelegate(helper) }, enabled = progress == null)
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(selectedDelegates.any { it.uid == helper.uid }, { viewModel.toggleDelegate(helper) }, enabled = progress == null)
                                         Column(Modifier.weight(1f)) {
                                             Text(helper.name, fontWeight = FontWeight.SemiBold)
-                                            Text("${helper.compatibleType.name} · ${helper.model}", style = MaterialTheme.typography.labelSmall)
+                                            Text("${helper.compatibleType.name} · ${helper.model}", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
                                 }
-                                Text("${selectedDelegates.size} selected · no automatic fallback between benchmarked helpers.", style = MaterialTheme.typography.bodySmall)
-                                Text("Ownership ${delegationSettings.processingOwnership}/100 · Worker output ${delegationSettings.maxOutputTokens} tokens · Brief ${delegationSettings.handoffTokens} tokens")
-                                val reviewerProfile = profiles.firstOrNull { it.uid == delegationSettings.reviewerProfileUid }
-                                Text(
-                                    if (delegationSettings.reviewerEnabled) {
-                                        "Reviewer: ${reviewerProfile?.name ?: "not selected"} · ${reviewerProfile?.model.orEmpty()} · ${delegationSettings.reviewerOutputTokens} output tokens"
-                                    } else {
-                                        "Reviewer: Off"
-                                    }
-                                )
-                                Text("${delegationSettings.effectiveLocalModelCalls()} worker calls per turn · ${delegationSettings.maxDelegateRuntimeSeconds}s runtime · ${delegationSettings.timeToFirstTokenTimeoutSeconds}s first progress · ${delegationSettings.idleTokenTimeoutSeconds}s idle · ${delegationSettings.localRetryLimit} same-delegate retries")
-                                Text("Each helper runs evidence compaction, a tool-call usability test, and research → handoff → synthesis. The benchmark records token throughput, first-text latency, end-to-end latency, tool success, token usage, and diagnostic events. Each case has a 180-second ceiling.", style = MaterialTheme.typography.bodySmall)
-                                Button(
-                                    onClick = { viewModel.start(BenchmarkMode.DELEGATION) },
-                                    enabled = ready && progress == null && !activeRequests && delegationSettings.enabled && selectedDelegates.isNotEmpty(),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text("Benchmark ${selectedDelegates.size} selected delegate${if (selectedDelegates.size == 1) "" else "s"}") }
-                                if (!delegationSettings.enabled) Text("Enable delegation in Settings first.")
-                            }
-                        }
-                        val rankings = delegateRankings(profileHistory, benchmarkConfigKey(selected, localEnvironment), delegationSettings)
-                        item {
-                            BenchmarkPanel("Delegation scoreboard · best score") {
-                                Text("Same primary and current delegation settings · latest five runs per helper. Delegation score measures reliability, tool usability, throughput, latency, evidence accuracy, research/handoff, and—when Reviewer mode is enabled—the independent Reviewer Score. Reviewer quality contributes a 20-weight dimension and the overall score remains capped by task reliability.", style = MaterialTheme.typography.bodySmall)
-                                Text("Throughput prefers provider-reported output tokens; character estimates are used only when token usage is unavailable. Diagnostic events are saved with each run to expose stalls, failures, tool activity, cap violations, and handoff behavior.", style = MaterialTheme.typography.bodySmall)
-                                if (rankings.isEmpty()) Text("Benchmark delegates to build the scoreboard.")
-                                rankings.take(10).forEachIndexed { index, row ->
-                                    val worker = row.run.samples.mapNotNull { it.delegation }.first()
-                                    HorizontalDivider()
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Text("#${index + 1}", fontWeight = FontWeight.Bold)
-                                        Column(Modifier.weight(1f)) {
-                                            Text(worker.workerName, fontWeight = FontWeight.SemiBold)
-                                            Text("${row.rating.passed}/${row.rating.attempts} passed · ${row.runs} runs · ${row.rating.medianDecodeSpeed?.let { "%.1f tok/s".format(it) } ?: "speed —"} · tools ${percent(row.rating.toolTaskSuccessPercent)} · first ${formatLatency(row.rating.medianFirstTextMs)}", style = MaterialTheme.typography.labelSmall)
-                                        }
-                                        Column(horizontalAlignment = Alignment.End) {
-                                            Text(row.rating.score?.let { "$it / 100" } ?: "Unrated", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                            Text("Reviewer Score", style = MaterialTheme.typography.labelSmall)
-                                            Text(row.rating.reviewerScore?.let { "$it / 100" } ?: "—", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                                        }
-                                    }
+                                if (delegates.isEmpty()) Text("Add an enabled delegate profile with tools, separate from the primary and reviewer.")
+                                Text("${if (delegationMode == BenchmarkMode.QUICK) 5 else 50} tests per delegate · up to 180 seconds per test · primary, worker and reviewer requests may incur provider charges.", style = MaterialTheme.typography.bodySmall)
+                                Button(onClick = { viewModel.startDelegationBatch(delegationMode) }, enabled = ready && progress == null && !activeRequests && benchmarkReviewer != null && selectedDelegates.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Rounded.PlayArrow, null)
+                                    Text("Run ${delegationMode.label} · ${selectedDelegates.size} delegates", Modifier.padding(start = 8.dp))
                                 }
                             }
                         }
-                        items(rankings) { row ->
-                            val worker = row.run.samples.mapNotNull { it.delegation }.first()
-                            val result = row.rating
-                            BenchmarkPanel("${rankings.indexOf(row) + 1}. ${worker.workerName} · ${result.score?.let { "$it / 100" } ?: "Not rated"}") {
-                                Text("${worker.workerProvider} · ${worker.workerModel}", style = MaterialTheme.typography.bodySmall)
-                                MetricLine("Successful tasks", "${result.passed} / ${result.attempts} · ${row.runs} runs")
-                                MetricLine("Tool task success", percent(result.toolTaskSuccessPercent))
-                                MetricLine("Tool call success", percent(result.toolCallSuccessPercent))
-                                MetricLine("Valid fixture calls", "${result.successfulToolCalls} / ${result.toolCalls}")
-                                MetricLine("Median / p95 case latency", "${formatLatency(result.medianLatencyMs)} / ${formatLatency(result.p95LatencyMs)}")
-                                MetricLine("Worker first text", formatLatency(result.medianFirstTextMs))
-                                MetricLine("Median token throughput", result.medianDecodeSpeed?.let { "%.1f tok/s".format(it) } ?: "Not observed")
-                                MetricLine("Worker input / output tokens", "${result.workerInputTokens} / ${result.workerOutputTokens}")
-                                MetricLine("Primary input / output tokens", "${result.primaryInputTokens} / ${result.primaryOutputTokens}")
-                                MetricLine("Output cap violations", result.outputCapViolations.toString())
-                                MetricLine("Reviewer Score", result.reviewerScore?.let { "$it / 100 · ${result.reviewerEvaluations} evaluations" } ?: "Not measured")
-                                if (result.reviewerCalls > 0) {
-                                    MetricLine(
-                                        "Reviewer calls / input / output tokens",
-                                        "${result.reviewerCalls} / ${result.reviewerInputTokens} / ${result.reviewerOutputTokens}${if (result.reviewerEstimated) " (estimated where provider usage was unavailable)" else ""}"
-                                    )
-                                }
-                                MetricLine("Diagnostic events", "${result.diagnosticEvents} total · ${result.warningEvents} warnings · ${result.errorEvents} errors")
-                                if (result.estimated) Text("Token totals include estimates.", style = MaterialTheme.typography.labelSmall)
-                                result.dimensions.forEach { dimension ->
-                                    MetricLine(dimension.label, dimension.score?.let { "${it.roundToInt()} / 100" } ?: benchmarkMissingScoreLabel(activeScore, dimension.label))
-                                }
-                                Text("Measured ${benchmarkDate(row.run.startedAt)} · ${row.run.delegationSettings?.maxOutputTokens} worker output cap", style = MaterialTheme.typography.labelSmall)
+                        val latestDelegation = scoreboardRuns.filter { it.kind == dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.DELEGATION && it.plan == delegationMode && it.primaryProvider == selected.compatibleType.name && it.primaryModel == selected.model.trim() }
+                            .sortedByDescending { it.startedAt }.distinctBy { it.identity }
+                        items(latestDelegation) { data ->
+                            dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard.evaluate(data)?.let { entry ->
+                                ScoreboardScores(entry, previousScoreboardEntry(data, scoreboardRuns), "Latest retest · ${data.model}")
                             }
                         }
-                        val latest = profileHistory.firstOrNull { it.mode == BenchmarkMode.DELEGATION }
-                        if (latest != null) {
-                            item {
-                                BenchmarkPanel("Latest delegation run · ${benchmarkDate(latest.startedAt)}") {
-                                    latest.delegationSettings?.let { saved ->
-                                        Text("Tested settings: ownership ${saved.processingOwnership}, worker cap ${saved.maxOutputTokens}, brief ${saved.handoffTokens}, calls ${saved.effectiveLocalModelCalls()}", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    latest.samples.forEach { sample ->
-                                        HorizontalDivider()
-                                        Text("${sample.label} · ${sample.outcome} · ${sample.durationMs} ms", fontWeight = FontWeight.SemiBold)
-                                        sample.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                                        sample.delegation?.let { metrics ->
-                                            Text("${metrics.workerName} (${metrics.workerProvider}) · ${metrics.workerCalls} worker calls")
-                                            Text("Worker tokens: ${metrics.workerInputTokens} input / ${metrics.workerOutputTokens} output${if (metrics.workerEstimated) " (estimated)" else ""}")
-                                            MetricLine("Worker time / first text", "${formatLatency(metrics.workerDurationMs)} / ${formatLatency(metrics.workerFirstTextMs)}")
-                                            MetricLine("Worker token throughput", metrics.workerDecodeTokensPerSecond?.let { "${if (metrics.workerSpeedUsesReportedTokens) "" else "≈ "}%.1f tok/s".format(it) } ?: "Not observed")
-                                            MetricLine("Output cap violations", metrics.outputCapViolations.toString())
-                                            MetricLine("Reviewer Score", metrics.reviewerScore?.let { "$it / 100 · ${metrics.reviewerEvaluations} evaluations" } ?: "Not measured")
-                                            if (metrics.reviewerCalls > 0) {
-                                                MetricLine(
-                                                    "Reviewer usage",
-                                                    "${metrics.reviewerCalls} calls · ${metrics.reviewerInputTokens} input / ${metrics.reviewerOutputTokens} output${if (metrics.reviewerEstimated) " (estimated)" else ""}"
-                                                )
-                                            }
-                                            Text("Primary tokens: ${metrics.primaryInputTokens} input / ${metrics.primaryOutputTokens} output${if (metrics.primaryEstimated) " (output estimated)" else ""}")
-                                            Text("${metrics.searches} searches · ${metrics.pagesRead} pages · ${metrics.rawEvidenceBytes} evidence bytes → ${metrics.handoffCharacters} brief characters")
-                                            if (metrics.fixtureCalls > 0) Text("Fixture calls: ${metrics.successfulFixtureCalls}/${metrics.fixtureCalls} successful")
-                                            if (metrics.diagnosticEvents.isNotEmpty()) {
-                                                Text("Diagnostic events", fontWeight = FontWeight.SemiBold)
-                                                metrics.diagnosticEvents.takeLast(12).forEach { event ->
-                                                    Text("[+${event.elapsedMs} ms] ${event.level} · ${event.type} · ${event.message}", style = MaterialTheme.typography.labelSmall, color = if (event.level == "ERROR") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        item { BenchmarkAction("Open delegation scoreboard", Icons.Rounded.BarChart, onClick = { delegationBoard = true }, modifier = Modifier.fillMaxWidth()) }
                     }
 
                     0 -> {
@@ -393,10 +311,11 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Text("All selected models run sequentially so their provider or local runtime is not contending with another benchmark. Results save after each test.", style = MaterialTheme.typography.labelSmall)
                             }
                         }
+                        if (latestScoreboard != null) item { ScoreboardScores(latestScoreboard, previousScoreboard, "Latest run · retest changes") }
                         item { BenchmarkScoreCard(rating, local, matching.size, mode) }
                         item {
                             BenchmarkPanel("Intelligence · text capability") {
-                                IntelligenceResults(activeScore?.intelligence, mode == BenchmarkMode.QUICK)
+                                IntelligenceResults(activeScore?.intelligence, mode == BenchmarkMode.QUICK, previousScore?.intelligence)
                             }
                         }
                         item {
@@ -426,13 +345,10 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             }
                         }
                         item {
-                            BenchmarkPanel("What makes the score") {
+                            BenchmarkPanel("Timing score breakdown") {
+                                if (previousScore != null) Text("Previous run on the same current cohort scale. Theme: retained points · red: lost · yellow: gained.", style = MaterialTheme.typography.bodySmall)
                                 rating.dimensions.forEach { dimension ->
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(dimension.label, style = MaterialTheme.typography.bodyMedium)
-                                        Text(dimension.score?.let { "${it.roundToInt()} / 100" } ?: benchmarkMissingScoreLabel(activeScore, dimension.label), style = MaterialTheme.typography.labelMedium, color = tint)
-                                    }
-                                    LinearProgressIndicator(progress = { (dimension.score ?: 0.0).toFloat() / 100 }, modifier = Modifier.fillMaxWidth(), color = tint)
+                                    BenchmarkRatingBar(dimension.label, dimension.score, missing = benchmarkMissingScoreLabel(activeScore, dimension.label), previous = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkScoreDimensions(previousScore, local).firstOrNull { it.label == dimension.label }?.score)
                                     Text("${dimension.weight}% weight · ${dimension.detail}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
@@ -442,7 +358,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 MetricLine("p95 first response", formatLatency(rating.p95FirstTextMs))
                                 MetricLine("Median request time", formatLatency(rating.medianDurationMs))
                                 Text("Suite ${dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION} · latest 5 complete blocks with this configuration and context tier. Fixed instructions and temperature 0. First response includes model loading and queue time. Throughput uses the shared lexical4 comparison unit; one-chunk responses have no measured decode speed.", style = MaterialTheme.typography.bodySmall)
-                                Text("Quality, reliability, speed, first response and consistency use the same scoring policy here and in Results. Overall needs every dimension; missing timing is never invented. Quick and Full both include tool fixtures. Quick remains provisional. Local context tiers and remote cohorts are ranked separately.", style = MaterialTheme.typography.bodySmall)
+                                Text("Quality, reliability, speed, first response and consistency use the same timing policy here and in Compare. The Scoreboard uses absolute capability accuracy. Overall needs every dimension; missing timing is never invented. Quick and Full both include tool fixtures. Quick remains provisional. Local context tiers and remote cohorts are ranked separately.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         item { BenchmarkAction("Runtime diagnostics", Icons.Rounded.Memory, showToolHealth, { showToolHealth = !showToolHealth }, modifier = Modifier.fillMaxWidth()) }
@@ -482,77 +398,16 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             }
                         }
                     }
-                    2 -> {
-                        item {
-                            BenchmarkPanel("Model leaderboard") {
-                                BenchmarkPlanPicker(mode, progress == null) { mode = it }
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf("All" to Icons.Rounded.BarChart, "Local" to Icons.Rounded.Memory, "Remote" to Icons.Rounded.Cloud).forEachIndexed { index, (label, icon) -> BenchmarkAction(label, icon, typeFilter == index, { typeFilter = index }) }
-                                }
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf("App rating" to Icons.Rounded.Sort, "Intelligence" to Icons.Rounded.Psychology, "Speed" to Icons.Rounded.Speed).forEach { (order, icon) -> BenchmarkAction(order, icon, comparisonSort == order, { comparisonSort = order }) }
-                                }
-                                BenchmarkAction("Compare two models", Icons.Rounded.CompareArrows, onClick = { tab = 5 }, modifier = Modifier.fillMaxWidth())
-                                Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote use separate verified cohort scales.", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                        item {
-                            BenchmarkPanel("Adaptive scores") {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Scale updates across all eligible profiles", modifier = Modifier.weight(1f))
-                                    SettingsHelpIcon("Speed balances each workload band: 100 × its measured rate / its fastest verified compatible rate. Local weights Q/R/S/L/C = 40/25/10/10/15; Remote = 35/20/20/15/10. Overall is capped by quality and reliability. Hidden rows remain in the anchor. Quick and incomplete runs never establish anchors. Reference lexical4 tokenizer v1 is a comparison unit, not provider billing. Five timed trials per workload are required; p95 requires 20 samples.")
-                                }
-                                Text("Snapshot ${snapshot?.generation ?: 0} · 30-day freshness · Quick runs stay provisional. Intelligence uses absolute answer accuracy, never a speed ranking.", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                        val rows = snapshot?.rows.orEmpty().filter { row -> row.cohort.startsWith(mode.name + "|") && (typeFilter == 0 || row.cohort.contains("device:") == (typeFilter == 1)) }
-                        rows.groupBy { it.cohort }.forEach { (cohort, cohortRows) ->
-                            item {
-                                BenchmarkPanel(
-                                    if (cohort.contains("device:")) {
-                                        "Local · ${cohort.substringAfter("device:").substringBefore("|")}"
-                                    } else if (cohort.contains("self-hosted:")) {
-                                        "Self-hosted"
-                                    } else {
-                                        "Remote · cloud"
-                                    }
-                                ) {
-                                    Text("${mode.label} · Suite ${cohort.split('|').getOrNull(1).orEmpty()} · ${cohort.substringAfterLast('|').substringAfter(':').let { if (it == "remote-standard") "Standard context" else "$it-token context tier" }}", style = MaterialTheme.typography.labelSmall)
-                                    Text("Ratings out of 100 · higher is better", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            val sortedRows = cohortRows.sortedWith(
-                                compareByDescending<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow> {
-                                    when (comparisonSort) {
-                                        "Intelligence" -> it.intelligence?.score
-                                        "Speed" -> it.speed
-                                        else -> it.overall
-                                    } ?: -1.0
-                                }.thenByDescending { it.speed ?: -1.0 }
-                            )
-                            items(sortedRows, key = { "v2-${it.profileUid}-${it.cohort}-${it.sourceRunIds.firstOrNull()}" }) { row ->
-                                val item = profiles.firstOrNull { it.uid == row.profileUid }
-                                BenchmarkComparisonCard(item?.name ?: "Retained profile", item?.model.orEmpty(), row) {
-                                    if (item != null) {
-                                        viewModel.select(item)
-                                        tab = 0
-                                    }
-                                }
-                            }
-                        }
-                        if (rows.isEmpty()) item { Text("No results yet. Open Run for a 5-test Quick or 50-test Full benchmark.") }
-                        item { BenchmarkAction("Everyday statistics", Icons.Rounded.BarChart, onClick = { tab = 1 }) }
-                    }
                     5 -> {
                         item { BenchmarkPlanPicker(mode, progress == null) { mode = it } }
                         item {
-                            BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }, profiles)
+                            BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }.map { row -> retests.firstOrNull { it.current.profileUid == row.profileUid && it.current.revision == row.revision && it.current.cohort == row.cohort }?.current ?: row }, profiles, retests)
                         }
                         item { BenchmarkAction("Run another model", Icons.Rounded.PlayArrow, onClick = { tab = 0 }, modifier = Modifier.fillMaxWidth()) }
                     }
                     3 -> {
                         item { Text("Saved runs · ${profileHistory.size}", style = MaterialTheme.typography.titleLarge) }
-                        item { Text("The latest 200 runs across all profiles are stored on this device. Canceled and interrupted runs are retained but excluded from ratings.", style = MaterialTheme.typography.bodySmall) }
+                        item { Text("Saved runs are retained on this device until you delete them. Canceled and interrupted runs are retained but excluded from ratings.", style = MaterialTheme.typography.bodySmall) }
                         if (profileHistory.isEmpty()) item { BenchmarkPanel("Your first result starts here") { Text("Run a quick benchmark from Overview. Every test will include its outcome, timing and response preview.") } }
                         items(profileHistory, key = { it.id }) { run ->
                             BenchmarkHistoryCard(run, run.configKey == benchmarkConfigKey(selected, localEnvironment), progress == null, { deleteId = run.id })

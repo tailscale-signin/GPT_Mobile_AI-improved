@@ -1,0 +1,1242 @@
+[
+  {
+    "score": 100.0,
+    "submission": {
+      "id": "run-one",
+      "kind": "MODEL",
+      "plan": "QUICK",
+      "suiteVersion": 6,
+      "startedAt": 100,
+      "provider": "OPENAI",
+      "model": "model-one",
+      "trials": [
+        {
+          "id": "speed-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "instruction",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "intelligence-batch-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "score": 100.0,
+    "submission": {
+      "id": "run-one",
+      "kind": "MODEL",
+      "plan": "FULL",
+      "suiteVersion": 6,
+      "startedAt": 100,
+      "provider": "OPENAI",
+      "model": "model-one",
+      "trials": [
+        {
+          "id": "speed-short-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-short-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-short-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-short-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-short-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-short-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-medium-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-medium-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-medium-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-medium-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-medium-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-medium-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-long-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-long-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-long-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-long-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-long-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "speed-long-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "instruction-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "logic-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "context",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "extract-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "abstain-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "instruction-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "logic-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "recall-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-6",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-7",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-8",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-9",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-10",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool-11",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "intelligence-batch-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        },
+        {
+          "id": "intelligence-batch-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        },
+        {
+          "id": "intelligence-batch-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        },
+        {
+          "id": "intelligence-batch-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        },
+        {
+          "id": "intelligence-batch-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        },
+        {
+          "id": "intelligence-batch-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "score": 100.0,
+    "submission": {
+      "id": "run-one",
+      "kind": "DELEGATION",
+      "plan": "QUICK",
+      "suiteVersion": 1,
+      "startedAt": 100,
+      "provider": "OPENAI",
+      "model": "model-one",
+      "trials": [
+        {
+          "id": "delegation-compact",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        }
+      ],
+      "primaryProvider": "GOOGLE",
+      "primaryModel": "primary",
+      "reviewerProvider": "ANTHROPIC",
+      "reviewerModel": "judge"
+    }
+  },
+  {
+    "score": 100.0,
+    "submission": {
+      "id": "run-one",
+      "kind": "DELEGATION",
+      "plan": "FULL",
+      "suiteVersion": 1,
+      "startedAt": 100,
+      "provider": "OPENAI",
+      "model": "model-one",
+      "trials": [
+        {
+          "id": "delegation-compact",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-stopping",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-ownership",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-progress",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-compact-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-stopping-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-ownership-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-progress-seed-1",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-compact-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-stopping-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-ownership-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-progress-seed-2",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-compact-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-stopping-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-ownership-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-progress-seed-3",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-compact-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-stopping-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-ownership-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-progress-seed-4",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-compact-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-stopping-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-ownership-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-progress-seed-5",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-compact-seed-6",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools-seed-6",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        }
+      ],
+      "primaryProvider": "GOOGLE",
+      "primaryModel": "primary",
+      "reviewerProvider": "ANTHROPIC",
+      "reviewerModel": "judge"
+    }
+  },
+  {
+    "score": 65.0,
+    "submission": {
+      "id": "run-one",
+      "kind": "MODEL",
+      "plan": "QUICK",
+      "suiteVersion": 6,
+      "startedAt": 100,
+      "provider": "OPENAI",
+      "model": "model-one",
+      "trials": [
+        {
+          "id": "speed-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "instruction",
+          "outcome": "FAILED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "json",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "tool",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50
+        },
+        {
+          "id": "intelligence-batch-0",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "intelligence": {
+            "Math": true,
+            "Knowledge": true,
+            "Reading": true,
+            "Logic": true,
+            "Planning": true,
+            "Code reasoning": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "score": 80.0,
+    "submission": {
+      "id": "run-one",
+      "kind": "DELEGATION",
+      "plan": "QUICK",
+      "suiteVersion": 1,
+      "startedAt": 100,
+      "provider": "OPENAI",
+      "model": "model-one",
+      "trials": [
+        {
+          "id": "delegation-compact",
+          "outcome": "FAILED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 30,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-tools",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-research",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-chunks",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        },
+        {
+          "id": "delegation-handoff",
+          "outcome": "PASSED",
+          "durationMs": 500,
+          "firstTextMs": 100,
+          "speed": 50,
+          "reviewerScore": 100,
+          "reviewerCalls": 1,
+          "toolCalls": 1,
+          "successfulToolCalls": 1
+        }
+      ],
+      "primaryProvider": "GOOGLE",
+      "primaryModel": "primary",
+      "reviewerProvider": "ANTHROPIC",
+      "reviewerModel": "judge"
+    }
+  }
+]

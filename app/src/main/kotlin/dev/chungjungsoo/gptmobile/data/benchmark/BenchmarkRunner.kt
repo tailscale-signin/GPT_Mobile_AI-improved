@@ -28,7 +28,8 @@ data class BenchmarkCase(
     val expected: String? = null,
     val warmup: Boolean = false,
     val workload: String = "short",
-    val seed: Int = 0
+    val seed: Int = 0,
+    val benchmarkReview: Boolean = false
 )
 
 fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<BenchmarkCase> = BenchmarkWorkloadPlanner.adapt(
@@ -42,6 +43,7 @@ fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<Benchm
 
 /** Historical suites keep their original manifest; old measurements never join a new plan. */
 internal fun benchmarkSuiteForRun(run: BenchmarkRun): List<BenchmarkCase> {
+    if (run.mode == BenchmarkMode.DELEGATION && run.delegationSuiteVersion == 1) return delegationBenchmarkSuite(run.delegationPlan ?: BenchmarkMode.QUICK)
     if (run.suiteVersion >= 6 || run.mode == BenchmarkMode.DELEGATION) return benchmarkSuite(run.mode, run.fixtureContextTokens)
     val legacy = if (run.mode == BenchmarkMode.QUICK) {
         listOf(

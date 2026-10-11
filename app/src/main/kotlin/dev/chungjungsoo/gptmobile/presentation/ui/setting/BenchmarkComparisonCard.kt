@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -79,21 +80,31 @@ internal fun BenchmarkComparisonCard(name: String, model: String, row: Benchmark
 }
 
 @Composable
-internal fun BenchmarkRatingBar(label: String, value: Double?, missing: String = "Not measured", stacked: Boolean = false) {
-    val fraction by animateFloatAsState(((value ?: 0.0) / 100).toFloat().coerceIn(0f, 1f), label = label)
+internal fun BenchmarkRatingBar(label: String, value: Double?, missing: String = "Not measured", stacked: Boolean = false, previous: Double? = null) {
+    val segments = dev.chungjungsoo.gptmobile.data.benchmark.ScoreDelta.between(value ?: 0.0, previous)
+    val retained by animateFloatAsState((segments.retained / 100).toFloat(), label = "$label retained")
+    val gained by animateFloatAsState((segments.gained / 100).toFloat(), label = "$label gained")
+    val lost by animateFloatAsState((segments.lost / 100).toFloat(), label = "$label lost")
+    val change = if (previous != null && value != null) " · %+.1f pts".format(segments.change) else ""
     val colors = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.semantics { contentDescription = "$label: ${value?.let { "%.1f out of 100".format(it) } ?: missing}" }) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.semantics { contentDescription = "$label: ${value?.let { "%.1f out of 100".format(it) } ?: missing}$change" }) {
         if (stacked) {
             Text(label, style = MaterialTheme.typography.labelMedium)
-            Text(value?.let { "%.1f / 100".format(it) } ?: missing, style = MaterialTheme.typography.titleMedium, color = colors.primary)
+            Text(value?.let { "%.1f / 100".format(it) + change } ?: missing, style = MaterialTheme.typography.titleMedium, color = colors.primary)
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-                Text(value?.let { "%.1f / 100".format(it) } ?: missing, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+                Text(value?.let { "%.1f / 100".format(it) + change } ?: missing, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
             }
         }
         Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(8.dp)).background(colors.surfaceContainerHighest)) {
-            if (value != null) Box(Modifier.fillMaxWidth(fraction).height(9.dp).background(Brush.horizontalGradient(listOf(colors.primary, colors.tertiary))))
+            if (value != null) Row(Modifier.fillMaxWidth()) {
+                if (retained > 0f) Box(Modifier.weight(retained).height(9.dp).background(Brush.horizontalGradient(listOf(colors.primary, colors.tertiary))))
+                if (gained > 0f) Box(Modifier.weight(gained).height(9.dp).background(Color(0xFFFFD54F)))
+                if (lost > 0f) Box(Modifier.weight(lost).height(9.dp).background(Color(0xFFEF5350)))
+                val remaining = (1f - retained - gained - lost).coerceAtLeast(0f)
+                if (remaining > 0f) Box(Modifier.weight(remaining).height(9.dp))
+            }
         }
     }
 }
@@ -107,13 +118,13 @@ internal fun benchmarkMissingScoreLabel(row: BenchmarkScoreRow?, dimension: Stri
 }
 
 @Composable
-internal fun IntelligenceResults(result: IntelligenceScore?, quick: Boolean) {
+internal fun IntelligenceResults(result: IntelligenceScore?, quick: Boolean, previous: IntelligenceScore? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        BenchmarkRatingBar(if (quick) "Intelligence · provisional" else "Intelligence", result?.score, missing = "Incomplete coverage")
+        BenchmarkRatingBar(if (quick) "Intelligence · provisional" else "Intelligence", result?.score, missing = "Incomplete coverage", previous = previous?.score)
         Text("${result?.answered ?: 0} / ${result?.planned ?: if (quick) 6 else 36} questions answered · text capability screen v${result?.version ?: IntelligenceBenchmark.VERSION}", style = MaterialTheme.typography.labelMedium)
         if (quick) Text("One question per domain is a quick check, not a stable capability estimate. Full checks all 36 questions.", style = MaterialTheme.typography.bodySmall)
         IntelligenceBenchmark.suite.map { it.workload }.distinct().forEach { domain ->
-            MetricLine(domain, result?.domains?.get(domain)?.let { "%.1f / 100".format(it) } ?: "Incomplete")
+            BenchmarkRatingBar(domain, result?.domains?.get(domain), missing = "Incomplete", previous = previous?.domains?.get(domain))
         }
         Text("Equal average of six domain accuracies. Infrastructure failures leave coverage incomplete; speed, cost and missing tools do not change Intelligence.", style = MaterialTheme.typography.bodySmall)
         Text(IntelligenceBenchmark.LIMITATION, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

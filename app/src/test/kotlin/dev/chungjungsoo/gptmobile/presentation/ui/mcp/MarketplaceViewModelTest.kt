@@ -49,7 +49,7 @@ class MarketplaceViewModelTest {
         coEvery { store.pendingRemovalIds() } returns emptySet()
         coEvery { store.beginRemoval(any()) } returns Unit
         coEvery { store.finishRemoval(any()) } returns Unit
-        coEvery { store.download(any()) } returns Unit
+        coEvery { store.download(any(), any()) } returns Unit
         coEvery { store.remove(any()) } returns Unit
     }
 
@@ -102,7 +102,7 @@ class MarketplaceViewModelTest {
         val model = model()
         model.download(entry)
         runCurrent()
-        coVerify(exactly = 0) { store.download(any()) }
+        coVerify(exactly = 0) { store.download(any(), any()) }
         scan.complete(emptySet())
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
@@ -116,7 +116,7 @@ class MarketplaceViewModelTest {
         model.cancelDownload(entry.id)
         runCurrent()
         assertTrue(model.uiState.value.downloadingIds.isEmpty())
-        coVerify(exactly = 0) { store.download(any()) }
+        coVerify(exactly = 0) { store.download(any(), any()) }
         model.download(entry)
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
@@ -125,14 +125,14 @@ class MarketplaceViewModelTest {
     @Test
     fun repeatedDownloadAndRemoveDoNotRaceActiveDownload() = runTest(dispatcher) {
         val completion = CompletableDeferred<Unit>()
-        coEvery { store.download(entry) } coAnswers { completion.await() }
+        coEvery { store.download(entry, any()) } coAnswers { completion.await() }
         val model = model()
         model.download(entry)
         runCurrent()
         model.download(entry)
         model.remove(entry)
         runCurrent()
-        coVerify(exactly = 1) { store.download(entry) }
+        coVerify(exactly = 1) { store.download(entry, any()) }
         coVerify(exactly = 0) { store.remove(entry) }
         completion.complete(Unit)
         runCurrent()
@@ -141,7 +141,7 @@ class MarketplaceViewModelTest {
 
     @Test
     fun cancelledActiveDownloadClearsBusyStateAndCanRetry() = runTest(dispatcher) {
-        coEvery { store.download(entry) } coAnswers { CompletableDeferred<Unit>().await() }
+        coEvery { store.download(entry, any()) } coAnswers { CompletableDeferred<Unit>().await() }
         val model = model()
         model.download(entry)
         runCurrent()
@@ -149,7 +149,7 @@ class MarketplaceViewModelTest {
         runCurrent()
         assertTrue(model.uiState.value.downloadingIds.isEmpty())
         assertFalse(entry.id in model.uiState.value.downloadedIds)
-        coEvery { store.download(entry) } returns Unit
+        coEvery { store.download(entry, any()) } returns Unit
         model.download(entry)
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
@@ -175,13 +175,13 @@ class MarketplaceViewModelTest {
 
     @Test
     fun failedDownloadDoesNotExposeExceptionOrPreventRetry() = runTest(dispatcher) {
-        coEvery { store.download(entry) } throws IOException("secret-example")
+        coEvery { store.download(entry, any()) } throws IOException("secret-example")
         val model = model()
         model.download(entry)
         runCurrent()
         assertFalse(entry.id in model.uiState.value.downloadedIds)
         assertFalse(model.uiState.value.errors.getValue(entry.id).contains("secret-example"))
-        coEvery { store.download(entry) } returns Unit
+        coEvery { store.download(entry, any()) } returns Unit
         model.download(entry)
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)

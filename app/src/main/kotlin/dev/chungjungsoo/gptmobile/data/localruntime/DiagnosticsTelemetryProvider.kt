@@ -28,7 +28,8 @@ object DiagnosticsTelemetryProvider {
         val processMemoryMb: Long = 0,
         val javaHeapMb: Long = 0,
         val network: String = "Unknown",
-        val nativeHeapMb: Long = 0
+        val nativeHeapMb: Long = 0,
+        val qnnProcessAbi: String = ""
     )
 
     fun getSnapshot(context: Context, backendName: String, accelerator: String): DiagnosticsSnapshot {
@@ -74,6 +75,7 @@ object DiagnosticsTelemetryProvider {
             qnnReady = qnnProbe.isReady,
             dispatchDir = qnnProbe.dispatchDir,
             skelExists = qnnProbe.skelFileExists,
+            qnnProcessAbi = qnnProbe.processAbi,
             processMemoryMb = android.os.Debug.getPss() / 1024,
             javaHeapMb = Runtime.getRuntime().let { (it.totalMemory() - it.freeMemory()) / (1024 * 1024) },
             nativeHeapMb = android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024),
@@ -104,6 +106,7 @@ object DiagnosticsTelemetryProvider {
         appendLine("Thermal State: ${snapshot.thermalStatus}")
         appendLine("Battery: ${if (snapshot.batteryPct >= 0) "${snapshot.batteryPct}%" else "N/A"}${if (snapshot.isCharging) " (Charging)" else ""}")
         appendLine("QNN device/library prerequisites: ${if (snapshot.qnnReady) "Available (execution unverified)" else "Unavailable"}")
+        appendLine("QNN process ABI: ${snapshot.qnnProcessAbi.ifBlank { "Unknown" }}")
         appendLine("Local runtime versions: LiteRT-LM ${BuildConfig.LITERT_LM_VERSION} / QAIRT ${BuildConfig.QAIRT_VERSION}")
         appendLine("QNN Dispatch Dir: ${snapshot.dispatchDir}")
         appendLine("QNN Skel Present: ${if (snapshot.skelExists) "Yes" else "No"}")

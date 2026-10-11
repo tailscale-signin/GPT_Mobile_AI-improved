@@ -104,6 +104,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: bash scripts/setup_release_keystore.sh
+      - name: Require qualified QNN dispatch provenance
+        run: python3 scripts/check_qnn_provenance.py
       - name: Build release artifacts
         run: |
           ./gradlew :app:assembleRelease --no-daemon --max-workers=2

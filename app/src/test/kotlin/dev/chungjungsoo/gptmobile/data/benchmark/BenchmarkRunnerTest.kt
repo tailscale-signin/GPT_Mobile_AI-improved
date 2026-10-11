@@ -38,6 +38,33 @@ class BenchmarkRunnerTest {
     }
 
     @Test
+    fun `QNN startup failures are infrastructure failures with a stage`() = runTest {
+        val runner = BenchmarkRunner({ _, _ ->
+            throw dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure(
+                dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeStage.ENGINE_INIT,
+                dev.chungjungsoo.gptmobile.data.localruntime.QnnFailureCode.UNKNOWN_NATIVE_ERROR,
+                "QNN could not start"
+            )
+        })
+
+        val result = runner.run(instruction, false)
+
+        assertEquals(BenchmarkOutcome.ERROR, result.outcome)
+        assertEquals("INIT", result.failureCategory)
+        assertEquals("ENGINE_INIT", result.runtimeStage)
+        assertNull(result.decodeTokensPerSecond)
+    }
+
+    @Test
+    fun `unsupported benchmark fixtures do not lower model quality scores`() = runTest {
+        val result = BenchmarkRunner({ _, _ -> error("must not open a session") })
+            .run(toolTest, supportsTools = false)
+
+        assertEquals(BenchmarkOutcome.UNSUPPORTED, result.outcome)
+        assertEquals("UNSUPPORTED", result.failureCategory)
+    }
+
+    @Test
     fun `infrastructure outage stops remaining cases even when quality failures should continue`() = kotlinx.coroutines.runBlocking {
         var calls = 0
         val saved = mutableListOf<BenchmarkSample>()

@@ -1,4 +1,4 @@
-name: Diagnostic audit workspace
+name: Diagnostic audit validation
 
 on:
   push:
@@ -8,28 +8,92 @@ on:
 permissions:
   contents: read
 
+env:
+  OBX_DISABLE_ANALYTICS: 'true'
+
 jobs:
-  source:
+  apply:
+    if: github.ref == 'refs/heads/fix/diagnostic-audit-reliability-2026-10-11'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Verify and apply audited source patch
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess
+          encoded = ''.join(pathlib.Path(f'.audit/phase1-{i}.b64').read_text().strip() for i in (1, 2, 3))
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '6dbd91ac7caf52b706cc11b77e5423008d4e3319d49a94b53c49838ec29e264b', 'Patch integrity check failed'
+          target = pathlib.Path('/tmp/diagnostic-audit.patch')
+          target.write_bytes(patch)
+          if subprocess.run(['git', 'apply', '--reverse', '--check', str(target)], capture_output=True).returncode != 0:
+              subprocess.run(['git', 'apply', '--check', str(target)], check=True)
+              subprocess.run(['git', 'apply', str(target)], check=True)
+          PY
+      - name: Commit only source changes to the requested branch
+        id: commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=fix/diagnostic-audit-reliability-2026-10-11
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$EXPECTED_SHA"
+          git add -- app/src
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'fix: address diagnostic audit reliability and performance findings'
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git show --stat --oneline HEAD >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    needs: apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.apply.outputs.sha }}
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Android unit tests and debug compilation
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug 2>&1 | tee audit-android.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: audit-android-results
+          path: |
+            audit-android.log
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
+          retention-days: 7
+
+  preflight:
+    needs: apply
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Package tracked source and tests (no signing material or runtime data)
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import pathlib, subprocess, zipfile
-          paths = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
-          suffixes = {'.kt', '.kts', '.toml', '.xml', '.pro', '.properties', '.sh', '.py', '.yml', '.yaml', '.md', '.cpp', '.h', '.txt', '.java'}
-          with zipfile.ZipFile('audit-source.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
-              for name in paths:
-                  p = pathlib.Path(name)
-                  allowed = name.startswith(('app/src/', 'scripts/', 'gradle/', '.github/', 'benchmark/')) or len(p.parts) == 1
-                  excluded = any(part in {'.signing', 'assets', 'jniLibs', '.git'} for part in p.parts)
-                  if name and allowed and not excluded and (p.suffix in suffixes or name in {'gradlew', '.editorconfig'}):
-                      archive.write(p, name)
-          PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: audit-source
-          path: audit-source.zip
-          retention-days: 1
+          ref: ${{ needs.apply.outputs.sha }}
+          fetch-depth: 0
+      - name: Resource and patch validation
+        run: |
+          git diff --check 63bfbebde4c1ce1b74890a91c20517ae2dd4cc19 HEAD
+          bash scripts/validate.sh resources

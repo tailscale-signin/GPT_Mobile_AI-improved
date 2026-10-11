@@ -40,13 +40,7 @@ internal fun AppChoiceSheet(
     text: (@Composable () -> Unit)? = null
 ) {
     val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * 0.9f }
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = shape,
-        modifier = modifier
-    ) {
+    val body: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 icon?.invoke()
@@ -59,5 +53,18 @@ internal fun AppChoiceSheet(
                 confirmButton()
             }
         }
+    }
+    if (dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = onDismissRequest, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            androidx.compose.material3.Surface(shape = shape, color = MaterialTheme.colorScheme.surface, modifier = modifier) { body() }
+        }
+    } else {
+        ModalBottomSheet(
+            onDismissRequest = onDismissRequest,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = shape,
+            modifier = modifier
+        ) { body() }
     }
 }

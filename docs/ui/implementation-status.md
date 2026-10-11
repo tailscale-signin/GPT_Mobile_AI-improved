@@ -9,7 +9,7 @@ This is a working implementation record. A source change, a compiled test, and a
 ## Delivered in the branch
 
 - Four root destinations with compact bottom navigation and a rail at 600 dp; focused Activity, delegation, conversation preferences, privacy/data and feature category routes. Existing workspace and deep-link owners remain available.
-- Five paired colour families, independent accent roles, shared shapes/type/spacing, atomic appearance drafts, saved classic themes and legacy ARGB preservation. Reduced motion covers route transitions, Material components and decorative chat motion, and respects Android's animation preference.
+- Five paired colour families, independent accent roles, shared shapes/type/spacing, atomic appearance drafts, saved classic themes and legacy ARGB preservation. Reduced motion covers route transitions, shared sheets, disclosure effects and decorative chat motion, and respects Android's animation preference.
 - Conversation search and hierarchy, full-window multi-profile selection, neutral assistant reading surfaces, explicit export scope, independently preserved Stop/Send controls and the existing streaming/entry-position controllers.
 - AI profile/connection organization, Behaviour/Tools/Advanced sections, focused local Installed/Discover/Runtime views, delegation sections, memory hierarchy, tool hub/marketplace organization and adaptive GitHub file/editor panes.
 - Shared bounded choice sheets and draft editor shells. Provider reset actions remain explicit. Structured input, permission decisions, source inspection, recovery and tool configuration use their appropriate shared shell. Broad grants retain the actual backend scope.

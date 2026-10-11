@@ -219,7 +219,21 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         check(!NativeMarketplaceCatalog.requiresKey(entry) || NativeMarketplaceCatalog.validKey(key)) { "API key is missing or invalid." }
         val endpointSecrets = record.endpointConfigs.filterKeys { it !in record.disabledOperations }.mapNotNull { (operation, config) ->
             if (config.authType == EndpointAuthType.NONE) return@mapNotNull null
-            val bytes = config.secretRef?.let { vault.read(it) } ?: error("Endpoint credential is missing. Add it in plugin settings.")
+            val bytes = config.secretRef?.let { vault.read(it) }
+            if (bytes == null) {
+                change(entry) { current ->
+                    // Do not invalidate credentials replaced while this read was in flight.
+                    if (current?.endpointConfig(operation) == config) {
+                        current.copy(
+                            enabled = false,
+                            endpointConfigs = current.endpointConfigs + (operation to config.copy(secretRef = null))
+                        )
+                    } else {
+                        current
+                    }
+                }
+                error("Endpoint credential is missing. Add it in plugin settings.")
+            }
             val secret = try {
                 bytes.decodeToString()
             } finally {

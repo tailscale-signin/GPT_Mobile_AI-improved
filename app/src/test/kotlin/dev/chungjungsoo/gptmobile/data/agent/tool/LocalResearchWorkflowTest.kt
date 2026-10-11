@@ -20,6 +20,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalResearchWorkflowTest {
+    @Test fun `shared discovery exhaustion retains verification allowance for collected snippets`() = runTest {
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(24)
+        val discovery = dev.chungjungsoo.gptmobile.data.agent.ResearchBudget.Phase.DISCOVERY
+        while (budget.snapshot().remainingByPhase.getValue(discovery) > 2) budget.tryCharge(discovery, true)
+        val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {
+            override suspend fun load(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
+            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) = Unit
+            override fun stopRequested() = false
+            override fun budget(totalLogicalCalls: Int) = budget
+        }
+        var reads = 0
+        var summaries = 0
+        val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"Benchmark","url":"https://example.org/latency","snippet":"Measured latency is 42 ms."}]}""") }
+        val reader = tool("read_url") { id, _ ->
+            reads++
+            response(id, "{}")
+        }
+        val result = LocalResearchWorkflow(config, listOf(search, reader), { prompt, _ ->
+            if (prompt.startsWith("Extract facts")) summaries++
+            worker(prompt)
+        }, journal = journal).run("Research latency", "shared")
+        assertEquals(0, reads)
+        assertEquals(1, summaries)
+        assertEquals(0, budget.snapshot().remainingByPhase.getValue(discovery))
+        assertEquals("true", Json.parseToJsonElement(result.handoff).jsonObject.getValue("partial").jsonPrimitive.content)
+        assertTrue(result.handoff.contains("42 ms"))
+    }
+
     @Test fun `authentication circuit survives worker restart while healthy reader remains available`() = runTest {
         val health = dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth()
         val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {

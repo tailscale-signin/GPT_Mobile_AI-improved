@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -170,6 +171,29 @@ class NativeMarketplaceTest {
         assertFalse(result.isError)
         assertFalse(result.content.toString().contains("endpoint-private-secret"))
         assertTrue(result.content.toString().contains("[redacted]"))
+    }
+
+    @Test fun missingManagedCredentialDisablesInstallationAndRequiresSetup() = runBlocking {
+        val entry = entry("openstreetmap")
+        val registry = registry()
+        registry.install(entry)
+        registry.configure(
+            entry,
+            "",
+            "",
+            5,
+            25,
+            disabledOperations = setOf("restrooms"),
+            endpointConfigs = mapOf("geocode" to NativeEndpointConfig("https://maps.example/search", EndpointAuthType.API_KEY)),
+            endpointSecrets = mapOf("geocode" to "endpoint-secret")
+        )
+        registry.setEnabled(entry, true)
+        vault.records.clear()
+        assertTrue(runCatching { registry.configuration(entry) }.isFailure)
+        val record = registry.load().getValue(entry.id)
+        assertFalse(record.enabled)
+        assertFalse(record.ready(entry))
+        assertNull(record.endpointConfig("geocode").secretRef)
     }
 
     @Test fun managedEndpointsUseSeparateVaultSecretsAndExplicitPortApproval() = runBlocking {

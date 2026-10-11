@@ -85,12 +85,17 @@ class AndroidHealthConnectReader private constructor(
     }
 
     override suspend fun read(operation: String, query: HealthQuery): JsonObject =
-        readWithTimeout(operation, query, 20_000L)
+        readWithTimeout(operation, query, 20_000L, allowExtendedHistory = false)
 
     override suspend fun readLocalImport(query: HealthQuery): JsonObject =
-        readWithTimeout("summary", query, 120_000L)
+        readWithTimeout("summary", query, 120_000L, allowExtendedHistory = true)
 
-    private suspend fun readWithTimeout(operation: String, query: HealthQuery, timeoutMillis: Long): JsonObject = withContext(Dispatchers.IO) {
+    private suspend fun readWithTimeout(
+        operation: String,
+        query: HealthQuery,
+        timeoutMillis: Long,
+        allowExtendedHistory: Boolean
+    ): JsonObject = withContext(Dispatchers.IO) {
         withTimeout(timeoutMillis) {
             require(operation in HealthConnectTools.operations) { "Unsupported health operation." }
             val available = availability()
@@ -103,6 +108,7 @@ class AndroidHealthConnectReader private constructor(
             }
             val permissions = grantedPermissions()
             if (query.start < Instant.now().minus(Duration.ofDays(30))) {
+                require(allowExtendedHistory) { "Extended history is available only for an explicit local import." }
                 require(historyAvailable()) { "Health Connect on this device does not support extended history." }
                 require(HEALTH_HISTORY_PERMISSION in permissions) { "Allow Health Connect history access to import data older than 30 days." }
             }

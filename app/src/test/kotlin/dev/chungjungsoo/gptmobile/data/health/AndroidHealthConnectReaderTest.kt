@@ -16,6 +16,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
@@ -66,6 +67,18 @@ class AndroidHealthConnectReaderTest {
         assertEquals(JsonPrimitive("partial"), result["status"])
         assertEquals(JsonNull, result["last_source_sync_at"])
         coVerify(exactly = 1) { client.aggregate(any()) }
+    }
+
+    @Test fun aiReaderRejectsExtendedHistoryEvenWhenHistoryPermissionIsGranted() = runBlocking {
+        coEvery { permissions.getGrantedPermissions() } returns setOf(
+            HealthMetric.STEPS.permission,
+            HEALTH_HISTORY_PERMISSION
+        )
+        val oldQuery = query.copy(start = now.minus(Duration.ofDays(60)))
+        val error = runCatching { AndroidHealthConnectReader(client).read("summary", oldQuery) }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message.orEmpty().contains("explicit local import"))
+        coVerify(exactly = 0) { client.aggregate(any()) }
     }
 
     @Test fun absenceIsNullNotZero() = runBlocking {

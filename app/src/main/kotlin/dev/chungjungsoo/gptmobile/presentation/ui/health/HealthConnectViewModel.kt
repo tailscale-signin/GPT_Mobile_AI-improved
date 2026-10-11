@@ -134,13 +134,18 @@ class HealthConnectViewModel @Inject constructor(
                     val summary = reader.readLocalImport(query)
                     val status = (summary["status"] as? JsonPrimitive)?.content
                     check(status == "available" || status == "partial") {
-                        if (status == "no_data") "No permitted Google Health data was found in that time range."
-                        else "Health Connect did not return importable data. Check permissions and keep the app open, then retry."
+                        if (status == "no_data") {
+                            "No permitted Google Health data was found in that time range."
+                        } else {
+                            "Health Connect did not return importable data. Check permissions and keep the app open, then retry."
+                        }
                     }
                     val metrics = summary["metrics"]?.jsonObject.orEmpty()
-                    check(metrics.values.any { metric ->
-                        ((metric as? JsonObject)?.get("status") as? JsonPrimitive)?.content == "available"
-                    }) {
+                    check(
+                        metrics.values.any { metric ->
+                            ((metric as? JsonObject)?.get("status") as? JsonPrimitive)?.content == "available"
+                        }
+                    ) {
                         "No permitted Google Health data was found in that time range."
                     }
                     check(reader.grantedPermissions() == permissionsBefore) { "Health Connect permissions changed during import. Nothing was saved." }

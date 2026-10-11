@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "14.2.0",
   "schemaVersion": 1,
-  "sourceCommit": "b4b52bc8d35c750772091db0ecd585a2330aa020",
+  "sourceCommit": "2069f0d9969448c3e7cf94d117ef7ef4565a55a7",
   "files": {
     "COMPLETION_RECOVERY.md": "112dc90f60d88e52c052735bc1e9b80dcc0f8dc630bf7d99f74b94409f9a65c6",
     "README.md": "43b4cd4b3fca11c4b9b2562d3beb1e99f27fafe70e0f2f47bfdd48a3421106ab",
@@ -39,7 +39,7 @@
     "tests/test_gateway_v12.py": "e87098859b9c78b1f2f02d41e89a285b1b339674b0bd41942d9c60b1906ad213",
     "tests/test_gateway_v13.py": "c4c615f6b39f7a73eba7ad8b43464424f2de031d134a779a873e28c05ef39a92",
     "tests/test_gateway_v14.py": "87b03eb36bd53e2051863ac536d7a094ae2db1076a818495004885b1e80ff646",
-    "tests/test_gateway_v14_actions.py": "e37b7d20dd456e210092c09b41c432c586dac8017170881e8773cd87c0c38c5b",
+    "tests/test_gateway_v14_actions.py": "a33de3809340a04b5382ea72b8eae7e5f9719ccb8cf6348c5ed84af2869c31e0",
     "tests/test_gateway_v14_browser.py": "941c78f583752083725dc1955364289cfeecb0cd8919f88ad97f7edb8817578c",
     "tests/test_gateway_v14_contracts.py": "2395328b84898b69e528c2c725904a8b64fa721ed8ffc0ac1e834a0a17a3a43e",
     "tests/test_gateway_v14_deadlines.py": "8f31a8cd94c3f95e0f3a4d1f12648c56279147aac828837323a4bdfded5e2a01",
@@ -47,8 +47,9 @@
     "tests/test_gateway_v14_http.py": "8ea68e7c2eb3c512a3eb943a60aafbb7a5465f549ada9db5a7c8cf2ba45e19a4",
     "tests/test_gateway_v14_jobs.py": "febaf71dc39f06b476701e3d9100a494e6c682ffb675881ae386dfe8d4790beb",
     "tests/test_gateway_v14_stability.py": "b989fd88d5ea8970d5f274dba7c56a6e1a719b66946ff369fe3e69aad7cd4485",
+    "tests/test_gateway_v14_state_lock.py": "6abd0acc2e07c860a930631339e4f1813a39b5a3f22ca8a210defa6b1c6f6a31",
     "v14/__init__.py": "8727da36332b2a517d46d2c32792cbe4d394782db6b7228ce9da8d64f72bdf78",
-    "v14/actions.py": "dd8a4827a22f9bffafe8c2d3a3df449b6d764dd96ce80eccc465a455f61ced62",
+    "v14/actions.py": "5ff0d4fc6d7ad25c37093872f6a2f28ab114da6c580c147ca9efb5d7275cb008",
     "v14/browser-bootstrap.js": "d2b43d5c473a294fe9b27d19e828d4c93c02e1454a12f2a1a4075384f6b9c399",
     "v14/browser.py": "ab46b807439cac21f766a03e0f7a60d72155f5ba433618f2866d35b3aea725b1",
     "v14/config.py": "acd9a5fcfc3b2cd155d82088c765cc21ab736ba90de6ab48c13526d1634af09c",
@@ -64,7 +65,8 @@
     "v14/memory.py": "d062306800734db9223e14f368c7ffbfdd9c2cb189616a5231a86958c0583a91",
     "v14/package.py": "98e3cdcac9bb5aca0151eedf5d340bfaf255731ce8f79ed73646c03807bc1d84",
     "v14/research.py": "d9e35cee26ec14e5bd7b8248b15cba433d91dfdae32c4c9d20aa9ce4c6493318",
-    "v14/service.py": "63fc250b4a7122744d81479a36b62e2a68c39f192e836384ecbb23ac8add4609",
+    "v14/service.py": "9ff1589ecc116a8aefcc616d43fb52740916e062d4c415b7b90b3b54d2dcd463",
+    "v14/state_lock.py": "5b58f0cf6d1493ab522361a6d1cfef89f0f6cd301eef1d1f557543d6c1cf7e07",
     "v14/tools.py": "68bdb9405d1f706e25ed62d43fe0b2f20db93fc70f6cb44425cfdcbd70cfd6bf"
   }
 }

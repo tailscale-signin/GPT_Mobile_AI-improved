@@ -544,7 +544,7 @@ fun ChatScreen(
 
     ChatBottomAutoScroller(
         listState = listState,
-        animate = !isIdle,
+        animate = !isIdle && !dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current,
         isEnabled = featureSettings.smoothStreaming &&
             entryPositioned &&
             !isModelTabPositionLocked &&
@@ -1154,7 +1154,7 @@ private fun ChatMessagePair(
                         profiles = combinedProfiles,
                         selectedUid = selectedProfile?.uid,
                         combinedStatus = combinedStatus,
-                        animateArrival = isActiveMessage && !isIdle,
+                        animateArrival = isActiveMessage && !isIdle && !dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current,
                         onSelectProfile = onCombinedProfileClick,
                         modifier = Modifier.padding(top = 12.dp)
                     )
@@ -1984,7 +1984,7 @@ private fun isImageFile(extension: String?): Boolean {
 
 @Composable
 fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
-    val opacity = if (isGenerating) {
+    val opacity = if (isGenerating && !dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current) {
         val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "latest-response-pulse")
         val pulse by transition.animateFloat(
             initialValue = 0.82f,

@@ -89,8 +89,8 @@ fun ProviderConnectionSettingsScreen(
     }
 
     val isFree = connection.compatibleType == ClientType.FREE
-    var name by remember(connection.uid, connection.name) { mutableStateOf(connection.name) }
-    var apiUrl by remember(connection.uid, connection.apiUrl) { mutableStateOf(connection.apiUrl) }
+    var name by androidx.compose.runtime.saveable.rememberSaveable(connection.uid, connection.name) { mutableStateOf(connection.name) }
+    var apiUrl by androidx.compose.runtime.saveable.rememberSaveable(connection.uid, connection.apiUrl) { mutableStateOf(connection.apiUrl) }
     var keys by remember(connection.uid) { mutableStateOf(listOf("")) }
     var loaded by remember(connection.uid) { mutableStateOf(false) }
     var saving by remember(connection.uid) { mutableStateOf(false) }
@@ -132,7 +132,7 @@ fun ProviderConnectionSettingsScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -156,9 +156,11 @@ internal fun isContextDiagnostic(value: String): Boolean = value.startsWith("Con
 
 @Composable
 private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<AssistantTimelineItem>) {
+    val reducedMotion = dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current
     var dots by remember { mutableIntStateOf(1) }
     var phase by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reducedMotion) {
+        if (reducedMotion) return@LaunchedEffect
         var ticks = 0
         while (true) {
             delay(500)
@@ -183,21 +185,26 @@ private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<Ass
             else -> checkpoint?.trim()?.takeIf { it.isNotEmpty() }?.split(Regex("\\s+"))?.take(12)?.joinToString(" ") ?: "Preparing response"
         }
     }
-    val suffix = ".".repeat(dots)
+    val suffix = if (reducedMotion) "" else ".".repeat(dots)
 
-    val transition = rememberInfiniteTransition(label = "generationStatusGradient")
-    val sweep by transition.animateFloat(
-        initialValue = -250f,
-        targetValue = 900f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1800),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "generationStatusSweep"
-    )
+    val sweep = if (reducedMotion) {
+        0f
+    } else {
+        val transition = rememberInfiniteTransition(label = "generationStatusGradient")
+        val animatedSweep by transition.animateFloat(
+            initialValue = -250f,
+            targetValue = 900f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1800),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "generationStatusSweep"
+        )
+        animatedSweep
+    }
     val primary = MaterialTheme.colorScheme.primary
     val brush = Brush.linearGradient(
-        colors = listOf(primary.copy(alpha = 0.35f), primary, primary.copy(alpha = 0.35f)),
+        colors = if (reducedMotion) listOf(primary, primary) else listOf(primary.copy(alpha = 0.7f), primary, primary.copy(alpha = 0.7f)),
         start = Offset(sweep, 0f),
         end = Offset(sweep + 300f, 0f)
     )

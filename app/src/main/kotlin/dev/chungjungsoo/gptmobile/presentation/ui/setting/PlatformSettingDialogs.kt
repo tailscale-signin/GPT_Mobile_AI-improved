@@ -326,7 +326,9 @@ fun LlamaAdvancedSettingsDialog(
             initialSettings = initialSettings,
             onDismissRequest = settingViewModel::closeLlamaAdvancedDialog,
             onConfirmRequest = { updated ->
-                prefs.edit().putString("advanced_settings", AdvancedSettingsJson.encode(updated)).apply()
+                val original = prefs.getString("advanced_settings", null)
+                val merged = mergeProviderOptionsDraft(original, AdvancedSettingsJson.encode(initialSettings), AdvancedSettingsJson.encode(updated))
+                prefs.edit().putString("advanced_settings", merged).apply()
                 settingViewModel.closeLlamaAdvancedDialog()
             },
             onResetRequest = {
@@ -1589,7 +1591,8 @@ private fun OllamaAdvancedSettingsDialog(
                         maxAutoContinues = maxAutoContinuesText.toIntOrNull() ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES,
                         autoContinueTokenThreshold = initialParsed.autoContinueTokenThreshold ?: OllamaOptions.DEFAULT_AUTO_CONTINUE_TOKEN_THRESHOLD
                     )
-                    val resultJson = jsonSerializer.encodeToString(options)
+                    val draftJson = Json(jsonSerializer) { encodeDefaults = true }
+                    val resultJson = mergeProviderOptionsDraft(initialOptionsJson, draftJson.encodeToString(initialParsed), draftJson.encodeToString(options))
                     onConfirmRequest(resultJson)
                 }
             ) {
@@ -1823,14 +1826,15 @@ private fun OpenRouterAdvancedSettingsDialog(
                         seed = seedText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_SEED,
                         provider = routing
                     )
-                    val resultJson = jsonSerializer.encodeToString(options)
+                    val draftJson = Json(jsonSerializer) { encodeDefaults = true }
+                    val resultJson = mergeProviderOptionsDraft(initialRoutingJson, draftJson.encodeToString(initialParsed), draftJson.encodeToString(options))
                     onConfirmRequest(resultJson)
                 }
             ) {
                 Text(stringResource(R.string.save))
             }
         },
-        dismissButton = {
+        secondaryButton = {
             TextButton(
                 onClick = {
                     onConfirmRequest(null)
@@ -2294,7 +2298,7 @@ private fun LlamaAdvancedSettingsDialog(
                 Text(stringResource(R.string.save))
             }
         },
-        dismissButton = {
+        secondaryButton = {
             TextButton(onClick = onResetRequest) {
                 Text(stringResource(R.string.reset))
             }

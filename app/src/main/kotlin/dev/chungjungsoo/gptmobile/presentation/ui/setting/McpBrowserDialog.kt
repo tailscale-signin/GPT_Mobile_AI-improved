@@ -28,7 +28,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpBrowserData
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog as AlertDialog
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,7 +78,7 @@ fun McpBrowserDialog(connection: ToolConnection, onDismiss: () -> Unit, model: M
     var arguments by remember(connection) { mutableStateOf("{}") }
     val clipboard = LocalClipboardManager.current
     LaunchedEffect(connection.connectionUid) { model.browse(connection) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.mcp_browser_dialog_label_1)) }, text = {
+    AlertDialog(onDismissRequest = onDismiss, dirty = false, dismissLabel = "Close", title = { Text(stringResource(R.string.mcp_browser_dialog_label_1)) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text("${connection.name} · ${catalog.serverName}")
             Text("${catalog.protocolVersion} · ${catalog.capabilities.joinToString()}", style = MaterialTheme.typography.bodySmall)
@@ -93,5 +93,5 @@ fun McpBrowserDialog(connection: ToolConnection, onDismiss: () -> Unit, model: M
             androidx.compose.foundation.text.selection.SelectionContainer { Text(text) }
             TextButton(enabled = text.isNotBlank(), onClick = { clipboard.setText(AnnotatedString(text)) }) { Text(stringResource(R.string.mcp_browser_dialog_label_4)) }
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.mcp_browser_dialog_label_5)) } })
+    }, confirmButton = {})
 }

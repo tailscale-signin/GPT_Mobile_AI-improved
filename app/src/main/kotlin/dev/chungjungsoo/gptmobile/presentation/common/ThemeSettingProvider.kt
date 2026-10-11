@@ -23,6 +23,19 @@ fun ThemeSettingProvider(
     themeViewModel: ThemeViewModel = hiltViewModel(),
     content: @Composable () -> Unit
 ) {
+    val resolver = androidx.compose.ui.platform.LocalContext.current.contentResolver
+    val systemReducedMotion = androidx.compose.runtime.remember(resolver) {
+        androidx.compose.runtime.mutableStateOf(android.provider.Settings.Global.getFloat(resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f)
+    }
+    androidx.compose.runtime.DisposableEffect(resolver) {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                systemReducedMotion.value = android.provider.Settings.Global.getFloat(resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+            }
+        }
+        resolver.registerContentObserver(android.provider.Settings.Global.getUriFor(android.provider.Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
     themeViewModel.themeSetting.collectAsStateWithLifecycle().value.run {
         CompositionLocalProvider(
             LocalThemeViewModel provides themeViewModel,
@@ -31,7 +44,7 @@ fun ThemeSettingProvider(
             LocalCustomPrimaryArgb provides customPrimaryArgb,
             LocalCustomPalette provides customPalette,
             LocalThemeFamily provides themeFamily,
-            LocalReducedMotion provides reducedMotion,
+            LocalReducedMotion provides (reducedMotion || systemReducedMotion.value),
             content = content
         )
     }

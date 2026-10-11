@@ -34,7 +34,7 @@ class DelegationSettingsContentTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
-    fun detailedControlsStayHiddenUntilAdvancedIsExpanded() {
+    fun helperAndLimitControlsAreReachableInTheirSections() {
         compose.setContent {
             MaterialTheme {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -43,8 +43,9 @@ class DelegationSettingsContentTest {
             }
         }
         compose.onNodeWithText("Search Queries: 9").assertDoesNotExist()
+        compose.onNodeWithText("Helper").performScrollTo().performClick()
         compose.onNodeWithTag("delegate_model_dropdown").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("delegation_advanced").performScrollTo().performClick()
+        compose.onNodeWithText("Limits").performScrollTo().performClick()
         compose.onNodeWithText("Search Queries: 9").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Pages To Read: 11").performScrollTo().assertIsDisplayed()
     }

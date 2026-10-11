@@ -86,25 +86,25 @@ fun AddPlatformScreen(
     onSave: (PlatformV2, ProviderConnection?, String?) -> Unit,
     onNavigateToLocalModels: () -> Unit = {}
 ) {
-    var step by remember { mutableStateOf(AddPlatformStep.API_TYPE) }
-    var selectedClientType by remember { mutableStateOf<ClientType?>(null) }
-    var platformName by remember { mutableStateOf("") }
-    var apiUrl by remember { mutableStateOf("") }
+    var step by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(AddPlatformStep.API_TYPE) }
+    var selectedClientType by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<ClientType?>(null) }
+    var platformName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var apiUrl by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val apiTokens = remember { mutableStateListOf("") }
-    var model by remember { mutableStateOf("") }
-    var isReasoningEnabled by remember { mutableStateOf(false) }
-    var selectedConnectionUid by remember { mutableStateOf<String?>(null) }
-    var createNewConnection by remember { mutableStateOf(true) }
-    var connectionName by remember { mutableStateOf("") }
-    var showAdvancedSettings by remember { mutableStateOf(false) }
-    var systemPrompt by remember { mutableStateOf(ModelConstants.DEFAULT_PROMPT) }
-    var creativity by remember { mutableStateOf(SamplingCreativity.DEFAULT) }
+    var model by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var isReasoningEnabled by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var selectedConnectionUid by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var createNewConnection by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    var connectionName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var showAdvancedSettings by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var systemPrompt by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ModelConstants.DEFAULT_PROMPT) }
+    var creativity by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(SamplingCreativity.DEFAULT) }
     var profileLabels by remember { mutableStateOf<List<ProfileLabel>>(emptyList()) }
-    var showLabelsDialog by remember { mutableStateOf(false) }
-    var maxToolCallsText by remember { mutableStateOf("50") }
-    var showSuggestedModels by remember { mutableStateOf(false) }
-    var showOpenRouterPicker by remember { mutableStateOf(false) }
-    var showLlamaPicker by remember { mutableStateOf(false) }
+    var showLabelsDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var maxToolCallsText by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("50") }
+    var showSuggestedModels by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showOpenRouterPicker by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showLlamaPicker by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }

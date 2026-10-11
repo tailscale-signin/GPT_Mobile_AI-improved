@@ -36,6 +36,7 @@ internal fun AppChoiceSheet(
     dismissButton: (@Composable () -> Unit)? = null,
     icon: (@Composable () -> Unit)? = null,
     title: (@Composable () -> Unit)? = null,
+    shape: androidx.compose.ui.graphics.Shape = AppShapes.sheet,
     text: (@Composable () -> Unit)? = null
 ) {
     val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * 0.9f }
@@ -43,7 +44,7 @@ internal fun AppChoiceSheet(
         onDismissRequest = onDismissRequest,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = AppShapes.sheet,
+        shape = shape,
         modifier = modifier
     ) {
         Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {

@@ -40,7 +40,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.BackupRestoreHost
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
 
 @Composable
-fun StartScreen(onStartClick: () -> Unit, onRestored: () -> Unit = {}, viewModel: SettingViewModelV2 = hiltViewModel()) {
+fun StartScreen(onStartClick: () -> Unit, onLocalClick: () -> Unit = onStartClick, onRestored: () -> Unit = {}, viewModel: SettingViewModelV2 = hiltViewModel()) {
     var showGuide by rememberSaveable { mutableStateOf(false) }
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -48,6 +48,7 @@ fun StartScreen(onStartClick: () -> Unit, onRestored: () -> Unit = {}, viewModel
             Text("A clear space\nfor your AI.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Medium)
             Text("Bring your favourite provider, try a free model, or run a supported model on your device.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick = onStartClick, modifier = Modifier.fillMaxWidth()) { Text("Set up an AI profile") }
+            OutlinedButton(onClick = onLocalClick, modifier = Modifier.fillMaxWidth()) { Text("Explore on-device models") }
             OutlinedButton(onClick = viewModel::openBackupRestoreDialog, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.Restore, null, Modifier.padding(end = 8.dp))
                 Text("Restore a backup")

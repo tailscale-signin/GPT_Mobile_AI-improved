@@ -122,7 +122,10 @@ fun AiPlatformsScreen(
                 if (visible.isEmpty()) item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppEmptyState("No matching connections", "Add connection", onNavigateToAddPlatform) }
                 items(visible, key = { "connection:${it.uid}" }) { connection ->
                     dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow(connection.name, "${connection.compatibleType.name} · ${allPlatforms.count { it.providerConnectionUid == connection.uid }} profiles", Icons.Rounded.Cloud, { onNavigateToProviderSettings(connection.uid) })
-                    if (connection.compatibleType == ClientType.OPENROUTER) TextButton(onClick = onNavigateToOpenRouterSettings) { Text("OpenRouter options") }
+                    if (connection.compatibleType == ClientType.OPENROUTER) {
+                        TextButton(onClick = onNavigateToOpenRouterSettings) { Text("OpenRouter options") }
+                        TextButton(onClick = { onPreferences("OPENROUTER") }) { Text("Batch processing policy") }
+                    }
                 }
             }
             if (tab == 1) item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Provider discovery", "Automatic model catalogue discovery", Icons.Rounded.Tune, { onPreferences("CONNECTIONS") }) }
@@ -215,7 +218,7 @@ private fun ProviderConnectionGroupCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun PlatformItemCard(
     platform: PlatformV2,
@@ -280,9 +283,9 @@ private fun PlatformItemCard(
                 Text(if (platform.enabled) "Enabled" else "Disabled", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (labelsList.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
+                    androidx.compose.foundation.layout.FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         labelsList.forEach { label ->
                             BeveledProfileLabel(label = label)

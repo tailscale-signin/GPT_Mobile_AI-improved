@@ -320,7 +320,7 @@ fun ToolConnectionsScreen(
         ) {
             SettingsTabs(listOf("Installed", "Connections"), if (toolkitFilter == ToolkitFilter.MCP) 1 else 0) { toolkitFilter = if (it == 1) ToolkitFilter.MCP else ToolkitFilter.PLUGINS }
             dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("GitHub workspace", "Repositories, files and changes", Icons.Rounded.Code, onGitHub)
-            SettingsTabs(listOf("Research", "Execution", "GitHub efficiency"), -1) { onPreferences(listOf("RESEARCH", "TOOLS", "GITHUB")[it]) }
+            SettingsTabs(listOf("Research", "Execution", "Location", "GitHub efficiency"), -1) { onPreferences(listOf("RESEARCH", "TOOLS", "LOCATION", "GITHUB")[it]) }
             TextButton(onClick = { showAccessAudit = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_title)) }
             ToolkitControls(search, { search = it }, toolkitFilter, { toolkitFilter = it }, toolkitSort, { toolkitSort = it })
             Text("Plugins run in this app. MCP tools run on a connected remote server. Profile switches are available in AI → Profile → Tools.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

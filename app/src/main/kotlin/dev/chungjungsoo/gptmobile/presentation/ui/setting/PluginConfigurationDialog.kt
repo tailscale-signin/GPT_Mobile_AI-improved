@@ -30,8 +30,8 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeature
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog as AlertDialog
 
 @Composable
 internal fun PluginConfigurationDialog(

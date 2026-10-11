@@ -129,6 +129,7 @@ fun PlatformSettingScreen(
             when (initialTab) {
                 1 -> 2
                 2 -> 3
+                3 -> 1 // additive Behaviour deep link; retain the older Tools and Advanced indices
                 else -> 0
             }
         )
@@ -395,6 +396,14 @@ fun PlatformSettingScreen(
                         )
                     }
                     if (profileTab == 1) {
+                        if (!isLocalPlatform && !isFreePlatform) {
+                            ExtendedThinkingSwitch(
+                                modifier = Modifier.heightIn(min = 64.dp),
+                                enabled = platformData.enabled,
+                                isChecked = platformData.reasoning,
+                                onCheckedChange = { settingViewModel.toggleReasoning() }
+                            )
+                        }
                         SettingItem(
                             modifier = Modifier.heightIn(min = 64.dp),
                             title = stringResource(R.string.system_prompt),
@@ -596,13 +605,6 @@ fun PlatformSettingScreen(
                             )
                         }
                         if (!isLocalPlatform && !isFreePlatform) {
-                            ExtendedThinkingSwitch(
-                                modifier = Modifier.heightIn(min = 64.dp),
-                                enabled = platformData.enabled,
-                                isChecked = platformData.reasoning,
-                                onCheckedChange = { settingViewModel.toggleReasoning() }
-                            )
-
                             // Provider-specific OpenRouter batching lives exclusively in
                             // OpenRouter Provider Settings. Keep these legacy per-profile controls
                             // only for providers whose batch configuration is still profile-scoped.
@@ -1242,12 +1244,12 @@ private fun acceleratorLabel(accelerator: String?): String = when (LocalAccelera
 internal fun profileControlSearchEntries(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2, hasConnection: Boolean): List<SettingsSearchEntry> {
     val local = profile.compatibleType == ClientType.LITERT_LM
     val free = profile.compatibleType == ClientType.FREE
-    val controls = mutableListOf(0 to R.string.ai_profile_name, 0 to R.string.api_model, 2 to R.string.system_prompt)
+    val controls = mutableListOf(0 to R.string.ai_profile_name, 0 to R.string.api_model, 3 to R.string.system_prompt)
     controls += 0 to if (local) R.string.enable_platform else R.string.enable
     if (!local && !free && !hasConnection) controls += listOf(0 to R.string.api_url, 0 to R.string.api_key)
     if (hasConnection && !local) controls += 0 to R.string.provider_connection
     if (local) controls += listOf(2 to R.string.top_k, 2 to R.string.max_tokens, 2 to R.string.accelerator)
-    if (!local && !free) controls += listOf(2 to R.string.timeout, 2 to R.string.extended_thinking)
+    if (!local && !free) controls += listOf(2 to R.string.timeout, 3 to R.string.extended_thinking)
     when (profile.compatibleType) {
         ClientType.GOOGLE -> controls += 2 to R.string.gemini_safety_settings
         ClientType.OPENROUTER -> controls += 2 to R.string.openrouter_advanced_settings
@@ -1261,6 +1263,17 @@ internal fun profileControlSearchEntries(profile: dev.chungjungsoo.gptmobile.dat
     }
     return controls.map { (tab, resource) ->
         val title = stringResource(resource)
-        SettingsSearchEntry("profile.${profile.uid}.$resource", title, "AI › ${profile.name} › ${if (tab == 0) "Profile" else "Advanced"}", SettingsSearchDestination.PROFILES, "${profile.uid}|$tab|$title", "${profile.name} ${profile.model}")
+        SettingsSearchEntry(
+            "profile.${profile.uid}.$resource",
+            title,
+            "AI › ${profile.name} › ${when (tab) {
+                0 -> "Overview"
+                3 -> "Behaviour"
+                else -> "Advanced"
+            }}",
+            SettingsSearchDestination.PROFILES,
+            "${profile.uid}|$tab|$title",
+            "${profile.name} ${profile.model}"
+        )
     } + listOf(SettingsSearchEntry("profile.${profile.uid}.tools", "Tools", "AI › ${profile.name} › Tools", SettingsSearchDestination.PROFILES, "${profile.uid}|1|", "${profile.name} permissions services"))
 }

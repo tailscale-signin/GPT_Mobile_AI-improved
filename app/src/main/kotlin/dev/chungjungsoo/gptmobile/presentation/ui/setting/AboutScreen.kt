@@ -2,8 +2,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.ClipData
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -68,8 +69,13 @@ fun AboutScreen(
                 .padding(innerPadding)
                 .verticalScroll(scrollState)
         ) {
+            Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(56.dp))
+                Text("GPT Mobile", style = MaterialTheme.typography.headlineMedium)
+                Text("Your conversations, your AI.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             SettingItem(
-                modifier = Modifier.height(64.dp),
+                modifier = Modifier.heightIn(min = 72.dp),
                 title = stringResource(R.string.version),
                 description = "v$version",
                 onItemClick = { scope.launch { clipboardManager.setClipEntry(ClipEntry(ClipData.newPlainText("v$version", "v$version"))) } },
@@ -83,7 +89,7 @@ fun AboutScreen(
                 }
             )
             SettingItem(
-                modifier = Modifier.height(64.dp),
+                modifier = Modifier.heightIn(min = 72.dp),
                 title = stringResource(R.string.license),
                 description = stringResource(R.string.license_description),
                 onItemClick = onNavigationToLicense,
@@ -97,7 +103,7 @@ fun AboutScreen(
                 }
             )
             SettingItem(
-                modifier = Modifier.height(64.dp),
+                modifier = Modifier.heightIn(min = 72.dp),
                 title = stringResource(R.string.github),
                 onItemClick = { uriHandler.openUri(githubLink) },
                 showTrailingIcon = false,
@@ -110,7 +116,7 @@ fun AboutScreen(
                 }
             )
             SettingItem(
-                modifier = Modifier.height(64.dp),
+                modifier = Modifier.heightIn(min = 72.dp),
                 title = stringResource(R.string.f_droid),
                 onItemClick = { uriHandler.openUri(fdroidLink) },
                 showTrailingIcon = false,
@@ -123,7 +129,7 @@ fun AboutScreen(
                 }
             )
             SettingItem(
-                modifier = Modifier.height(64.dp),
+                modifier = Modifier.heightIn(min = 72.dp),
                 title = stringResource(R.string.play_store),
                 onItemClick = { uriHandler.openUri(googlePlayLink) },
                 showTrailingIcon = false,
@@ -136,7 +142,7 @@ fun AboutScreen(
                 }
             )
             SettingItem(
-                modifier = Modifier.height(64.dp),
+                modifier = Modifier.heightIn(min = 72.dp),
                 title = stringResource(R.string.bug_report),
                 description = stringResource(R.string.bug_report_description),
                 onItemClick = { uriHandler.openUri(bugReportLink) },
@@ -150,7 +156,7 @@ fun AboutScreen(
                 }
             )
             SettingItem(
-                modifier = Modifier.height(64.dp),
+                modifier = Modifier.heightIn(min = 72.dp),
                 title = stringResource(R.string.feedback),
                 description = stringResource(R.string.feedback_description),
                 onItemClick = { uriHandler.openUri(feedbackLink) },

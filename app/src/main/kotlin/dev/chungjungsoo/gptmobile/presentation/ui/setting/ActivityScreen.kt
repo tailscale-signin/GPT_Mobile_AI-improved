@@ -27,7 +27,8 @@ internal fun ActivityScreen(
     tools: ToolConnectionsViewModel,
     initialTab: String,
     onBack: () -> Unit,
-    onChat: (Int) -> Unit
+    onChat: (Int) -> Unit,
+    onCollectionPreferences: () -> Unit = {}
 ) {
     val tabs = listOf("Runs", "Usage", "Benchmarks", "Diagnostics")
     var tab by rememberSaveable(initialTab) { mutableIntStateOf(tabs.indexOf(initialTab).coerceAtLeast(0)) }
@@ -40,7 +41,10 @@ internal fun ActivityScreen(
                 0 -> WorkspaceScreen(onBack, onChat, initialTab = "Tasks", focused = true, embedded = true)
                 1 -> UsageStatisticsScreen(onBack = onBack, embedded = true)
                 2 -> ProfileBenchmarkScreen(onBack = onBack, onUsage = { tab = 1 }, embedded = true)
-                3 -> DebugDiagnosticsScreen(settings, onBack, { tab = 1 }, { tab = 2 }, toolConnectionsViewModel = tools, embedded = true)
+                3 -> {
+                    androidx.compose.material3.TextButton(onClick = onCollectionPreferences, modifier = Modifier.padding(horizontal = 20.dp)) { Text("Diagnostic collection preferences") }
+                    DebugDiagnosticsScreen(settings, onBack, { tab = 1 }, { tab = 2 }, toolConnectionsViewModel = tools, embedded = true)
+                }
             }
         }
     }

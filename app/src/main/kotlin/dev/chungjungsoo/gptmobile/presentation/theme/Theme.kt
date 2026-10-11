@@ -138,6 +138,7 @@ data class ColorFamily(
 
 val unspecified_scheme = ColorFamily(Color.Unspecified, Color.Unspecified, Color.Unspecified, Color.Unspecified)
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun GPTMobileTheme(
     dynamicTheme: DynamicTheme = DynamicTheme.OFF,
@@ -178,7 +179,7 @@ fun GPTMobileTheme(
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = foreground(colorScheme.background) == Color.Black
         }
     }
-    MaterialTheme(colorScheme = colorScheme, typography = AppTypography, shapes = AppMaterialShapes, content = content)
+    MaterialTheme(colorScheme = colorScheme, typography = AppTypography, shapes = AppMaterialShapes, motionScheme = if (dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current) ReducedMotionScheme else androidx.compose.material3.MotionScheme.standard(), content = content)
 }
 
 /** The editor and the application use the same role mapping. */

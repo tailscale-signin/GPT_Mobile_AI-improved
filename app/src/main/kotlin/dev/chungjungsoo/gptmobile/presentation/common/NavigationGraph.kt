@@ -197,6 +197,10 @@ fun NavGraphBuilder.startScreenNavigation(navController: NavHostController) {
     composable(Route.GET_STARTED) {
         StartScreen(
             onStartClick = { navController.navigate(Route.SETUP_ROUTE) },
+            onLocalClick = {
+                navController.navigate(Route.SETUP_ROUTE)
+                navController.navigate(Route.SETUP_LOCAL_MODELS)
+            },
             onRestored = {
                 navController.navigate(Route.CHAT_LIST) { popUpTo(Route.GET_STARTED) { inclusive = true } }
             }
@@ -443,7 +447,8 @@ fun NavGraphBuilder.settingNavigation(
                 toolConnectionsViewModel,
                 entry.arguments?.getString("tab") ?: "Runs",
                 { navController.navigateUp() },
-                { id -> navController.navigate("chat_room/$id") }
+                { id -> navController.navigate("chat_room/$id") },
+                onCollectionPreferences = { navController.navigate(Route.FEATURE_CONTROLS + "?category=DIAGNOSTICS") }
             )
         }
         composable(Route.DELEGATION) {

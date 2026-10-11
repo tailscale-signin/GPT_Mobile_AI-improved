@@ -50,7 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet as AlertDialog
 
 /** Rich, server-first MCP picker used by AI model settings. */
 @Composable

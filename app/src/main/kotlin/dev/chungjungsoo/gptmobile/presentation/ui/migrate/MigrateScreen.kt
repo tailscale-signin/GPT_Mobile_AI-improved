@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.migrate
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -110,55 +108,39 @@ fun MigrationCard(
 ) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxHeight(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = when (status) {
-                    MigrateViewModel.MigrationState.READY -> Ready
-                    MigrateViewModel.MigrationState.MIGRATING -> Migrating
-                    MigrateViewModel.MigrationState.MIGRATED -> Complete
-                    MigrateViewModel.MigrationState.ERROR -> Error
-                    MigrateViewModel.MigrationState.BLOCKED -> Block
-                },
-                contentDescription = null,
-                modifier = Modifier.size(48.dp)
-            )
-            Column {
-                Text(
-                    text = title,
-                    modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, top = 16.dp),
-                    textAlign = TextAlign.Center
+        Column(Modifier.padding(20.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                Icon(
+                    imageVector = when (status) {
+                        MigrateViewModel.MigrationState.READY -> Ready
+                        MigrateViewModel.MigrationState.MIGRATING -> Migrating
+                        MigrateViewModel.MigrationState.MIGRATED -> Complete
+                        MigrateViewModel.MigrationState.ERROR -> Error
+                        MigrateViewModel.MigrationState.BLOCKED -> Block
+                    },
+                    contentDescription = status.name.lowercase(),
+                    modifier = Modifier.size(24.dp)
                 )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    textAlign = TextAlign.Center
-                )
+                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             }
-            Spacer(modifier = Modifier.weight(1f))
-            TextButton(
-                onClick = onMigrationClick,
-                enabled = status == MigrateViewModel.MigrationState.READY || status == MigrateViewModel.MigrationState.ERROR
-            ) {
-                when (status) {
-                    MigrateViewModel.MigrationState.READY, MigrateViewModel.MigrationState.BLOCKED -> Text(stringResource(R.string.migrate))
-                    MigrateViewModel.MigrationState.MIGRATING -> Text(stringResource(R.string.migrating))
-                    MigrateViewModel.MigrationState.MIGRATED -> Text(stringResource(R.string.migrated))
-                    MigrateViewModel.MigrationState.ERROR -> Text(stringResource(R.string.error))
-                }
+            Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onMigrationClick, enabled = status == MigrateViewModel.MigrationState.READY || status == MigrateViewModel.MigrationState.ERROR) {
+                Text(
+                    stringResource(
+                        when (status) {
+                            MigrateViewModel.MigrationState.READY, MigrateViewModel.MigrationState.BLOCKED -> R.string.migrate
+                            MigrateViewModel.MigrationState.MIGRATING -> R.string.migrating
+                            MigrateViewModel.MigrationState.MIGRATED -> R.string.migrated
+                            MigrateViewModel.MigrationState.ERROR -> R.string.error
+                        }
+                    )
+                )
             }
         }
     }

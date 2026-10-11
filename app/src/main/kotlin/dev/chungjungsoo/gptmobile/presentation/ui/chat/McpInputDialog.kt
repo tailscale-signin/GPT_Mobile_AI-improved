@@ -19,7 +19,7 @@ import androidx.compose.ui.res.stringResource
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpInputRequest
 import dev.chungjungsoo.gptmobile.data.agent.tool.schemaError
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog as AlertDialog
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

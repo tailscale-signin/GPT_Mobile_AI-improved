@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +33,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 /** Full-window adapter for existing validated draft forms. Callers retain all field and save logic. */
+@OptIn(ExperimentalLayoutApi::class)
 @Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun AppFormDialog(
@@ -39,6 +42,9 @@ internal fun AppFormDialog(
     modifier: Modifier = Modifier,
     dismissButton: (@Composable () -> Unit)? = null,
     title: (@Composable () -> Unit)? = null,
+    icon: (@Composable () -> Unit)? = null,
+    secondaryButton: (@Composable () -> Unit)? = null,
+    dismissLabel: String = "Cancel",
     text: (@Composable () -> Unit)? = null,
     properties: DialogProperties = DialogProperties(),
     dirty: Boolean = true
@@ -51,12 +57,14 @@ internal fun AppFormDialog(
             Column(Modifier.fillMaxSize().imePadding()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = cancel) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    icon?.invoke()
                     Box(Modifier.weight(1f)) { title?.invoke() }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp)) { text?.invoke() }
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = cancel) { Text("Cancel") }
+                    FlowRow(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = cancel) { Text(dismissLabel) }
+                        secondaryButton?.invoke()
                         confirmButton()
                     }
                 }

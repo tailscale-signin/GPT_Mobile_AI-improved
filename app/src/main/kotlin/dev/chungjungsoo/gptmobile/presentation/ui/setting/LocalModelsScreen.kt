@@ -91,10 +91,20 @@ fun LocalModelsScreen(
     val context = LocalContext.current
     val downloadPreferences = remember { context.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE) }
     var wifiOnly by remember { mutableStateOf(downloadPreferences.getBoolean("wifiOnly", false)) }
-    var marketplace by rememberSaveable { mutableStateOf(startInMarketplace) }
+    var selectedTab by rememberSaveable {
+        mutableIntStateOf(
+            if (startInDelegation) {
+                2
+            } else if (startInMarketplace) {
+                1
+            } else {
+                0
+            }
+        )
+    }
+    val marketplace = selectedTab == 1
     var marketplaceTab by rememberSaveable { mutableIntStateOf(0) }
     var architecture by rememberSaveable { mutableStateOf("") }
-    var selectedTab by rememberSaveable { mutableStateOf(if (startInDelegation) 1 else 0) }
     val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
     val profiles by runtimeViewModel.profiles.collectAsStateWithLifecycle()
     val qnnAvailable by runtimeViewModel.qnnAvailable.collectAsStateWithLifecycle()
@@ -103,7 +113,7 @@ fun LocalModelsScreen(
     androidx.compose.runtime.LaunchedEffect(selectedArchitecture) { viewModel.setNpuOnly(selectedArchitecture == "QNN") }
     val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
     val backFromModels: () -> Unit = {
-        if (marketplace) backFade.fade { marketplace = false } else onNavigationClick()
+        if (marketplace) backFade.fade { selectedTab = 0 } else onNavigationClick()
     }
     BackHandler(marketplace, onBack = backFromModels)
 
@@ -122,7 +132,7 @@ fun LocalModelsScreen(
                 scrollBehavior = scrollBehavior,
                 onNavigationClick = backFromModels,
                 marketplace = marketplace,
-                onMarketplace = { marketplace = true }
+                onMarketplace = { selectedTab = 1 }
             )
         }
     ) { innerPadding ->
@@ -140,15 +150,12 @@ fun LocalModelsScreen(
 
             else -> {
                 LazyColumn(Modifier.padding(innerPadding), state = scrollState) {
-                    if (!marketplace) {
-                        item {
-                            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = selectedTab) {
-                                androidx.compose.material3.Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Library") })
-                                androidx.compose.material3.Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Runtime") })
-                            }
+                    item(key = "local-destinations") {
+                        Column(Modifier.padding(horizontal = 20.dp)) {
+                            SettingsTabs(listOf("Installed", "Discover", "Runtime"), selectedTab) { selectedTab = it }
                         }
                     }
-                    if (!marketplace && selectedTab == 1) {
+                    if (selectedTab == 2) {
                         item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
                         item { dev.chungjungsoo.gptmobile.presentation.designsystem.AppDestinationRow("Cache, metrics & fallback", "Local runtime feature controls", Icons.Rounded.Memory, onRuntimePreferences) }
                     } else if (!marketplace) {
@@ -179,9 +186,9 @@ fun LocalModelsScreen(
                                     Column(Modifier.padding(20.dp)) {
                                         Text("Your next AI can run on this device.", style = MaterialTheme.typography.titleMedium)
                                         Text("Choose a compatible model to get started.", style = MaterialTheme.typography.bodySmall)
-                                        Button(onClick = { marketplace = true }) {
+                                        Button(onClick = { selectedTab = 1 }) {
                                             Icon(Icons.Rounded.Storefront, null)
-                                            Text("Browse marketplace")
+                                            Text("Discover models")
                                         }
                                     }
                                 }
@@ -191,7 +198,7 @@ fun LocalModelsScreen(
                             LocalModelItem(item, LocalModelSource.CATALOG, false, {}, {}, { viewModel.onDeleteClick(item.entry) }, { runtimeViewModel.createProfile(item.entry, onOpenProfile) }, hasProfile = profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM })
                         }
                         val downloading = uiState.allItems.count { it.status == LocalModelItemStatus.DOWNLOADING }
-                        if (downloading > 0) item { TextButton(onClick = { marketplace = true }) { Text("View $downloading active downloads") } }
+                        if (downloading > 0) item { TextButton(onClick = { selectedTab = 1 }) { Text("View $downloading active downloads") } }
                     } else {
                         item {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -408,7 +415,7 @@ private fun LocalModelsTopBar(
         title = {
             Text(
                 modifier = Modifier.padding(4.dp),
-                text = if (marketplace) "Model marketplace" else "Local models",
+                text = "Local models",
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -431,14 +438,14 @@ private fun LocalModelsOverviewCard(state: LocalModelsUiState) {
     val downloaded = state.allItems.count { it.status == LocalModelItemStatus.READY }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Text("AI on your device", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
                 "Open a profile to chat. Find more models in the marketplace.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
             Row(

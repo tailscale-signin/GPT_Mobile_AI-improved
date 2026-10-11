@@ -10,6 +10,7 @@ internal enum class FeatureHome(val title: String, val breadcrumb: String) {
     GITHUB("GitHub efficiency", "Tools › GitHub › Efficiency"),
     LOCAL("Local runtime controls", "AI › Local › Runtime"),
     TOOLS("Tool execution", "Tools › Execution"),
+    LOCATION("Location access", "Tools › Location"),
     CONNECTIONS("Provider discovery", "AI › Connections"),
     DIAGNOSTICS("Diagnostic collection", "Activity › Diagnostics"),
     OPENROUTER("OpenRouter batch", "AI › Connections › OpenRouter")
@@ -26,7 +27,8 @@ internal fun featureHome(feature: AppFeature): FeatureHome = when (feature) {
     AppFeature.GITHUB_CONDITIONAL_READS, AppFeature.GITHUB_BLOB_CACHE -> FeatureHome.GITHUB
     AppFeature.LOCAL_MODEL_CACHE, AppFeature.LOCAL_ASSIST, AppFeature.LOCAL_NATIVE_METRICS,
     AppFeature.QNN_AUTO_FALLBACK -> FeatureHome.LOCAL
-    AppFeature.REMOTE_MCP, AppFeature.SHARED_TOOL_CALLS, AppFeature.DEVICE_LOCATION -> FeatureHome.TOOLS
+    AppFeature.REMOTE_MCP, AppFeature.SHARED_TOOL_CALLS -> FeatureHome.TOOLS
+    AppFeature.DEVICE_LOCATION -> FeatureHome.LOCATION
     AppFeature.MODEL_DISCOVERY -> FeatureHome.CONNECTIONS
     AppFeature.DIAGNOSTICS -> FeatureHome.DIAGNOSTICS
     AppFeature.OPENROUTER_BATCH -> FeatureHome.OPENROUTER

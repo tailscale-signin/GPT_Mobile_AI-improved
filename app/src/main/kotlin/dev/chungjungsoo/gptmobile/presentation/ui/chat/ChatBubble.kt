@@ -262,10 +262,11 @@ fun OpponentChatBubble(
     onContinueClick: (() -> Unit)? = null,
     onActionClick: ((String) -> Unit)? = null
 ) {
+    val reducedMotion = dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current
     var activityExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     val bubbleColor = animateColorAsState(
         targetValue = if (activityExpanded) MaterialTheme.colorScheme.primary.copy(alpha = if (isFavorite) 0.138f else 0.069f) else Color.Transparent,
-        animationSpec = tween(durationMillis = 1000),
+        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 180),
         label = "activityBackground"
     ).value
     val noticeMessages = remember(runNotices, timeline, isLoading) {
@@ -300,12 +301,16 @@ fun OpponentChatBubble(
             activeHighlightedSentence = matchingSentence
             activeHighlightJob?.cancel()
             activeHighlightJob = coroutineScope.launch {
+                if (reducedMotion) {
+                    highlightProgress.snapTo(1f)
+                    return@launch
+                }
                 val current = highlightProgress.value
                 val remainingRatio = (1f - current).coerceAtLeast(0f)
                 val duration = (SuggestionHighlightManager.ANIMATION_DURATION_MS * remainingRatio).toInt()
                 highlightProgress.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = duration, easing = LinearEasing)
+                    animationSpec = tween(durationMillis = if (reducedMotion) 0 else duration, easing = LinearEasing)
                 )
                 while (true) {
                     highlightProgress.animateTo(
@@ -328,7 +333,7 @@ fun OpponentChatBubble(
             val duration = (SuggestionHighlightManager.ANIMATION_DURATION_MS * current).toInt()
             highlightProgress.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = duration, easing = LinearEasing)
+                animationSpec = tween(durationMillis = if (reducedMotion) 0 else duration, easing = LinearEasing)
             )
             if (highlightProgress.value == 0f) {
                 activeHighlightedSentence = null
@@ -382,8 +387,8 @@ fun OpponentChatBubble(
     Column(modifier = modifier) {
         AnimatedVisibility(
             visible = shouldShowBubble,
-            enter = fadeIn(animationSpec = tween(1500)),
-            exit = fadeOut(animationSpec = tween(650))
+            enter = fadeIn(animationSpec = tween(if (reducedMotion) 0 else 240)),
+            exit = fadeOut(animationSpec = tween(if (reducedMotion) 0 else 240))
         ) {
             Column(
                 modifier = Modifier
@@ -395,8 +400,8 @@ fun OpponentChatBubble(
             ) {
                 AnimatedVisibility(
                     visible = activityExpanded && generationTiming != null,
-                    enter = fadeIn(tween(1000)),
-                    exit = fadeOut(tween(500))
+                    enter = fadeIn(tween(if (reducedMotion) 0 else 240)),
+                    exit = fadeOut(tween(if (reducedMotion) 0 else 240))
                 ) {
                     val now = dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveClock(activityExpanded && generationTiming?.completedAt == null)
                     generationTiming?.let { timing ->
@@ -413,7 +418,7 @@ fun OpponentChatBubble(
                 }
 
                 AssistantChronologicalContent(
-                    animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
+                    animateResponse = debugSettings.responseAnimation && !reducedMotion, timeline = contentTimeline,
                     toolEvents = toolEvents,
                     fallbackText = text,
                     fallbackThoughts = visibleThoughts,
@@ -480,8 +485,8 @@ fun OpponentChatBubble(
                 // Manual typing takes priority and hides the generated suggestions.
                 AnimatedVisibility(
                     visible = isLastMessage && dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading,
-                    enter = fadeIn(tween(180)),
-                    exit = fadeOut(tween(500))
+                    enter = fadeIn(tween(if (reducedMotion) 0 else 180)),
+                    exit = fadeOut(tween(if (reducedMotion) 0 else 240))
                 ) {
                     LazyRow(
                         modifier = Modifier
@@ -603,8 +608,8 @@ fun OpponentChatBubble(
                 ) {
                     AnimatedVisibility(
                         visible = activityExpanded && formattedTime.isNotBlank(),
-                        enter = fadeIn(tween(1000)),
-                        exit = fadeOut(tween(1000))
+                        enter = fadeIn(tween(if (reducedMotion) 0 else 240)),
+                        exit = fadeOut(tween(if (reducedMotion) 0 else 240))
                     ) {
                         Text(
                             text = formattedTime,
@@ -618,19 +623,24 @@ fun OpponentChatBubble(
 
                     AnimatedVisibility(
                         visible = isContinueVisible,
-                        enter = fadeIn(tween(300)),
-                        exit = fadeOut(tween(500))
+                        enter = fadeIn(tween(if (reducedMotion) 0 else 240)),
+                        exit = fadeOut(tween(if (reducedMotion) 0 else 240))
                     ) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
-                        val pulseAlpha by infiniteTransition.animateFloat(
-                            initialValue = 0.45f,
-                            targetValue = 0.95f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "pulseAlpha"
-                        )
+                        val pulseAlpha = if (reducedMotion) {
+                            1f
+                        } else {
+                            val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
+                            val animatedAlpha by infiniteTransition.animateFloat(
+                                initialValue = 0.45f,
+                                targetValue = 0.95f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "pulseAlpha"
+                            )
+                            animatedAlpha
+                        }
 
                         val continueInteractionSource = remember { MutableInteractionSource() }
                         val continuePressed by continueInteractionSource.collectIsPressedAsState()
@@ -712,8 +722,8 @@ fun OpponentChatBubble(
             if (!isLoading) {
                 AnimatedVisibility(
                     visible = actionsExpanded,
-                    enter = fadeIn(tween(180)),
-                    exit = fadeOut(tween(120))
+                    enter = fadeIn(tween(if (reducedMotion) 0 else 180)),
+                    exit = fadeOut(tween(if (reducedMotion) 0 else 120))
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!isError) {
@@ -749,7 +759,7 @@ fun OpponentChatBubble(
 
 @Composable
 private fun suggestionHoldPulseAlpha(pressed: Boolean): Float {
-    if (!pressed) return 1f
+    if (!pressed || dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current) return 1f
     val transition = rememberInfiniteTransition(label = "suggestionHoldPulse")
     val pulse by transition.animateFloat(
         initialValue = 0.58f,
@@ -1157,7 +1167,7 @@ private fun isImageFile(extension: String?): Boolean =
 private fun MessageActionsToggle(expanded: Boolean, onClick: () -> Unit) {
     val opacity by animateFloatAsState(
         targetValue = if (expanded) 1f else 0.7f,
-        animationSpec = tween(240),
+        animationSpec = tween(if (dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current) 0 else 180),
         label = "messageActionsOpacity"
     )
     IconButton(onClick = onClick, modifier = Modifier.size(34.dp).alpha(opacity)) {

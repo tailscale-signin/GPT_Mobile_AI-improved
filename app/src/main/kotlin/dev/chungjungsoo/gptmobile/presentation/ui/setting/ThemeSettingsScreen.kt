@@ -68,6 +68,14 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
     var draft by rememberSaveable(stateSaver = themeDraftSaver) { mutableStateOf(saved) }
     var tab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
     var valid by rememberSaveable { mutableStateOf(true) }
+    var colourRevision by rememberSaveable { mutableIntStateOf(0) }
+    val colourState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    fun selectColourSource(next: ThemeSetting) {
+        draft = next
+        colourState.removeState(colourRevision)
+        colourRevision++
+        valid = true
+    }
     var saveError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     if (saveError != null) {
@@ -110,6 +118,11 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                         Text("Live preview", style = MaterialTheme.typography.labelLarge)
                         AppSectionTitle("Your conversations")
                         Text("A quieter surface. A clearer focus.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Example preference", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Switch(checked = true, onCheckedChange = null)
+                        }
+                        Text("Example error · Please check this field", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                         Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = MaterialTheme.shapes.large) { Text("New chat", Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) }
                         Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
                             Text("Selected item", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -123,21 +136,21 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                             RenovationPalettes.names.forEach { name ->
                                 FilterChip(
                                     selected = draft.themeFamily == name && draft.dynamicTheme == DynamicTheme.OFF,
-                                    onClick = { draft = draft.copy(themeFamily = name, dynamicTheme = DynamicTheme.OFF) },
+                                    onClick = { selectColourSource(draft.copy(themeFamily = name, dynamicTheme = DynamicTheme.OFF)) },
                                     label = { Text(name) }
                                 )
                             }
                         }
-                        Text("Each family includes coordinated light and dark colours. Your previous custom palette is kept.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Active colour source: ${if (draft.dynamicTheme == DynamicTheme.ON) "Wallpaper" else draft.themeFamily ?: if (draft.customPalette != null || draft.customPrimaryArgb != null) "Legacy custom" else "Classic default"}. Each family includes light and dark colours. Your previous custom palette is kept.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         ThemeModePicker(draft.themeMode) { draft = draft.copy(themeMode = it) }
                         ThemeSwitch("Wallpaper colours", "Use your system palette", draft.dynamicTheme == DynamicTheme.ON) {
-                            draft = draft.copy(dynamicTheme = if (it) DynamicTheme.ON else DynamicTheme.OFF)
+                            selectColourSource(draft.copy(dynamicTheme = if (it) DynamicTheme.ON else DynamicTheme.OFF))
                         }
                         AppSectionTitle("Saved and classic themes")
                         (draft.savedProfiles + ThemePresets.profiles).forEach { profile ->
                             val selected = draft.dynamicTheme == DynamicTheme.OFF && draft.themeFamily == null && draft.customPalette == profile.palette
                             Surface(
-                                onClick = { draft = draft.copy(dynamicTheme = DynamicTheme.OFF, themeFamily = null, themeMode = profile.mode, customPalette = profile.palette, customPrimaryArgb = profile.palette.primary) },
+                                onClick = { selectColourSource(draft.copy(dynamicTheme = DynamicTheme.OFF, themeFamily = null, themeMode = profile.mode, customPalette = profile.palette, customPrimaryArgb = profile.palette.primary)) },
                                 color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
                                 shape = MaterialTheme.shapes.large
                             ) {
@@ -156,7 +169,11 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                             }
                         }
                     }
-                    1 -> ThemeDraftColourEditor(draft, onChange = { draft = it }, onValid = { valid = it })
+                    1 -> colourState.SaveableStateProvider(colourRevision) {
+                        GPTMobileTheme(dynamicTheme = draft.dynamicTheme, themeMode = draft.themeMode, customPrimaryArgb = draft.customPrimaryArgb, customPalette = draft.customPalette, themeFamily = draft.themeFamily, updateSystemBars = false) {
+                            ThemeDraftColourEditor(draft, onChange = { draft = it }, onValid = { valid = it })
+                        }
+                    }
                     2 -> {
                         ThemeModePicker(draft.themeMode) { draft = draft.copy(themeMode = it) }
                         ThemeSwitch("Reduce motion", "Use immediate transitions and minimise decorative movement", draft.reducedMotion) { draft = draft.copy(reducedMotion = it) }
@@ -164,8 +181,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     }
                 }
                 TextButton(onClick = {
-                    draft = draft.copy(dynamicTheme = DynamicTheme.OFF, themeFamily = "Forest", themeMode = ThemeMode.SYSTEM)
-                    valid = true
+                    selectColourSource(draft.copy(dynamicTheme = DynamicTheme.OFF, themeFamily = "Forest", themeMode = ThemeMode.SYSTEM))
                 }) { Text("Preview recommended defaults") }
             }
         }
@@ -200,7 +216,7 @@ private fun ThemeSwitch(title: String, detail: String, checked: Boolean, onChang
 @Composable
 private fun ThemeDraftColourEditor(draft: ThemeSetting, onChange: (ThemeSetting) -> Unit, onValid: (Boolean) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val initial = draft.customPalette ?: CustomThemePalette(scheme.primary.toArgb().toLong() and 0xFFFFFFFF, scheme.secondary.toArgb().toLong() and 0xFFFFFFFF, scheme.background.toArgb().toLong() and 0xFFFFFFFF, scheme.surface.toArgb().toLong() and 0xFFFFFFFF)
+    val initial = draft.customPalette.takeIf { draft.themeFamily == null && draft.dynamicTheme == DynamicTheme.OFF } ?: CustomThemePalette(scheme.primary.toArgb().toLong() and 0xFFFFFFFF, scheme.secondary.toArgb().toLong() and 0xFFFFFFFF, scheme.background.toArgb().toLong() and 0xFFFFFFFF, scheme.surface.toArgb().toLong() and 0xFFFFFFFF)
     var values by rememberSaveable { mutableStateOf(listOf(initial.primary, initial.secondary, initial.background, initial.surface).map { "%08X".format(it and 0xFFFFFFFF) }) }
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var name by rememberSaveable { mutableStateOf("") }

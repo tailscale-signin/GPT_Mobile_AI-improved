@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet as AlertDialog
 
 @Composable
 fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel()) {

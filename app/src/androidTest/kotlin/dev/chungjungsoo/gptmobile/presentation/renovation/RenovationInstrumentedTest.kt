@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,9 +24,9 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.ConversationMode
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
 import dev.chungjungsoo.gptmobile.presentation.designsystem.AppEditorScaffold
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
@@ -123,6 +124,24 @@ class RenovationInstrumentedTest {
         File(directory, "renovation-editor-large-rtl.png").outputStream().use {
             compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
+    }
+
+    @Test
+    fun providerResetActionRemainsAvailableInRenovatedEditor() {
+        var reset = 0
+        compose.setContent {
+            GPTMobileTheme(themeFamily = "Forest", updateSystemBars = false) {
+                dev.chungjungsoo.gptmobile.presentation.designsystem.AppFormDialog(
+                    onDismissRequest = {},
+                    title = { Text("Provider options") },
+                    text = { Text("Current options") },
+                    confirmButton = { TextButton(onClick = {}) { Text("Save") } },
+                    secondaryButton = { TextButton(onClick = { reset++ }) { Text("Reset") } }
+                )
+            }
+        }
+        compose.onNodeWithText("Reset").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, reset) }
     }
 
     private fun profile(uid: String, enabled: Boolean) = PlatformV2(uid = uid, name = uid, compatibleType = ClientType.OPENAI, apiUrl = "https://example.invalid/v1", model = "fixture", enabled = enabled)

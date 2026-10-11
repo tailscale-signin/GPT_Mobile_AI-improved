@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -615,7 +616,7 @@ private fun WizardNavigationButtons(
             onClick = onBack,
             modifier = Modifier
                 .weight(1f)
-                .height(40.dp)
+                .heightIn(min = 48.dp)
         ) {
             Text(
                 text = if (currentStep == 0) {
@@ -631,7 +632,7 @@ private fun WizardNavigationButtons(
             onClick = onNext,
             modifier = Modifier
                 .weight(1f)
-                .height(40.dp),
+                .heightIn(min = 48.dp),
             enabled = canProceed
         ) {
             Text(

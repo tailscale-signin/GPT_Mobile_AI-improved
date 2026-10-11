@@ -155,7 +155,7 @@ internal fun FreeToolConsentDialog(
         },
         title = { Text(if (unlocked) "Tool unlocked" else "Unlock external tool data") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     "${request.profileName} is a free AI profile. Using ${request.toolName} can send the tool request and returned data to that free model provider.",
                     style = MaterialTheme.typography.bodyMedium

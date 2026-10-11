@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth
 import dev.chungjungsoo.gptmobile.data.agent.ToolOutcome
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+import dev.chungjungsoo.gptmobile.data.research.EvidenceGainPolicy
 import dev.chungjungsoo.gptmobile.data.research.ResearchJournal
 import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
 import dev.chungjungsoo.gptmobile.data.research.ResearchSource
@@ -70,6 +71,9 @@ internal class AndroidResearchWorkflow(
     private val readAttempts = AtomicInteger()
 
     private fun normalizedTask(value: String) = value.trim().replace(Regex("\\s+"), " ").take(8_000)
+
+    private fun supportedClaimIdentities(): Set<String> = state.claims.filter { it.verdict == "Supported" }
+        .map { researchHash("${it.sourceId}\n${it.text}\n${it.quote}") }.toSet()
 
     private suspend fun checkpoint(phase: String = state.phase, complete: Boolean = false) {
         state = state.copy(phase = phase, complete = complete, attempts = readAttempts.get(), sources = sources.values.toList(), queries = queries.toList(), updatedAt = now())
@@ -153,6 +157,7 @@ internal class AndroidResearchWorkflow(
             sources[it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }] = it
         }
         queries += state.queries
+        val evidenceGain = EvidenceGainPolicy(sources.keys.toSet(), supportedClaimIdentities())
         try {
             checkpoint()
             // The coordinator owns the shared preparation deadline across retries and review.
@@ -181,7 +186,6 @@ internal class AndroidResearchWorkflow(
                 for (round in (if (saved?.complete == true) options.maxRounds else state.round.coerceAtLeast(0)) until options.maxRounds) {
                     if (exhausted || stopped() || !collecting()) break
                     state = state.copy(round = round)
-                    val before = sources.values.count { it.readable }
                     checkpoint("Searching")
                     for (query in nextQueries.map(String::trim).filter { it.length in 3..500 }.distinct()) {
                         if (exhausted || stopped() || !collecting() || queries.size >= maxQueries) break
@@ -194,9 +198,10 @@ internal class AndroidResearchWorkflow(
                     readPages(callId)
                     if (options.reviewEvidence && !stopped()) review()
                     val read = sources.values.count { it.readable }
+                    val stagnant = evidenceGain.shouldStop(sources.keys.toSet(), supportedClaimIdentities())
                     if (stopped() || !collecting() || read >= options.maxPages || round == options.maxRounds - 1) break
-                    if (round > 0 && read == before) {
-                        state = state.copy(notes = state.notes + "Stopped after a round added no readable evidence.")
+                    if (stagnant) {
+                        state = state.copy(notes = state.notes + "Stopped after two rounds added no new canonical sources or supported claims.")
                         break
                     }
                     checkpoint("Finding gaps")

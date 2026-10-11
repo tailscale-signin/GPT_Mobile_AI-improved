@@ -80,6 +80,7 @@ jobs:
           --tests 'dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealthTest'
           --tests 'dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySessionTest'
           --tests 'dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinatorTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchWorkflowTest'
 
       - name: Test Amazon HTTP and stdio bridge contracts
         working-directory: mcp/amazon

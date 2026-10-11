@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth
+import dev.chungjungsoo.gptmobile.data.agent.ToolOutcome
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
@@ -39,6 +41,8 @@ internal class LocalResearchWorkflow(
     private val journal: dev.chungjungsoo.gptmobile.data.research.ResearchJournal? = null,
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
+    private val readerHealth = journal?.readerHealth() ?: ResearchReaderHealth()
+
     suspend fun run(task: String, callId: String, automatic: Boolean = false): LocalResearchResult {
         val sources = linkedMapOf<String, DelegationSource>()
         val notes = mutableListOf<String>()
@@ -285,6 +289,7 @@ internal class LocalResearchWorkflow(
                                 var acceptedText = ""
                                 var usedReader: ResolvedAgentTool? = null
                                 for (reader in readers) {
+                                    if (toolsExhausted || !readerHealth.available(reader.modelToolName, source.url)) continue
                                     val response = try {
                                         reader.tool.execute("$callId:page:${source.id}:${reader.realToolName}", pageArguments(reader, source.url))
                                     } catch (cancelled: CancellationException) {
@@ -298,10 +303,10 @@ internal class LocalResearchWorkflow(
                                             notes += budgetLimitNote(budgeted)
                                         }
                                     }
-                                    if (response == null || response.isError) continue
-                                    val payload = response.content.researchPayload()
-                                    val text = pageText(payload).ifBlank { response.content.researchText() }
-                                    if (text.isBlank() || looksLikeConsentOrScriptShell(text)) continue
+                                    val text = response?.takeUnless { it.isError }?.let { pageText(it.content.researchPayload()).ifBlank { it.content.researchText() } }.orEmpty()
+                                    val outcome = researchReaderOutcome(response, text)
+                                    readerHealth.record(reader.modelToolName, source.url, outcome, researchReaderBillingFailure(response))
+                                    if (outcome != ToolOutcome.SUCCESS || response == null) continue
                                     accepted = response
                                     acceptedText = text
                                     usedReader = reader

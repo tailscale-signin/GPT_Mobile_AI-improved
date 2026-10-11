@@ -20,6 +20,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalResearchWorkflowTest {
+    @Test fun `authentication circuit survives worker restart while healthy reader remains available`() = runTest {
+        val health = dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth()
+        val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {
+            override suspend fun load(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
+            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) = Unit
+            override fun stopRequested() = false
+            override fun readerHealth() = health
+        }
+        var deniedCalls = 0
+        var healthyCalls = 0
+        val denied = tool("read_url") { id, _ ->
+            deniedCalls++
+            AgentToolResult(id, ToolResultContent.Text("invalid api key"), true, errorCode = "AUTH_FAILED")
+        }.copy(modelToolName = "reader_denied")
+        val healthy = tool("read_url") { id, _ ->
+            healthyCalls++
+            response(id, """{"content":"Verified latency is 42 ms.","links":[]}""")
+        }.copy(modelToolName = "reader_healthy")
+        repeat(2) { turn ->
+            val result = LocalResearchWorkflow(
+                config.copy(maxPages = 1, crawlDepth = 0),
+                listOf(denied, healthy),
+                { prompt, _ -> if (prompt.startsWith("Plan")) """{"queries":[],"urls":[]}""" else worker(prompt) },
+                journal = journal
+            ).run("Read https://example.org/latency", "worker-$turn")
+            assertEquals(1, result.pagesRead)
+        }
+        assertEquals(1, deniedCalls)
+        assertEquals(2, healthyCalls)
+    }
+
+    @Test fun `target forbidden response is host scoped and leaves other hosts available`() {
+        val health = dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth()
+        val outcome = researchReaderOutcome(AgentToolResult("read", ToolResultContent.Text("HTTP 403 Forbidden"), true), "")
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.ToolOutcome.BLOCKED, outcome)
+        health.record("reader", "https://denied.example/page", outcome)
+        assertFalse(health.available("reader", "https://denied.example/another"))
+        assertTrue(health.available("reader", "https://healthy.example/page"))
+    }
+
     @Test fun `retrieved passages survive a failed summarizer independently of its handoff`() = runTest {
         var saved: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
         val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {

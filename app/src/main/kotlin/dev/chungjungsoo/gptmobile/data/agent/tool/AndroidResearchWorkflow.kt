@@ -421,20 +421,9 @@ internal class AndroidResearchWorkflow(
                                     last?.let(completedAttempts::add)
                                     val retrievedText = last?.takeUnless { it.isError }?.pageEvidenceText().orEmpty()
                                     val wasTruncated = ((last?.content?.researchPayload() as? JsonObject)?.get("truncated") == JsonPrimitive(true))
-                                    val readOutcome = when {
-                                        last == null -> ToolOutcome.FAILED
-                                        last?.toolCallBudgetExhausted == true || last?.outputBudgetExhausted == true -> ToolOutcome.BUDGET_EXHAUSTED
-                                        last?.isError == true && isAuthFailure(last) -> ToolOutcome.AUTH_FAILED
-                                        last?.isError == true && isRateLimit(last) -> ToolOutcome.RATE_LIMITED
-                                        last?.blockedPage() == true -> ToolOutcome.BLOCKED
-                                        last?.errorCode in setOf("INVALID_RESPONSE", "MALFORMED_RESPONSE", "PARSE_ERROR") -> ToolOutcome.INVALID_RESPONSE
-                                        last?.isError == true -> ToolOutcome.FAILED
-                                        retrievedText.length < 80 -> ToolOutcome.EMPTY
-                                        looksLikeConsentOrScriptShell(retrievedText) -> ToolOutcome.BLOCKED
-                                        wasTruncated -> ToolOutcome.PARTIAL
-                                        else -> ToolOutcome.SUCCESS
-                                    }
-                                    readerHealth.record(reader.modelToolName, source.url, readOutcome, billingFailure = isBillingFailure(last))
+                                    val baseOutcome = researchReaderOutcome(last, retrievedText, minimumCharacters = 80)
+                                    val readOutcome = if (baseOutcome == ToolOutcome.SUCCESS && wasTruncated) ToolOutcome.PARTIAL else baseOutcome
+                                    readerHealth.record(reader.modelToolName, source.url, readOutcome, billingFailure = researchReaderBillingFailure(last))
                                     completedEvents.add(
                                         ResearchToolEvent(
                                             query = source.url,
@@ -528,12 +517,6 @@ internal class AndroidResearchWorkflow(
     private fun isAuthFailure(result: AgentToolResult?): Boolean = result?.let {
         it.errorCode in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED") ||
             Regex("HTTP (401|403)|unauthorized|authentication required|invalid api key", RegexOption.IGNORE_CASE)
-                .containsMatchIn(it.content.researchText())
-    } == true
-
-    private fun isBillingFailure(result: AgentToolResult?): Boolean = result?.let {
-        it.errorCode in setOf("BILLING_FAILED", "PAYMENT_REQUIRED", "INSUFFICIENT_CREDITS") ||
-            Regex("HTTP 402|payment required|insufficient (credits|balance)|billing quota", RegexOption.IGNORE_CASE)
                 .containsMatchIn(it.content.researchText())
     } == true
 

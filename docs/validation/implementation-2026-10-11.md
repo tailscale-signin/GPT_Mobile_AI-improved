@@ -65,3 +65,9 @@ Run the research bridge tests from their npm working directory; npm supplies tha
 ## Failure corrections during validation
 
 The implementation run caught and corrected capability-fallback expectations, assertions for newly retained finish reasons and Groq's explicit low reasoning effort, stale Android ASM outputs during development (confirmed older class fields despite fresh Kotlin classes, resolved with a clean generated-output rebuild), test-runner agent attachment, a missing Compose import, optional arXiv PDF URLs returning HTML, a thread-unsafe parser pre-exec hook, Europe PMC pagination, a disabled-source lookup bypass, and stale gateway package hashes after updating its guide. The final results above supersede those intermediate runs. Initial gateway discovery without its optional test dependencies failed import; the reported suite uses the repository's hash-pinned requirements.
+
+## Merge verification repairs
+
+PR #652's first full LiteRT and GenieX test runs exposed five failures outside the initial focused suite. SQLite compile diagnostics can be empty or unavailable; that is now treated as unknown FTS5 support and permits one cached creation probe. A populated options list that omits FTS5 still avoids the unsupported-module attempt. Regression coverage includes present, absent, empty and failing diagnostics, FTS4 reuse and the portable fallback.
+
+The transport recovery tests now distinguish retry telemetry from provider payloads, verify retry indices 1 and 2, and still require exactly three request attempts, one terminal failure for a permanent outage, and no replay after partial output. PR checks must pass on the repair commit before merging; the initial focused validation above is not a claim that the first full CI run passed.

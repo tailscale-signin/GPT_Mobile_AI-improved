@@ -44,7 +44,8 @@ sealed class SaveStatus {
 
 data class DownloadedLocalModelOption(
     val catalogEntryId: String,
-    val displayName: String
+    val displayName: String,
+    val compatibilityIssue: String? = null
 )
 
 @HiltViewModel

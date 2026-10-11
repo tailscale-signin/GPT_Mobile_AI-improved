@@ -8,6 +8,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
@@ -34,6 +35,8 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     private val repository: SettingRepository,
     private val runtime: LocalRuntime,
     private val models: LocalModelRepository,
+    private val comparison: dev.chungjungsoo.gptmobile.data.benchmark.LocalRuntimeBenchmarkSuite,
+    private val benchmarkStore: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore,
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
     val settings = repository.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppFeatureSettings())
@@ -41,6 +44,10 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     val profiles = repository.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val _qnnAvailable = MutableStateFlow(false)
     val qnnAvailable = _qnnAvailable.asStateFlow()
+    val comparisonProgress = comparison.progress
+    val comparisonError = comparison.error
+    val runtimeTrials = benchmarkStore.runtimeTrials
+    val qualifications = benchmarkStore.runtimeQualifications
     val active = runtime.state
     val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
     val ramGb = runtime.deviceRamGb
@@ -57,6 +64,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
 
     init {
         refresh()
+        viewModelScope.launch { benchmarkStore.load() }
     }
 
     fun refresh() {
@@ -89,12 +97,14 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         fallback: Boolean? = null,
         speculative: SpeculativeDecodingMode? = null,
         nativeMetrics: Boolean? = null,
-        assist: Boolean? = null
+        assist: Boolean? = null,
+        policy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy? = null
     ) = perform {
         updates.withLock {
             val current = repository.getFeatureSettings()
             repository.updateFeatureSettings(
                 current.copy(
+                    localExecutionPolicy = policy ?: current.localExecutionPolicy,
                     localCpuThreads = threads?.coerceIn(0, cores) ?: current.localCpuThreads,
                     localModelCache = cache ?: current.localModelCache,
                     localSpeculativeDecoding = speculative ?: current.localSpeculativeDecoding,
@@ -107,11 +117,37 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         }
         _status.value = "Saved. Performance changes apply to the next model load."
     }
+    fun compareProfile(uid: String, sustained: Boolean) = perform {
+        val profile = repository.fetchPlatformV2s().first { it.uid == uid && it.compatibleType == ClientType.LITERT_LM }
+        val selected = models.resolveLocalModelSelection(profile.model, profile.accelerator)
+        val metadata = runtime.inspectModel(selected.path)
+        val accelerator = LocalAccelerators.normalize(profile.accelerator)
+        val base = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(
+            modelPath = selected.path,
+            accelerator = accelerator,
+            maxTokens = minOf(metadata?.contextTokens ?: 2048, 4096),
+            speculativeDecoding = false,
+            nativeMetricsEnabled = true,
+            tuningLocked = true
+        )
+        val backends = metadata?.backends.orEmpty().ifEmpty { setOf(accelerator) }
+        val candidates = backends.sorted().filter { it in setOf("cpu", "gpu", "npu") }.flatMap { backend ->
+            val candidate = base.copy(accelerator = backend)
+            val ordinary = dev.chungjungsoo.gptmobile.data.benchmark.LocalBenchmarkCandidate("${profile.name} / ${backend.uppercase()} / MTP off", candidate)
+            if (metadata?.speculative == true && backend == "gpu") listOf(ordinary, dev.chungjungsoo.gptmobile.data.benchmark.LocalBenchmarkCandidate("${profile.name} / GPU / MTP requested", candidate.copy(speculativeDecoding = true))) else listOf(ordinary)
+        }
+        check(comparison.start(candidates, sustained)) { "Another benchmark is already running" }
+        _status.value = "Comparison started. It continues while you use other screens; Stop remains available in the benchmark notification."
+    }
+    fun stopComparison() = comparison.stop()
+    fun clearRuntimeEvidence() = perform { benchmarkStore.clearRuntimeEvidence() }
+
     fun releaseIdleMemory() = perform {
         _status.value = if (runtime.unloadIfIdle(0L)) "Idle model memory released" else "No idle model to release; active responses are kept running"
     }
     fun createProfile(entry: CatalogEntry, onCreated: (String) -> Unit) = perform {
         val modelPath = checkNotNull(models.resolveDownloadedPath(entry.id)) { "Download this model first" }
+        dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.installedPackageIssue(entry.downloadUrl, modelPath)?.let { error("Blocked package: $it") }
         val existing = repository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.model == entry.id }
         if (existing != null) {
             onCreated(existing.uid)

@@ -269,9 +269,21 @@ class MemoryGraphRepository @Inject constructor(
             AppLogRecorder.record("Memory", "SEARCH_INDEX_READY · engine=${if (usable) engine else "LIKE"} · rebuild=false")
             return usable
         }
-        // Try actual capabilities; module_list itself is optional on vendor SQLite builds.
-        val definitions = listOf(
-            "fts5(entity_id UNINDEXED, scope UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')",
+        // Compile diagnostics are optional. Unknown support still needs one actual
+        // creation attempt; only a populated options list can rule out built-in FTS5.
+        val supportsFts5 = runCatching {
+            readable.query("PRAGMA compile_options").use { cursor ->
+                var hasOptions = false
+                var supported = false
+                while (cursor.moveToNext()) {
+                    hasOptions = true
+                    if (cursor.getString(0) == "ENABLE_FTS5") supported = true
+                }
+                supported.takeIf { hasOptions }
+            }
+        }.getOrNull()
+        val definitions = listOfNotNull(
+            "fts5(entity_id UNINDEXED, scope UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')".takeIf { supportsFts5 != false },
             "fts4(entity_id, scope, text, notindexed=entity_id, notindexed=scope, tokenize=unicode61)"
         )
         var available = false

@@ -167,7 +167,8 @@ class PlatformSettingViewModel @Inject constructor(
         models.filter { it.status == LocalModelStatus.READY }.map { model ->
             DownloadedLocalModelOption(
                 catalogEntryId = model.catalogEntryId,
-                displayName = names[model.catalogEntryId]?.takeIf { it.isNotBlank() } ?: model.catalogEntryId
+                displayName = names[model.catalogEntryId]?.takeIf { it.isNotBlank() } ?: model.catalogEntryId,
+                compatibilityIssue = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.unsupportedReason("", model.fileName)
             )
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

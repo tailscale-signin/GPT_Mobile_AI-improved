@@ -239,6 +239,9 @@ fun ChatScreen(
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.dp
     val focusManager = LocalFocusManager.current
+    androidx.compose.runtime.DisposableEffect(focusManager) {
+        onDispose { focusManager.clearFocus(force = true) }
+    }
     val clipboard = LocalClipboard.current
     val systemChatMargin = 16.dp
     val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
@@ -246,6 +249,7 @@ fun ChatScreen(
     val hasOlderHistory by chatViewModel.olderHistoryAvailable.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
+    val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
     val invocationDiagnostics by chatViewModel.invocationDiagnostics.collectAsStateWithLifecycle()
     val hasTargetMessage = chatViewModel.targetMessageId > 0
     val hasTargetAssistant = hasTargetMessage && groupedMessages.assistantMessages.any { responses -> responses.any { it.id == chatViewModel.targetMessageId } }
@@ -830,11 +834,13 @@ fun ChatScreen(
                 .takeIf { !it.isNaN() }
                 ?.toFloat()
                 ?: 0.5f
-            val currentProfileUid = groupedMessages.assistantMessages.lastOrNull()
+            val initialProfileUid = groupedMessages.assistantMessages.lastOrNull()
                 ?.getOrNull(indexStates.lastOrNull() ?: 0)?.platformType
                 ?.takeIf { it in activePlatformUids && it !in disabledPlatformUids }
                 ?: activePlatformUids.firstOrNull { it !in disabledPlatformUids }.orEmpty()
+            var currentProfileUid by remember(initialProfileUid) { mutableStateOf(initialProfileUid) }
             ChatModelDialog(
+                onSelectedProfileChanged = { currentProfileUid = it },
                 isTemporary = chatRoom.isTemporary,
                 onTemporaryChanged = chatViewModel::setTemporary,
                 onForgetMemories = chatViewModel::forgetConversationMemories,
@@ -851,6 +857,12 @@ fun ChatScreen(
                 delegationSettings = chatToolConfig.effectiveDelegation(featureSettings.delegationFor(currentProfileUid)),
                 delegationProfiles = appAllPlatforms.filter { it.enabled && it.uid !in activePlatformUids && !it.excludesMemory() },
                 usesDefaultDelegation = chatToolConfig.delegation == null,
+                researchSelection = chatToolConfig.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(currentProfileUid).strategy),
+                researchUnlockReason = dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(chatToolConfig.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(), featureSettings, currentProfileUid, appAllPlatforms.firstOrNull { it.uid == currentProfileUid }?.let { !it.disableAllTools && !it.disableRemoteTools } == true),
+                academicGateways = academicGateways,
+                onResearchChanged = chatViewModel::setConversationResearch,
+                onAcademicConsent = { chatViewModel.grantAcademicResearch(currentProfileUid) },
+                onSaveResearchDefault = { chatViewModel.saveResearchDepthDefault(currentProfileUid, chatToolConfig.research?.depth ?: featureSettings.delegationFor(currentProfileUid).strategy) },
                 onDelegationChanged = chatViewModel::setConversationDelegation,
                 initialReasoning = chatToolConfig.reasoning ?: appAllPlatforms.firstOrNull { it.uid in activePlatformUids }?.reasoning ?: false,
                 onReasoningChanged = chatViewModel::setConversationReasoning,

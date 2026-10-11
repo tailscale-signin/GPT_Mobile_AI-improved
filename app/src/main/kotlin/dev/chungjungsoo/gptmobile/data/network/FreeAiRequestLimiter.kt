@@ -95,5 +95,5 @@ class FreeAiRequestLimiter(
 
 class FreeAiRateLimitException(provider: FreeAiProvider, retrySeconds: Long) :
     IllegalStateException(
-        "${provider.displayName} has reached its free allowance. Try again in $retrySeconds seconds, or select another Free provider."
+        "${provider.displayName} has reached its free allowance. Reset at ${java.time.Instant.ofEpochMilli(System.currentTimeMillis() + retrySeconds * 1000)} (in $retrySeconds seconds), or select another Free provider."
     )

@@ -282,7 +282,8 @@ class ChatViewModel @Inject constructor(
         models.filter { it.status == LocalModelStatus.READY }.map { model ->
             DownloadedLocalModelOption(
                 catalogEntryId = model.catalogEntryId,
-                displayName = names[model.catalogEntryId]?.takeIf { it.isNotBlank() } ?: model.catalogEntryId
+                displayName = names[model.catalogEntryId]?.takeIf { it.isNotBlank() } ?: model.catalogEntryId,
+                compatibilityIssue = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.unsupportedReason("", model.fileName)
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -728,6 +729,42 @@ class ChatViewModel @Inject constructor(
 
     private val conversationDelegationMutex = Mutex()
 
+    private val _academicGateways = MutableStateFlow<Map<String, String>>(emptyMap())
+    val academicGateways = _academicGateways.asStateFlow()
+
+    fun setConversationResearch(value: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) {
+        _chatToolConfig.update { it.copy(research = value.normalized()) }
+        val id = _chatRoom.value.id
+        if (id <= 0) return
+        viewModelScope.launch {
+            conversationDelegationMutex.withLock {
+                val latest = settingRepository.getFeatureSettings()
+                settingRepository.updateFeatureSettings(latest.copy(conversationResearch = latest.conversationResearch + (id to value.normalized())))
+            }
+        }
+    }
+
+    fun grantAcademicResearch(profileUid: String) {
+        viewModelScope.launch {
+            conversationDelegationMutex.withLock {
+                val latest = settingRepository.getFeatureSettings()
+                val granted = latest.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
+                    .withProfileToolPluginEnabled(profileUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
+                settingRepository.updateFeatureSettings(granted.copy(delegation = granted.delegation.copy(deepResearch = granted.delegation.deepResearch.copy(academicSources = true))))
+            }
+        }
+    }
+
+    fun saveResearchDepthDefault(profileUid: String, depth: Int) {
+        viewModelScope.launch {
+            conversationDelegationMutex.withLock {
+                val latest = settingRepository.getFeatureSettings()
+                val behavior = latest.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+                settingRepository.updateFeatureSettings(latest.copy(profileBehavior = latest.profileBehavior + (profileUid to behavior.copy(researchDepthOverride = depth.coerceIn(0, 100)))))
+            }
+        }
+    }
+
     fun setConversationReasoning(enabled: Boolean) {
         _chatToolConfig.update { it.copy(reasoning = enabled) }
         val chatId = _chatRoom.value.id
@@ -823,6 +860,7 @@ class ChatViewModel @Inject constructor(
     private fun loadAvailableChatTools() {
         viewModelScope.launch {
             val connections = toolConnectionRepository.getAllConnections()
+            _academicGateways.value = connections.filter { it.alias == "deep_research" }.associate { it.connectionUid to it.name }
             val profiles = settingRepository.fetchPlatformV2s().filter { it.uid in _activePlatformUids.value && !it.disableAllTools }
             val features = settingRepository.getFeatureSettings()
             val bindings = profiles.flatMap { toolConnectionRepository.listBindingsByProfile(it.uid) }
@@ -1368,6 +1406,7 @@ class ChatViewModel @Inject constructor(
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
                         val wasNewConversation = _chatRoom.value.id <= 0
                         _chatRoom.update { persisted.chatRoom }
+                        if (wasNewConversation) _chatToolConfig.value.research?.let(::setConversationResearch)
                         if (wasNewConversation) _chatToolConfig.value.reasoning?.let(::setConversationReasoning)
                         if (wasNewConversation && _chatToolConfig.value.delegation != null) {
                             setConversationDelegation(_chatToolConfig.value.delegation)
@@ -1709,7 +1748,7 @@ class ChatViewModel @Inject constructor(
                 (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).first { it.id == chatRoomId }
             }
             val features = settingRepository.getFeatureSettings()
-            _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id], reasoning = features.conversationReasoning[room.id]) }
+            _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id], reasoning = features.conversationReasoning[room.id], research = features.conversationResearch[room.id]) }
             _chatRoom.value = room
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
             applyChatPlatformState(room)

@@ -48,7 +48,7 @@ data class DelegateRanking(val run: BenchmarkRun, val runs: Int, val rating: Del
 /** Separate from the primary-model score: failed/no-call tool tasks cannot earn speed points. */
 fun delegationBenchmarkRating(runs: List<BenchmarkRun>, speedAnchor: Double? = null, firstAnchor: Long? = null, durationAnchor: Long? = null): DelegationBenchmarkRating {
     val samples = runs.filter { it.mode == BenchmarkMode.DELEGATION && it.finished && !it.canceled }
-        .flatMap { it.samples }.filter { it.outcome != BenchmarkOutcome.CANCELED }
+        .flatMap { it.samples }.filter { it.outcome !in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) }
     val passed = samples.count { it.outcome == BenchmarkOutcome.PASSED }
     val metrics = samples.mapNotNull { it.delegation }
     val successful = samples.filter { it.outcome == BenchmarkOutcome.PASSED }

@@ -13,6 +13,8 @@ An Android AI workspace for cloud and on-device models, combined multi-profile c
 
 See the [implementation and validation record](docs/audits/approved-roadmap-implementation.md) for the earlier approved roadmap, evidence and remaining physical-device gates. Local OCR, app-owned voice, accessibility expansion and localization expansion were excluded from that roadmap; do not treat them as newly delivered features.
 
+See [GPU/NPU execution plans and reliability](docs/gpu-npu-execution-plans.md) for measured routing, native process isolation, on-device comparisons and the qualification gates for advanced GPU/NPU experiments.
+
 ## Features available on main
 
 | Area | Available flow | Limits and status |
@@ -119,3 +121,10 @@ Release signing is configured separately. Do not ship a benchmark/debug APK as a
 ## License
 
 GNU General Public License v3.0; see [LICENSE](LICENSE). Upstream and third-party notices remain applicable. The README badge reflects the existing license; it does not relicense the project.
+
+### Runtime reliability and academic research
+
+- [GPU/NPU execution plans and hardware qualification](docs/gpu-npu-execution-plans.md)
+- [Remediation of all 30 reported log findings](docs/runtime-log-remediation.md)
+- [Deep Research implementation, provider registry and release gates](docs/deep-research-implementation.md)
+- [Validation record for this branch](docs/validation/implementation-2026-10-11.md)

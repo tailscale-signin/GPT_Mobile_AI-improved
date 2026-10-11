@@ -151,6 +151,7 @@ export async function createResearchBridge({
       if (record && !record.transport.sessionId) await dispose(record);
     }
   });
+  http.on('upgrade', (_req, socket) => { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); });
   http.requestTimeout = 10_000;
   http.headersTimeout = 10_000;
   const reaper = setInterval(() => {

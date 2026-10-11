@@ -36,7 +36,10 @@ class OpenAIRecoveryTransportTest {
         withApi(engine) { api ->
             val chunks = api.streamChatCompletion(request, 5, config).toList()
             assertEquals(3, attempts)
-            assertEquals("recovered", chunks.single().choices!!.single().effectiveDelta.content)
+            assertEquals("recovered", chunks.single { it.choices != null }.choices!!.single().effectiveDelta.content)
+            assertEquals(listOf(1, 2), chunks.mapNotNull { it.retryAttempts })
+            assertTrue(chunks.filter { it.retryAttempts != null }.all { (it.retryDurationMs ?: -1) >= 0 })
+            assertTrue(chunks.none { it.error != null })
         }
     }
 
@@ -49,7 +52,11 @@ class OpenAIRecoveryTransportTest {
                 throw UnknownHostException("Unable to resolve host openrouter.ai")
             }
         ) { api ->
-            assertTrue(api.streamChatCompletion(request, 5, config).toList().single().error != null)
+            val chunks = api.streamChatCompletion(request, 5, config).toList()
+            assertTrue(chunks.last().error != null)
+            assertEquals(1, chunks.count { it.error != null })
+            assertEquals(listOf(1, 2), chunks.mapNotNull { it.retryAttempts })
+            assertTrue(chunks.none { it.choices != null })
             assertEquals(3, attempts)
         }
     }

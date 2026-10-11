@@ -9,13 +9,20 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Apply bounded fixture settings to a copy, including provider-specific overrides. */
-internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean): PlatformV2 {
+internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): Int = when {
+    category == "speed" -> 512
+    profile.model.contains("gpt-oss", true) -> 8192
+    else -> 2048
+}
+
+internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean, category: String = "speed"): PlatformV2 {
+    val outputBudget = benchmarkCompletionBudget(profile, category)
     fun objectOrNull(value: String?): JsonObject? = value?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
     val openRouter = if (profile.compatibleType == ClientType.OPENROUTER) {
         val saved = objectOrNull(profile.openRouterRouting) ?: objectOrNull(Json.encodeToString(OpenRouterOptions.createDefault()))!!
         val legacyRouting = saved.isNotEmpty() && saved.keys.none { it in setOf("provider", "stream", "max_tokens", "temperature", "top_p", "top_k", "seed", "repetition_penalty", "frequency_penalty", "presence_penalty") }
         val options = if (legacyRouting) mapOf("provider" to saved) else saved
-        JsonObject(options + mapOf("temperature" to JsonPrimitive(0f), "stream" to JsonPrimitive(true), "max_tokens" to JsonPrimitive(512))).toString()
+        JsonObject(options + mapOf("temperature" to JsonPrimitive(0f), "stream" to JsonPrimitive(true), "max_tokens" to JsonPrimitive(outputBudget))).toString()
     } else {
         profile.openRouterRouting
     }
@@ -36,11 +43,10 @@ internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean): Platfor
     }
     return profile.copy(
         model = benchmarkModel,
-        // This suite measures Quick mode under one fixed completion budget.
-        // Models requiring reasoning are incompatible with this cohort; never let
-        // hidden thought consume all 512 tokens and masquerade as decode speed.
+        // Throughput has a fixed window; correctness reserves enough space for a final answer.
+        // Mandatory-reasoning GPT-OSS uses supported low effort, recorded with the sample.
         reasoning = false,
-        disableAllTools = !allowTools, temperature = 0f, maxTokens = 512, stream = true,
+        disableAllTools = !allowTools, temperature = 0f, maxTokens = outputBudget, stream = true,
         openRouterRouting = openRouter, ollamaOptions = ollama, batchMode = false,
         systemPrompt = "Follow the benchmark instruction exactly. Use only the provided fixture tool when requested."
     )

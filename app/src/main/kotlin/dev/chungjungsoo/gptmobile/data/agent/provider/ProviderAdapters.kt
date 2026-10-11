@@ -340,7 +340,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 ProviderEvent.RequestConfigured(
                                     configuredProfileOutputTokens = platform.maxTokens,
                                     requestedOutputTokens = constraints.maxOutputTokens,
-                                    effectiveOutputTokens = effectiveOutputTokens
+                                    effectiveOutputTokens = effectiveOutputTokens,
+                                    reasoningEffort = if (platform.model.contains("gpt-oss", true)) {
+                                        if (platform.reasoning && constraints.allowReasoning) "medium" else "low"
+                                    } else {
+                                        null
+                                    }
                                 )
                             )
                         }
@@ -371,6 +376,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         state.toProviderEvent()?.let { emit(it) }
                                     }
                                     if (choice.finishReason == "length") {
+                                        emit(ProviderEvent.Usage(finishReason = choice.finishReason))
                                         roundFailed = true
                                         lastFailedMessage = GROQ_OUTPUT_LIMIT_MESSAGE
                                     } else {
@@ -493,6 +499,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                                 caughtThrowable = error
                                             }
                                             .collect { chunk ->
+                                                chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
                                                 if (chunk.streamFinished) assembler.finish().forEach { publishOllama(it) }
                                                 chunk.usage?.let { usage ->
                                                     publishOllama(
@@ -635,6 +642,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 canRotate = ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
+                                chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
                                 if (chunk.streamFinished) assembler.finish().forEach { emit(it) }
                                 chunk.usage?.let { usage ->
                                     emit(
@@ -1266,7 +1274,11 @@ private fun createGroqChatCompletionRequest(
         temperature = platform.temperature,
         topP = platform.topP,
         maxCompletionTokens = if (platform.reasoning) 8_192 else null,
-        reasoningEffort = if (platform.reasoning && isGptOssModel) "medium" else null,
+        reasoningEffort = if (isGptOssModel) {
+            if (platform.reasoning) "medium" else "low"
+        } else {
+            null
+        },
         reasoningFormat = when {
             platform.reasoning && !isGptOssModel -> "parsed"
             !platform.reasoning && !isGptOssModel -> "hidden"

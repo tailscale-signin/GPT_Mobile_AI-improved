@@ -51,7 +51,7 @@ class BenchmarkForegroundService : Service() {
     private fun publishForeground(): Boolean {
         if (published) return true
         return try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
             published = true
             true
         } catch (_: Exception) {

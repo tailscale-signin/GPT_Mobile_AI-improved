@@ -20,7 +20,8 @@ interface ChatRepository {
         platform: PlatformV2,
         turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>,
         tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
-        runId: String
+        runId: String,
+        benchmarkCategory: String = "task"
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = error("Benchmark sessions are unavailable")
 
     suspend fun runDelegationBenchmark(

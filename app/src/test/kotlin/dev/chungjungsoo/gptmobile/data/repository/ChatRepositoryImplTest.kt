@@ -680,7 +680,7 @@ class ChatRepositoryImplTest {
     }
 
     @Test
-    fun `groq reasoning disabled turns off gpt oss reasoning`() = runBlocking {
+    fun `groq reasoning disabled uses low effort and hides gpt oss reasoning output`() = runBlocking {
         val groqAPI = FakeGroqAPI(emptyFlow())
         val repository = createRepository(groqAPI = groqAPI)
 
@@ -694,7 +694,7 @@ class ChatRepositoryImplTest {
         val request = groqAPI.lastRequest
         assertNull(request?.reasoningFormat)
         assertEquals(false, request?.includeReasoning)
-        assertNull(request?.reasoningEffort)
+        assertEquals("low", request?.reasoningEffort)
     }
 
     @Test

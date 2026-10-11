@@ -8,6 +8,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginBackupPreferencesTest {
+    @Test fun academicRestorePreservesDepthAndSourcesButRequiresFreshConsent() {
+        val incoming = mapOf("advanced_feature_settings_json" to BackupValue("string", """{"toolPluginStates":{"deep_research":true},"conversationResearch":{"12":{"researchToggle":true,"depth":80,"gatewayConnectionUid":"private","allowNativeFallback":true,"enabledProviders":["arxiv"]}}}"""))
+        val restored = PluginBackupPreferences.sanitizeAcademic(incoming).getValue("advanced_feature_settings_json").value
+        val settings = Json.decodeFromString<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings>(restored)
+        val selection = settings.conversationResearch.getValue(12)
+        assertEquals(80, selection.depth)
+        assertEquals(setOf("arxiv"), selection.enabledProviders)
+        assertEquals(false, selection.researchToggle)
+        assertEquals(false, selection.allowNativeFallback)
+        assertEquals(null, selection.gatewayConnectionUid)
+        assertEquals(false, settings.isToolPluginEnabled("deep_research"))
+    }
+
     @Test fun toolsOnlyRestorePreservesUnrelatedPreferencesAndProfileBehavior() {
         val current = mapOf(
             "unrelated" to BackupValue("int", "77"),

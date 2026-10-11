@@ -49,11 +49,15 @@ data class AppFeatureSettings(
     val localNativeMetrics: Boolean = false,
     val localAssist: Boolean = false,
     val localIdleMinutes: Int = 10,
+    val localExecutionPolicy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy = dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.PROFILE,
+    val localExecutionPolicyVersion: Int = 1,
+    val localMemoryReserveMb: Int = 768,
     /** Global service state. Amazon is opt-in; other built-in services preserve their defaults. */
     val pluginExecution: Map<String, PluginExecutionSettings> = emptyMap(),
     val toolPluginStates: Map<String, Boolean> = emptyMap(),
     val delegation: ModelDelegationSettings = ModelDelegationSettings(),
     val profileBehavior: Map<String, ProfileBehaviorSettings> = emptyMap(),
+    val conversationResearch: Map<Int, MultiSearchResearchSelection> = emptyMap(),
     val conversationReasoning: Map<Int, Boolean> = emptyMap(),
     val conversationDelegation: Map<Int, ConversationDelegationSettings> = emptyMap(),
     val spendBudget: dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings = dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings(),
@@ -228,10 +232,11 @@ object ToolPluginId {
     const val NEWS = "news"
     const val AIRBNB = "airbnb"
     const val GOOGLE_PLACES = "service:google"
+    const val DEEP_RESEARCH = "deep_research"
     const val WEB_SEARCH = "web_search"
     const val DEVICE_LOCATION = "device_location"
 
-    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES)
+    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES, DEEP_RESEARCH)
 
     fun nativeOperation(packageId: String, operation: String): String = "native:$packageId:$operation"
 

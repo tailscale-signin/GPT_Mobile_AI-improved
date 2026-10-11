@@ -292,7 +292,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                             }
                         } else {
                             BenchmarkRunner(openSession = { turns, tools ->
-                                chats.openBenchmarkSession(profile, turns, tools, "benchmark-${run.id}-${test.id}")
+                                chats.openBenchmarkSession(profile, turns, tools, "benchmark-${run.id}-${test.id}", test.category)
                             }).run(test, supportsTools)
                         }
                     },
@@ -381,7 +381,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                                 if (target.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                                 mutableProgress.value = BenchmarkProgress(target.name, test.label, baseProgress + index, totalTests)
                                 BenchmarkRunner(openSession = { turns, tools ->
-                                    chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}")
+                                    chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}", test.category)
                                 }).run(test, supportsTools)
                             },
                             onSample = { sample ->

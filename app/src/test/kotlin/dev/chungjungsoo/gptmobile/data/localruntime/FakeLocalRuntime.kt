@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.yield
 
 class FakeLocalRuntime : LocalRuntime {
+    var capabilities: LocalModelCapabilities? = LocalModelCapabilities(backends = setOf("cpu", "gpu", "npu"))
+    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = capabilities
     override var deviceRamGb: Long = 8L
     var simulatedHardwareState: DeviceHardwareState = DeviceHardwareState()
 

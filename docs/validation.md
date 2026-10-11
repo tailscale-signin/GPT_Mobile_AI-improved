@@ -75,3 +75,12 @@ Legacy fallback is limited to the read-only protocol discovery probe. Task input
 ## Memory evaluation
 
 The in-app memory corpus is versioned, synthetic, local and independent of user memory. Its 4,096/16,384-fact scenarios currently measure deterministic lexical recall and exact-code precision, extraction/scope guards, corpus construction, p95 time and PSS. These figures are not semantic paraphrase recall or multilingual model quality scores. The instrumented local-semantic tests exercise the actual packaged encoder and index. Compare encoder changes on the same devices and corpus before changing defaults.
+
+
+## GPU/NPU execution plan changes
+
+See [the implementation and device qualification guide](gpu-npu-execution-plans.md). Set `OBX_DISABLE_ANALYTICS=true` for validation builds to disable optional ObjectBox build telemetry. Plain-text benchmark measurements and packaged-library checks do not qualify native GPU/NPU execution. The private-process IPC tests require a device or emulator; G1–G8 performance and reliability gates require the target hardware.
+
+## Expanded runtime and academic changes
+
+See [the branch validation record](validation/implementation-2026-10-11.md), [30-finding remediation](runtime-log-remediation.md), and [Deep Research acceptance mapping](deep-research-implementation.md). Anonymous API fixture success is separate from Android/gateway deployment qualification. Optional specialist academic providers stay disabled until their contracts are verified.

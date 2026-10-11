@@ -526,7 +526,7 @@ class CompleteBackupManager @Inject constructor(
                         }
                         if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
                         if (restorePreferences) {
-                            preferences.replace(if (restoreSettings) manifest.preferences else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
+                            preferences.replace(if (restoreSettings) PluginBackupPreferences.sanitizeAcademic(manifest.preferences) else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
                         }
                         if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
                         if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }

@@ -40,6 +40,13 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
     val npuStatus by viewModel.npuStatus.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val comparison by viewModel.comparisonProgress.collectAsStateWithLifecycle()
+    val comparisonError by viewModel.comparisonError.collectAsStateWithLifecycle()
+    val trials by viewModel.runtimeTrials.collectAsStateWithLifecycle()
+    val qualifications by viewModel.qualifications.collectAsStateWithLifecycle()
+    var selectedProfile by remember { mutableStateOf<String?>(null) }
+    var sustained by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var threads by remember(settings.localCpuThreads) { mutableStateOf(settings.localCpuThreads.toFloat()) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -55,8 +62,74 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
             if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) Text("GenieX preview · Import a validated .localmodel bundle. Chat only; device qualification pending.", style = MaterialTheme.typography.bodySmall)
             Text("LiteRT-LM ${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION} · QAIRT ${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}", style = MaterialTheme.typography.labelSmall)
             Text("CPU/GPU use compatible LiteRT-LM packages. NPU requires the exact SoC model build. Choose the accelerator and context in each AI profile.", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Execution policy", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon("Profile preserves your explicit accelerator choice. Other policies select only from locally qualified evidence for the same artifact, firmware, runtime and workload. A quick measurement alone does not qualify a plan.")
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.entries.forEach { policy ->
+                    FilterChip(settings.localExecutionPolicy == policy, onClick = { viewModel.updateTuning(policy = policy) }, label = { Text(policy.name.lowercase().replaceFirstChar { it.uppercase() }) }, enabled = !busy)
+                }
+            }
+            Text(if (active.processIsolated) "Inference process: separate" else "Inference process: in-app fallback", style = MaterialTheme.typography.bodySmall)
+            Text("State: ${active.lifecycle.lowercase()} · MTP requested: ${active.requestedMtp ?: "model default"} · MTP active: ${active.effectiveMtp ?: "not reported"}", style = MaterialTheme.typography.bodySmall)
+            active.decision?.let { Text("${it.qualification.name.lowercase()} · ${it.reason}", style = MaterialTheme.typography.bodySmall) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Compare on this device", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon("Measures native prefill and decode separately, first visible answer, failures, and heat. Quick comparison is bounded to six minutes. Sustained mode adds three continuous 15-minute blocks per candidate, with a bounded 50-minute budget per candidate plus setup. Keep this screen open to start the foreground run. Native counts cover the last segment. Requested MTP is not proof of activation.")
+            }
+            val localProfiles = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                localProfiles.forEach { profile ->
+                    FilterChip((selectedProfile ?: localProfiles.firstOrNull()?.uid) == profile.uid, onClick = { selectedProfile = profile.uid }, label = { Text(profile.name) }, enabled = comparison == null)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Sustained comparison (about 50 minutes per candidate)", Modifier.weight(1f))
+                Switch(sustained, { sustained = it }, enabled = comparison == null)
+            }
+            if (comparison == null) {
+                TextButton(onClick = { (selectedProfile ?: localProfiles.firstOrNull()?.uid)?.let { viewModel.compareProfile(it, sustained) } }, enabled = !busy && localProfiles.isNotEmpty()) { Text("Start comparison") }
+            } else {
+                Text("${comparison!!.label} · ${comparison!!.completed} completed", style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = viewModel::stopComparison) { Text("Stop comparison") }
+            }
+            comparisonError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            if (trials.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Plan", Modifier.weight(1.3f), style = MaterialTheme.typography.labelSmall)
+                    Text("Decode /s", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text("Prefill /s", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text("First ms", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                }
+                trials.filterNot { it.warmup }.take(8).forEach { trial ->
+                    Row(Modifier.fillMaxWidth()) {
+                        Text(
+                            "${trial.key.backend.uppercase()} ${if (trial.key.speculativeDecoding == true) "MTP?" else ""}${if (!trial.finished) {
+                                " running"
+                            } else if (!trial.completed) {
+                                " failed"
+                            } else {
+                                ""
+                            }}",
+                            Modifier.weight(1.3f),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(trial.nativeMetrics?.decodeTokensPerSecond?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Text(trial.nativeMetrics?.prefillTokensPerSecond?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Text(trial.firstVisibleAnswerMs?.toString() ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text("${trials.count { it.finished && !it.completed }} failed · ${trials.count { it.historical }} historical · ${qualifications.count { it.status == dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus.QUALIFIED }} qualified plans", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = viewModel::clearRuntimeEvidence, enabled = comparison == null && !busy) { Text("Clear runtime evidence") }
+            }
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide tuning" else "Performance tuning") }
             if (expanded) {
+                Text("GPU/NPU experiments", style = MaterialTheme.typography.titleMedium)
+                dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionMode.entries.filter { it != dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionMode.SINGLE }.forEach { mode ->
+                    Text("${mode.name.lowercase().replace('_', ' ')}: ${dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionExperiments.unavailableReason(mode)}", style = MaterialTheme.typography.bodySmall)
+                }
                 Text("CPU threads: ${if (threads.toInt() == 0) "Automatic" else threads.toInt().toString()}")
                 Slider(value = threads.coerceIn(0f, viewModel.cores.toFloat()), onValueChange = { threads = it }, onValueChangeFinished = { viewModel.updateTuning(threads = threads.toInt()) }, valueRange = 0f..viewModel.cores.toFloat(), steps = (viewModel.cores - 1).coerceAtLeast(0), enabled = !busy, modifier = Modifier.semantics { contentDescription = "CPU threads; zero uses runtime defaults" })
                 Text("Automatic uses the runtime default. More threads can increase heat without improving token speed.", style = MaterialTheme.typography.bodySmall)
@@ -102,7 +175,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
                 hardware.thermalHeadroom?.let { headroom ->
                     Text("10-second thermal forecast: ${(headroom * 100).toInt()}% of the severe-throttling threshold", style = MaterialTheme.typography.bodySmall)
                 }
-                Text("New requests use smaller budgets under thermal or memory pressure. Limits relax after 30 seconds of stable lower pressure.", style = MaterialTheme.typography.bodySmall)
+                Text("New work pauses under severe heat or insufficient memory. Optional helpers wait for stable headroom; your sampling and context settings stay explicit.", style = MaterialTheme.typography.bodySmall)
                 FlowRow {
                     TextButton(onClick = viewModel::refresh) { Text("Refresh hardware") }
                     TextButton(onClick = { viewModel.releaseIdleMemory() }, enabled = !busy) { Text("Release idle memory") }

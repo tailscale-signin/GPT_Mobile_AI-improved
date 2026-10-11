@@ -5,6 +5,7 @@ package dev.chungjungsoo.gptmobile.data.model
  * QUALCOMM_QNN targets Hexagon NPU & Qualcomm AI Runtime (default for flagship Snapdragon).
  * LITERT_LM targets Google LiteRT-LM (TFLite runtime).
  */
+@kotlinx.serialization.Serializable
 enum class LocalRuntimeBackend(val displayName: String) {
     QUALCOMM_QNN("Qualcomm QNN · NPU"),
     LITERT_LM("LiteRT-LM"),

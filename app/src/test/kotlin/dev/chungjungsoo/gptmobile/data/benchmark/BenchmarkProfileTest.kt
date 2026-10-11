@@ -13,6 +13,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkProfileTest {
+    @Test fun correctnessAndThroughputHaveDifferentBudgetsForMandatoryReasoningModels() {
+        val profile = PlatformV2(name = "Groq", model = "openai/gpt-oss-120b", compatibleType = ClientType.GROQ)
+        assertEquals(512, benchmarkProfile(profile, false, "speed").maxTokens)
+        assertEquals(8192, benchmarkProfile(profile, false, "task").maxTokens)
+        assertEquals(2048, benchmarkProfile(profile.copy(model = "other"), false, "json").maxTokens)
+    }
+
     @Test
     fun `fixture bounds override provider settings without modifying saved profile`() {
         val original = PlatformV2(name = "Remote", compatibleType = ClientType.OPENROUTER, maxTokens = null, reasoning = true, stream = false, openRouterRouting = "{\"temperature\":1.5,\"stream\":false,\"max_tokens\":9999,\"provider\":{\"sort\":\"latency\"}}")

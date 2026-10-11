@@ -59,13 +59,13 @@ class DeviceHardwareGovernorTest {
         val policy = DeviceHardwareGovernor.computeThrottlingPolicy(moderateState, isHighRamDevice = true)
 
         assertEquals(33L, policy.streamPublishIntervalMillis)
-        assertEquals(0.75f, policy.topKReductionRatio, 0.001f)
-        assertEquals(2048, policy.maxTokensClamp)
+        assertEquals(1.0f, policy.topKReductionRatio, 0.001f)
+        assertNull(policy.maxTokensClamp)
         assertFalse(policy.isCooperativeYieldAggressive)
     }
 
     @Test
-    fun `severe thermal state triggers aggressive throttling and clamps context`() {
+    fun `severe thermal state changes UI cadence without changing sampling or context`() {
         val severeState = DeviceHardwareState(
             thermalState = DeviceThermalState.SEVERE,
             batteryPct = 50,
@@ -78,8 +78,8 @@ class DeviceHardwareGovernorTest {
         val policy = DeviceHardwareGovernor.computeThrottlingPolicy(severeState, isHighRamDevice = true)
 
         assertEquals(250L, policy.streamPublishIntervalMillis)
-        assertEquals(0.5f, policy.topKReductionRatio, 0.001f)
-        assertEquals(1024, policy.maxTokensClamp)
+        assertEquals(1.0f, policy.topKReductionRatio, 0.001f)
+        assertNull(policy.maxTokensClamp)
         assertTrue(policy.isCooperativeYieldAggressive)
     }
 
@@ -97,8 +97,8 @@ class DeviceHardwareGovernorTest {
         val policy = DeviceHardwareGovernor.computeThrottlingPolicy(criticalState, isHighRamDevice = true)
 
         assertEquals(250L, policy.streamPublishIntervalMillis)
-        assertEquals(0.5f, policy.topKReductionRatio, 0.001f)
-        assertEquals(1024, policy.maxTokensClamp)
+        assertEquals(1.0f, policy.topKReductionRatio, 0.001f)
+        assertNull(policy.maxTokensClamp)
         assertTrue(policy.isCooperativeYieldAggressive)
     }
 
@@ -116,8 +116,8 @@ class DeviceHardwareGovernorTest {
         val policy = DeviceHardwareGovernor.computeThrottlingPolicy(lowBatteryState, isHighRamDevice = true)
 
         assertEquals(250L, policy.streamPublishIntervalMillis)
-        assertEquals(0.5f, policy.topKReductionRatio, 0.001f)
-        assertEquals(1024, policy.maxTokensClamp)
+        assertEquals(1.0f, policy.topKReductionRatio, 0.001f)
+        assertNull(policy.maxTokensClamp)
     }
 
     @Test
@@ -152,7 +152,7 @@ class DeviceHardwareGovernorTest {
         val policy = DeviceHardwareGovernor.computeThrottlingPolicy(powerSaveState, isHighRamDevice = true)
 
         assertEquals(250L, policy.streamPublishIntervalMillis)
-        assertEquals(0.5f, policy.topKReductionRatio, 0.001f)
-        assertEquals(1024, policy.maxTokensClamp)
+        assertEquals(1.0f, policy.topKReductionRatio, 0.001f)
+        assertNull(policy.maxTokensClamp)
     }
 }

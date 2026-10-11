@@ -34,3 +34,7 @@ Schema version 2 preserves `query`, `engines`, `results`, optional `pages`, lega
 Successful evidence has a bounded 30-second request cache. Its key includes the ordered selection, arguments, policy, owner route and configuration revision. Production cache hits require live child permission/configuration checks. Empty, canceled, failed and exhausted results are not cached. Gateway-owned engines retain their gateway route instead of joining a client-owned batch.
 
 PR validation disables ObjectBox build analytics with `OBX_DISABLE_ANALYTICS=true`. All search counters are local. Device p95 merge latency, incremental allocation and live-search precision remain measurement work; no device-performance claim is made by this change.
+
+## Academic Multi Search
+
+The optional Research toggle reuses the existing 0–100 strategy as a per-chat Research Depth. Global/profile enable and Papers and studies consent are required before academic traffic. Web-only does not call academic providers; Papers-only skips general-web discovery. The six-tool facade, source registry, native/PC boundaries, exact-quote evidence and budgets are documented in [Deep Research implementation](deep-research-implementation.md). Moving a control never starts a search.

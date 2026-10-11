@@ -19,6 +19,7 @@ data class DeepResearchSettings(
     val allowRemoteReaders: Boolean = false,
     val reviewEvidence: Boolean = true,
     val academicSources: Boolean = false,
+    val contentScope: ResearchContentScope = ResearchContentScope.WEB_AND_PAPERS,
     val includeDomains: String = "",
     val excludeDomains: String = "",
     val recencyDays: Int = 0

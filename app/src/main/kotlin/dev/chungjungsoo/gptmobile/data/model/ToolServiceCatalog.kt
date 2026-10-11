@@ -35,6 +35,7 @@ object ToolServiceCatalog {
         }
 
     val integrated = listOf(
+        ToolServiceDefinition(ToolPluginId.DEEP_RESEARCH, "Deep Research", "Opt-in academic discovery, open-access evidence and quote verification. Native keyless sources; optional private gateway for PDFs.", "search", true),
         ToolServiceDefinition(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Let a configured helper research and process information.", "delegation"),
         ToolServiceDefinition(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recall and capture private memory on your device.", "memory"),
         ToolServiceDefinition(ToolPluginId.CURRENT_DATE, "Date & Time", "Current date and time, calculated on your device.", "schedule"),
@@ -64,6 +65,7 @@ object ToolServiceCatalog {
     }
 
     fun forConnection(connection: ToolConnection): ToolServiceDefinition {
+        if (connection.alias == "deep_research") return integrated.first { it.id == ToolPluginId.DEEP_RESEARCH }
         val marketplaceDefinition = connection.marketplaceProviderId?.let { providerId ->
             dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog.findById(providerId)
         }

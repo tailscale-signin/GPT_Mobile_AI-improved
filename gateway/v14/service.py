@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi.responses import JSONResponse
 from v14.deadlines import DeadlineExceeded, request_deadline
+from v14.state_lock import StateDirectoryLock
 
 
 class ServiceState:
@@ -75,16 +76,25 @@ class ServiceState:
     def lifespan(self, runtime, grace):
         @asynccontextmanager
         async def lifecycle(app):
+            state_lock = None
             with self.lock:
                 self.draining = False
                 runtime.gateway_draining = False
             # Database validation and recovery must finish before HTTP admission.
             try:
+                database_path = getattr(runtime, "GATEWAY_JOB_DB_PATH", None)
+                if database_path:
+                    state_lock = StateDirectoryLock(database_path)
+                    await asyncio.to_thread(state_lock.acquire)
                 await asyncio.to_thread(runtime.start_gateway_background_services)
             except BaseException:
                 runtime.startup_services_started = False
                 self.begin_drain()
-                await asyncio.to_thread(runtime.close_all_mcp_sessions)
+                try:
+                    await asyncio.to_thread(runtime.close_all_mcp_sessions)
+                finally:
+                    if state_lock is not None:
+                        await asyncio.to_thread(state_lock.release)
                 raise
             try:
                 yield
@@ -93,8 +103,12 @@ class ServiceState:
                 deadline = time.monotonic() + grace
                 while self.snapshot()['activeWorkers'] and time.monotonic() < deadline:
                     await asyncio.sleep(0.05)
-                await asyncio.to_thread(runtime.close_all_mcp_sessions)
-                runtime.startup_services_started = False
+                try:
+                    await asyncio.to_thread(runtime.close_all_mcp_sessions)
+                finally:
+                    runtime.startup_services_started = False
+                    if state_lock is not None:
+                        await asyncio.to_thread(state_lock.release)
         return lifecycle
 
 

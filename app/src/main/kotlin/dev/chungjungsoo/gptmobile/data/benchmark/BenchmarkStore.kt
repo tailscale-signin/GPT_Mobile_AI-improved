@@ -82,7 +82,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 mutex.withLock {
                     if (loaded) {
                         val current = mutableSnapshot.value
-                        val recalculated = DynamicScoreEngine.snapshot(mutableHistory.value, (current?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions)
+                        val recalculated = withContext(Dispatchers.Default) { DynamicScoreEngine.snapshot(mutableHistory.value, (current?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions) }
                         if (recalculated.rows != current?.rows) publish(mutableHistory.value)
                     }
                 }

@@ -50,7 +50,8 @@ data class HealthQuery(
     val end: Instant,
     val zone: ZoneId,
     val sourcePackage: String? = null,
-    val limit: Int = 50
+    val limit: Int = 50,
+    val requestedAt: Instant = Instant.now()
 ) {
     companion object {
         private val allowed = setOf("days", "start_time", "end_time", "source_package", "limit")
@@ -88,11 +89,11 @@ data class HealthQuery(
                     .let { if (it == now) now.minusNanos(1) else it }
             require(start < end) { "start_time must be before end_time." }
             require(end <= now) { "Future records cannot be requested." }
-            // Deliberately conservative: this plugin does not request extended-history permission.
+            // AI tools remain recent-only; extended history is a separate explicit local import.
             require(start >= now.minus(Duration.ofDays(30))) { "This plugin reads only the most recent 30 days." }
             val source = text("source_package")
             require(source == null || source.length <= 200 && source.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+"))) { "source_package must be an Android package name." }
-            return HealthQuery(start, end, zone, source, limit)
+            return HealthQuery(start, end, zone, source, limit, now)
         }
     }
 }
@@ -103,6 +104,7 @@ interface HealthDataReader {
     fun availability(): String
     suspend fun grantedPermissions(): Set<String>
     suspend fun historyAvailable(): Boolean = false
+    suspend fun foregroundReadable(): Boolean = true
     suspend fun read(operation: String, query: HealthQuery): JsonObject
     suspend fun readLocalImport(query: HealthQuery): JsonObject = read("summary", query)
     suspend fun revokePermissions()

@@ -10,7 +10,10 @@ private const val MAX_FENCE_INDENT = 3
  * In-memory LRU cache for parsed markdown structures.
  * Caching the parsed result by content string key eliminates redundant parsing.
  */
-private val markdownParseCache = LruCache<String, ParsedChatMarkdown>(1_000)
+private val markdownParseCache = object : LruCache<String, ParsedChatMarkdown>(2 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: ParsedChatMarkdown): Int =
+        (key.length.toLong() * 4 + value.inlineMath.sumOf { it.tex.length.toLong() * 2 }).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+}
 
 data class ParsedChatMarkdown(
     val blocks: List<ChatMarkdownBlock>,
@@ -28,8 +31,8 @@ data class InlineMathToken(
     val tex: String
 )
 
-fun parseChatMarkdown(content: String): ParsedChatMarkdown {
-    markdownParseCache.get(content)?.let { return it }
+fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatMarkdown {
+    if (cacheResult) markdownParseCache.get(content)?.let { return it }
 
     val blocks = mutableListOf<ChatMarkdownBlock>()
     val inlineMath = mutableListOf<InlineMathToken>()
@@ -72,7 +75,7 @@ fun parseChatMarkdown(content: String): ParsedChatMarkdown {
 
     flushMarkdownBuffer(markdownBuffer, blocks, inlineMath)
     val parsed = ParsedChatMarkdown(blocks = blocks, inlineMath = inlineMath)
-    markdownParseCache.put(content, parsed)
+    if (cacheResult && content.length <= 128 * 1024) markdownParseCache.put(content, parsed)
     return parsed
 }
 

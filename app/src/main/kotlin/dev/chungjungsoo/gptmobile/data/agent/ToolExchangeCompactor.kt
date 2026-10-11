@@ -27,7 +27,15 @@ internal object ToolExchangeCompactor {
 
         val hardBudget = maxReplayTokens.coerceAtLeast(1)
         val perResultBudget = maxResultTokens.coerceAtLeast(MIN_RESULT_TOKENS)
-        val fingerprints = exchanges.flatMap { it.results }.map { fingerprint(render(it.content)) }
+        val flattenedResults = exchanges.flatMap { it.results }
+        val fingerprints = exchanges.flatMap { exchange ->
+            val calls = exchange.calls.associateBy { it.callId }
+            exchange.results.map { result ->
+                val call = calls[result.callId]
+                // A missing call is never deduplicated with an unrelated result.
+                fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${render(result.content)}")
+            }
+        }
         val lastOccurrence = fingerprints.withIndex().associate { (index, value) -> value to index }
         var resultIndex = 0
         var remaining = hardBudget
@@ -45,9 +53,11 @@ internal object ToolExchangeCompactor {
         for (index in fingerprints.indices.reversed()) {
             val duplicate = lastOccurrence[fingerprints[index]] != index
             if (duplicate || remaining < MIN_RESULT_TOKENS) continue
-            val allowance = minOf(perResultBudget, remaining)
+            val actualCost = ContextTokenEstimate.estimate(render(flattenedResults[index].content)).coerceAtLeast(1)
+            val allowance = minOf(perResultBudget, remaining, actualCost)
             resultBudgets[index] = allowance
-            remaining = (remaining - allowance).coerceAtLeast(0)
+            // Small successful results no longer reserve an entire 512/800-token slice.
+            remaining = (remaining - allowance - 24).coerceAtLeast(0)
         }
 
         val compacted = exchanges.mapIndexed { exchangeIndex, exchange ->
@@ -110,9 +120,9 @@ internal object ToolExchangeCompactor {
 
     fun estimateTokens(exchanges: List<AgentToolExchange>): Int =
         exchanges.sumOf { exchange ->
-            exchange.calls.sumOf { ContextTokenEstimate.estimate(it.name + it.arguments.toString()) + 24 } +
-                exchange.results.sumOf { ContextTokenEstimate.estimate(render(it.content)) + 24 }
-        }
+            exchange.calls.sumOf { ContextTokenEstimate.estimate(it.name + it.arguments.toString()).toLong() + 24 } +
+                exchange.results.sumOf { ContextTokenEstimate.estimate(render(it.content)).toLong() + 24 }
+        }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
     private fun compactText(value: String, maxChars: Int): String {
         if (value.length <= maxChars) return value
@@ -136,5 +146,5 @@ internal object ToolExchangeCompactor {
 }
 
 private object ContextTokenEstimate {
-    fun estimate(text: String): Int = (text.toByteArray(StandardCharsets.UTF_8).size + 2) / 3
+    fun estimate(text: String): Int = ((text.toByteArray(StandardCharsets.UTF_8).size.toLong() + 2) / 3).toInt()
 }

@@ -97,7 +97,10 @@ private const val DISPLAY_MATH_PLACEHOLDER_TEST_NONCE = "test"
  * during chat scrolling or recomposition is computationally heavy and causes frame drops.
  * Caching the formatted AnnotatedString prevents repetitive parsing of identical code blocks.
  */
-private val codeHighlightCache = LruCache<String, AnnotatedString>(400)
+private val codeHighlightCache = object : LruCache<String, AnnotatedString>(2 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: AnnotatedString): Int =
+        (key.length.toLong() * 2 + value.length.toLong() * 2 + value.spanStyles.size * 64L).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+}
 
 @Composable
 fun ChatMarkdown(
@@ -112,7 +115,14 @@ fun ChatMarkdown(
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    val parsed = remember(content) { parseChatMarkdown(dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)) }
+    var parsed by remember(contentIdentity) { mutableStateOf(ParsedChatMarkdown(emptyList(), emptyList())) }
+    LaunchedEffect(contentIdentity, content, streaming) {
+        // Keep the previous parsed snapshot while a new chunk is parsed off the UI thread.
+        // Cancellation prevents a stale parse from replacing the latest message.
+        parsed = withContext(Dispatchers.Default) {
+            parseChatMarkdown(dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content), cacheResult = !streaming)
+        }
+    }
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     val highlightsBuilder = remember(isDarkTheme) {
         Highlights.Builder().theme(SyntaxThemes.atom(isDarkTheme))
@@ -573,7 +583,7 @@ private fun HighlightedCodeContent(
             val result = withContext(Dispatchers.Default) {
                 buildHighlightedAnnotatedString(code, language, highlightsBuilder)
             }
-            codeHighlightCache.put(cacheKey, result)
+            if (code.length <= 128 * 1024) codeHighlightCache.put(cacheKey, result)
             value = result
         }
     }

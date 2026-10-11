@@ -85,12 +85,14 @@ class HealthConnectTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        fun failure(code: String, message: String) = AgentToolResult(
+        fun failure(code: String, message: String, retryable: Boolean = false) = AgentToolResult(
             callId,
             ToolResultContent.Json(
                 buildJsonObject {
                     put("status", code)
                     put("message", message)
+                    put("retryable", retryable)
+                    put("operation", operation)
                 }
             ),
             true,
@@ -124,15 +126,12 @@ class HealthConnectTool(
             )
         } catch (_: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            return failure("health_connect_timeout", "Health Connect did not respond in time. Keep the app open and retry.")
+            return failure("health_connect_timeout", "Health Connect did not respond in time. Keep the app open and retry.", retryable = true)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: IllegalArgumentException) {
-            return failure("health_connect_unavailable", "The provider could not process this health request. Check plugin settings and retry.")
-        } catch (_: SecurityException) {
-            return failure("permission_required", "Grant read permissions in Health Connect, keep the app open, and retry.")
-        } catch (_: Exception) {
-            return failure("health_connect_unavailable", "Health Connect could not be read. Check availability and permissions in plugin settings.")
+        } catch (error: Exception) {
+            val classified = dev.chungjungsoo.gptmobile.data.health.HealthReadFailure.classify(error)
+            return failure(classified.code, classified.action, classified.retryable)
         }
     }
 }

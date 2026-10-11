@@ -13,7 +13,15 @@ data class ContextPlan(val turns: List<ConversationTurn>, val system: String, va
 
 /** Conservative byte-based estimates. Provider-reported counts remain the accounting authority. */
 object ContextBudgetService {
-    fun estimate(text: String): Int = (text.toByteArray(Charsets.UTF_8).size + 2) / 3
+    fun estimate(text: String): Int = ((text.toByteArray(Charsets.UTF_8).size.toLong() + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+    fun breakdown(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>): ContextCostBreakdown = ContextCostBreakdown(
+        system = estimate(system),
+        toolSchemas = tools.sumOf { estimate(it.name + it.description + it.inputSchema.toString()).toLong() + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        currentMessage = turns.filter { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        history = turns.filterNot { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        attachments = turns.sumOf { (it.userMessage.attachments.size.toLong() + (it.assistantMessage?.attachments?.size ?: 0)) * 2048 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    )
     fun plan(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>, settings: TokenBudgetSettings): ContextPlan {
         val config = settings.normalized()
         val outputLimit = config.outputTokens.takeIf { it > 0 }
@@ -24,7 +32,8 @@ object ContextBudgetService {
                 tools,
                 256 * 1024,
                 outputLimit,
-                "Context: no app-imposed limit. The provider or local model's actual context capacity still applies."
+                "Context: no app-imposed limit. The provider or local model's actual context capacity still applies.",
+                promptTokens = breakdown(turns, system, tools).total
             )
         }
         val output = (outputLimit ?: 32768).coerceAtMost(config.contextTokens / 4)

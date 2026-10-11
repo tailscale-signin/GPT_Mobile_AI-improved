@@ -79,7 +79,11 @@ class ToolEventRecorder @Inject constructor(
         val startedEvent = dao.getToolEventById(eventId)
         val healthEvent = HealthConnectTools.isHealthTool(startedEvent?.modelToolName.orEmpty()) ||
             HealthConnectTools.isHealthTool(startedEvent?.toolName.orEmpty())
-        val safeError = if (healthEvent && error != null) "Health Connect request failed; open plugin settings." else error
+        val safeError = if (healthEvent && result.isError) {
+            "Health Connect: ${dev.chungjungsoo.gptmobile.data.health.HealthReadFailure.safeCode(result.errorCode)}. Check the indicated permission, time range or service state."
+        } else {
+            error
+        }
         val isDelegationEvent = startedEvent?.modelToolName == "delegate_to_model" || startedEvent?.toolName == "delegate_to_model"
         val normalizedResult = if (healthEvent) {
             // traceContent alone is not enough: retainedContent otherwise becomes a recoverable checkpoint.

@@ -176,6 +176,8 @@ private class StreamingMessageBuffer(
     private val thoughts = StringBuilder()
     private val content = StringBuilder()
     private val timeline = mutableListOf<AssistantTimelineItem>()
+    private var pendingTimelineIndex = -1
+    private val pendingTimelineText = StringBuilder()
     val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.extractThinking(content.toString()).response.isNotBlank()
     private var lastPublishedAtNanos = 0L
     private var publishedThoughtLength = 0
@@ -184,6 +186,7 @@ private class StreamingMessageBuffer(
     private var publishedTimelineVersion = 0
 
     fun updateActivitySummary(chunk: ApiState.ActivitySummary) {
+        flushTimelineText()
         val item = AssistantTimelineItem(
             type = AssistantTimelineItemType.NOTICE,
             content = chunk.text,
@@ -196,6 +199,7 @@ private class StreamingMessageBuffer(
     }
 
     fun appendDelegation(chunk: ApiState.DelegationText) {
+        flushTimelineText()
         val existing = timeline.indexOfFirst { it.delegationInvocationId == chunk.invocationId }
         if (existing < 0) {
             timeline += AssistantTimelineItem(
@@ -227,6 +231,7 @@ private class StreamingMessageBuffer(
     }
 
     fun appendTool(toolSequence: Int, metrics: ToolPayloadMetrics?, delegated: Boolean) {
+        flushTimelineText()
         val existing = timeline.indexOfFirst { it.type == AssistantTimelineItemType.TOOL && it.toolSequence == toolSequence }
         if (existing >= 0) {
             if (metrics == null) return
@@ -243,6 +248,7 @@ private class StreamingMessageBuffer(
     }
 
     fun appendProgress(text: String, modelAuthored: Boolean) {
+        flushTimelineText()
         val last = timeline.lastOrNull()
         if (modelAuthored && last?.progressCheckpoint == true && !last.statusSummary) {
             timeline[timeline.lastIndex] = last.copy(content = (if (last.modelAuthored) last.content else "") + text, modelAuthored = true)
@@ -258,12 +264,14 @@ private class StreamingMessageBuffer(
     }
 
     fun appendRecall(facts: List<RecalledFactRef>) {
+        flushTimelineText()
         if (facts.isEmpty()) return
         timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, recalledFacts = facts)
         timelineVersion += 1
     }
 
     fun appendNotice(message: String) {
+        flushTimelineText()
         if (message.isBlank()) return
         timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, content = message)
         timelineVersion += 1
@@ -276,7 +284,7 @@ private class StreamingMessageBuffer(
 
         val now = nanoTimeProvider()
         if (lastPublishedAtNanos == 0L ||
-            now - lastPublishedAtNanos >= publishIntervalMillis * 1_000_000
+            now - lastPublishedAtNanos >= adaptiveStreamIntervalMillis(publishIntervalMillis, content.length + thoughts.length) * 1_000_000
         ) {
             publish(onUpdate, now)
         }
@@ -300,6 +308,7 @@ private class StreamingMessageBuffer(
         onUpdate: suspend (content: String, thoughts: String, timeline: List<AssistantTimelineItem>) -> Unit,
         publishedAtNanos: Long
     ) {
+        flushTimelineText()
         onUpdate(content.toString(), thoughts.toString(), timeline.toList())
         publishedContentLength = content.length
         publishedThoughtLength = thoughts.length
@@ -309,12 +318,26 @@ private class StreamingMessageBuffer(
 
     private fun appendTimelineText(type: AssistantTimelineItemType, chunk: String) {
         val last = timeline.lastOrNull()
-        if (last?.type == type && last.toolSequence == null) {
-            timeline[timeline.lastIndex] = last.copy(content = last.content + chunk)
-        } else {
-            timeline += AssistantTimelineItem(type = type, content = chunk)
+        if (last?.type != type || last.toolSequence != null) {
+            flushTimelineText()
+            timeline += AssistantTimelineItem(type = type, content = "")
         }
+        if (pendingTimelineIndex != timeline.lastIndex) {
+            flushTimelineText()
+            pendingTimelineIndex = timeline.lastIndex
+            pendingTimelineText.append(timeline.last().content)
+        }
+        pendingTimelineText.append(chunk)
         timelineVersion += 1
+    }
+
+    private fun flushTimelineText() {
+        if (pendingTimelineIndex >= 0) {
+            val previous = timeline[pendingTimelineIndex]
+            timeline[pendingTimelineIndex] = previous.copy(content = pendingTimelineText.toString())
+            pendingTimelineIndex = -1
+            pendingTimelineText.setLength(0)
+        }
     }
 
     private fun hasPendingChanges(): Boolean = content.length != publishedContentLength ||

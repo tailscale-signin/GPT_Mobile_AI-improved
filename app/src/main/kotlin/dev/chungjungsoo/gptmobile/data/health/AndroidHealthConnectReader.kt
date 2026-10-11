@@ -84,6 +84,8 @@ class AndroidHealthConnectReader private constructor(
         if (availability() == "available") clientFactory().permissionController.revokeAllPermissions()
     }
 
+    override suspend fun foregroundReadable(): Boolean = foregroundAllowed()
+
     override suspend fun read(operation: String, query: HealthQuery): JsonObject =
         readWithTimeout(operation, query, 20_000L, allowExtendedHistory = false)
 
@@ -107,7 +109,7 @@ class AndroidHealthConnectReader private constructor(
                 }
             }
             val permissions = grantedPermissions()
-            if (query.start < Instant.now().minus(Duration.ofDays(30))) {
+            if (query.start < query.requestedAt.minus(Duration.ofDays(30))) {
                 require(allowExtendedHistory) { "Extended history is available only for an explicit local import." }
                 require(historyAvailable()) { "Health Connect on this device does not support extended history." }
                 require(HEALTH_HISTORY_PERMISSION in permissions) { "Allow Health Connect history access to import data older than 30 days." }
@@ -139,11 +141,14 @@ class AndroidHealthConnectReader private constructor(
                         readMetric(metric, query)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (_: SecurityException) {
-                        state(metric, "permission_or_foreground_access_required")
-                    } catch (_: Exception) {
-                        // Never put provider exception text (which may contain records) into a tool result.
-                        state(metric, "temporarily_unavailable")
+                    } catch (failure: Exception) {
+                        // Category and retryability are safe; exception messages may contain health records.
+                        val classified = HealthReadFailure.classify(failure)
+                        JsonObject(state(metric, classified.code) + mapOf(
+                            "error_code" to JsonPrimitive(classified.code),
+                            "retryable" to JsonPrimitive(classified.retryable),
+                            "action" to JsonPrimitive(classified.action)
+                        ))
                     }
                 }
                 metric.id to result

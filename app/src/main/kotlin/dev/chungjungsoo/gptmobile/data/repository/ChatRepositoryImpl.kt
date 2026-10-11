@@ -1189,13 +1189,19 @@ class ChatRepositoryImpl(
             val traceProfile = if (requestRole == "reviewer") "${target.name} · Reviewer" else target.name
             send(ApiState.DelegationText(invocation, traceProfile, "", !target.isPrivateDestination()))
             val delegateText = StringBuilder()
+            var lastDelegateSnapshot = 0L
             try {
                 return delegateToProfile(target, task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${it.id}" } ?: runId, inputCap, { event ->
                     progress(event)
                     if (event.kind == DelegateProgressKind.TOOL_ACTIVITY) activity.set("Using helper tools")
                     event.textDelta?.let {
-                        delegateText.append(it)
-                        trySend(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
+                        // This is the bounded UI preview only; delegateToProfile retains the full handoff.
+                        delegateText.append(it.take((64 * 1024 - delegateText.length).coerceAtLeast(0)))
+                        val now = System.nanoTime()
+                        if (now - lastDelegateSnapshot >= 100_000_000L) {
+                            lastDelegateSnapshot = now
+                            trySend(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
+                        }
                     }
                 }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools else emptyList(), requestRole = requestRole)
             } finally {
@@ -1828,6 +1834,8 @@ class ChatRepositoryImpl(
             } catch (_: Exception) {
                 AppLogRecorder.record("Debug", "Request snapshot unavailable · parentRunId=$runId · requestKind=$kind", "W")
             }
+            val costs = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.breakdown(turns, requestPlatform.systemPrompt.orEmpty(), if (textOnly) emptyList() else contextPlan.tools)
+            AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
             val raw = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, constraints)
 
@@ -1849,7 +1857,7 @@ class ChatRepositoryImpl(
             val guarded = if (platform.compatibleType == ClientType.LLAMA) raw.withProgressWatchdog() else raw
             return invocationLedger?.wrap(
                 guarded, runId, turnKey, platform.compatibleType.name, platform.model, kind,
-                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(requestPlatform.systemPrompt.orEmpty() + turns.joinToString { it.userMessage.content + it.assistantMessage?.content.orEmpty() }) + contextPlan.tools.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.inputSchema.toString()) },
+                costs.total,
                 requestConstraints.outputLimit(platform.maxTokens) ?: 0, budgetSettings.totalRunTokens,
                 profileUid = platform.uid
             ) ?: guarded

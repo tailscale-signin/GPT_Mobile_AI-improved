@@ -32,7 +32,7 @@ internal data class SettingsSearchEntry(
 /** Stable keys and concrete route/tab targets. Dynamic profiles are supplied by the owner. */
 internal object SettingsSearchRegistry {
     fun group(feature: AppFeature): String = when (feature) {
-        AppFeature.SMOOTH_STREAMING, AppFeature.CENTER_UNREAD, AppFeature.RESPONSE_ANIMATION,
+        AppFeature.COMPACT_CHAT_LIST, AppFeature.SMOOTH_STREAMING, AppFeature.CENTER_UNREAD, AppFeature.RESPONSE_ANIMATION,
         AppFeature.EDGE_FADES, AppFeature.MESSAGE_TIMESTAMPS, AppFeature.ARCHIVE_OLDER_REPLIES,
         AppFeature.SHOW_REASONING, AppFeature.SMART_SUGGESTIONS, AppFeature.AUTOMATIC_TITLES -> "Reading & Motion"
         AppFeature.BACKGROUND_GENERATION, AppFeature.RESPONSE_NOTIFICATIONS -> "Background & Notifications"
@@ -60,6 +60,7 @@ internal object SettingsSearchRegistry {
         SettingsSearchEntry("tools", "Plugins & Tools", "Plugins & Tools", SettingsSearchDestination.TOOLS, keywords = "tool connections marketplace mcp endpoint permissions revoke data access"),
         SettingsSearchEntry("delegation", "Model Delegation", "Memory & Research › Delegation", SettingsSearchDestination.DELEGATION, keywords = "reviewer local assist worker budget research cloud recall"),
         SettingsSearchEntry("privacy", "Privacy & Storage", "Advanced Settings › Privacy & Storage", SettingsSearchDestination.ADVANCED, "privacy", "biometric device unlock screenshots cleanup storage"),
+        SettingsSearchEntry("health", "Connection & Runtime Health", "Diagnostics › Health", SettingsSearchDestination.DEBUG, "health", "connection online offline provider local backend accelerator fallback"),
         SettingsSearchEntry("debug.live", "Live Diagnostics", "Debug › Live", SettingsSearchDestination.DEBUG, "live", "health runtime connectivity hardware logs tools"),
         SettingsSearchEntry("debug.runs", "Recent Runs", "Debug › Runs", SettingsSearchDestination.DEBUG, "runs", "failed interrupted cancelled canceled requests"),
         SettingsSearchEntry("debug.logs", "Diagnostic Logs", "Debug › Logs", SettingsSearchDestination.DEBUG, "logs", "redacted export events"),

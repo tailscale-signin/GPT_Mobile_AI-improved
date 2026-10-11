@@ -131,6 +131,7 @@ fun ToolConnectionsScreen(
             FactVaultScreen(hiltViewModel(), onBack = { memorySettingsOpen = false })
         }
     }
+    var showAccessAudit by remember { mutableStateOf(false) }
     var toolkitFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitFilter.ALL) }
     var toolkitSort by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ToolkitSort.NAME) }
     val marketplaceViewModel: dev.chungjungsoo.gptmobile.presentation.ui.mcp.MarketplaceViewModel = hiltViewModel()
@@ -247,6 +248,42 @@ fun ToolConnectionsScreen(
         }
     }
 
+    if (showAccessAudit) {
+        AlertDialog(
+            onDismissRequest = { showAccessAudit = false },
+            title = { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_title)) },
+            text = {
+                androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_help)) }
+                    uiState.connections.forEach { connection ->
+                        item(key = connection.connectionUid) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(connection.name, style = MaterialTheme.typography.titleSmall)
+                                Text("Connection policy: ${connection.toolPolicy}", style = MaterialTheme.typography.bodySmall)
+                                Text("Execution: ${if (connection.type == ToolConnectionType.MCP) "connected MCP server" else "Android adapter with provider network access"}", style = MaterialTheme.typography.bodySmall)
+                                Text("Service access: ${if (features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid))) "Enabled" else "Disabled"}")
+                                TextButton(onClick = {
+                                    permissionsConnection = connection
+                                    showAccessAudit = false
+                                }) { Text("Review policy and revoke grants") }
+                            }
+                        }
+                    }
+                    item {
+                        Text("Per-profile restrictions", style = MaterialTheme.typography.titleSmall)
+                        Text("These saved restrictions cannot override a globally disabled service.", style = MaterialTheme.typography.bodySmall)
+                        features.profileBehavior.forEach { (uid, policy) ->
+                            policy.toolPluginStates.forEach { (id, enabled) ->
+                                Text("Profile $uid · $id · ${if (enabled && features.isToolPluginEnabled(id)) "Allowed by saved switches" else "Restricted"}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAccessAudit = false }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.close)) } }
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -263,6 +300,7 @@ fun ToolConnectionsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SettingsHero("YOUR SERVICES", "Plugins & Tools", "One service. All its tools. Choose what each AI can use.")
+            TextButton(onClick = { showAccessAudit = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_title)) }
             ToolkitControls(search, { search = it }, toolkitFilter, { toolkitFilter = it }, toolkitSort, { toolkitSort = it })
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onMarketplaceClick, modifier = Modifier.weight(1f)) {

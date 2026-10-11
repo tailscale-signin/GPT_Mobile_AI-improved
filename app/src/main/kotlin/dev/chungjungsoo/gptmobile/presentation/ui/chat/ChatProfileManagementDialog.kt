@@ -29,7 +29,9 @@ internal fun ChatProfileManagementDialog(
     pausedUids: Set<String>,
     onPause: (String) -> Unit,
     onRemove: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    nextMessageUid: String? = null,
+    onNextMessage: ((String?) -> Unit)? = null
 ) {
     val members = profiles.mapTo(mutableSetOf()) { it.uid }
     FadingAlertDialog(
@@ -58,6 +60,12 @@ internal fun ChatProfileManagementDialog(
                             enabled = (members - pausedUids - profile.uid).isNotEmpty(),
                             modifier = Modifier.testTag("profile_remove_${profile.uid}")
                         ) { Text(stringResource(R.string.chat_profile_remove)) }
+                        if (onNextMessage != null) {
+                            TextButton(
+                                onClick = { onNextMessage(if (nextMessageUid == profile.uid) null else profile.uid) },
+                                enabled = profile.enabled && profile.uid !in pausedUids
+                            ) { Text(stringResource(if (nextMessageUid == profile.uid) R.string.next_message_clear else R.string.next_message_use)) }
+                        }
                         HorizontalDivider()
                     }
                 }

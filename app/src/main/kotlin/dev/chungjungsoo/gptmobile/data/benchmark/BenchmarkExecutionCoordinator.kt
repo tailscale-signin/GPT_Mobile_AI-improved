@@ -8,10 +8,12 @@ import dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundServic
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** Owns a benchmark independently of the screen that started it. */
@@ -26,6 +28,8 @@ class BenchmarkExecutionCoordinator @Inject constructor(
 
     internal val progressMutable = kotlinx.coroutines.flow.MutableStateFlow<BenchmarkProgress?>(null)
     internal val errorMutable = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private val sessionMutable = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val sessionId = sessionMutable.asStateFlow()
 
     @Volatile
     private var active: Job? = null
@@ -37,6 +41,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
     init {
         if (preferences.getBoolean(KEY_RUNNING, false)) {
             preferences.edit().putBoolean(KEY_RUNNING, false).apply()
+            preferences.edit().putString("status", "INTERRUPTED").apply()
             errorMutable.value = "The previous benchmark was interrupted when Android stopped the app. Its completed runs remain saved."
             scope.launch { benchmarkStore.markInterruptedRuns() }
         }
@@ -48,28 +53,37 @@ class BenchmarkExecutionCoordinator @Inject constructor(
     fun launch(block: suspend () -> Unit): Job? {
         if (isRunning) return null
         stopReason = null
-        try {
-            ContextCompat.startForegroundService(
-                appContext,
-                Intent(appContext, BenchmarkForegroundService::class.java)
-            )
-        } catch (error: Exception) {
-            errorMutable.value = "Android could not start background benchmark tracking: ${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.message ?: "service unavailable").take(300)}"
-            return null
-        }
-        errorMutable.value = null
-        val job = scope.launch {
-            preferences.edit().putBoolean(KEY_RUNNING, true).apply()
+        val id = java.util.UUID.randomUUID().toString()
+        sessionMutable.value = id
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            preferences.edit().putBoolean(KEY_RUNNING, true).putString("session_id", id).putString("status", "RUNNING").commit()
             try {
                 block()
             } finally {
                 progressMutable.value = null
-                preferences.edit().putBoolean(KEY_RUNNING, false).apply()
+                sessionMutable.value = null
+                preferences.edit().putBoolean(KEY_RUNNING, false).putString("status", if (stopReason == null) "FINISHED" else "STOPPED").commit()
                 appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
             }
         }
+        // Reserve ownership before Android can deliver a service cancellation.
         active = job
+        try {
+            ContextCompat.startForegroundService(appContext, Intent(appContext, BenchmarkForegroundService::class.java))
+        } catch (error: Exception) {
+            job.cancel()
+            sessionMutable.value = null
+            errorMutable.value = "Android could not start background benchmark tracking: ${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.message ?: "service unavailable").take(300)}"
+            return null
+        }
+        errorMutable.value = null
+        job.start()
         return job
+    }
+
+    fun serviceUnavailable(reason: String) {
+        errorMutable.value = reason
+        cancel(reason)
     }
 
     fun cancel(reason: String = "Stopped by user.") {

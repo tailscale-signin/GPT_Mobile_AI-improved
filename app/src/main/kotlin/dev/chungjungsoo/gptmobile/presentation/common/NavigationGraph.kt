@@ -10,14 +10,15 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -76,16 +77,23 @@ fun SetupNavGraph(
     onLaunchOAuth: (String) -> Unit = {}
 ) {
     val currentEntry by navController.currentBackStackEntryAsState()
-    Box(Modifier.fillMaxSize()) {
-        val navHost: @Composable () -> Unit = {
-            AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f)) {
+            val navHost: @Composable () -> Unit = {
+                AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+            }
+            if (isSettingsDestination(currentEntry?.destination?.route)) {
+                SettingsTypographyScope(content = navHost)
+            } else {
+                navHost()
+            }
         }
-        if (isSettingsDestination(currentEntry?.destination?.route)) {
-            SettingsTypographyScope(content = navHost)
-        } else {
-            navHost()
-        }
-        BenchmarkExecutionBanner(Modifier.align(Alignment.TopCenter))
+        BenchmarkExecutionBanner(
+            Modifier.navigationBarsPadding(),
+            onOpen = {
+                if (currentEntry?.destination?.route != Route.PROFILE_BENCHMARKS) navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", ""))
+            }
+        )
     }
 }
 
@@ -149,14 +157,16 @@ private fun AppNavHost(
 
 private fun isSettingsDestination(route: String?): Boolean {
     if (route == null) return false
-    return route == Route.SETTINGS ||
+    val baseRoute = route.substringBefore('?')
+    return baseRoute == Route.APPEARANCE ||
+        baseRoute == Route.SETTINGS ||
         route == Route.AI_PLATFORMS ||
         route == Route.ADD_PLATFORM ||
         route == Route.OPENROUTER_SETTINGS ||
-        route == Route.FACT_VAULT ||
-        route == Route.ADVANCED_SETTINGS ||
+        baseRoute == Route.FACT_VAULT ||
+        baseRoute == Route.ADVANCED_SETTINGS ||
         route == Route.USAGE_STATISTICS ||
-        route == Route.DEBUG_DIAGNOSTICS ||
+        baseRoute == Route.DEBUG_DIAGNOSTICS ||
         route == Route.ABOUT_PAGE ||
         route == Route.LICENSE ||
         route.startsWith(Route.LOCAL_MODELS) ||
@@ -445,7 +455,8 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigationClick = { navController.navigateUp() },
                 onStatisticsClick = { navController.navigate(Route.USAGE_STATISTICS) },
                 onBenchmarksClick = { navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "")) },
-                initialFocus = it.arguments?.getString("focus").orEmpty()
+                initialFocus = it.arguments?.getString("focus").orEmpty(),
+                toolConnectionsViewModel = toolConnectionsViewModel
             )
         }
         composable(Route.AI_PLATFORMS) {

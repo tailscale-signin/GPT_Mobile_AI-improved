@@ -16,6 +16,11 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /** Keeps an explicitly started benchmark alive while the user leaves the screen or app. */
 @AndroidEntryPoint
@@ -24,6 +29,8 @@ class BenchmarkForegroundService : Service() {
     lateinit var coordinator: BenchmarkExecutionCoordinator
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var published = false
 
     override fun onCreate() {
         super.onCreate()
@@ -33,19 +40,34 @@ class BenchmarkForegroundService : Service() {
                 NotificationChannel(CHANNEL_ID, "Benchmark progress", NotificationManager.IMPORTANCE_LOW)
             )
         }
+        publishForeground()
+        serviceScope.launch {
+            coordinator.progressMutable.collect { progress ->
+                if (published && progress != null) manager.notify(NOTIFICATION_ID, buildNotification())
+            }
+        }
+    }
+
+    private fun publishForeground(): Boolean {
+        if (published) return true
+        return try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            published = true
+            true
+        } catch (_: Exception) {
+            coordinator.serviceUnavailable("Android could not publish the benchmark foreground notification. The run was stopped; completed samples remain saved.")
+            stopSelf()
+            false
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             coordinator.cancel()
-            return START_STICKY
+            stopSelf()
+            return START_NOT_STICKY
         }
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        )
+        if (!publishForeground()) return START_NOT_STICKY
         if (wakeLock?.isHeld != true) {
             wakeLock = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GPTMobile:Benchmark")
@@ -70,15 +92,17 @@ class BenchmarkForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentTitle("Benchmark running")
-            .setContentText("Results are saved as each test completes. Tap to view progress.")
+            .setContentText(coordinator.progressMutable.value?.let { "${it.profileName} · ${it.testName} · ${it.completed.coerceAtMost(it.total)}/${it.total}" } ?: "Starting benchmark. Completed samples remain saved.")
             .setContentIntent(openApp)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stop)
+            .setProgress(coordinator.progressMutable.value?.total ?: 0, coordinator.progressMutable.value?.completed ?: 0, coordinator.progressMutable.value == null)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         super.onDestroy()

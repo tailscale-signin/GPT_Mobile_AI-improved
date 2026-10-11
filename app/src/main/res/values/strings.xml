@@ -851,4 +851,17 @@
     <string name="map_expand">Expand map</string>
     <string name="map_close">Close map</string>
     <string name="capability_unknown">Not verified</string>
+    <string name="conversation_actions">Conversation actions</string>
+    <string name="attach_images">Images</string>
+    <string name="attach_documents">PDF documents</string>
+    <string name="attach_any_file">Other files</string>
+    <string name="attachment_preparing">Preparing</string>
+    <string name="attachment_ready">Ready</string>
+    <string name="attachment_failed">Needs attention</string>
+    <string name="attachment_retry">Retry</string>
+    <string name="next_message_use">Use for next message only</string>
+    <string name="next_message_clear">Clear next-message override</string>
+    <string name="next_message_label">Next message only: %1$s</string>
+    <string name="profile_search">Search profiles, models or labels</string>
+    <string name="profile_favorites_only">Favorites only</string>
 </resources>

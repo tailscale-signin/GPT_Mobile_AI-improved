@@ -71,9 +71,10 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     val status by viewModel.status.collectAsStateWithLifecycle()
     val indexWarning by viewModel.indexWarning.collectAsStateWithLifecycle()
     val semanticStatus by viewModel.semanticStatus.collectAsStateWithLifecycle()
-    var tab by rememberSaveable { mutableStateOf(initialTab.takeIf { it in listOf("Memories", "Documents", "Controls", "Review", "Overview") } ?: "Memories") }
+    var tab by rememberSaveable { mutableStateOf(initialTab.takeIf { it in listOf("Memories", "Topics", "Documents", "Controls", "Review", "Overview") } ?: "Memories") }
     var filter by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
+    var inspecting by remember { mutableStateOf<VaultFact?>(null) }
     var editing by remember { mutableStateOf<VaultFact?>(null) }
     var adding by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
@@ -85,6 +86,33 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     var advancedControls by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    inspecting?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { inspecting = null },
+            title = { Text("Memory provenance") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(entry.fact.target.name)
+                    Text("Source: ${entry.source.replace('_', ' ')}")
+                    Text("Scope: ${entry.scope}")
+                    Text("Extraction confidence: ${(entry.confidence * 100).toInt()}%")
+                    Text("Saved: ${entry.savedAtMillis.takeIf { it > 0 }?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "Not recorded"}")
+                    Text("Last supported: ${entry.lastSeenMillis.takeIf { it > 0 }?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "Not recorded"}")
+                    Text(
+                        "Status: ${if (entry.pendingReplacements.isNotEmpty()) {
+                            "Needs conflict review"
+                        } else if (entry.enabled) {
+                            "Available for recall"
+                        } else {
+                            "Disabled or awaiting review"
+                        }}"
+                    )
+                    Text("${entry.occurrences} supporting messages · ${entry.previousValues.size} recorded edits")
+                }
+            },
+            confirmButton = { TextButton(onClick = { inspecting = null }) { Text("Close") } }
+        )
+    }
     val settings = vault.settings
     Scaffold(topBar = {
         TopAppBar(
@@ -119,11 +147,11 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Memories", "Topics", "Documents", "Controls").forEach { label ->
+                    listOf("Overview", "Memories", "Documents", "Review", "Controls", "Topics").forEach { label ->
                         FilterChip(tab == label, {
                             tab = label
                             query = ""
-                        }, label = { Text(label) })
+                        }, label = { Text(if (label == "Memories") "Saved Facts" else label) })
                     }
                 }
             }
@@ -137,6 +165,17 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
             status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) } }
             indexWarning?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } }
             when (tab) {
+                "Overview" -> {
+                    item {
+                        SettingsPanel("Memory overview") {
+                            Text("${vault.facts.count { it.enabled }} available facts · ${vault.facts.count { !it.enabled || it.pendingReplacements.isNotEmpty() }} need review")
+                            Text("${documents.size} indexed documents · ${vault.topics.size} recurring topics")
+                            Text(semanticStatus.detail, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { tab = "Review" }) { Text("Review proposed facts") }
+                            TextButton(onClick = { tab = "Controls" }) { Text("Privacy and recall controls") }
+                        }
+                    }
+                }
                 "Topics" -> {
                     item { SettingsHero("ON DEVICE", "Recurring interests", "Topics become memories after ${settings.topicRepetitions} different messages.") }
                     val topics = vault.topics.sortedByDescending { it.messageKeys.size }
@@ -148,7 +187,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         }
                     }
                 }
-                "Memories" -> {
+                "Memories", "Review" -> {
                     item {
                         OutlinedTextField(query, { query = it }, label = { Text("Find a memory") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -177,7 +216,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                     val shown = vault.facts.filter {
                         "${it.fact.entity.name} ${it.fact.target.name}".contains(query, true) &&
                             (filter != "Pinned" || it.pinned) &&
-                            (filter != "Review" || !it.enabled)
+                            ((tab != "Review" && filter != "Review") || !it.enabled || it.pendingReplacements.isNotEmpty())
                     }.sortedWith(compareByDescending<VaultFact> { it.pinned }.thenByDescending { it.savedAtMillis })
                     if (shown.isEmpty()) item { Text("No memories here yet. Add one, or tell your AI what to remember.", style = MaterialTheme.typography.bodyMedium) }
                     items(shown, key = { it.id }) { entry ->
@@ -186,6 +225,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                 Text(if (entry.fact.relation.relationType == "REMEMBERS" || entry.source == "local_model_observation") entry.fact.target.name else "${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.titleMedium)
                                 Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 Text("${entry.scope} · ${entry.occurrences} supporting messages · ${(entry.confidence * 100).toInt()}% extraction confidence", style = MaterialTheme.typography.labelSmall)
+                                TextButton(onClick = { inspecting = entry }) { Text("Source and history") }
                                 if (entry.pendingReplacements.isNotEmpty()) {
                                     Text("Change needs your review · existing memory stays active", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                                     entry.pendingReplacements.keys.forEach { oldId ->

@@ -80,7 +80,11 @@ fun CompleteBackupDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
                         Text(
-                            stringResource(if (state.passwordProtectionEnabled) R.string.backup_password_recovery_notice else R.string.backup_unencrypted_notice),
+                            if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
+                                "Health data, credentials and memory are encrypted with a separate recovery key file."
+                            } else {
+                                stringResource(if (state.passwordProtectionEnabled) R.string.backup_password_recovery_notice else R.string.backup_unencrypted_notice)
+                            },
                             modifier = Modifier.padding(start = 10.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -172,7 +176,7 @@ fun CompleteBackupDialog(
                     }
                     if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
                         Text(
-                            "Encrypt backup is required for health data, credentials or memory.",
+                            "Health data, credentials and memory are still encrypted. Save the separate recovery key file to restore without a password.",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )

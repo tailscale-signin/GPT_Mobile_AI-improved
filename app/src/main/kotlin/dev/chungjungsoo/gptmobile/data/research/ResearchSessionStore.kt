@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.research
 import android.content.Context
 import android.util.AtomicFile
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.agent.ResearchBudget
+import dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -19,13 +21,16 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
-data class ResearchSession(val runId: String, val chatId: Int, val snapshot: ResearchSnapshot)
+data class ResearchSession(val runId: String, val chatId: Int, val snapshot: ResearchSnapshot, val turnId: String = runId)
 
 /** App-private bounded history, included in complete backups; temporary chats stay in RAM. */
 @Singleton
 class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context) {
     private val directory = File(context.filesDir, "research-history")
     private val lock = Mutex()
+    private val readerHealth = ConcurrentHashMap<Pair<Int, String>, ResearchReaderHealth>()
+    private val turnBudgets = linkedMapOf<Pair<Int, String>, Pair<Long, ResearchBudget>>()
+    private val taskLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
     private val deletedChats = ConcurrentHashMap.newKeySet<Int>()
     private val mutable = MutableStateFlow<Map<String, ResearchSession>>(emptyMap())
@@ -34,7 +39,20 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     fun stop(runId: String) {
         stops += runId
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId): ResearchJournal = object : ResearchJournal {
+        override fun readerHealth(): ResearchReaderHealth = readerHealth.computeIfAbsent(chatId to turnId) { ResearchReaderHealth() }
+        override fun budget(totalLogicalCalls: Int): ResearchBudget = synchronized(turnBudgets) {
+            val now = System.currentTimeMillis()
+            // A turn cannot acquire a new allowance by changing task or profile.
+            turnBudgets.entries.removeAll { entry ->
+                (now - entry.value.first > 24 * 60 * 60 * 1000L).also { expired -> if (expired) readerHealth.remove(entry.key) }
+            }
+            val key = chatId to turnId
+            turnBudgets[key]?.second ?: run {
+                check(turnBudgets.size < 512) { "Research budget capacity reached. Retry after existing turns expire." }
+                ResearchBudget(totalLogicalCalls).also { turnBudgets[key] = now to it }
+            }
+        }
         override fun stopRequested() = runId in stops || chatId in deletedChats
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
@@ -43,10 +61,27 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     ?: if (persistent) read(file(runId))?.takeIf { it.chatId == chatId }?.snapshot else null
             }
         }
+        override suspend fun load(task: String): ResearchSnapshot? = withContext(Dispatchers.IO) {
+            if (chatId in deletedChats) return@withContext null
+            val taskKey = normalizedTask(task)
+            lock.withLock {
+                val persisted = if (persistent) directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read) else emptyList()
+                (persisted + mutable.value.values.filter { it.chatId == chatId })
+                    .asSequence()
+                    .filter { it.chatId == chatId && it.turnId == turnId && normalizedTask(it.snapshot.task) == taskKey }
+                    .maxByOrNull { it.snapshot.updatedAt }
+                    ?.snapshot
+            }
+        }
+        override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
+            val key = "$chatId:$turnId:${researchHash(normalizedTask(task))}"
+            val taskLock = taskLocks[(key.hashCode() and Int.MAX_VALUE) % taskLocks.size]
+            return taskLock.withLock { block() }
+        }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats) return@withLock
-                val session = ResearchSession(runId, chatId, snapshot)
+                val session = ResearchSession(runId, chatId, snapshot, turnId)
                 mutable.update { (it + (runId to session)).entries.sortedByDescending { row -> row.value.snapshot.updatedAt }.take(24).associate { row -> row.toPair() } }
                 if (!persistent) return@withLock
                 try {
@@ -55,6 +90,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     val data = buildJsonObject {
                         put("runId", runId)
                         put("chatId", chatId)
+                        put("turnId", turnId)
                         put("snapshot", snapshot.json())
                     }.toString().toByteArray()
                     require(data.size <= 512 * 1024)
@@ -90,6 +126,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
     suspend fun deleteChat(chatId: Int) = withContext(Dispatchers.IO) {
         deletedChats += chatId
+        readerHealth.keys.removeAll { it.first == chatId }
+        synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
             directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }
@@ -97,12 +135,14 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
 
     private fun file(runId: String) = File(directory, researchHash(runId) + ".json")
+    private fun normalizedTask(task: String) = task.trim().replace(Regex("\\s+"), " ").take(8_000).lowercase()
     private fun read(file: File): ResearchSession? = runCatching {
         val bytes = AtomicFile(file).openRead().use { stream ->
             require(stream.channel.size() in 1..512 * 1024)
             stream.readBytes()
         }
         val value = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
-        ResearchSession(value.text("runId"), value.number("chatId"), requireNotNull(ResearchSnapshot.parse(value["snapshot"]!!.jsonObject)))
+        val runId = value.text("runId")
+        ResearchSession(runId, value.number("chatId"), requireNotNull(ResearchSnapshot.parse(value["snapshot"]!!.jsonObject)), value.text("turnId").ifBlank { runId })
     }.getOrNull()
 }

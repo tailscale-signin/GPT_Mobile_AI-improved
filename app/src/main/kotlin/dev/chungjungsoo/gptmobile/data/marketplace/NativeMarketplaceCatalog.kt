@@ -39,13 +39,13 @@ object NativeMarketplaceCatalog {
         !key.contains('<') &&
         !key.contains('{')
 
-    fun validEndpoint(endpoint: String): Boolean = runCatching {
+    fun validEndpoint(endpoint: String, allowCustomHttpsPort: Boolean = false): Boolean = runCatching {
         val url = URI(endpoint.trim())
         val host = url.host.orEmpty().lowercase(java.util.Locale.ROOT)
         val shared = listOf("nominatim.openstreetmap.org", "overpass-api.de", "overpass.kumi.systems", "overpass.private.coffee")
         url.scheme == "https" &&
             host.isNotBlank() &&
-            url.port in listOf(-1, 443) &&
+            (url.port in listOf(-1, 443) || allowCustomHttpsPort && url.port in 1..65535) &&
             url.userInfo == null &&
             url.rawQuery == null &&
             url.fragment == null &&

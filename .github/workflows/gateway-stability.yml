@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['gateway/**', '.github/workflows/gateway-stability.yml']
   push:
-    branches: ['main', 'feat/gateway-v14-1-stability-2026-10-10']
+    branches: ['main', 'feat/gateway-v14-1-stability-2026-10-10', 'feat/combined-marketplace-gateway-14-2-2026-10-10']
     paths: ['gateway/**', '.github/workflows/gateway-stability.yml']
   workflow_dispatch:
 permissions:

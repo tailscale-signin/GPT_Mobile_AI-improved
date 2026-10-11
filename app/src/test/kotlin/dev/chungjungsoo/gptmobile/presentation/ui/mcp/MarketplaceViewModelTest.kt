@@ -1,7 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.mcp
 
 import androidx.lifecycle.ViewModelStore
+import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
+import dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplacePackageStore
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry
 import dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation
@@ -45,7 +49,7 @@ class MarketplaceViewModelTest {
         coEvery { store.pendingRemovalIds() } returns emptySet()
         coEvery { store.beginRemoval(any()) } returns Unit
         coEvery { store.finishRemoval(any()) } returns Unit
-        coEvery { store.download(any()) } returns Unit
+        coEvery { store.download(any(), any()) } returns Unit
         coEvery { store.remove(any()) } returns Unit
     }
 
@@ -71,13 +75,36 @@ class MarketplaceViewModelTest {
     }
 
     @Test
+    fun uninstallRemovesOnlyConnectionsOwnedByMarketplaceProviderIdentity() = runTest(dispatcher) {
+        val owned = ToolConnection(
+            connectionUid = "owned", name = "Renamed provider", alias = "renamed_provider", type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.test/mcp", authType = "NONE", secretRef = null, oauthClientId = null,
+            marketplaceOrigin = "MARKETPLACE", marketplaceProviderId = entry.id, marketplaceInstallationId = "install-1"
+        )
+        val manualWithSameAlias = owned.copy(
+            connectionUid = "manual",
+            marketplaceOrigin = "MANUAL",
+            marketplaceProviderId = null,
+            marketplaceInstallationId = null
+        )
+        coEvery { connections.listConnections() } returns listOf(owned, manualWithSameAlias)
+
+        val model = model()
+        model.remove(entry)
+        runCurrent()
+
+        coVerify(exactly = 1) { connections.deleteConnection("owned") }
+        coVerify(exactly = 0) { connections.deleteConnection("manual") }
+    }
+
+    @Test
     fun startupScanCannotOverwriteNewDownload() = runTest(dispatcher) {
         val scan = CompletableDeferred<Set<String>>()
         coEvery { store.downloadedIds() } coAnswers { scan.await() }
         val model = model()
         model.download(entry)
         runCurrent()
-        coVerify(exactly = 0) { store.download(any()) }
+        coVerify(exactly = 0) { store.download(any(), any()) }
         scan.complete(emptySet())
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
@@ -91,7 +118,7 @@ class MarketplaceViewModelTest {
         model.cancelDownload(entry.id)
         runCurrent()
         assertTrue(model.uiState.value.downloadingIds.isEmpty())
-        coVerify(exactly = 0) { store.download(any()) }
+        coVerify(exactly = 0) { store.download(any(), any()) }
         model.download(entry)
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
@@ -100,14 +127,14 @@ class MarketplaceViewModelTest {
     @Test
     fun repeatedDownloadAndRemoveDoNotRaceActiveDownload() = runTest(dispatcher) {
         val completion = CompletableDeferred<Unit>()
-        coEvery { store.download(entry) } coAnswers { completion.await() }
+        coEvery { store.download(entry, any()) } coAnswers { completion.await() }
         val model = model()
         model.download(entry)
         runCurrent()
         model.download(entry)
         model.remove(entry)
         runCurrent()
-        coVerify(exactly = 1) { store.download(entry) }
+        coVerify(exactly = 1) { store.download(entry, any()) }
         coVerify(exactly = 0) { store.remove(entry) }
         completion.complete(Unit)
         runCurrent()
@@ -116,7 +143,7 @@ class MarketplaceViewModelTest {
 
     @Test
     fun cancelledActiveDownloadClearsBusyStateAndCanRetry() = runTest(dispatcher) {
-        coEvery { store.download(entry) } coAnswers { CompletableDeferred<Unit>().await() }
+        coEvery { store.download(entry, any()) } coAnswers { CompletableDeferred<Unit>().await() }
         val model = model()
         model.download(entry)
         runCurrent()
@@ -124,7 +151,7 @@ class MarketplaceViewModelTest {
         runCurrent()
         assertTrue(model.uiState.value.downloadingIds.isEmpty())
         assertFalse(entry.id in model.uiState.value.downloadedIds)
-        coEvery { store.download(entry) } returns Unit
+        coEvery { store.download(entry, any()) } returns Unit
         model.download(entry)
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
@@ -150,13 +177,13 @@ class MarketplaceViewModelTest {
 
     @Test
     fun failedDownloadDoesNotExposeExceptionOrPreventRetry() = runTest(dispatcher) {
-        coEvery { store.download(entry) } throws IOException("secret-example")
+        coEvery { store.download(entry, any()) } throws IOException("secret-example")
         val model = model()
         model.download(entry)
         runCurrent()
         assertFalse(entry.id in model.uiState.value.downloadedIds)
         assertFalse(model.uiState.value.errors.getValue(entry.id).contains("secret-example"))
-        coEvery { store.download(entry) } returns Unit
+        coEvery { store.download(entry, any()) } returns Unit
         model.download(entry)
         runCurrent()
         assertEquals(setOf(entry.id), model.uiState.value.downloadedIds)
@@ -203,5 +230,98 @@ class MarketplaceViewModelTest {
         coVerify { registry.uninstall(entry) }
         coVerify { store.finishRemoval(entry) }
         assertTrue(model.uiState.value.downloadedIds.isEmpty())
+    }
+
+    @Test
+    fun explicitConnectionTestRunsDiscoveryWithoutCallingTools() = runTest(dispatcher) {
+        val connection = ToolConnection(
+            connectionUid = "conn-1",
+            name = "Example",
+            alias = "example",
+            type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.com/mcp",
+            authType = "NONE",
+            secretRef = null,
+            oauthClientId = null
+        )
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { connections.getConnection("conn-1") } returns connection
+        coEvery { resolver.discoverMcpTools(connection, forceRefresh = true) } returns emptyList()
+        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver)
+        viewModels.put("marketplace", model)
+
+        model.testConnection("conn-1")
+        runCurrent()
+
+        val result = model.uiState.value.connectionTests.getValue("conn-1")
+        assertTrue(result.connected)
+        assertEquals(0, result.toolCount)
+        assertTrue(result.message.contains("No tool was executed"))
+        assertTrue(model.uiState.value.testingConnectionUids.isEmpty())
+        coVerify(exactly = 1) { resolver.discoverMcpTools(connection, forceRefresh = true) }
+    }
+
+    @Test
+    fun connectionTestDoesNotExposeServerErrorText() = runTest(dispatcher) {
+        val connection = ToolConnection(
+            connectionUid = "conn-1",
+            name = "Example",
+            alias = "example",
+            type = ToolConnectionType.MCP,
+            endpointUrl = "https://example.com/mcp",
+            authType = "NONE",
+            secretRef = null,
+            oauthClientId = null
+        )
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { connections.getConnection("conn-1") } returns connection
+        coEvery { resolver.discoverMcpTools(connection, forceRefresh = true) } throws IOException("server echoed bearer-secret-123")
+        val model = MarketplaceViewModel(store, registry, connections, agentToolResolver = resolver)
+        viewModels.put("marketplace", model)
+
+        model.testConnection("conn-1")
+        runCurrent()
+
+        val result = model.uiState.value.connectionTests.getValue("conn-1")
+        assertFalse(result.connected)
+        assertFalse(result.message.contains("bearer-secret-123"))
+        assertTrue(result.correlationId.isNotBlank())
+    }
+
+    @Test
+    fun marketplaceConnectionLookupSurvivesRenameUsingPersistedIdentity() {
+        val preset = requireNotNull(McpPresetCatalog.findById("airbnb-openbnb"))
+        val renamed = ToolConnection(
+            connectionUid = "conn-renamed", name = "Vacation Search", alias = "vacation_search", type = ToolConnectionType.MCP,
+            endpointUrl = "https://mcp.openbnb.ai/mcp", authType = "OAUTH", secretRef = "vault-ref", oauthClientId = null,
+            marketplaceOrigin = "MARKETPLACE", marketplaceProviderId = preset.id, marketplaceInstallationId = "install-1"
+        )
+
+        assertEquals(renamed, resolveMarketplaceConnections(preset, listOf(renamed)).single())
+
+        val second = renamed.copy(connectionUid = "conn-second", name = "Vacation Search 2", marketplaceInstallationId = "install-2")
+        assertEquals(
+            listOf(renamed, second),
+            resolveMarketplaceConnections(preset, listOf(second, renamed))
+        )
+    }
+
+    @Test
+    fun legacyMarketplaceLookupRequiresExactHistoricalProviderEndpoint() {
+        val preset = requireNotNull(McpPresetCatalog.findById("airbnb-openbnb"))
+        val legacy = ToolConnection(
+            connectionUid = "legacy",
+            name = "Airbnb",
+            alias = preset.alias,
+            type = ToolConnectionType.MCP,
+            endpointUrl = "https://mcp.openbnb.ai/mcp",
+            authType = "NONE",
+            secretRef = null,
+            oauthClientId = null
+        )
+        val unrelatedManual = legacy.copy(endpointUrl = "https://example.test/mcp")
+
+        assertEquals(listOf(legacy), resolveMarketplaceConnections(preset, listOf(legacy)))
+        assertTrue(resolveMarketplaceConnections(preset, listOf(unrelatedManual)).isEmpty())
     }
 }

@@ -57,8 +57,18 @@ object NativeMarketplaceRequests {
             }
             "openstreetmap", "nominatim", "overpass" -> {
                 check(operation !in config.installation.disabledOperations) { "This capability is disabled." }
-                val osmEndpoint = if (entry.provider == "openstreetmap") config.installation.endpoints[operation].orEmpty() else config.installation.endpoint
-                require(NativeMarketplaceCatalog.validEndpoint(osmEndpoint)) { "Managed/self-hosted HTTPS endpoint required." }
+                val endpointConfig = if (entry.provider == "openstreetmap") config.installation.endpointConfig(operation) else NativeEndpointConfig(config.installation.endpoint)
+                val osmEndpoint = endpointConfig.url
+                require(endpointConfig.ready()) { "Managed/self-hosted HTTPS endpoint required." }
+                if (endpointConfig.authType != EndpointAuthType.NONE) {
+                    val secret = config.endpointSecrets[operation].orEmpty()
+                    require(NativeMarketplaceCatalog.validKey(secret)) { "Endpoint credential required." }
+                    when (endpointConfig.authType) {
+                        EndpointAuthType.BEARER -> headers["Authorization"] = "Bearer $secret"
+                        EndpointAuthType.API_KEY -> headers["X-API-Key"] = secret
+                        EndpointAuthType.NONE -> Unit
+                    }
+                }
                 if (operation == "geocode") {
                     parameters.putAll(mapOf("q" to query, "format" to "jsonv2", "limit" to minOf(count.toInt(), 5).toString()))
                 } else {

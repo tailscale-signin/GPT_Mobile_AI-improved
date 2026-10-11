@@ -22,7 +22,7 @@ def database(version):
 
 def upgrade(connection):
     source = (ROOT / 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2Migrations.kt').read_text()
-    migration = source.split('val MIGRATION_34_35')[1].split('val ALL_MIGRATIONS')[0]
+    migration = re.split(r'\n\s*val (?:MIGRATION_|ALL_MIGRATIONS)', source.split('val MIGRATION_34_35', 1)[1], maxsplit=1)[0]
     for ddl in re.findall(r'db.execSQL\("([^"]+)"\)', migration):
         connection.execute(ddl)
 

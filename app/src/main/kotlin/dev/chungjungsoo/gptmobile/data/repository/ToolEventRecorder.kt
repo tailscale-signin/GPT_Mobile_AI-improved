@@ -48,6 +48,7 @@ class ToolEventRecorder @Inject constructor(
         connectionName: String? = null,
         startedAt: Long
     ): ToolEvent {
+        dao.rawGetToolEventByCall(runId, callId)?.let { return it }
         val event = ToolEvent(
             eventId = eventIdFactory(),
             runId = runId,

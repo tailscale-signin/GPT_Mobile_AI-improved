@@ -116,6 +116,8 @@ class AndroidResearchWorkflowTest {
         assertEquals(1, result.pagesRead)
         assertEquals("Supported", journal.snapshot!!.claims.single().verdict)
         assertTrue(journal.snapshot!!.complete)
+        assertTrue(journal.snapshot!!.toolEvents.any { it.outcome == "SUCCESS" && it.sourceIds == listOf("S1") && it.latencyMs >= 0 })
+        assertTrue(journal.snapshot!!.toolEvents.any { it.reader == "read_url" && it.outcome == "SUCCESS" && it.sourceIds == listOf("S1") })
         val bad = Journal()
         AndroidResearchWorkflow(config(), listOf(search(), reader()), { p, t -> if (p.startsWith("Extract")) """{"claims":[{"sourceId":"S1","text":"Invented","quote":"This sentence never occurred on the source page."}]}""" else model(p, t) }, bad).run("Research", "run2")
         assertTrue(bad.snapshot!!.claims.isEmpty())
@@ -313,6 +315,20 @@ class AndroidResearchWorkflowTest {
         val result = AndroidResearchWorkflow(settings, listOf(search(), native, remote), ::model, journal).run("Research", "plain")
         assertEquals(1, result.pagesRead)
         assertEquals(0, remoteReads)
+    }
+
+    @Test fun ordinaryReaderFailureCanUseAnEnabledFallback() = runBlocking {
+        val journal = Journal()
+        var remoteReads = 0
+        val native = reader { id, _ -> AgentToolResult(id, ToolResultContent.Text("HTTP 503 temporarily unavailable"), true) }
+        val remote = reader { id, _ ->
+            remoteReads++
+            AgentToolResult(id, ToolResultContent.Text(passage), false)
+        }.copy(connectionUid = "remote", modelToolName = "remote_reader")
+        val settings = config().copy(deepResearch = config().deepResearch.copy(allowRemoteReaders = true))
+        val result = AndroidResearchWorkflow(settings, listOf(search(), native, remote), ::model, journal).run("Research", "transient")
+        assertEquals(1, remoteReads)
+        assertEquals(1, result.pagesRead)
     }
 
     @Test fun accessDeniedDoesNotEscalateToAnotherReader() = runBlocking {

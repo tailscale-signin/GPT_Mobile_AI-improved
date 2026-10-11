@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -47,5 +48,11 @@ class CombinedSynthesisInputsTest {
             assertNull(inputs(listOf(lead, message("helper", "Helper")), runs))
             assertEquals(listOf("Primary", "Changed helper"), inputs(listOf(lead, message("helper", "Changed helper")), runs)?.map { it.content })
         }
+    }
+
+    @Test fun rawToolMarkupAndTerminalProviderErrorsAreNotAdmitted() {
+        assertFalse(CombinedContributionQuality.assess(AgentRunStatus.COMPLETED, "<tool_call>{\"name\":\"write\"}</tool_call>").admitted)
+        assertFalse(CombinedContributionQuality.assess(AgentRunStatus.FAILED, "A partial sentence from a failed request").admitted)
+        assertTrue(CombinedContributionQuality.assess(AgentRunStatus.COMPLETED, "A concise but usable answer.").admitted)
     }
 }

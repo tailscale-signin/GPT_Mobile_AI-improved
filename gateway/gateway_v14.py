@@ -19,6 +19,10 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from v14.identity import Admission
 from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
+from v14.errors import GatewayFailure
+from v14.deadlines import request_deadline
+from v14.actions import IdempotencyConflict, IdempotencyExpired
+from v14.events import replay_snapshot
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
@@ -33,6 +37,7 @@ runtime.AUTO_MEMORY_STORE = False
 runtime.AUTO_LEARN_FROM_TOOL_RESULTS = False
 runtime.MEMORY_BEHAVIOR_PROMPT = "Personal memory is client-authoritative. Do not invent recalled facts or store a competing vault."
 runtime.run_searches = run_searches
+runtime.gateway_replay_snapshot = replay_snapshot
 install_terminal_guard(runtime)
 _old_config = runtime.load_mcp_config
 
@@ -62,6 +67,11 @@ async def chat(request: Request):
     try:
         payload = await request.json()
         runtime.validate_chat_request(payload)
+        try:
+            request_deadline(payload)
+        except ValueError:
+            return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
+                                             "message": "The gateway run-control fields are unsupported or invalid.", "retryable": False}}, status_code=400)
         request._json = apply_client_recall(payload, runtime.LLAMA_BASE)
         response = await runtime.chat_completions(request)
         if isinstance(response, StreamingResponse):
@@ -79,11 +89,22 @@ async def chat(request: Request):
             response.body_iterator = admitted_stream()
         return response
     except DurableCommitError:
-        return JSONResponse({"error": {"code": "durable_commit_failed"}}, status_code=503)
+        return JSONResponse({"error": {"code": "durable_commit_failed", "failureCode": "persistence_failed",
+                                         "message": "The gateway could not durably commit this run.", "retryable": True}}, status_code=503)
+    except GatewayFailure as exc:
+        return JSONResponse(exc.payload(), status_code=exc.status_code)
+    except IdempotencyConflict as exc:
+        return JSONResponse({"error": {"code": "idempotency_conflict", "failureCode": "invalid_request",
+                                         "message": str(exc), "retryable": False}}, status_code=409)
+    except IdempotencyExpired as exc:
+        return JSONResponse({"error": {"code": "idempotency_expired", "failureCode": "invalid_request",
+                                         "message": str(exc), "retryable": False}}, status_code=409)
     except PermissionError:
-        return JSONResponse({"error": {"code": "principal_or_destination_denied"}}, status_code=403)
-    except (ValueError, runtime.GatewayContractError) as exc:
-        return JSONResponse({"error": {"code": "invalid_v14_request", "message": str(exc)}}, status_code=400)
+        return JSONResponse({"error": {"code": "principal_or_destination_denied", "failureCode": "permission_denied",
+                                         "message": "The gateway principal is not permitted to run this request.", "retryable": False}}, status_code=403)
+    except (ValueError, runtime.GatewayContractError):
+        return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
+                                         "message": "The request does not satisfy the gateway contract.", "retryable": False}}, status_code=400)
 
 
 @app.post("/gateway/jobs/{job_id}/cancel")
@@ -93,7 +114,10 @@ def cancel(job_id: str):
     with runtime.job_registry_lock:
         job = runtime.job_registry.get(job_id)
         if job and job.get("status") in TERMINAL:
-            return {"job_id": job_id, "canceled": job["status"] in {"cancelled", "canceled"}, "status": job["status"], "message": "Job already terminal"}
+            canceled = job["status"] in {"cancelled", "canceled"}
+            return {"job_id": job_id, "canceled": canceled, "cancellationRequested": False,
+                    "cancellationOutcome": "confirmed" if canceled else "not_canceled",
+                    "status": job["status"], "message": "Job already terminal"}
         return runtime.cancel_gateway_job(job_id)
 
 
@@ -105,9 +129,14 @@ def capabilities():
                    "identityScope": "user" if config.mode == "trusted_proxy" else "local-machine",
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
+                   "contracts": {
+                       "gatewayProgress": [runtime.GATEWAY_PROGRESS_PROTOCOL],
+                       "toolArguments": ["gptmobile.tool-arguments.v1"]
+                   },
                    "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
+                                    validatedToolArguments=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True)})
     return result

@@ -198,79 +198,94 @@ class CompleteBackupManager @Inject constructor(
 
         val storage = files()
         val sources = linkedMapOf<String, File>()
-        val databaseSelected = selected.sections.any(::isDatabaseSection)
+        val lockToolState = selected.includes(CompleteBackupSection.TOOLS)
+        var toolPreferencesSnapshot: Map<String, BackupValue>? = null
+        var toolSecretsSnapshot: Map<String, String>? = null
+        if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
+        try {
+            val databaseSelected = selected.sections.any(::isDatabaseSection)
 
-        if (databaseSelected) {
-            val dbFile = File(work, "database.sqlite")
-            database.withTransaction {
-                ensureIdle(restoring = false)
-                dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository(database.toolConnectionDao(), secretVault).listConnections()
-                CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
-            }
+            if (databaseSelected) {
+                val dbFile = File(work, "database.sqlite")
+                database.withTransaction {
+                    ensureIdle(restoring = false)
+                    dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository(database.toolConnectionDao(), secretVault).listConnections()
+                    CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
+                }
 
-            val snapshot = openSnapshot(dbFile)
-            try {
-                val snapshotDb = snapshot.openHelper.writableDatabase
-                CompleteBackupDatabase.retainSections(snapshotDb, selected)
+                val snapshot = openSnapshot(dbFile)
+                try {
+                    val snapshotDb = snapshot.openHelper.writableDatabase
+                    CompleteBackupDatabase.retainSections(snapshotDb, selected)
 
-                if (CompleteBackupSection.CONVERSATIONS in selected.sections) {
-                    if (CompleteBackupSection.ATTACHMENTS in selected.sections) {
-                        rewriteAttachments(snapshotDb) { path ->
-                            storage.archivePath(path, sources)
-                        }
-                    } else {
-                        snapshotDb.execSQL("UPDATE messages_v2 SET attachments = '[]'")
-                        snapshotDb.execSQL("UPDATE chats_v2 SET draft_attachments = '[]'")
-                        snapshotDb.query("SELECT id, payload FROM pending_prompts").use { rows ->
-                            while (rows.moveToNext()) {
-                                val payload = json.decodeFromString<dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload>(rows.getString(1))
-                                snapshotDb.execSQL("UPDATE pending_prompts SET payload = ? WHERE id = ?", arrayOf<Any>(json.encodeToString(payload.copy(attachments = emptyList())), rows.getString(0)))
+                    if (CompleteBackupSection.CONVERSATIONS in selected.sections) {
+                        if (CompleteBackupSection.ATTACHMENTS in selected.sections) {
+                            rewriteAttachments(snapshotDb) { path ->
+                                storage.archivePath(path, sources)
+                            }
+                        } else {
+                            snapshotDb.execSQL("UPDATE messages_v2 SET attachments = '[]'")
+                            snapshotDb.execSQL("UPDATE chats_v2 SET draft_attachments = '[]'")
+                            snapshotDb.query("SELECT id, payload FROM pending_prompts").use { rows ->
+                                while (rows.moveToNext()) {
+                                    val payload = json.decodeFromString<dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload>(rows.getString(1))
+                                    snapshotDb.execSQL("UPDATE pending_prompts SET payload = ? WHERE id = ?", arrayOf<Any>(json.encodeToString(payload.copy(attachments = emptyList())), rows.getString(0)))
+                                }
                             }
                         }
                     }
-                }
 
-                if (CompleteBackupSection.LOCAL_MODELS in selected.sections) {
-                    storage.collect()
-                        .filterKeys(::isModelArchivePath)
-                        .forEach { (archivePath, source) -> sources.putIfAbsent(archivePath, source) }
-                    validateModels(snapshotDb, sources.keys)
+                    if (CompleteBackupSection.LOCAL_MODELS in selected.sections) {
+                        storage.collect()
+                            .filterKeys(::isModelArchivePath)
+                            .forEach { (archivePath, source) -> sources.putIfAbsent(archivePath, source) }
+                        validateModels(snapshotDb, sources.keys)
+                    }
+                } finally {
+                    snapshot.close()
                 }
-            } finally {
-                snapshot.close()
+                sources["database.sqlite"] = dbFile
             }
-            sources["database.sqlite"] = dbFile
-        }
 
-        if (selected.includes(CompleteBackupSection.CONVERSATIONS)) {
-            File(context.filesDir, "research-history").listFiles().orEmpty()
-                .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.json")) && it.length() <= 512 * 1024 }
-                .forEach { sources["internal/research-history/${it.name}"] = it }
-        }
-        if (CompleteBackupSection.STATISTICS in selected.sections) {
-            val benchmarkFile = File(work, "benchmark-results.json").apply {
-                writeText(benchmarkStore.exportJson())
+            if (selected.includes(CompleteBackupSection.CONVERSATIONS)) {
+                File(context.filesDir, "research-history").listFiles().orEmpty()
+                    .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.json")) && it.length() <= 512 * 1024 }
+                    .forEach { sources["internal/research-history/${it.name}"] = it }
             }
-            sources["internal/benchmark-results/benchmark-results.json"] = benchmarkFile
-        }
-        if (selected.includes(CompleteBackupSection.TOOLS)) {
-            sources.putAll(storage.collectPlugins())
-            nativePlugins?.backupState()?.let { bytes ->
-                val snapshot = File(work, "plugin-registry.json").apply { writeBytes(bytes) }
-                sources["internal/plugin-installations/native-marketplace-v1.json"] = snapshot
+            if (CompleteBackupSection.STATISTICS in selected.sections) {
+                val benchmarkFile = File(work, "benchmark-results.json").apply {
+                    writeText(benchmarkStore.exportJson())
+                }
+                sources["internal/benchmark-results/benchmark-results.json"] = benchmarkFile
             }
+            if (selected.includes(CompleteBackupSection.TOOLS)) {
+                val pluginSnapshotDirectory = File(work, "plugin-snapshot").apply { check(mkdirs() || isDirectory) }
+                storage.collectPlugins().forEach { (archivePath, source) ->
+                    val snapshot = File(pluginSnapshotDirectory, source.name)
+                    source.copyTo(snapshot, overwrite = true)
+                    sources[archivePath] = snapshot
+                }
+                nativePlugins?.backupState()?.let { bytes ->
+                    val snapshot = File(work, "plugin-registry.json").apply { writeBytes(bytes) }
+                    sources["internal/plugin-installations/native-marketplace-v1.json"] = snapshot
+                }
+                toolPreferencesSnapshot = preferences.read()
+                toolSecretsSnapshot = readSecrets(selected)
+            }
+        } finally {
+            if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
         }
 
         val manifest = CompleteBackupManifest(
             preferences = if (CompleteBackupSection.SETTINGS in selected.sections) {
-                preferences.read()
+                toolPreferencesSnapshot ?: preferences.read()
             } else if (selected.includes(CompleteBackupSection.TOOLS)) {
-                PluginBackupPreferences.capture(preferences.read())
+                PluginBackupPreferences.capture(toolPreferencesSnapshot ?: preferences.read())
             } else {
                 emptyMap()
             },
             sharedPreferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.readShared() else emptyMap(),
-            secrets = readSecrets(selected),
+            secrets = toolSecretsSnapshot ?: readSecrets(selected),
             files = sources.mapValues { it.value.length() },
             sections = selected.sections.mapTo(linkedSetOf()) { it.name },
             protection = if (selected.includes(CompleteBackupSection.SETTINGS)) savedProtection().copy(password = "") else null
@@ -442,6 +457,9 @@ class CompleteBackupManager @Inject constructor(
         require(selectedPaths.map(storage::target).toSet().size == selectedPaths.size) {
             "Conflicting backup file locations."
         }
+        if (CompleteBackupSection.TOOLS in effective.sections) {
+            validateMarketplaceRestore(staging, selectedPaths, selectedSecrets.keys)
+        }
 
         val snapshot = if (restoreDatabase) {
             prepareSnapshot(File(staging, "database.sqlite"))
@@ -453,6 +471,10 @@ class CompleteBackupManager @Inject constructor(
             val source = snapshot?.openHelper?.writableDatabase
             if (source != null) {
                 CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
+
+                if (CompleteBackupSection.TOOLS in effective.sections) {
+                    clearMissingToolSecrets(source, selectedSecrets.keys)
+                }
 
                 if (CompleteBackupSection.CONVERSATIONS in effective.sections) {
                     if (restoreAttachments) {
@@ -475,51 +497,57 @@ class CompleteBackupManager @Inject constructor(
                 }
             }
 
-            val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
-            val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
-            val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
-            val oldProtection = savedProtection()
-            val restoreTransactionId = UUID.randomUUID().toString()
-            val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
-
+            val lockToolState = effective.includes(CompleteBackupSection.TOOLS)
+            if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
             try {
-                database.withTransaction {
-                    ensureIdle(restoring = true)
-                    if (source != null) {
-                        CompleteBackupDatabase.restoreSections(
-                            source,
-                            database.openHelper.writableDatabase,
-                            effective
-                        )
-                    }
-                    if (selectedPaths.isNotEmpty()) replacement.apply()
-                    if (selectedPaths.isNotEmpty()) {
-                        database.openHelper.writableDatabase.execSQL(
-                            "INSERT OR REPLACE INTO $RESTORE_MARKER_TABLE(singleton, transaction_id) VALUES (1, ?)",
-                            arrayOf(restoreTransactionId)
-                        )
-                    }
-                    if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
-                    if (restorePreferences) {
-                        preferences.replace(if (restoreSettings) manifest.preferences else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
-                    }
-                    if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
-                    if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }
-                }
-            } catch (error: Throwable) {
-                withContext(NonCancellable) {
-                    if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
-                    if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
-                    if (restorePreferences) runCatching { preferences.replace(oldPreferences, oldShared) }
-                    if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) runCatching { nativePlugins?.reload() }
-                    if (restoreSettings && manifest.protection != null) runCatching { saveProtection(oldProtection) }
-                }
-                throw error
-            }
+                val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
+                val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
+                val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
+                val oldProtection = savedProtection()
+                val restoreTransactionId = UUID.randomUUID().toString()
+                val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
 
-            if (selectedPaths.isNotEmpty()) replacement.cleanup()
-            if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
-            clearRestoreMarker()
+                try {
+                    database.withTransaction {
+                        ensureIdle(restoring = true)
+                        if (source != null) {
+                            CompleteBackupDatabase.restoreSections(
+                                source,
+                                database.openHelper.writableDatabase,
+                                effective
+                            )
+                        }
+                        if (selectedPaths.isNotEmpty()) replacement.apply()
+                        if (selectedPaths.isNotEmpty()) {
+                            database.openHelper.writableDatabase.execSQL(
+                                "INSERT OR REPLACE INTO $RESTORE_MARKER_TABLE(singleton, transaction_id) VALUES (1, ?)",
+                                arrayOf(restoreTransactionId)
+                            )
+                        }
+                        if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
+                        if (restorePreferences) {
+                            preferences.replace(if (restoreSettings) manifest.preferences else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
+                        }
+                        if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
+                        if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }
+                    }
+                } catch (error: Throwable) {
+                    withContext(NonCancellable) {
+                        if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
+                        if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
+                        if (restorePreferences) runCatching { preferences.replace(oldPreferences, oldShared) }
+                        if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) runCatching { nativePlugins?.reload() }
+                        if (restoreSettings && manifest.protection != null) runCatching { saveProtection(oldProtection) }
+                    }
+                    throw error
+                }
+
+                if (selectedPaths.isNotEmpty()) replacement.cleanup()
+                if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
+                clearRestoreMarker()
+            } finally {
+                if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
+            }
             settings.invalidatePlatformCache()
         } finally {
             snapshot?.close()
@@ -676,6 +704,57 @@ class CompleteBackupManager @Inject constructor(
                 if (rows.getString(2) == "READY") {
                     require("internal/$path" in paths || "external/$path" in paths) { "A downloaded model is missing. Remove it or download it again before backing up." }
                 }
+            }
+        }
+    }
+
+    private fun validateMarketplaceRestore(staging: File, paths: Set<String>, importedSecretRefs: Set<String>) {
+        val packagePrefix = "internal/plugin-installations/optional_marketplace_v1/"
+        paths.filter { it.startsWith(packagePrefix) }.forEach { path ->
+            val id = path.removePrefix(packagePrefix).removeSuffix(".zip")
+            val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id)
+                ?: error("Backup contains an unknown marketplace package. Remove it from the archive and retry.")
+            val packageFile = File(staging, path)
+            require(packageFile.length() in 1..dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceDownloadPolicy.MAX_PACKAGE_BYTES.toLong()) {
+                "Backup marketplace package exceeds its size limit."
+            }
+            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceDownloadPolicy.verifyPackage(entry, packageFile.readBytes())
+        }
+
+        val registryPath = "internal/plugin-installations/native-marketplace-v1.json"
+        if (registryPath !in paths) return
+        val registryFile = File(staging, registryPath)
+        val records = json.decodeFromString<Map<String, dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation>>(registryFile.readText())
+        val catalogIds = (
+            dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages +
+                dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.legacyPackages
+            ).mapTo(mutableSetOf()) { it.id }
+        require(records.keys.all { it in catalogIds }) { "Backup registry references an unknown marketplace package." }
+        val safeRecords = records.mapValues { (_, record) ->
+            val missingKey = record.credentialRef != null && record.credentialRef !in importedSecretRefs
+            val configs = record.endpointConfigs.mapValues { (_, config) ->
+                if (config.secretRef != null && config.secretRef !in importedSecretRefs) config.copy(secretRef = null) else config
+            }
+            val missingEndpointKey = configs.filterKeys { it !in record.disabledOperations }.values.any {
+                it.authType != dev.chungjungsoo.gptmobile.data.marketplace.EndpointAuthType.NONE && it.secretRef == null
+            }
+            record.copy(enabled = record.enabled && !missingKey && !missingEndpointKey, credentialRef = if (missingKey) null else record.credentialRef, endpointConfigs = configs)
+        }
+        registryFile.writeText(json.encodeToString(safeRecords))
+    }
+
+    private fun clearMissingToolSecrets(db: SupportSQLiteDatabase, importedSecretRefs: Set<String>) {
+        val refs = importedSecretRefs.filter { it.matches(Regex("[A-Za-z0-9_-]{1,128}")) }
+        listOf("tool_connections", "platform_v2").forEach { table ->
+            val columns = db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }
+            }
+            if ("secret_ref" !in columns) return@forEach
+            if (refs.isEmpty()) {
+                db.execSQL("UPDATE `$table` SET secret_ref = NULL WHERE secret_ref IS NOT NULL")
+            } else {
+                val placeholders = refs.joinToString(",") { "?" }
+                db.execSQL("UPDATE `$table` SET secret_ref = NULL WHERE secret_ref IS NOT NULL AND secret_ref NOT IN ($placeholders)", arrayOf<Any>(*refs.toTypedArray()))
             }
         }
     }

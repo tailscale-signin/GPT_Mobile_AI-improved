@@ -64,6 +64,18 @@ object ToolServiceCatalog {
     }
 
     fun forConnection(connection: ToolConnection): ToolServiceDefinition {
+        val marketplaceDefinition = connection.marketplaceProviderId?.let { providerId ->
+            dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog.findById(providerId)
+        }
+        if (connection.marketplaceOrigin == "MARKETPLACE" && marketplaceDefinition != null) {
+            return ToolServiceDefinition(
+                id = "service:${marketplaceDefinition.id}",
+                name = marketplaceDefinition.name,
+                description = marketplaceDefinition.description,
+                iconName = marketplaceDefinition.iconName,
+                usesNetwork = true
+            )
+        }
         val provider = when (connection.type) {
             ToolConnectionType.GITHUB -> "github"
             ToolConnectionType.AMAZON_SERPAPI -> "amazon"

@@ -20,6 +20,92 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalResearchWorkflowTest {
+    @Test fun `shared discovery exhaustion retains verification allowance for collected snippets`() = runTest {
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(24)
+        val discovery = dev.chungjungsoo.gptmobile.data.agent.ResearchBudget.Phase.DISCOVERY
+        while (budget.snapshot().remainingByPhase.getValue(discovery) > 2) budget.tryCharge(discovery, true)
+        val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {
+            override suspend fun load(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
+            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) = Unit
+            override fun stopRequested() = false
+            override fun budget(totalLogicalCalls: Int) = budget
+        }
+        var reads = 0
+        var summaries = 0
+        val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"Benchmark","url":"https://example.org/latency","snippet":"Measured latency is 42 ms."}]}""") }
+        val reader = tool("read_url") { id, _ ->
+            reads++
+            response(id, "{}")
+        }
+        val result = LocalResearchWorkflow(config, listOf(search, reader), { prompt, _ ->
+            if (prompt.startsWith("Extract facts")) summaries++
+            worker(prompt)
+        }, journal = journal).run("Research latency", "shared")
+        assertEquals(0, reads)
+        assertEquals(1, summaries)
+        assertEquals(0, budget.snapshot().remainingByPhase.getValue(discovery))
+        assertEquals("true", Json.parseToJsonElement(result.handoff).jsonObject.getValue("partial").jsonPrimitive.content)
+        assertTrue(result.handoff.contains("42 ms"))
+    }
+
+    @Test fun `authentication circuit survives worker restart while healthy reader remains available`() = runTest {
+        val health = dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth()
+        val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {
+            override suspend fun load(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
+            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) = Unit
+            override fun stopRequested() = false
+            override fun readerHealth() = health
+        }
+        var deniedCalls = 0
+        var healthyCalls = 0
+        val denied = tool("read_url") { id, _ ->
+            deniedCalls++
+            AgentToolResult(id, ToolResultContent.Text("invalid api key"), true, errorCode = "AUTH_FAILED")
+        }.copy(modelToolName = "reader_denied")
+        val healthy = tool("read_url") { id, _ ->
+            healthyCalls++
+            response(id, """{"content":"Verified latency is 42 ms.","links":[]}""")
+        }.copy(modelToolName = "reader_healthy")
+        repeat(2) { turn ->
+            val result = LocalResearchWorkflow(
+                config.copy(maxPages = 1, crawlDepth = 0),
+                listOf(denied, healthy),
+                { prompt, _ -> if (prompt.startsWith("Plan")) """{"queries":[],"urls":[]}""" else worker(prompt) },
+                journal = journal
+            ).run("Read https://example.org/latency", "worker-$turn")
+            assertEquals(1, result.pagesRead)
+        }
+        assertEquals(1, deniedCalls)
+        assertEquals(2, healthyCalls)
+    }
+
+    @Test fun `explicit site denial does not retry the page through another reader`() = runTest {
+        var fallbackReads = 0
+        val denied = tool("read_url") { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("HTTP 403 access denied"), true)
+        }
+        val fallback = tool("read_url") { id, _ ->
+            fallbackReads++
+            response(id, """{"content":"Verified latency is 42 ms.","links":[]}""")
+        }.copy(modelToolName = "reader_fallback")
+        val result = LocalResearchWorkflow(
+            config.copy(maxPages = 1, crawlDepth = 0),
+            listOf(denied, fallback),
+            { prompt, _ -> if (prompt.startsWith("Plan")) """{"queries":[],"urls":[]}""" else worker(prompt) }
+        ).run("Read https://example.org/latency", "site-denial")
+        assertEquals(0, fallbackReads)
+        assertEquals(0, result.pagesRead)
+    }
+
+    @Test fun `target forbidden response is host scoped and leaves other hosts available`() {
+        val health = dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth()
+        val outcome = researchReaderOutcome(AgentToolResult("read", ToolResultContent.Text("HTTP 403 Forbidden"), true), "")
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.ToolOutcome.BLOCKED, outcome)
+        health.record("reader", "https://denied.example/page", outcome)
+        assertFalse(health.available("reader", "https://denied.example/another"))
+        assertTrue(health.available("reader", "https://healthy.example/page"))
+    }
+
     @Test fun `retrieved passages survive a failed summarizer independently of its handoff`() = runTest {
         var saved: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
         val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {

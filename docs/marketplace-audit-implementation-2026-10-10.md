@@ -39,7 +39,8 @@ Based on `Marketplace_Local_AI_Plugins_Audit_2026-10-10.md`, compared against ma
 | P04 | Durable uninstall marker, automatic finish-uninstall and recovery of verified but unregistered packages implemented. Full cross-store transactions still require device/process-death testing. |
 | P05, P06 | Meaningful-error classification and bounded Retry-After seconds/date propagation implemented. No automatic tool replay was added. |
 | P07 | Safe, distinct recovery messages for registry, package verification, storage, connectivity, setup, cooldown and daily allowance. Full diagnostic correlation IDs remain a follow-up. |
-| P08, P09 | Deferred: managed OSM auth/custom-port configuration and historical trusted package-manifest migration need separate contract/upgrade fixtures. Current protections remain intact. |
+| P08 | Implemented: per-capability managed OSM endpoint configuration, explicit HTTPS-port opt-in, Bearer/X-API-Key authentication stored in the vault, enabled-capability validation, legacy unauthenticated endpoint migration, and credential redaction. Missing vault credentials disable the installation and require setup. Runtime/upgrade regression tests are included. |
+| P09 | Historical trusted package-manifest migration remains deferred; existing verification protections remain intact. |
 | P10 | Corrected action and execution-location wording; in-app adapters remain compiled into the APK. |
 | P11 | Bounded valid JSON retains prioritized identifiers/URLs and reports truncation/unknown fields. Successful oversized records no longer become wholesale tool failure. Full provider-specific normalization and continuation handles remain follow-ups. |
 | P12, P13 | Deferred: provider-specific retention enforcement across chat/export and a coherent backup snapshot across every store. Do not consider these controls complete based on this change. |
@@ -51,7 +52,7 @@ Existing benchmark, Local Assist, runtime admission and debug-export implementat
 - Focused JVM suite uses production identity, response, transfer guard and path-policy code, plus repository JUnit tests. Covers error:null/empty errors, Retry-After, bounded records/coordinate pairs, collision resistance, cancellation, legacy identity preservation, stale generations and authoritative size enforcement.
 - Additional Android/Robolectric tests cover registry repair, startup removal recovery, enablement consistency/validation, backup password exclusion, partial-restore isolation and catalog precedence/cancellation.
 - Changed Kotlin files are formatted and checked with repository-pinned ktlint 1.3.1.
-- A full local Gradle build is blocked because the required Gradle 9.8.0 distribution cannot be downloaded in this environment. Full Android compilation, Robolectric suite, lint, APK packaging and phone validation must be assessed from CI/device results, not inferred from the focused JVM suite.
+- Gradle 9.8.0 and JDK 21 are available for focused local JVM tests. A full local Android build remains blocked by the absent Android SDK. Branch CI has compiled Android production and test sources; the latest focused contracts must pass before acceptance. APK packaging, instrumented tests and phone validation remain separate gates.
 
 ## Device review checklist
 

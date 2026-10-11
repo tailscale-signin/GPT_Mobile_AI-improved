@@ -12,6 +12,8 @@ enum class QnnRuntimeStage {
     QNN_SYSTEM,
     FASTRPC_HTP,
     MODEL_CONTEXT,
+    CRASH_JOURNAL,
+    UNKNOWN_WITHIN_NATIVE_INITIALIZE,
     ENGINE_INIT,
     CONVERSATION,
     PREFILL,
@@ -40,13 +42,32 @@ class QnnRuntimeFailure(
     val code: QnnFailureCode,
     detail: String,
     cause: Throwable? = null
-) : IOException("QNN ${stage.name} failed [$code]: $detail", cause)
+) : IOException("NPU initialization/operation failed [$code] at ${stage.name}: ${safeQnnDetail(detail)}", cause) {
+    val causeStage: QnnRuntimeStage get() = stage
+    val errorCode: String get() = code.name
+    val nativeDetail: String = safeQnnDetail(detail)
+    val suggestedRecoveryType: String get() = when (code) {
+        QnnFailureCode.PREVIOUS_NATIVE_CRASH -> "QUALIFIED_RUNTIME_OR_ARTIFACT_CHANGE"
+        QnnFailureCode.UNSAFE_ARTIFACT -> "REINSTALL_VERIFIED_ARTIFACT"
+        QnnFailureCode.NATIVE_ALLOCATION_FAILED -> "SMALLER_COMPATIBLE_MODEL_OR_CONTEXT"
+        else -> "EXPORT_DIAGNOSTICS_OR_SEPARATE_COMPATIBLE_EDITION"
+    }
+}
+
+internal fun safeQnnDetail(detail: String): String =
+    dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(detail.take(4096))
+        .replace(Regex("""(?:/data/|/storage/|/sdcard/|/home/)[^\s,;]+"""), "[private-path]")
+        .replace(Regex("""\b(?:\d{1,3}\.){3}\d{1,3}\b"""), "[address]")
+        .take(640).ifBlank { "native detail unavailable" }
 
 /** Only assign a specific diagnosis when the native/runtime message provides evidence. */
 fun classifyQnnFailure(stage: QnnRuntimeStage, error: Throwable): QnnRuntimeFailure {
     if (error is QnnRuntimeFailure) return error
-    val detail = generateSequence(error) { it.cause }.mapNotNull { it.message }.joinToString(" ").lowercase()
+    val detail = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).mapNotNull { it.message?.take(1024) }.joinToString(" ").lowercase()
+    if (error is VirtualMachineError || error is ThreadDeath || error is kotlinx.coroutines.CancellationException) throw error
     val code = when {
+        "interrupted inside native" in detail || "previous qnn native crash" in detail || "quarantin" in detail -> QnnFailureCode.PREVIOUS_NATIVE_CRASH
+        "checksum" in detail || "unsafe artifact" in detail || "truncated" in detail -> QnnFailureCode.UNSAFE_ARTIFACT
         error is LinkageError || detail.contains("dlopen") || detail.contains("undefined symbol") -> QnnFailureCode.ELF_LINK_FAILURE
         detail.contains("qnn system") && detail.contains("version") -> QnnFailureCode.QNN_SYSTEM_VERSION_MISMATCH
         detail.contains("dispatch") && (detail.contains("version") || detail.contains("api")) -> QnnFailureCode.DISPATCH_VERSION_MISMATCH
@@ -56,5 +77,16 @@ fun classifyQnnFailure(stage: QnnRuntimeStage, error: Throwable): QnnRuntimeFail
         detail.contains("context") && (detail.contains("limit") || detail.contains("exceed")) -> QnnFailureCode.MODEL_CONTEXT_INCOMPATIBLE
         else -> QnnFailureCode.UNKNOWN_NATIVE_ERROR
     }
-    return QnnRuntimeFailure(stage, code, error.message ?: "QNN runtime operation failed", error)
+    val causeStage = when (code) {
+        QnnFailureCode.PREVIOUS_NATIVE_CRASH -> QnnRuntimeStage.CRASH_JOURNAL
+        QnnFailureCode.UNSAFE_ARTIFACT -> QnnRuntimeStage.MODEL_INTEGRITY
+        QnnFailureCode.ELF_LINK_FAILURE -> QnnRuntimeStage.NATIVE_LINK
+        QnnFailureCode.DISPATCH_VERSION_MISMATCH -> QnnRuntimeStage.DISPATCH_API
+        QnnFailureCode.QNN_SYSTEM_VERSION_MISMATCH -> QnnRuntimeStage.QNN_SYSTEM
+        QnnFailureCode.DSP_LIBRARY_UNAVAILABLE, QnnFailureCode.DSP_INITIALIZATION_FAILED -> QnnRuntimeStage.FASTRPC_HTP
+        QnnFailureCode.MODEL_CONTEXT_INCOMPATIBLE -> QnnRuntimeStage.MODEL_CONTEXT
+        QnnFailureCode.UNKNOWN_NATIVE_ERROR -> if (stage == QnnRuntimeStage.ENGINE_INIT) QnnRuntimeStage.UNKNOWN_WITHIN_NATIVE_INITIALIZE else stage
+        else -> stage
+    }
+    return QnnRuntimeFailure(causeStage, code, detail, error)
 }

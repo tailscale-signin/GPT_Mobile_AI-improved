@@ -11,11 +11,15 @@ internal class OutputLimitRecoverySession(
     private val maxContinuations: Int = 1,
     private val targetWords: Int? = null,
     private val recoverTransientFailures: Boolean = false,
+    initialDraft: String = "",
+    private var effectiveOutputCap: Int? = null,
+    private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
     private val continuation: suspend (String, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
     private var continuations = 0
     private var transientRetries = 0
-    private val answer = StringBuilder()
+    private val answer = StringBuilder(initialDraft.take(MAX_ANSWER_CHARACTERS))
+    private var resumePending = initialDraft.isNotBlank()
     override val handlesToolsInternally: Boolean get() = active.handlesToolsInternally
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
@@ -24,37 +28,70 @@ internal class OutputLimitRecoverySession(
             return@flow
         }
         val evidence = ToolExchangeCompactor.compact(exchanges, maxReplayTokens = 4_000, maxResultTokens = 512)
+        if (resumePending) {
+            resumePending = false
+            emit(ProviderEvent.TextDelta(answer.toString()))
+            active = continuation(answer.toString(), evidence)
+            continuations = 1
+        }
         while (true) {
             val continuing = continuations > 0 || transientRetries > 0
             var failure: ProviderEvent.Failed? = null
             var completed = false
             val pendingCalls = mutableListOf<ProviderEvent.ToolCall>()
+            val admission = ToolRoundAdmission()
             val segment = StringBuilder()
-            active.streamRound(if (continuing) emptyList() else tools, if (continuing) emptyList() else exchanges)
-                .withSummedRequestUsage().collect { event ->
-                    when (event) {
-                        is ProviderEvent.ToolCall -> {
-                            if (continuing) failure = ProviderEvent.Failed("The continuation requested a tool despite tools being disabled. No action was repeated.") else pendingCalls += event
+            var savedCharacters = 0
+            try {
+                active.streamRound(if (continuing) emptyList() else tools, if (continuing) emptyList() else exchanges)
+                    .withSummedRequestUsage().collect { event ->
+                        when (event) {
+                            is ProviderEvent.ToolCall -> {
+                                if (!admission.admit(event)) throw ToolBatchOversizeException()
+                                if (continuing) failure = ProviderEvent.Failed("The continuation requested a tool despite tools being disabled. No action was repeated.") else pendingCalls += event
+                            }
+                            is ProviderEvent.ToolResult -> if (continuing) {
+                                failure = ProviderEvent.Failed("The continuation returned a tool result despite tools being disabled. No action was repeated.")
+                            } else {
+                                emit(event)
+                            }
+                            is ProviderEvent.RequestConfigured -> {
+                                effectiveOutputCap = event.effectiveOutputTokens ?: effectiveOutputCap
+                                emit(event)
+                            }
+                            is ProviderEvent.Failed -> failure = event
+                            is ProviderEvent.TextDelta -> {
+                                // Bound retained text, including misbehaving providers that ignore output caps.
+                                check(answer.length.toLong() + segment.length + event.text.length <= MAX_ANSWER_CHARACTERS) { "Response exceeded the safe continuation buffer. Partial output is saved." }
+                                segment.append(event.text)
+                                if (!continuing) emit(event)
+                                if (segment.length - savedCharacters >= 4096) {
+                                    val progress = if (continuing) continuationSuffix(answer.toString(), segment.toString()) else segment.toString()
+                                    saveProgress(answer.toString() + progress, continuations, effectiveOutputCap, "WRITING")
+                                    savedCharacters = segment.length
+                                }
+                            }
+                            ProviderEvent.Completed -> completed = true
+                            else -> emit(event)
                         }
-                        is ProviderEvent.ToolResult -> if (continuing) {
-                            failure = ProviderEvent.Failed("The continuation returned a tool result despite tools being disabled. No action was repeated.")
-                        } else {
-                            emit(event)
-                        }
-                        is ProviderEvent.Failed -> failure = event
-                        is ProviderEvent.TextDelta -> {
-                            // Bound retained text, including misbehaving providers that ignore output caps.
-                            check(answer.length.toLong() + segment.length + event.text.length <= MAX_ANSWER_CHARACTERS) { "Response exceeded the safe continuation buffer. Partial output is saved." }
-                            segment.append(event.text)
-                            if (!continuing) emit(event)
-                        }
-                        ProviderEvent.Completed -> completed = true
-                        else -> emit(event)
+                    }
+            } catch (failure: Exception) {
+                // Preserve even a short, interrupted segment. Never emit from this catch: a
+                // downstream collector failure must retain Flow exception transparency.
+                val progress = if (continuing) continuationSuffix(answer.toString(), segment.toString()) else segment.toString()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        saveProgress(answer.toString() + progress, continuations, effectiveOutputCap, if (failure is kotlinx.coroutines.CancellationException) "CANCELLED" else "PARTIAL")
+                    } catch (saveFailure: Exception) {
+                        failure.addSuppressed(saveFailure)
                     }
                 }
+                throw failure
+            }
             val novel = if (continuing) continuationSuffix(answer.toString(), segment.toString()) else segment.toString()
             if (continuing && novel.isNotEmpty()) emit(ProviderEvent.TextDelta(novel))
             answer.append(novel)
+            saveProgress(answer.toString(), continuations, effectiveOutputCap, "SEGMENT_COMMITTED")
             val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true
             val transientFailure = failure != null &&
                 !limitFailure &&
@@ -64,16 +101,19 @@ internal class OutputLimitRecoverySession(
                 isRecoverableStreamFailure(requireNotNull(failure).message) &&
                 transientRetries < 2
             if (failure != null && !limitFailure && !transientFailure) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, if (answer.isNotEmpty()) "PARTIAL" else "FAILED")
                 emit(requireNotNull(failure))
                 return@flow
             }
             val shortAnswer = completed && pendingCalls.isEmpty() && LongResponsePolicy.needsMore(answer.toString(), targetWords)
             if (!limitFailure && !shortAnswer && !transientFailure) {
                 pendingCalls.forEach { emit(it) }
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, if (completed) "COMPLETED" else "PARTIAL")
                 if (completed) emit(ProviderEvent.Completed)
                 return@flow
             }
             if ((!transientFailure && continuations >= maxContinuations.coerceIn(0, 16)) || answer.length >= MAX_ANSWER_CHARACTERS || (!transientFailure && continuing && novel.isBlank())) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
                 emit(
                     ProviderEvent.Failed(
                         "The response is incomplete after bounded continuation (${LongResponsePolicy.countWords(answer.toString())} words" +
@@ -95,6 +135,7 @@ internal class OutputLimitRecoverySession(
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
                 emit(ProviderEvent.Failed("Automatic continuation could not fit the context or reach the provider. The partial answer and completed tool results are saved."))
                 return@flow
             }

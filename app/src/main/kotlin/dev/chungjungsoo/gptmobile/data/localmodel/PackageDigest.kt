@@ -21,6 +21,12 @@ internal object PackageDigest {
 
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes).joinToString("") { "%02x".format(it) }
+    fun trustStatus(file: File): String {
+        val saved = File(file.parentFile, file.name + ".digest")
+        val lines = saved.takeIf { it.isFile && it.length() <= 256 }?.readLines().orEmpty()
+        return if (lines.getOrNull(1) == "publisher-digest-verified" && lines.firstOrNull()?.matches(Regex("[a-fA-F0-9]{64}")) == true) "TRUSTED_HASH_PASS" else "TRUSTED_HASH_MISSING"
+    }
+
     fun validateInstalled(file: File): String {
         val saved = File(file.parentFile, file.name + ".digest")
         val expected = if (saved.isFile && saved.length() <= 256) saved.readLines().firstOrNull().orEmpty() else ""

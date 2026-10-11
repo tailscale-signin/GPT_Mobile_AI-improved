@@ -19,6 +19,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModernMcpTransportTest {
+    @org.junit.Before fun resetEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+
+    @org.junit.After fun clearEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+
     private fun obj(value: String) = Json.parseToJsonElement(value).jsonObject
     private val config = McpConnectionConfig("modern", "https://example.com/mcp", false, "Bearer secret")
 
@@ -211,6 +215,8 @@ class ModernMcpTransportTest {
             val modern = ModernMcpTransport(client)
             assertTrue(runCatching { modern.supports(localConfig) }.isFailure)
             assertTrue(runCatching { modern.supports(localConfig) }.isFailure)
+            assertEquals(1, requests)
+            assertTrue(runCatching { modern.supports(localConfig, refresh = true) }.isFailure)
             assertEquals(2, requests)
         }
 

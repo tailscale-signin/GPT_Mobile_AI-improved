@@ -51,6 +51,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         val identity = dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(
             buildJsonObject {
                 put("endpoint", config.endpointUrl)
+                put("networkEpoch", dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch)
                 put("authorization", config.authorizationHeader)
             }
         )
@@ -68,6 +69,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             endpoints[config.connectionUid] = shared
             return@withLock shared.discovery != null
         }
+        if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         val discovered = try {
             val discovery = rpc(config, "server/discover", JsonObject(emptyMap()))
@@ -118,6 +120,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     fun closeAll() {
         endpoints.clear()
         schemas.clear()
+        endpointDiscoveryCache.clear()
     }
     private fun supportsTasks(uid: String) = ((endpoints[uid]?.discovery?.get("capabilities") as? JsonObject)?.get("extensions") as? JsonObject)?.containsKey("io.modelcontextprotocol/tasks") == true
     fun capabilities(uid: String): Set<String> = (endpoints[uid]?.discovery?.get("capabilities") as? JsonObject)?.keys.orEmpty()

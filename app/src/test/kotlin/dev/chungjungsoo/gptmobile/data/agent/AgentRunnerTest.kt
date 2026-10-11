@@ -154,7 +154,7 @@ class AgentRunnerTest {
         val events = AgentRunner(AgentRunLimits(maxToolCalls = 50)).run(
             session { _, _ ->
                 flow {
-                    if (rounds++ == 0) repeat(26) { emit(toolCall("call-$it", "search")) } else emit(ProviderEvent.TextDelta("Finished"))
+                    if (rounds++ < 2) repeat(16) { emit(toolCall("call-$rounds-$it", "search")) } else emit(ProviderEvent.TextDelta("Finished"))
                     emit(ProviderEvent.Completed)
                 }
             },

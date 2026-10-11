@@ -16,14 +16,20 @@ import kotlinx.coroutines.withTimeout
 internal object InferenceAdmission {
     private val mutex = Mutex()
     private var readers = 0
-    private var writer = false
-    private var waitingWriters = 0
+
+    @Volatile private var writer = false
+
+    @Volatile private var waitingWriters = 0
+    val isExclusiveBusy: Boolean get() = writer || waitingWriters > 0
     private var changed = CompletableDeferred<Unit>()
+    private val availabilityEpoch = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    val availability: kotlinx.coroutines.flow.StateFlow<Long> get() = availabilityEpoch
     private class Owner : AbstractCoroutineContextElement(Owner) {
         companion object Key : CoroutineContext.Key<Owner>
     }
 
     private fun signal() {
+        availabilityEpoch.value++
         changed.complete(Unit)
         changed = CompletableDeferred()
     }

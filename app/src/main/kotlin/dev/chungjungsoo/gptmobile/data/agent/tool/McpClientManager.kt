@@ -55,7 +55,8 @@ data class McpConnectionHealth(
     val consecutiveFailures: Int = 0,
     val nextRetryAtMs: Long? = null,
     val lastError: String? = null,
-    val availableToolCount: Int? = null
+    val availableToolCount: Int? = null,
+    val connectionHealth: dev.chungjungsoo.gptmobile.data.network.ConnectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN
 )
 
 class McpBackoffException(
@@ -94,6 +95,7 @@ class McpClientManager internal constructor(
 
     private suspend fun modernTransport(config: McpConnectionConfig, refresh: Boolean = false): ModernMcpTransport? {
         val key = config.validatedKey()
+        if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
         configurationFailures[config.connectionUid]?.let { failedKey ->
             if (!refresh && failedKey == key) throw McpEndpointConfigurationException()
             configurationFailures.remove(config.connectionUid, failedKey)
@@ -116,21 +118,22 @@ class McpClientManager internal constructor(
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
-        if (error.isMcpUnauthorized()) {
-            providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
-            recordFailure(config.connectionUid, error)
-        }
+        if (error is McpBackoffException) throw error
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
+        if (error.isMcpUnauthorized()) providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
+        recordFailure(config.connectionUid, error)
         throw error
     }
 
     private suspend fun listToolsUnchecked(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
         modernTransport(config, forceRefresh)?.let { transport ->
             return transport.listTools(config).also {
+                dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
                 recordSuccess(config.connectionUid, availableToolCount = it.size)
                 recordCatalog(config, it)
             }
         }
-        val result = withSession(config, bypassBackoff = forceRefresh) { session ->
+        val result = withSession(config, bypassBackoff = forceRefresh, recordFailures = false) { session ->
             session.toolCatalogMutex.withLock {
                 val now = nowMs()
                 session.toolCatalog?.takeIf { !forceRefresh && now - it.loadedAtMs < TOOL_CATALOG_TTL_MS }?.tools ?: run {
@@ -152,6 +155,7 @@ class McpClientManager internal constructor(
                 }
             }
         }
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
         recordSuccess(config.connectionUid, availableToolCount = result.size)
         recordCatalog(config, result)
         return result
@@ -184,18 +188,21 @@ class McpClientManager internal constructor(
         }
         return try {
             val result = modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId) }
-                ?: withSession(config, retryStale = false) { it.client.callTool(toolName, arguments) }
+                ?: withSession(config, retryStale = false, recordFailures = false) { it.client.callTool(toolName, arguments) }
             if (result.isError == true) recordQuota(result.toString())
             mediaStore?.materialize(result) ?: result
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
+            if (error is McpBackoffException) throw error
             if (error.isMcpUnauthorized()) {
                 val message = "MCP authentication or access failed. Open Manage connection for this provider and update its credentials."
                 providerCooldowns[config.connectionUid] = key to Long.MAX_VALUE
                 recordFailure(config.connectionUid, IllegalStateException(message, error))
                 throw IllegalStateException(message, error)
             }
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
+            recordFailure(config.connectionUid, error)
             recordQuota(error.message.orEmpty())
             throw error
         }
@@ -290,6 +297,7 @@ class McpClientManager internal constructor(
                     latencyMs = latencyMs ?: previous.latencyMs,
                     consecutiveFailures = 0,
                     nextRetryAtMs = null,
+                    connectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.HEALTHY,
                     lastError = null,
                     availableToolCount = availableToolCount ?: previous.availableToolCount
                 )
@@ -320,7 +328,8 @@ class McpClientManager internal constructor(
                 lastFailureAtMs = now,
                 consecutiveFailures = failures,
                 nextRetryAtMs = if (error is McpEndpointConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
-                lastError = error.message ?: error.javaClass.simpleName
+                lastError = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
+                connectionHealth = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
             )
             current + (connectionUid to updated)
         }
@@ -366,12 +375,12 @@ class McpClientManager internal constructor(
         config: McpConnectionConfig,
         bypassBackoff: Boolean = false,
         retryStale: Boolean = true,
+        recordFailures: Boolean = true,
         block: suspend (Session) -> T
     ): T {
-        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         var staleSessionRetries = 0
         while (true) {
-            val session = session(config, bypassBackoff || staleSessionRetries > 0)
+            val session = session(config, bypassBackoff || staleSessionRetries > 0, recordFailures)
             val startedAtMs = nowMs()
             try {
                 return block(session).also {
@@ -393,13 +402,13 @@ class McpClientManager internal constructor(
                     )
                     continue
                 }
-                if (!error.isMcpUnauthorized()) recordFailure(config.connectionUid, error)
+                if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error)
                 throw error
             }
         }
     }
 
-    private suspend fun session(config: McpConnectionConfig, bypassBackoff: Boolean = false): Session {
+    private suspend fun session(config: McpConnectionConfig, bypassBackoff: Boolean = false, recordFailures: Boolean = true): Session {
         val key = config.validatedKey()
         while (true) {
             val created = CompletableDeferred<Session>()
@@ -486,7 +495,7 @@ class McpClientManager internal constructor(
             }
             result.fold(
                 onSuccess = { recordSuccess(config.connectionUid, latencyMs = nowMs() - connectStartedAtMs) },
-                onFailure = { error -> if (!error.isMcpUnauthorized()) recordFailure(config.connectionUid, error) }
+                onFailure = { error -> if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error) }
             )
             return result.getOrThrow()
         }
@@ -528,7 +537,7 @@ class McpClientManager internal constructor(
             "MCP authorization header is too long."
         }
         require(googleApiKey == null || (uri.host == "mapstools.googleapis.com" && scheme == "https" && uri.port == -1 && googleApiKey.isNotBlank() && googleApiKey.length <= 4096 && googleApiKey.all { it.code in 33..126 })) { "Invalid Google MCP API key configuration." }
-        return "$endpointUrl|${authorizationHeader.orEmpty().sha256()}|${googleApiKey.orEmpty().sha256()}"
+        return "$endpointUrl|${authorizationHeader.orEmpty().sha256()}|${googleApiKey.orEmpty().sha256()}|${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch}"
     }
 
     private class Session(val key: String, val client: Client) {

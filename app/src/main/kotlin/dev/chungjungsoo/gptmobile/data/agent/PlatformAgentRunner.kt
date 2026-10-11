@@ -15,6 +15,7 @@ fun agentRunnerForPlatform(
     AgentRunLimits(
         maxRounds = maxRoundsOverride ?: Int.MAX_VALUE,
         maxToolCalls = runOverride ?: platform.maxToolCalls,
-        toolTimeoutMillis = 45_000L
+        toolTimeoutMillis = 45_000L,
+        allowToolStormFinalization = dev.chungjungsoo.gptmobile.BuildConfig.TOOL_STORM_FINALIZATION
     )
 )

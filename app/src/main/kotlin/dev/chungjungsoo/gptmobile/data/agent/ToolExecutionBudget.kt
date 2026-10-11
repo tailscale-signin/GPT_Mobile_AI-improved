@@ -18,6 +18,8 @@ class ToolExecutionBudget(
 ) {
     private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val calls = AtomicInteger()
+    private val attempts = AtomicInteger()
+    private val invocationIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val failures = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
     private val completed = AtomicInteger()
     private val remainingBytes = AtomicInteger(limits.maxToolOutputBytes)
@@ -40,7 +42,12 @@ class ToolExecutionBudget(
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
-            val signature = tool.definition.name + ":" + arguments.toString().hashCode()
+            if (attempts.incrementAndGet() > limits.maxObservedToolCalls.coerceIn(1, 1024) || callId.length > 256 || boundedJsonBytes(arguments, 16 * 1024) > 16 * 1024) {
+                return { withBudgetState(ToolResultEnvelope.error(callId.take(256), "TOOL_BATCH_OVERSIZE", "Observed tool attempt or argument limit reached. No action dispatched.")) }
+            }
+            val invocation = "$executionOwner:${tool.definition.name}:$callId"
+            if (!invocationIds.add(invocation)) return { withBudgetState(ToolResultEnvelope.error(callId, "DUPLICATE_INVOCATION", "This invocation ID was already admitted. No action repeated.")) }
+            val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)
             if (signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
             if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
             val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
@@ -117,11 +124,12 @@ class ToolExecutionBudget(
                     } else {
                         boundedResult
                     }
-                    if (normalizedResult.errorCode == "TIMEOUT_OUTCOME_UNKNOWN") unknownOutcomes += signature
+                    if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
+                    unknownOutcomes += signature
                     AppLogRecorder.record(
                         "Tool",
                         "Canceled by parent run · tool=${tool.definition.name} · call=$callId",
@@ -130,7 +138,8 @@ class ToolExecutionBudget(
                     throw cancellation
                 } catch (error: Exception) {
                     failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                    val boundedResult = bounded(ToolResultEnvelope.error(callId, "PROVIDER_UNAVAILABLE", failureMessage(error), dispatched = true))
+                    unknownOutcomes += signature
+                    val boundedResult = bounded(ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true))
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {
@@ -153,9 +162,10 @@ class ToolExecutionBudget(
     }
 
     private fun bounded(
-        result: AgentToolResult,
+        rawResult: AgentToolResult,
         preserveSuccessfulHandoff: Boolean = false
     ): AgentToolResult {
+        val result = ToolObservationRetention.bound(rawResult)
         val text = when (val value = result.content) {
             is ToolResultContent.Text -> value.text
             is ToolResultContent.Json -> value.value.toString()

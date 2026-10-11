@@ -12,7 +12,7 @@ internal object CombinedResponseBudget {
         val sourceWords = contributions.sumOf { ((it as? JsonObject)?.get("response") as? JsonPrimitive)?.content?.let(LongResponsePolicy::countWords)?.toLong() ?: 0L }
         val estimatedOutput = maxOf(sourceWords * 2.2, (wordGoal ?: 0) * 2.2)
         val segment = outputCap?.takeIf { it > 0 } ?: 16_384
-        return maxOf(3, kotlin.math.ceil(estimatedOutput / segment).toInt()).coerceAtMost(16)
+        return (kotlin.math.ceil(estimatedOutput / (segment * 0.85)).toInt() - 1).coerceIn(1, 16)
     }
 }
 

@@ -125,6 +125,10 @@ extensions.configure<ApplicationExtension> {
     defaultConfig {
         applicationId = if (geniexRuntime) "dev.melo.gptmobile.improved.geniex" else "dev.melo.gptmobile.improved"
         buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())
+        // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.
+        buildConfigField("boolean", "COMBINED_SECTION_RECOVERY", providers.gradleProperty("combinedSectionRecovery").map { (it != "false").toString() }.getOrElse("true"))
+        buildConfigField("boolean", "MCP_ROUTE_RECOVERY", providers.gradleProperty("mcpRouteRecovery").map { (it != "false").toString() }.getOrElse("true"))
+        buildConfigField("boolean", "TOOL_STORM_FINALIZATION", providers.gradleProperty("toolStormFinalization").map { (it != "false").toString() }.getOrElse("true"))
         minSdk = 31
         targetSdk = 37
         versionCode = 110
@@ -503,3 +507,13 @@ aboutLibraries {
         excludeFields.add("generated")
     }
 }
+
+// Ship the same reviewed hash manifest used by APK CI, without duplicating pinned identities.
+val qnnAuditAssets = tasks.register<Copy>("prepareQnnAuditAssets") {
+    from(rootProject.file("docs/audits/local-runtime-native-libraries.json"))
+    into(layout.buildDirectory.dir("generated/qnnAuditAssets"))
+}
+extensions.configure<ApplicationExtension> {
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/qnnAuditAssets").get().asFile)
+}
+tasks.named("preBuild").configure { dependsOn(qnnAuditAssets) }

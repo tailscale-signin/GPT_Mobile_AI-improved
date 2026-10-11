@@ -29,7 +29,8 @@ data class AppLogEntry(val time: Long, val level: String, val tag: String, val m
 object AppLogRecorder {
     private const val QUEUE_CAPACITY = 512
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val queue = Channel<AppLogEntry>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST)
+    private val droppedRecords = java.util.concurrent.atomic.AtomicLong()
+    private val queue = Channel<AppLogEntry>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { droppedRecords.incrementAndGet() })
     private val mutableEnabled = MutableStateFlow(false)
     private val mutableEntries = MutableStateFlow<List<AppLogEntry>>(emptyList())
     private val mutableError = MutableStateFlow<String?>(null)
@@ -66,11 +67,15 @@ object AppLogRecorder {
             for (entry in queue) {
                 synchronized(fileLock) {
                     if (!mutableEnabled.value || privateSessions.isNotEmpty()) return@synchronized
-                    recent.addLast(entry)
+                    val batch = mutableListOf(entry)
+                    repeat(63) { queue.tryReceive().getOrNull()?.let(batch::add) }
+                    batch.forEach(recent::addLast)
                     while (recent.size > 500) recent.removeFirst()
                     mutableEntries.value = recent.toList()
-                    runCatching { append(entry.line()) }.onFailure { mutableError.value = "Unable to save logs. Check available storage." }
+                    runCatching { append(batch.joinToString("\n") { it.line() }) }.onFailure { mutableError.value = "Unable to save logs. Check available storage." }
                 }
+                // Publish at most 20 diagnostic snapshots/second, independently of chat streaming.
+                kotlinx.coroutines.delay(50)
             }
         }
         application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -135,25 +140,28 @@ object AppLogRecorder {
         }
         record("Diagnostics", "Log tracking enabled")
         scope.launch {
-            checkpoint("Application", "version=${BuildConfig.VERSION_NAME} · versionCode=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · process=${Process.myPid()}")
+            checkpoint("Application", "version=${BuildConfig.VERSION_NAME} · versionCode=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}")
         }
     }
 
     fun record(tag: String, message: String, level: String = "I") {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
-        queue.trySend(AppLogEntry(System.currentTimeMillis(), level, tag.take(64), redactLogMessage(message).take(8000)))
+        queue.trySend(AppLogEntry(System.currentTimeMillis(), level, tag.take(64), redactLogMessage(message.take(16_000)).take(8000)))
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */
     internal fun checkpoint(tag: String, message: String) {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
-        val entry = AppLogEntry(System.currentTimeMillis(), "I", tag.take(64), redactLogMessage(message).take(8000))
+        val entry = AppLogEntry(System.currentTimeMillis(), "I", tag.take(64), redactLogMessage(message.take(16_000)).take(8000))
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
             recent.addLast(entry)
             while (recent.size > 500) recent.removeFirst()
             mutableEntries.value = recent.toList()
-            runCatching { append(entry.line(), durable = true) }
+            runCatching {
+                append(entry.line(), durable = true)
+                appendCritical(entry.line())
+            }
                 .onFailure { mutableError.value = "Unable to save logs. Check available storage." }
         }
     }
@@ -163,6 +171,7 @@ object AppLogRecorder {
             synchronized(fileLock) {
                 while (queue.tryReceive().isSuccess) Unit
                 recent.clear()
+                droppedRecords.set(0)
                 mutableEntries.value = emptyList()
                 runCatching {
                     directory()?.listFiles()?.forEach { it.delete() }
@@ -184,7 +193,7 @@ object AppLogRecorder {
                 }
             }
             if (pending.isNotEmpty()) append(pending.joinToString("\n"))
-            listOf("previous.log", "current.log").map { File(folder, it) }
+            listOf("critical-previous.log", "critical.log", "previous.log", "current.log").map { File(folder, it) }
                 .filter { it.isFile }.map { it.readBytes() }
         }
         val folder = File(context.cacheDir, "diagnostics").also { it.mkdirs() }
@@ -192,7 +201,7 @@ object AppLogRecorder {
         val target = File.createTempFile("app-diagnostics-", if (structured) ".jsonl" else ".log", folder)
         try {
             target.bufferedWriter().use { output ->
-                if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · process=${Process.myPid()}"))
+                if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
                 snapshot.forEach { bytes ->
                     bytes.inputStream().bufferedReader().useLines { lines ->
                         lines.forEach { output.appendLine(if (structured) structuredDiagnosticLine(it) else it) }
@@ -203,6 +212,20 @@ object AppLogRecorder {
         } catch (failure: Exception) {
             target.delete()
             throw failure
+        }
+    }
+
+    private fun appendCritical(line: String) {
+        val folder = directory() ?: return
+        val current = File(folder, "critical.log")
+        if (current.length() > 128 * 1024) {
+            val previous = File(folder, "critical-previous.log")
+            previous.delete()
+            check(current.renameTo(previous))
+        }
+        FileOutputStream(current, true).use { output ->
+            output.write((line + "\n").encodeToByteArray())
+            output.fd.sync()
         }
     }
 
@@ -244,6 +267,8 @@ private val KNOWN_ANDROID_NOISE = listOf(
 
 internal fun redactLogMessage(message: String): String {
     var text = DiagnosticRedactor.redact(message)
+    text = text.replace(Regex("""(?:/data/|/storage/|/sdcard/|/home/)[^\s,;]+"""), "[private-path]")
+    text = text.replace(Regex("""\b(?:10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3})\b"""), "[private-address]")
     if (
         "ChatRoomV2(" in text &&
         Regex("""(?i)(?:^|\s)D/chats\b|\bchats\s*[:=]""").containsMatchIn(text)

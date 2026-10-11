@@ -27,6 +27,22 @@ def check_host_alignment(name, binary):
     return True
 
 
+def check_runtime_inventory(apk, manifest, abis):
+    if manifest.get("geniexVersion"):
+        return
+    installed_audit = json.loads(apk.read("assets/local-runtime-native-libraries.json"))
+    assert installed_audit == manifest, "Installed QNN audit asset differs from the verified native manifest"
+    packaged = {
+        name for name in apk.namelist()
+        if name.startswith("lib/") and Path(name).name.startswith("libQnn") and name.endswith(".so")
+    }
+    expected = {
+        name for name in manifest["libraries"]
+        if name.split("/")[1] in abis and Path(name).name.startswith("libQnn")
+    }
+    assert packaged == expected, f"Unaudited or missing QNN payloads: {sorted(packaged ^ expected)}"
+
+
 def check_apk(apk_path, manifest):
     with ZipFile(apk_path) as apk:
         names = apk.namelist()
@@ -35,6 +51,7 @@ def check_apk(apk_path, manifest):
         assert hashlib.sha256(model).hexdigest() == "89ad3c74175dd8caa398cc22b657296d94302d20c525c12b58b29420f7249749", "Memory model checksum mismatch"
         abis = {name.split("/")[1] for name in names if name.startswith("lib/") and name.endswith(".so")}
         assert abis and abis <= {"arm64-v8a", "x86_64"}, f"Unexpected APK ABIs: {abis}"
+        check_runtime_inventory(apk, manifest, abis)
         for abi in abis:
             for library in ("libobjectbox-jni.so", "libmediapipe_tasks_jni.so", "libmediapipe_tasks_textgenai_jni.so"):
                 assert f"lib/{abi}/{library}" in names, f"Missing memory runtime {abi}/{library}"

@@ -135,12 +135,13 @@ class LocalRuntimeFallbackDisabledException(cause: Throwable) :
 
 class LocalNpuPackageException(cause: Throwable) :
     IllegalStateException(
-        "This NPU package could not start. Its compiled model may exceed the NPU memory available on this phone. " +
-            "Download the GPU / CPU edition from the model marketplace, or choose another NPU model.",
+        "NPU initialization failed: ${cause.message.orEmpty()}. This compiled package cannot use GPU/CPU fallback. " +
+            "Export diagnostics, retry if the failure was transient, or download a separate compatible GPU / CPU edition from the marketplace.",
         cause
     )
 
 interface LocalRuntime {
+    val isBusy: Boolean get() = false
     val handlesEngineFallback: Boolean get() = false
     val state: StateFlow<LocalRuntimeState> get() = EMPTY_RUNTIME_STATE
 

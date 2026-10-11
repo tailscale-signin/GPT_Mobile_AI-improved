@@ -24,14 +24,18 @@ import kotlinx.coroutines.launch
 class MemoryEnrichmentQueue @Inject constructor(
     @ApplicationContext private val context: Context,
     private val database: ChatDatabaseV2,
-    runtime: LocalRuntime
+    private val runtime: LocalRuntime
 ) {
     private val diagnosticsScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
 
     init {
         diagnosticsScope.launch {
-            runtime.state.collect { state ->
-                if (state.engineSpec != null) {
+            kotlinx.coroutines.flow.combine(
+                runtime.state,
+                WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment"),
+                dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability
+            ) { state, _, _ -> state }.collect { state ->
+                if (state.engineSpec != null && !runtime.isBusy) {
                     try {
                         resumeWaiting()
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -56,15 +60,13 @@ class MemoryEnrichmentQueue @Inject constructor(
             }
             val uniqueName = "memory-${message.id}-${digest(message.content)}"
             val work = manager.getWorkInfosForUniqueWorkFlow(uniqueName).first()
-            if (work.any { it.state == androidx.work.WorkInfo.State.RUNNING }) continue
-            // Only work explicitly waiting for a local model is replaced; active enrichment is untouched.
-            enqueue(message, resume = true)
+            if (work.any { !it.state.isFinished }) continue
+            // Terminal work plus loaded-model/idle signals close the wakeup race without polling or replacing active work.
+            enqueue(message)
         }
     }
 
-    fun enqueue(message: MessageV2) = enqueue(message, resume = false)
-
-    private fun enqueue(message: MessageV2, resume: Boolean) {
+    fun enqueue(message: MessageV2) {
         if (message.id <= 0 || message.chatId <= 0) return
         val hash = digest(message.content)
         val request = OneTimeWorkRequestBuilder<MemoryEnrichmentWorker>()
@@ -78,7 +80,7 @@ class MemoryEnrichmentQueue @Inject constructor(
         // WorkManager persists only references and a digest, never user message text.
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_SCHEDULED · work=${request.id} · message=${message.id} · constraint=BATTERY_NOT_LOW · initialDelayMs=15000 · persisted=true · backoff=EXPONENTIAL_30000")
         val manager = WorkManager.getInstance(context)
-        manager.enqueueUniqueWork("memory-${message.id}-$hash", if (resume) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, request)
+        manager.enqueueUniqueWork("memory-${message.id}-$hash", ExistingWorkPolicy.KEEP, request)
         if (!dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) return
         diagnosticsScope.launch {
             manager.getWorkInfosForUniqueWorkFlow("memory-${message.id}-$hash").onEach { infos ->
@@ -100,7 +102,7 @@ class MemoryEnrichmentQueue @Inject constructor(
     companion object {
         internal fun waitingStore(context: Context) = context.getSharedPreferences("memory-enrichment-waiting", Context.MODE_PRIVATE)
         internal fun markWaiting(context: Context, data: androidx.work.Data) {
-            waitingStore(context).edit().putString(data.getInt("messageId", 0).toString(), "${data.getInt("chatId", 0)}:${data.getString("hash")}").apply()
+            waitingStore(context).edit().putString(data.getInt("messageId", 0).toString(), "${data.getInt("chatId", 0)}:${data.getString("hash")}").commit()
         }
         internal fun clearWaiting(context: Context, messageId: Int) {
             waitingStore(context).edit().remove(messageId.toString()).apply()

@@ -128,4 +128,30 @@ class LocalRuntimeQnnImplTest {
         assertTrue(QualcommSocSupport.requiredLibraries("Tensor G5").isEmpty())
         assertTrue(QualcommSocSupport.requiredLibraries("MT6991").isEmpty())
     }
+
+    @Test fun probeFailureRetainsNativeCauseAndNeverTouchesJournal() = runTest {
+        val original = UnsatisfiedLinkError("undefined symbol QnnInterface_getProviders")
+        val guard = object : QnnLoadGuard {
+            override fun beforeLoad(spec: LocalEngineSpec) = error("Journal must not run")
+            override fun loadFinished() = error("Unentered journal must not be cleared")
+        }
+        val qnn = LocalRuntimeQnnImpl(FakeLocalRuntime(), guard, { throw original }, enabled = true)
+        val failure = runCatching { qnn.loadEngine(spec) }.exceptionOrNull() as QnnRuntimeFailure
+        assertEquals(QnnFailureCode.ELF_LINK_FAILURE, failure.code)
+        assertTrue(generateSequence(failure.cause) { it.cause }.take(8).any { it === original })
+    }
+
+    @Test fun rejectedJournalIsNotClearedByFailureCleanup() = runTest {
+        var cleared = false
+        val guard = object : QnnLoadGuard {
+            override fun beforeLoad(spec: LocalEngineSpec) = error("previous QNN native crash")
+            override fun loadFinished() {
+                cleared = true
+            }
+        }
+        val qnn = LocalRuntimeQnnImpl(FakeLocalRuntime(), guard, { ready }, enabled = true)
+        val failure = runCatching { qnn.loadEngine(spec) }.exceptionOrNull() as QnnRuntimeFailure
+        assertEquals(QnnFailureCode.PREVIOUS_NATIVE_CRASH, failure.code)
+        assertFalse(cleared)
+    }
 }

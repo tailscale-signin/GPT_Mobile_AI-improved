@@ -12,6 +12,8 @@ permissions:
 concurrency:
   group: ui-review-apk-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+env:
+  OBX_DISABLE_ANALYTICS: "true"
 jobs:
   apk:
     name: Build draft review APK

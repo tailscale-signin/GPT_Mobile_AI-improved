@@ -10,7 +10,7 @@ class CombinedResponseBudgetTest {
         val body = """{"contributions":[{"response":"${"fact ".repeat(10000)}"}]}"""
         assertEquals(6, CombinedResponseBudget.continuationLimit(body, 4096, null))
         assertEquals(16, CombinedResponseBudget.continuationLimit(body, 128, 100000))
-        assertEquals(3, CombinedResponseBudget.continuationLimit("{}", null, null))
+        assertEquals(1, CombinedResponseBudget.continuationLimit("{}", null, null))
     }
 
     @Test fun recoverOnlyTransientEditorialStreamFailures() {

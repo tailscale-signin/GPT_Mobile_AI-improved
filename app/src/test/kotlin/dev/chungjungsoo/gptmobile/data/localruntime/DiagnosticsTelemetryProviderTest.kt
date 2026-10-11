@@ -34,7 +34,7 @@ class DiagnosticsTelemetryProviderTest {
         assertTrue(text.contains("Thermal State: Nominal"))
         assertTrue(text.contains("Battery: 85% (Charging)"))
         assertTrue(text.contains("QNN device/library prerequisites: Available (execution unverified)"))
-        assertTrue(text.contains("QNN Dispatch Dir: /data/user/0/dev.melo.gptmobile.improved/no_backup/qnn_dispatch"))
+        assertTrue(!text.contains("/data/user/0/"))
         assertTrue(text.contains("QNN Skel Present: Yes"))
         assertTrue(text.contains("Local: 18.4 tok/s · TTFT 412ms · ~240 tokens"))
     }

@@ -6,11 +6,17 @@ on:
         description: 'Optional app-readable SM8750 AOT .litertlm path for real NPU qualification'
         required: false
         type: string
+      qnn_model_sha256:
+        description: 'Trusted publisher SHA-256 for the model (required to qualify QNN)'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
   group: android-device-validation
   cancel-in-progress: false
+env:
+  OBX_DISABLE_ANALYTICS: "true"
 jobs:
   device:
     # Trusted, dedicated device runner: never execute fork pull requests here.
@@ -27,13 +33,26 @@ jobs:
       - name: Instrumented behavior and native memory checks
         run: ./gradlew :app:connectedDebugAndroidTest
       - name: Qualify SM8750 NPU inference without fallback
-        if: inputs.qnn_model_path != ''
+        if: inputs.qnn_model_path != '' && inputs.qnn_model_sha256 != ''
         env:
           QNN_MODEL_PATH: ${{ inputs.qnn_model_path }}
+          QNN_MODEL_SHA256: ${{ inputs.qnn_model_sha256 }}
         run: |
+          adb logcat -c
           ./gradlew :app:connectedDebugAndroidTest \
             -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.data.localruntime.QualcommNpuInstrumentedTest \
-            "-Pandroid.testInstrumentationRunnerArguments.qnnModelPath=$QNN_MODEL_PATH"
+            "-Pandroid.testInstrumentationRunnerArguments.qnnModelPath=$QNN_MODEL_PATH" \
+            "-Pandroid.testInstrumentationRunnerArguments.qnnModelSha256=$QNN_MODEL_SHA256"
+          adb logcat -d -s QnnQualification > device-evidence/qnn-qualification.txt
+          grep -q 'status=QUALIFIED nonempty=true backend=NPU coldStart=1' device-evidence/qnn-qualification.txt
+          echo '{"status":"QUALIFIED","backend":"NPU","coldStarts":2,"turnsPerStart":2}' > device-evidence/qnn-status.json
+      - name: Explicit QNN qualification status
+        if: always()
+        run: |
+          if [ ! -f device-evidence/qnn-status.json ]; then
+            echo '{"status":"NOT_QUALIFIED","reason":"Missing trusted model/device evidence or failed inference"}' > device-evidence/qnn-status.json
+          fi
+          cat device-evidence/qnn-status.json >> "$GITHUB_STEP_SUMMARY"
       - name: Collect visual review fixtures
         if: always()
         run: |

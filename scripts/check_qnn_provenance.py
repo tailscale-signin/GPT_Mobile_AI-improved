@@ -45,6 +45,9 @@ def main() -> int:
         problems.append("Dispatch build input versions differ from the Gradle runtime versions")
     if manifest.get("dispatchBuild") != inputs:
         unqualified.append("Packaged dispatch build inputs differ from the pinned upstream release inputs")
+    for name, library in manifest.get("libraries", {}).items():
+        if Path(name).name.startswith("libQnn") and library.get("source") != f"com.qualcomm.qti:qnn-runtime:{app_qairt}":
+            problems.append(f"Mixed QAIRT distribution in native manifest: {name}")
 
     provenance = PROVENANCE.read_text()
     if app_litert and f"litertlm-android:{app_litert}`" not in provenance:

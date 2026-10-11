@@ -10,6 +10,8 @@ permissions:
 concurrency:
   group: signed-release
   cancel-in-progress: false
+env:
+  OBX_DISABLE_ANALYTICS: "true"
 jobs:
   validate:
     name: Validate exact release commit

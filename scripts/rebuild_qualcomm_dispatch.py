@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the dispatch from pinned upstream sources; validate before replacing it.
 
-Requires git, Bazel 7.6.1, Android NDK r28b and QAIRT 2.50.0.260828.
+Requires git, Bazel 7.6.1, Android NDK r28b and QAIRT 2.51.0.260929.
 The supplied SDK root must contain include/QNN; no SDK is redistributed here.
 """
 

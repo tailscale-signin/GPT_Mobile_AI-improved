@@ -98,12 +98,13 @@ class LocalRuntimeImpl(
                 "This runtime requires a LiteRT-LM (.litertlm) model package"
             }
             // Pre-flight model integrity verification to avoid native hard crashes (SIGSEGV)
-            if (LocalAccelerators.normalize(spec.accelerator) != LocalAccelerators.NPU) {
+            run {
                 dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalledCached(
                     java.io.File(spec.modelPath),
                     java.io.File(context.noBackupFilesDir, "model-identity-cache")
                 )
             }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("LocalModel", "MODEL_INTEGRITY · status=${dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.trustStatus(java.io.File(spec.modelPath))} · accelerator=${spec.accelerator}")
             when (val validation = LocalModelValidator.validate(spec.modelPath)) {
                 is ModelValidationResult.Invalid -> {
                     Log.e(TAG, "Model validation failed for path '${spec.modelPath}': ${validation.reason} (${validation.details})")
@@ -120,7 +121,7 @@ class LocalRuntimeImpl(
                     }
                 }
                 is ModelValidationResult.Valid -> {
-                    Log.i(TAG, "Model file verified: ${validation.file.name} (${validation.sizeBytes} bytes)")
+                    Log.i(TAG, "Model header/size validated: ${validation.file.name} (${validation.sizeBytes} bytes)")
                 }
             }
 
@@ -142,7 +143,9 @@ class LocalRuntimeImpl(
                 )
             )
             try {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("LocalModel", "NATIVE_ENGINE_INITIALIZE_BEGIN · accelerator=${spec.accelerator} · maxContext=${spec.maxTokens} · vision=${spec.isVisionEnabled}")
                 LiteRtExperimentalSettings.engine(spec) { nextEngine.initialize() }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("LocalModel", "NATIVE_ENGINE_INITIALIZE_SUCCEEDED · accelerator=${spec.accelerator} · executionQualified=false")
                 // JNI initialization is blocking. Release the result if its caller was
                 // cancelled while native code was working.
                 coroutineContext.ensureActive()

@@ -132,6 +132,8 @@ class LocalEngineHolder(
 
     override fun hasOpenConversation(): Boolean = delegate.hasOpenConversation()
 
+    override val isBusy: Boolean get() = mutex.isLocked || InferenceAdmission.isExclusiveBusy
+
     override suspend fun <T> tryRunExclusive(block: suspend LocalRuntime.() -> T): T? = InferenceAdmission.tryShared {
         if (coroutineContext[GenerationLock] != null || !mutex.tryLock()) return@tryShared null
         try {

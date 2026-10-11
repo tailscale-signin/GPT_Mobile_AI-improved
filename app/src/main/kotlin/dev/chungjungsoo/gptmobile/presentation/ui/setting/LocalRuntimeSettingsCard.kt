@@ -53,7 +53,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Device & engine", style = MaterialTheme.typography.titleLarge)
             Text("${viewModel.soc} · ${viewModel.cores} CPU cores · ${viewModel.ramGb} GB RAM", style = MaterialTheme.typography.bodyMedium)
-            Text(active.engineSpec?.let { "Loaded: ${active.backend?.displayName} / ${it.accelerator.uppercase()} · ${it.maxTokens} context" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
+            Text(active.engineSpec?.let { "Loaded: ${active.backend?.displayName} / ${it.accelerator.uppercase()} · ${it.maxTokens} context" } ?: "Engine idle", color = MaterialTheme.colorScheme.onSurface)
             active.fallbackReason?.let { Text("Fallback: $it", style = MaterialTheme.typography.bodySmall) }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LocalRuntimeBackend.entries.filter { it == LocalRuntimeBackend.LITERT_LM || (it == LocalRuntimeBackend.QUALCOMM_QNN && qnnAvailable && !dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) }.forEach { option -> FilterChip(selected = backend == option, onClick = { viewModel.selectBackend(option) }, label = { Text(option.displayName) }, enabled = !busy) }
@@ -98,28 +98,20 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
             }
             comparisonError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             if (trials.isNotEmpty()) {
-                Row(Modifier.fillMaxWidth()) {
-                    Text("Plan", Modifier.weight(1.3f), style = MaterialTheme.typography.labelSmall)
-                    Text("Decode /s", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
-                    Text("Prefill /s", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
-                    Text("First ms", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
-                }
                 trials.filterNot { it.warmup }.take(8).forEach { trial ->
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(
-                            "${trial.key.backend.uppercase()} ${if (trial.key.speculativeDecoding == true) "MTP?" else ""}${if (!trial.finished) {
-                                " running"
-                            } else if (!trial.completed) {
-                                " failed"
-                            } else {
-                                ""
-                            }}",
-                            Modifier.weight(1.3f),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(trial.nativeMetrics?.decodeTokensPerSecond?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        Text(trial.nativeMetrics?.prefillTokensPerSecond?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        Text(trial.firstVisibleAnswerMs?.toString() ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val outcome = if (!trial.finished) {
+                            "Running"
+                        } else if (!trial.completed) {
+                            "Failed"
+                        } else {
+                            "Completed"
+                        }
+                        Text("${trial.key.backend.uppercase()} · $outcome", style = MaterialTheme.typography.titleSmall)
+                        if (trial.key.speculativeDecoding == true) Text("MTP requested; activation requires runtime evidence", style = MaterialTheme.typography.bodySmall)
+                        Text("Decode: ${trial.nativeMetrics?.decodeTokensPerSecond?.let { "%.1f tokens/s".format(it) } ?: "Not measured"}", style = MaterialTheme.typography.bodySmall)
+                        Text("Prefill: ${trial.nativeMetrics?.prefillTokensPerSecond?.let { "%.1f tokens/s".format(it) } ?: "Not measured"}", style = MaterialTheme.typography.bodySmall)
+                        Text("First visible answer: ${trial.firstVisibleAnswerMs?.let { "$it ms" } ?: "Not measured"}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 Text("${trials.count { it.finished && !it.completed }} failed · ${trials.count { it.historical }} historical · ${qualifications.count { it.status == dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus.QUALIFIED }} qualified plans", style = MaterialTheme.typography.bodySmall)

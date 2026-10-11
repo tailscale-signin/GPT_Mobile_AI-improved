@@ -78,6 +78,7 @@ fun SetupPlatformWizardScreen(
     val canProceed by setupViewModel.canProceed.collectAsStateWithLifecycle()
     val isWaitingForDownload by setupViewModel.isWaitingForDownload.collectAsStateWithLifecycle()
 
+    val reducedMotion = dev.chungjungsoo.gptmobile.presentation.common.LocalReducedMotion.current
     val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
     val backFromWizard: () -> Unit = {
         if (wizardStep > 0) {
@@ -115,7 +116,9 @@ fun SetupPlatformWizardScreen(
             AnimatedContent(
                 targetState = wizardStep,
                 transitionSpec = {
-                    if (targetState > initialState) {
+                    if (reducedMotion) {
+                        androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                    } else if (targetState > initialState) {
                         (slideInHorizontally { it } + fadeIn()) togetherWith
                             (slideOutHorizontally { -it } + fadeOut())
                     } else {

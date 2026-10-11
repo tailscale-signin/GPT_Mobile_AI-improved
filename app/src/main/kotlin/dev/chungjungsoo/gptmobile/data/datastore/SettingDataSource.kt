@@ -14,6 +14,7 @@ interface SettingDataSource {
     suspend fun getPreferencesSnapshot(): Preferences
     suspend fun getThemeFamily(): String? = null
     suspend fun getReducedMotion(): Boolean = false
+    suspend fun getContentDensity(): String = "comfortable"
     suspend fun updateThemePreferences(theme: dev.chungjungsoo.gptmobile.data.dto.ThemeSetting) {
         updateDynamicTheme(theme.dynamicTheme)
         updateThemeMode(theme.themeMode)

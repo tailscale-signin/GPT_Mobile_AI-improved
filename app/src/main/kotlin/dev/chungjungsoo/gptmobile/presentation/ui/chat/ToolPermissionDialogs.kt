@@ -153,7 +153,7 @@ internal fun FreeToolConsentDialog(
                 )
             }
         },
-        title = { Text(if (unlocked) "Tool unlocked" else "Unlock external tool data") },
+        title = { Text(if (unlocked) "Ready to confirm" else "Unlock external tool data") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(

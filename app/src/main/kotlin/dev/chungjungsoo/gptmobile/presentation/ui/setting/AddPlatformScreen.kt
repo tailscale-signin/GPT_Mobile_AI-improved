@@ -36,7 +36,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -90,7 +89,7 @@ fun AddPlatformScreen(
     var selectedClientType by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<ClientType?>(null) }
     var platformName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var apiUrl by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
-    val apiTokens = remember { mutableStateListOf("") }
+    val apiTokens = viewModel.apiTokenDraft
     var model by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var isReasoningEnabled by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var selectedConnectionUid by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }

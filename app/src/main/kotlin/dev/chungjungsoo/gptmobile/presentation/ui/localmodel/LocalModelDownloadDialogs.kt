@@ -12,10 +12,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,7 +36,6 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceUrls
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
-import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsDialog
 
 @Composable
@@ -210,36 +209,12 @@ private fun HuggingFaceSignInSheet(
     onSignIn: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.local_model_sign_in_title),
-                style = MaterialTheme.typography.titleLarge
-            )
-            Text(
-                text = stringResource(
-                    if (isSessionExpired) {
-                        R.string.local_model_session_expired
-                    } else {
-                        R.string.local_model_sign_in_message
-                    }
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(vertical = 16.dp)
-            )
-            Button(
-                onClick = onSignIn,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(R.string.local_model_sign_in_action))
-            }
-        }
-    }
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.local_model_sign_in_title)) },
+        text = { Text(stringResource(if (isSessionExpired) R.string.local_model_session_expired else R.string.local_model_sign_in_message), Modifier.verticalScroll(rememberScrollState())) },
+        confirmButton = { Button(onClick = onSignIn) { Text(stringResource(R.string.local_model_sign_in_action)) } }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -249,36 +224,13 @@ private fun HuggingFaceLicenseSheet(
     onRetry: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.local_model_license_title),
-                style = MaterialTheme.typography.titleLarge
-            )
-            Text(
-                text = stringResource(R.string.local_model_license_message),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(vertical = 16.dp)
-            )
-            Button(
-                onClick = onOpenAgreement,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(R.string.local_model_open_license))
-            }
-            TextButton(
-                onClick = onRetry,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(R.string.local_model_license_retry))
-            }
-        }
-    }
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.local_model_license_title)) },
+        text = { Text(stringResource(R.string.local_model_license_message), Modifier.verticalScroll(rememberScrollState())) },
+        confirmButton = { Button(onClick = onOpenAgreement) { Text(stringResource(R.string.local_model_open_license)) } },
+        dismissButton = { TextButton(onClick = onRetry) { Text(stringResource(R.string.local_model_license_retry)) } }
+    )
 }
 
 @Composable

@@ -21,7 +21,8 @@ data class ThemeBackupDto(
     val customPalette: CustomThemePalette? = null,
     val savedProfiles: List<SavedThemeProfile> = emptyList(),
     val themeFamily: String? = null,
-    val reducedMotion: Boolean = false
+    val reducedMotion: Boolean = false,
+    val contentDensity: String = "comfortable"
 )
 
 @Serializable

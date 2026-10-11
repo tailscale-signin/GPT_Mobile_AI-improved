@@ -14,6 +14,7 @@ val LocalCustomPalette = compositionLocalOf<dev.chungjungsoo.gptmobile.data.dto.
 val LocalCustomPrimaryArgb = compositionLocalOf<Long?> { null }
 val LocalThemeFamily = compositionLocalOf<String?> { null }
 val LocalReducedMotion = compositionLocalOf { false }
+val LocalContentDensity = compositionLocalOf { "comfortable" }
 val LocalThemeViewModel = compositionLocalOf<ThemeViewModel> {
     error("CompositionLocal LocalThemeViewModel is not present")
 }
@@ -44,6 +45,7 @@ fun ThemeSettingProvider(
             LocalCustomPrimaryArgb provides customPrimaryArgb,
             LocalCustomPalette provides customPalette,
             LocalThemeFamily provides themeFamily,
+            LocalContentDensity provides contentDensity,
             LocalReducedMotion provides (reducedMotion || systemReducedMotion.value),
             content = content
         )

@@ -915,6 +915,8 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun saveMcpToolSelections(onSaved: () -> Unit = {}) {
+        if (_toolBindingState.value.isMcpToolsSaving) return
+        _toolBindingState.update { it.copy(isMcpToolsSaving = true, errorMessage = null) }
         val selections = _toolBindingState.value.pendingMcpTools
         viewModelScope.launch {
             runCatching {
@@ -940,12 +942,17 @@ class PlatformSettingViewModel @Inject constructor(
                             selectedMcpTools = selections,
                             pendingMcpTools = emptySet(),
                             isMcpToolsDialogOpen = false,
+                            isMcpToolsSaving = false,
                             errorMessage = null
                         )
                     }
                     onSaved()
                 }
-                .onFailure(::showToolError)
+                .onFailure { error ->
+                    _toolBindingState.update { it.copy(isMcpToolsSaving = false) }
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    showToolError(error)
+                }
         }
     }
 
@@ -986,6 +993,7 @@ class PlatformSettingViewModel @Inject constructor(
         val isSearchBackendDialogOpen: Boolean = false,
         val isMcpToolsDialogOpen: Boolean = false,
         val isMcpToolsLoading: Boolean = false,
+        val isMcpToolsSaving: Boolean = false,
         val errorMessage: String? = null
     )
 

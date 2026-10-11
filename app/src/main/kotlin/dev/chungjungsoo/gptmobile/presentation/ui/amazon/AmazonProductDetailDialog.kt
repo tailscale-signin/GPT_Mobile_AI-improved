@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -52,7 +55,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
@@ -119,11 +121,10 @@ internal fun AmazonProductDetailContent(
     val facts = remember(displayed) { amazonProductFacts(displayed) }
     val affiliate = AmazonProducts.text(displayed, "affiliateUrl")?.let { AmazonProducts.affiliateUrl(it, domain, asin) }
     val link = affiliate ?: AmazonProducts.productUrl(domain, asin)
-    val dialogHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.9f).coerceAtMost(760.dp)
 
     FadingDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.testTag("amazon-product-gallery").padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = dialogHeight)
+            modifier = Modifier.testTag("amazon-product-gallery").fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
                 .pointerInput(selectedIndex, productCount, swipeThreshold) {
                     if (productCount > 1) {
                         var distance = 0f
@@ -141,8 +142,7 @@ internal fun AmazonProductDetailContent(
                         )
                     }
                 },
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh
+            color = MaterialTheme.colorScheme.surface
         ) {
             Column {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -169,7 +169,7 @@ internal fun AmazonProductDetailContent(
                             Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.large,
                             color = Color.White,
-                            border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Box(Modifier.fillMaxWidth().height(200.dp).padding(16.dp), contentAlignment = Alignment.Center) {
                                 photo.image?.let { Image(it, "Product image: $title", Modifier.size(168.dp), contentScale = ContentScale.Fit) }

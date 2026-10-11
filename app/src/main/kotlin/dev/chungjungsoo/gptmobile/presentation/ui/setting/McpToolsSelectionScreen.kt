@@ -11,19 +11,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +27,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
@@ -54,7 +48,7 @@ fun McpToolsSelectionScreen(
     val features by viewModel.featureSettings.collectAsStateWithLifecycle()
     var search by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(ToolkitSort.NAME) }
-    LaunchedEffect(platformUid) { viewModel.openMcpToolsDialog() }
+    LaunchedEffect(platformUid) { if (!bindings.isMcpToolsDialogOpen) viewModel.openMcpToolsDialog() }
     val services = bindings.mcpConnections.groupBy { ToolServiceCatalog.forConnection(it).id }.values.map { connections ->
         ToolServiceItem(ToolServiceCatalog.forConnection(connections.first()), false, emptyList(), connections)
     }
@@ -66,22 +60,18 @@ fun McpToolsSelectionScreen(
                 service.connections.any { it.connectionUid == option.connectionUid } && "${option.toolName} ${option.description.orEmpty()} ${option.connectionName}".contains(search, true)
             }
     }
-    val enabled = platform?.enabled == true && platform?.disableAllTools != true && platform?.disableRemoteTools != true && features.remoteMcpConnections
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text("MCP Tools", maxLines = 1) },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        viewModel.closeMcpToolsDialog()
-                        onNavigationClick()
-                    }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                },
-                actions = { TextButton(enabled = !bindings.isMcpToolsLoading, onClick = { viewModel.saveMcpTools(onSaved = onNavigationClick) }) { Text("Save", fontWeight = FontWeight.SemiBold) } },
-                colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
+    val enabled = !bindings.isMcpToolsSaving && platform?.enabled == true && platform?.disableAllTools != true && platform?.disableRemoteTools != true && features.remoteMcpConnections
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppEditorScaffold(
+        title = "MCP tools",
+        dirty = bindings.pendingMcpTools != bindings.selectedMcpTools,
+        onCancel = {
+            viewModel.closeMcpToolsDialog()
+            onNavigationClick()
+        },
+        onSave = { viewModel.saveMcpTools(onSaved = onNavigationClick) },
+        saving = bindings.isMcpToolsSaving,
+        saveEnabled = !bindings.isMcpToolsLoading,
+        saveLabel = if (bindings.isMcpToolsSaving) "Saving…" else "Save selection"
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
@@ -90,8 +80,8 @@ fun McpToolsSelectionScreen(
         ) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Tools for ${platform?.name.orEmpty()}", style = MaterialTheme.typography.titleMedium)
-                    Text("Select a whole service or choose individual tools. Your selections apply only to this AI profile.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${bindings.pendingMcpTools.size} selected · ${platform?.name.orEmpty()}", style = MaterialTheme.typography.titleMedium)
+                    Text("Select a whole service or choose individual tools. Your selections apply only to this AI profile. Permission approvals keep their existing scope.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ToolkitControls(search, { search = it }, ToolkitFilter.MCP, {}, sort, { sort = it }, showFilters = false)
                     if (!enabled) Text("Enable this profile's online tools and Remote MCP to use these selections.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -147,7 +137,7 @@ private fun McpSelectionRow(option: PlatformSettingViewModel.McpToolOption, chec
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(option.toolName.replace('_', ' '), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             Switch(checked = checked, onCheckedChange = { onToggle() }, enabled = enabled)
-            IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(48.dp)) {
                 Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Hide tool details" else "Tool details")
             }
         }

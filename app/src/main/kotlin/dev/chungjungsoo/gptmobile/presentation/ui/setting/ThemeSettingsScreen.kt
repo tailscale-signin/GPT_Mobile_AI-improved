@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -8,7 +11,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -32,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -101,31 +109,34 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     onDismiss()
                 }
             },
+            saving = saving,
             saveEnabled = valid && !saving,
             saveLabel = if (saving) "Applying…" else "Apply theme"
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 SettingsTabs(listOf("Theme", "Colour", "Display"), tab) { tab = it }
-                GPTMobileTheme(
-                    dynamicTheme = draft.dynamicTheme,
-                    themeMode = draft.themeMode,
-                    customPrimaryArgb = draft.customPrimaryArgb,
-                    customPalette = draft.customPalette,
-                    themeFamily = draft.themeFamily,
-                    updateSystemBars = false
-                ) {
-                    AppPanel {
-                        Text("Live preview", style = MaterialTheme.typography.labelLarge)
-                        AppSectionTitle("Your conversations")
-                        Text("A quieter surface. A clearer focus.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Example preference", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Switch(checked = true, onCheckedChange = null)
-                        }
-                        Text("Example error · Please check this field", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                        Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = MaterialTheme.shapes.large) { Text("New chat", Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) }
-                        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
-                            Text("Selected item", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.common.LocalContentDensity provides draft.contentDensity) {
+                    GPTMobileTheme(
+                        dynamicTheme = draft.dynamicTheme,
+                        themeMode = draft.themeMode,
+                        customPrimaryArgb = draft.customPrimaryArgb,
+                        customPalette = draft.customPalette,
+                        themeFamily = draft.themeFamily,
+                        updateSystemBars = false
+                    ) {
+                        AppPanel {
+                            Text("Live preview", style = MaterialTheme.typography.labelLarge)
+                            AppSectionTitle("Your conversations")
+                            Text("A quieter surface. A clearer focus.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Example preference", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                Switch(checked = true, onCheckedChange = null)
+                            }
+                            Text("Example error · Please check this field", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                            Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = MaterialTheme.shapes.large) { Text("New chat", Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) }
+                            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
+                                Text("Selected item", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
                         }
                     }
                 }
@@ -134,11 +145,22 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                         AppSectionTitle("Colour family")
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             RenovationPalettes.names.forEach { name ->
-                                FilterChip(
-                                    selected = draft.themeFamily == name && draft.dynamicTheme == DynamicTheme.OFF,
+                                val selected = draft.themeFamily == name && draft.dynamicTheme == DynamicTheme.OFF
+                                val dark = draft.themeMode == ThemeMode.DARK || (draft.themeMode == ThemeMode.SYSTEM && isSystemInDarkTheme())
+                                val palette = RenovationPalettes.scheme(name, dark)
+                                Surface(
                                     onClick = { selectColourSource(draft.copy(themeFamily = name, dynamicTheme = DynamicTheme.OFF)) },
-                                    label = { Text(name) }
-                                )
+                                    modifier = Modifier.widthIn(min = 88.dp).semantics { this.selected = selected },
+                                    shape = MaterialTheme.shapes.large,
+                                    color = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface
+                                ) {
+                                    Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(Modifier.size(48.dp).background(palette.primary, CircleShape), contentAlignment = Alignment.Center) {
+                                            if (selected) Icon(Icons.Rounded.Check, null, tint = palette.onPrimary)
+                                        }
+                                        Text(name, style = MaterialTheme.typography.labelLarge)
+                                    }
+                                }
                             }
                         }
                         Text("Active colour source: ${if (draft.dynamicTheme == DynamicTheme.ON) "Wallpaper" else draft.themeFamily ?: if (draft.customPalette != null || draft.customPrimaryArgb != null) "Legacy custom" else "Classic default"}. Each family includes light and dark colours. Your previous custom palette is kept.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -155,7 +177,14 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                 shape = MaterialTheme.shapes.large
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Surface(color = Color(profile.palette.background), shape = MaterialTheme.shapes.medium) {
+                                            Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Box(Modifier.size(16.dp).background(Color(profile.palette.primary), CircleShape))
+                                                Box(Modifier.size(16.dp).background(Color(profile.palette.secondary), CircleShape))
+                                                Box(Modifier.size(16.dp).background(Color(profile.palette.surface), CircleShape))
+                                            }
+                                        }
                                         Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                                         if (selected) Icon(Icons.Rounded.Check, "Selected")
                                     }
@@ -176,6 +205,13 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     }
                     2 -> {
                         ThemeModePicker(draft.themeMode) { draft = draft.copy(themeMode = it) }
+                        AppSectionTitle("Content density")
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("comfortable", "compact").forEach { density ->
+                                FilterChip(selected = draft.contentDensity == density, onClick = { draft = draft.copy(contentDensity = density) }, label = { Text(density.replaceFirstChar { it.uppercase() }) })
+                            }
+                        }
+                        Text("Adjust spacing in navigation rows and panels. Text size and touch targets stay accessible.", style = MaterialTheme.typography.bodyMedium)
                         ThemeSwitch("Reduce motion", "Use immediate transitions and minimise decorative movement", draft.reducedMotion) { draft = draft.copy(reducedMotion = it) }
                         TextButton(onClick = onDisplayPreferences) { Text("Conversation density, edge fades & response animation") }
                     }

@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -31,8 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet as AlertDialog
 
 @Composable
 fun SettingItem(
@@ -115,7 +118,7 @@ fun SettingItem(
 fun SettingsHelpIcon(
     description: String,
     modifier: Modifier = Modifier,
-    title: String = "About This Setting"
+    title: String = "About this setting"
 ) {
     var open by remember { mutableStateOf(false) }
     val helpLabel = stringResource(R.string.help_action, title)
@@ -139,7 +142,7 @@ fun SettingsHelpIcon(
         AlertDialog(
             onDismissRequest = { open = false },
             title = { Text(title) },
-            text = { Text(description) },
+            text = { SelectionContainer { Text(description, Modifier.verticalScroll(rememberScrollState())) } },
             confirmButton = {
                 TextButton(onClick = { open = false }) { Text(stringResource(R.string.local_tools_settings_panel_label_12)) }
             }

@@ -24,7 +24,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.pairing.PairedServer
 import dev.chungjungsoo.gptmobile.data.pairing.PairingLink
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
+import dev.chungjungsoo.gptmobile.presentation.theme.UserAppearance
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsChannel
@@ -46,7 +46,7 @@ class ServerPairingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Pr
         super.onCreate(savedInstanceState)
         val link = runCatching { PairingLink.parse(intent.dataString.orEmpty()) }.getOrNull()
         setContent {
-            GPTMobileTheme {
+            UserAppearance {
                 var server by remember { mutableStateOf<PairedServer?>(null) }
                 var busy by remember { mutableStateOf(false) }
                 var status by remember { mutableStateOf("") }

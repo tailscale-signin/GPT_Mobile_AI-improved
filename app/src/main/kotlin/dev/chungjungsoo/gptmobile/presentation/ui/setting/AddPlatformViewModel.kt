@@ -36,6 +36,8 @@ class AddPlatformViewModel @Inject constructor(
     @param:DeviceSocModel private val deviceSocModel: String,
     @param:DeviceRamGb private val deviceRamGb: Long = 8L
 ) : ViewModel() {
+    // In-memory only: survives rotation, never saved to a state Bundle.
+    val apiTokenDraft = androidx.compose.runtime.mutableStateListOf("")
     private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     val catalogEntries = _catalogEntries.asStateFlow()
     private val _selectedCatalogEntryId = MutableStateFlow("")

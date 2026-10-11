@@ -37,7 +37,7 @@ class CombinedProfileBubblesTest {
     val compose = createComposeRule()
 
     @Test
-    fun `source selection fades the composer without moving the viewport and combined restores it within half a second`() {
+    fun `source selection fades the composer without moving the viewport and combined restores it without changing its footprint`() {
         var visible by mutableStateOf(true)
         compose.mainClock.autoAdvance = false
         compose.setContent {
@@ -55,9 +55,7 @@ class CombinedProfileBubblesTest {
             compose.mainClock.advanceTimeByFrame()
             compose.waitForIdle()
         }
-        compose.mainClock.advanceTimeBy(1000)
-        compose.onNodeWithTag("input-bar").assertExists()
-        compose.mainClock.advanceTimeBy(1000)
+        compose.mainClock.advanceTimeBy(200)
         compose.onNodeWithTag("input-bar").assertDoesNotExist()
         compose.onNodeWithTag("composer-wrapper").assertHeightIsEqualTo(80.dp)
 
@@ -66,7 +64,7 @@ class CombinedProfileBubblesTest {
             compose.mainClock.advanceTimeByFrame()
             compose.waitForIdle()
         }
-        compose.mainClock.advanceTimeBy(500)
+        compose.mainClock.advanceTimeBy(200)
         compose.onNodeWithTag("input-bar").assertIsDisplayed()
         compose.onNodeWithTag("composer-wrapper").assertHeightIsEqualTo(80.dp)
     }
@@ -90,7 +88,7 @@ class CombinedProfileBubblesTest {
                 }
             }
         }
-        compose.mainClock.advanceTimeBy(1700)
+        compose.mainClock.advanceTimeByFrame()
         compose.onNodeWithTag("combined-profile-lead").performClick()
         compose.runOnIdle {
             assertEquals("lead", selectedUid)

@@ -359,7 +359,7 @@ private fun PlatformNameDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (name: String) -> Unit
 ) {
-    var platformName by remember { mutableStateOf(initialValue) }
+    var platformName by rememberSaveable { mutableStateOf(initialValue) }
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
@@ -406,7 +406,7 @@ private fun APIUrlDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (url: String) -> Unit
 ) {
-    var apiUrl by remember { mutableStateOf(initialValue) }
+    var apiUrl by rememberSaveable { mutableStateOf(initialValue) }
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
@@ -576,18 +576,11 @@ private fun TimeoutDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (timeoutSeconds: Int) -> Unit
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var timeoutSeconds by remember { mutableStateOf(initialValue.toString()) }
+    var timeoutSeconds by rememberSaveable { mutableStateOf(initialValue.toString()) }
     val parsedTimeout = timeoutSeconds.toIntOrNull()
     val isValidTimeout = parsedTimeout != null && parsedTimeout >= 0
 
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
         title = { Text(text = stringResource(R.string.timeout)) },
         text = {
             OutlinedTextField(
@@ -638,7 +631,7 @@ private fun ModelDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var model by remember { mutableStateOf(initModel) }
+    var model by rememberSaveable { mutableStateOf(initModel) }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -721,19 +714,12 @@ private fun TopKDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (topK: Int?) -> Unit
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldTopK by remember { mutableStateOf(topK?.toString() ?: "") }
+    var textFieldTopK by rememberSaveable { mutableStateOf(topK?.toString() ?: "") }
     val parsedTopK = textFieldTopK.toIntOrNull()
     val isUnset = textFieldTopK.isBlank()
     val isValid = isUnset || (parsedTopK != null && parsedTopK in PlatformSettingViewModel.MIN_TOP_K..PlatformSettingViewModel.MAX_TOP_K)
 
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
         title = { Text(text = stringResource(R.string.top_k_setting)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -784,10 +770,7 @@ private fun MaxTokensDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (maxTokens: Int?) -> Unit
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldMaxTokens by remember { mutableStateOf(maxTokens?.toString() ?: "") }
+    var textFieldMaxTokens by rememberSaveable { mutableStateOf(maxTokens?.toString() ?: "") }
     val parsedMaxTokens = textFieldMaxTokens.toIntOrNull()
     val isUnset = textFieldMaxTokens.isBlank()
     val isValid = isUnset ||
@@ -796,11 +779,7 @@ private fun MaxTokensDialog(
                 parsedMaxTokens >= PlatformSettingViewModel.MIN_MAX_TOKENS
             )
 
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
         title = { Text(text = stringResource(R.string.max_tokens_setting)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -861,15 +840,7 @@ private fun AcceleratorDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (String) -> Unit
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
         title = { Text(text = stringResource(R.string.accelerator_setting)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -927,18 +898,11 @@ private fun TemperatureDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (temp: Float?) -> Unit
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldTemperature by remember { mutableStateOf(temperature?.let { "%.1f".format(it) } ?: "") }
-    var sliderTemperature by remember { mutableFloatStateOf(temperature ?: 1F) }
-    var isUnset by remember { mutableStateOf(temperature == null) }
+    var textFieldTemperature by rememberSaveable { mutableStateOf(temperature?.let { "%.1f".format(it) } ?: "") }
+    var sliderTemperature by rememberSaveable { mutableFloatStateOf(temperature ?: 1F) }
+    var isUnset by rememberSaveable { mutableStateOf(temperature == null) }
 
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
         title = { Text(text = stringResource(R.string.temperature_setting)) },
         text = {
             Column(
@@ -1024,18 +988,11 @@ private fun TopPDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (topP: Float?) -> Unit
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldTopP by remember { mutableStateOf(topP?.let { "%.1f".format(it) } ?: "") }
-    var sliderTopP by remember { mutableFloatStateOf(topP ?: 1F) }
-    var isUnset by remember { mutableStateOf(topP == null) }
+    var textFieldTopP by rememberSaveable { mutableStateOf(topP?.let { "%.1f".format(it) } ?: "") }
+    var sliderTopP by rememberSaveable { mutableFloatStateOf(topP ?: 1F) }
+    var isUnset by rememberSaveable { mutableStateOf(topP == null) }
 
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
+    dev.chungjungsoo.gptmobile.presentation.designsystem.AppChoiceSheet(
         title = { Text(text = stringResource(R.string.top_p_setting)) },
         text = {
             Column(
@@ -1229,7 +1186,7 @@ private fun SafetyThresholdDropdown(
     selectedThreshold: String,
     onThresholdSelected: (String) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -1330,25 +1287,25 @@ private fun OllamaAdvancedSettingsDialog(
     var seedText by rememberSaveable { mutableStateOf((initialParsed.seed ?: OllamaOptions.DEFAULT_SEED).toString()) }
     var stopTokensText by rememberSaveable { mutableStateOf((initialParsed.stop ?: OllamaOptions.DEFAULT_STOP).joinToString(", ")) }
 
-    var flashAttentionEnabled by remember {
+    var flashAttentionEnabled by rememberSaveable {
         mutableStateOf(initialParsed.flashAttention ?: OllamaOptions.DEFAULT_FLASH_ATTENTION)
     }
-    var kvCacheTypeText by remember {
+    var kvCacheTypeText by rememberSaveable {
         mutableStateOf(initialParsed.kvCacheType ?: OllamaOptions.DEFAULT_KV_CACHE_TYPE)
     }
-    var keepAliveText by remember {
+    var keepAliveText by rememberSaveable {
         mutableStateOf(initialParsed.keepAlive ?: OllamaOptions.DEFAULT_KEEP_ALIVE)
     }
-    var numParallelText by remember {
+    var numParallelText by rememberSaveable {
         mutableStateOf((initialParsed.numParallel ?: OllamaOptions.DEFAULT_NUM_PARALLEL).toString())
     }
-    var gpuOverheadText by remember {
+    var gpuOverheadText by rememberSaveable {
         mutableStateOf((initialParsed.gpuOverhead ?: OllamaOptions.DEFAULT_GPU_OVERHEAD).toString())
     }
-    var autoContinueEnabled by remember {
+    var autoContinueEnabled by rememberSaveable {
         mutableStateOf(initialParsed.autoContinue ?: OllamaOptions.DEFAULT_AUTO_CONTINUE)
     }
-    var maxAutoContinuesText by remember {
+    var maxAutoContinuesText by rememberSaveable {
         mutableStateOf((initialParsed.maxAutoContinues ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES).toString())
     }
 
@@ -1643,10 +1600,10 @@ private fun OpenRouterAdvancedSettingsDialog(
     var repPenaltyText by rememberSaveable { mutableStateOf((initialParsed.repetitionPenalty ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY).toString()) }
     var seedText by rememberSaveable { mutableStateOf((initialParsed.seed ?: OpenRouterOptions.DEFAULT_SEED).toString()) }
 
-    var allowFallbacks by remember {
+    var allowFallbacks by rememberSaveable {
         mutableStateOf(initialParsed.provider?.allowFallbacks ?: OpenRouterOptions.DEFAULT_PROVIDER_ALLOW_FALLBACKS)
     }
-    var sortStrategy by remember {
+    var sortStrategy by rememberSaveable {
         mutableStateOf(initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)
     }
 
@@ -1896,7 +1853,7 @@ private fun LlamaAdvancedSettingsDialog(
             gatewayResultCharLimitText.toIntOrNull() in 4000..200000
 
     var routerModels by remember { mutableStateOf<List<LlamaModelInfo>>(emptyList()) }
-    var isFetchingRouterModels by rememberSaveable { mutableStateOf(false) }
+    var isFetchingRouterModels by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val routerClient = remember { LlamaRouterClient() }
 

@@ -52,6 +52,8 @@ internal object SettingsSearchRegistry {
     } + listOf(
         SettingsSearchEntry("appearance.presets", "Theme Presets", "Appearance › Theme", SettingsSearchDestination.APPEARANCE, "0", "theme colours colors graphite cyan midnight"),
         SettingsSearchEntry("appearance.custom", "Custom Colours", "Appearance › Colour", SettingsSearchDestination.APPEARANCE, "1", "palette contrast accent secondary background cards hex save theme"),
+        SettingsSearchEntry("appearance.density", "Content density", "Appearance › Display", SettingsSearchDestination.APPEARANCE, "2", "comfortable compact spacing rows panels"),
+        SettingsSearchEntry("appearance.motion", "Reduce motion", "Appearance › Display", SettingsSearchDestination.APPEARANCE, "2", "animation movement accessibility"),
         SettingsSearchEntry("appearance.display", "Display", "Appearance › Display", SettingsSearchDestination.APPEARANCE, "2", "dark light system wallpaper dynamic colours"),
         SettingsSearchEntry("memory.facts", "Saved Memories", "Memory › Facts", SettingsSearchDestination.MEMORY, "Memories", "saved facts recall edit delete pin private memory vault"),
         SettingsSearchEntry("memory.documents", "Document Indexing", "Memory › Documents", SettingsSearchDestination.MEMORY, "Documents", "attachments indexing import retry remove"),

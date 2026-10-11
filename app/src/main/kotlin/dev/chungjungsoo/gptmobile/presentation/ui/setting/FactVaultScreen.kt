@@ -154,14 +154,15 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 }
                 item {
                     val section = when (tab) {
-                        "Review" -> 1
-                        "Controls" -> 2
+                        "Documents" -> 1
+                        "Review" -> 2
+                        "Controls" -> 3
                         else -> 0
                     }
-                    SettingsTabs(listOf("Library", "Review", "Controls"), section) { tab = listOf("Memories", "Review", "Controls")[it] }
+                    SettingsTabs(listOf("Saved", "Documents", "Review", "Controls"), section) { tab = listOf("Memories", "Documents", "Review", "Controls")[it] }
                     if (section == 0) {
-                        SettingsTabs(listOf("Saved facts", "Documents", "Topics", "Overview"), listOf("Memories", "Documents", "Topics", "Overview").indexOf(tab)) {
-                            tab = listOf("Memories", "Documents", "Topics", "Overview")[it]
+                        SettingsTabs(listOf("All facts", "Topics", "Overview"), listOf("Memories", "Topics", "Overview").indexOf(tab)) {
+                            tab = listOf("Memories", "Topics", "Overview")[it]
                             query = ""
                         }
                     }
@@ -369,25 +370,29 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                         }
                                     }
 
+                                    Text("Learning", style = MaterialTheme.typography.titleMedium)
                                     VaultToggle("Learn From New Messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
-                                    VaultToggle("Forget Memories When Their Conversation Is Deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
+                                    VaultToggle("Learn Preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
+                                    VaultToggle("Learn Relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
+                                    VaultToggle("Learn Recurring Topics", settings.learnRecurringTopics, !busy) { viewModel.updateSettings(settings.copy(learnRecurringTopics = it)) }
+                                    VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
+                                    VaultToggle("Use Local Model For Richer Learning", settings.localModelLearning, !busy, "Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.") { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
+                                    VaultLimit("New Facts Per Message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
+                                    Text("Recall", style = MaterialTheme.typography.titleMedium)
                                     VaultToggle("Recall Saved Memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
                                     VaultToggle("Semantic Recall · Fully On-Device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
                                     Text("${semanticStatus.indexed} / ${semanticStatus.total} semantic memories · no server required", style = MaterialTheme.typography.bodySmall)
                                     TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text(stringResource(R.string.ui_v2_rebuild_semantic_index)) }
                                     VaultToggle("Always Include Pinned Memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
+                                    VaultToggle("Prioritize Recent Memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
+                                    VaultToggle("Prioritize Repeated Information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
+                                    Text("Privacy", style = MaterialTheme.typography.titleMedium)
+                                    VaultToggle("Forget Memories When Their Conversation Is Deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
                                     VaultToggle("Allow Recall In Cloud Requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
                                     VaultToggle("Recall Only Within The Original Chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
                                     VaultToggle("Review New Memories Before Use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
-                                    VaultToggle("Learn Preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
-                                    VaultToggle("Learn Relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
-                                    VaultToggle("Learn Recurring Topics", settings.learnRecurringTopics, !busy) { viewModel.updateSettings(settings.copy(learnRecurringTopics = it)) }
-                                    VaultToggle("Prioritize Recent Memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
-                                    VaultToggle("Prioritize Repeated Information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
-                                    VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
-                                    VaultToggle("Use Local Model For Richer Learning", settings.localModelLearning, !busy, "Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.") { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
+                                    Text("Capacity", style = MaterialTheme.typography.titleMedium)
                                     VaultToggle("Make Room For New Automatic Memories", settings.rotateAutomaticFacts, !busy, "Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.") { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
-                                    VaultLimit("New Facts Per Message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
                                     VaultLimit("Recall Token Budget · Estimate", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
                                     VaultLimit("Memories Per Response", settings.maxRecall, 1..40, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
                                     TextButton(onClick = { advancedControls = !advancedControls }) {

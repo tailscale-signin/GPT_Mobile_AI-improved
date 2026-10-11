@@ -36,7 +36,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.sharing.IncomingShare
 import dev.chungjungsoo.gptmobile.data.sharing.ShareInbox
 import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
-import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
+import dev.chungjungsoo.gptmobile.presentation.theme.UserAppearance
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -61,7 +61,7 @@ class ShareIncomingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Pr
         stagedToken = savedInstanceState?.getString("shareToken")
         super.onCreate(savedInstanceState)
         setContent {
-            GPTMobileTheme {
+            UserAppearance {
                 Surface(Modifier.fillMaxSize()) {
                     var share by remember { mutableStateOf<IncomingShare?>(null) }
                     var chats by remember { mutableStateOf<List<ChatRoomV2>>(emptyList()) }

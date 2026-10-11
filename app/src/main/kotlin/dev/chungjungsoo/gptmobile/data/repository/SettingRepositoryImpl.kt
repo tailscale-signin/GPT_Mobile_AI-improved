@@ -156,7 +156,8 @@ class SettingRepositoryImpl @Inject constructor(
         customPalette = settingDataSource.getCustomPalette(),
         savedProfiles = settingDataSource.getSavedThemeProfiles(),
         themeFamily = settingDataSource.getThemeFamily(),
-        reducedMotion = settingDataSource.getReducedMotion()
+        reducedMotion = settingDataSource.getReducedMotion(),
+        contentDensity = settingDataSource.getContentDensity()
     )
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
@@ -430,7 +431,8 @@ class SettingRepositoryImpl @Inject constructor(
                 customPalette = currentThemes.customPalette,
                 savedProfiles = currentThemes.savedProfiles,
                 themeFamily = currentThemes.themeFamily,
-                reducedMotion = currentThemes.reducedMotion
+                reducedMotion = currentThemes.reducedMotion,
+                contentDensity = currentThemes.contentDensity
             ),
             platforms = currentPlatforms.map { p ->
                 PlatformBackupDto(
@@ -470,7 +472,7 @@ class SettingRepositoryImpl @Inject constructor(
         backup.theme?.let { themeDto ->
             val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
             val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, themeFamily = themeDto.themeFamily, reducedMotion = themeDto.reducedMotion))
+            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, themeFamily = themeDto.themeFamily, reducedMotion = themeDto.reducedMotion, contentDensity = themeDto.contentDensity))
         }
 
         if (backup.favoriteGroups.isNotEmpty()) {

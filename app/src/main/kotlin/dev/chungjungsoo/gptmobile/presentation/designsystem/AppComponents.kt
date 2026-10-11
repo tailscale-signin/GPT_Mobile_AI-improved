@@ -54,10 +54,11 @@ internal fun AppDestinationRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val compact = dev.chungjungsoo.gptmobile.presentation.common.LocalContentDensity.current == "compact"
     Row(
-        modifier.fillMaxWidth().heightIn(min = 72.dp)
+        modifier.fillMaxWidth().heightIn(min = if (compact) 64.dp else 72.dp)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = AppSpacing.large, vertical = AppSpacing.large),
+            .padding(horizontal = AppSpacing.large, vertical = if (compact) AppSpacing.medium else AppSpacing.large),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.large),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -93,8 +94,9 @@ internal fun AppSectionTitle(title: String, modifier: Modifier = Modifier) {
 
 @Composable
 internal fun AppPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val compact = dev.chungjungsoo.gptmobile.presentation.common.LocalContentDensity.current == "compact"
     Surface(modifier.fillMaxWidth(), shape = AppShapes.panel, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.padding(AppSpacing.screen), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium), content = content)
+        Column(Modifier.padding(if (compact) AppSpacing.large else AppSpacing.screen), verticalArrangement = Arrangement.spacedBy(if (compact) AppSpacing.small else AppSpacing.medium), content = content)
     }
 }
 
@@ -107,25 +109,30 @@ internal fun AppEditorScaffold(
     onCancel: () -> Unit,
     onSave: () -> Unit,
     saveEnabled: Boolean = true,
+    saving: Boolean = false,
     saveLabel: String = "Save",
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (androidx.compose.foundation.layout.PaddingValues) -> Unit
 ) {
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
-    val cancel = { if (dirty) confirmDiscard = true else onCancel() }
+    val cancel = {
+        if (!saving) {
+            if (dirty) confirmDiscard = true else onCancel()
+        }
+    }
     BackHandler(onBack = cancel)
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(title = { Text(title) }, navigationIcon = {
-                IconButton(onClick = cancel) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                IconButton(onClick = cancel, enabled = !saving) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
             }, actions = actions)
         },
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.surface) {
                 Row(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(AppSpacing.large), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
-                    TextButton(onClick = cancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                    Button(onClick = onSave, enabled = saveEnabled, modifier = Modifier.weight(1f)) { Text(saveLabel) }
+                    TextButton(onClick = cancel, enabled = !saving, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                    Button(onClick = onSave, enabled = saveEnabled && !saving, modifier = Modifier.weight(1f)) { Text(saveLabel) }
                 }
             }
         },

@@ -75,10 +75,10 @@ fun DebugDiagnosticsScreen(
     var selectedTab by rememberSaveable {
         mutableIntStateOf(
             when (initialFocus) {
-                "health" -> 4
+                "", "health" -> 4
                 "runs" -> 1
                 "logs" -> 2
-                "", "live" -> 0
+                "live" -> 0
                 else -> 3
             }
         )
@@ -119,7 +119,7 @@ fun DebugDiagnosticsScreen(
                         Text("${activeRequests.size} active requests · ${activeTools.size} tools · ${state.failedRuns} failed runs", style = MaterialTheme.typography.bodyMedium)
                         if (embedded && selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause live view" else "Resume live view") }
                     }
-                    item { SettingsTabs(listOf("Live", "Runs", "Logs", "Display", "Health"), selectedTab) { selectedTab = it } }
+                    item { SettingsTabs(listOf("Live", "Runs", "Logs", "Display", "Overview"), selectedTab) { selectedTab = it } }
                     when (selectedTab) {
                         0 -> {
                             item {
@@ -162,7 +162,7 @@ fun DebugDiagnosticsScreen(
                                 val tools = state.recentToolEvents.filter { it.runId == run.runId }.distinctBy { it.eventId }
                                 Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(18.dp)) {
                                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(state.profileNames[run.profileUid] ?: run.modelSnapshot, color = modelChartColor(run.profileUid), fontWeight = FontWeight.SemiBold)
+                                        Text(state.profileNames[run.profileUid] ?: run.modelSnapshot, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                                         Text("${run.modelSnapshot} · ${run.status.lowercase()}", style = MaterialTheme.typography.bodyMedium, color = if (run.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                                         Text("${requests.size} recent requests · ${tools.size} retained tool calls", style = MaterialTheme.typography.labelSmall)
                                         if (expanded) {
@@ -231,7 +231,7 @@ fun DebugDiagnosticsScreen(
 @Composable
 internal fun RequestDiagnostic(request: ModelInvocation, now: Long, settings: AppFeatureSettings = AppFeatureSettings()) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text("${request.kind} · ${request.status.lowercase()}", color = if (request.status in setOf("FAILED", "INTERRUPTED")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+        Text("${request.kind} · ${request.status.lowercase()}", color = if (request.status in setOf("FAILED", "INTERRUPTED")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
         if (settings.debugShowRuntime) MetricLine("Provider / model", "${request.provider} / ${request.model}")
         if (settings.debugShowNetwork || settings.debugShowRuntime) MetricLine("Request elapsed", formatLatency(if (request.status == "RUNNING") (now - request.startedAt).coerceAtLeast(0) else request.durationMs))
         if (settings.debugShowTotalTokens) MetricLine(if (request.estimated) "Input / output estimate" else "Reported input / output", "${request.inputTokens} / ${request.outputTokens}")

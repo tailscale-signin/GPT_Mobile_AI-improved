@@ -220,15 +220,20 @@ fun McpMarketplaceScreen(
             val entry = GitHubMarketplaceCatalog.find(preset.id)
             when (statusFilter) {
                 "Installed" -> preset.id in addedIds
-                "Needs attention" -> preset.id in packageState.errors || packageState.operations[preset.id]?.phase == dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED ||
-                    (entry != null && NativeMarketplaceCatalog.supports(entry) &&
-                        dev.chungjungsoo.gptmobile.data.marketplace.resolveNativeMarketplaceAvailability(entry, installations[preset.id], features).code in setOf(
-                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.NEEDS_SETUP,
-                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DISABLED,
-                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.PACKAGE_ACCESS_DISABLED,
-                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.SERVICE_ACCESS_DISABLED,
-                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DAILY_LIMIT_REACHED
-                        ))
+                "Needs attention" ->
+                    preset.id in packageState.errors ||
+                        packageState.operations[preset.id]?.phase == dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED ||
+                        (
+                            entry != null &&
+                                NativeMarketplaceCatalog.supports(entry) &&
+                                dev.chungjungsoo.gptmobile.data.marketplace.resolveNativeMarketplaceAvailability(entry, installations[preset.id], features).code in setOf(
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.NEEDS_SETUP,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DISABLED,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.PACKAGE_ACCESS_DISABLED,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.SERVICE_ACCESS_DISABLED,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DAILY_LIMIT_REACHED
+                                )
+                            )
                 "Downloading" -> preset.id in packageState.downloadingIds
                 else -> true
             }
@@ -680,8 +685,10 @@ internal fun resolveMarketplaceConnections(
     }
     val legacy = connections.filter {
         it.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.MCP &&
-            it.marketplaceOrigin == "MANUAL" && it.marketplaceProviderId == null &&
-            it.alias == preset.alias && it.endpointUrl == legacyEndpoint
+            it.marketplaceOrigin == "MANUAL" &&
+            it.marketplaceProviderId == null &&
+            it.alias == preset.alias &&
+            it.endpointUrl == legacyEndpoint
     }
     return legacy.singleOrNull()?.let(::listOf).orEmpty()
 }

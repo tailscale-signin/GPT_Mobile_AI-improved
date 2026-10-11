@@ -395,7 +395,8 @@ object ChatDatabaseV2Migrations {
                          AND marketplace_origin = 'MANUAL'
                          AND marketplace_provider_id IS NULL
                          AND alias = ?
-                         AND lower(trim(endpoint_url)) = ?""".trimIndent(),
+                         AND lower(trim(endpoint_url)) = ?
+                    """.trimIndent(),
                     arrayOf(providerId, alias, endpoint)
                 )
             }

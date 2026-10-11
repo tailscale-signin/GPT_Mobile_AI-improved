@@ -276,12 +276,14 @@ class ChatDatabaseV2MigrationsTest {
             ),
             statements.map { it.second }
         )
-        assertTrue(statements.all { (statement, _) ->
-            statement.contains("type = 'MCP'") &&
-                statement.contains("marketplace_origin = 'MANUAL'") &&
-                statement.contains("marketplace_provider_id IS NULL") &&
-                statement.contains("alias = ?") &&
-                statement.contains("lower(trim(endpoint_url)) = ?")
-        })
+        assertTrue(
+            statements.all { (statement, _) ->
+                statement.contains("type = 'MCP'") &&
+                    statement.contains("marketplace_origin = 'MANUAL'") &&
+                    statement.contains("marketplace_provider_id IS NULL") &&
+                    statement.contains("alias = ?") &&
+                    statement.contains("lower(trim(endpoint_url)) = ?")
+            }
+        )
     }
 }

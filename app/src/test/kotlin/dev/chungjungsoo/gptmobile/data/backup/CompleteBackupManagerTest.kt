@@ -24,9 +24,9 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
-import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CoroutineScope

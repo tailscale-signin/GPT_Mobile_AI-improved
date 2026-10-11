@@ -443,11 +443,17 @@ class CompleteBackupManagerTest {
             summary = kotlinx.serialization.json.buildJsonObject {
                 put("schema", dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.SCHEMA)
                 put("status", "available")
-                put("metrics", kotlinx.serialization.json.buildJsonObject {
-                    put("steps", kotlinx.serialization.json.buildJsonObject {
-                        put("status", "available")
-                    })
-                })
+                put(
+                    "metrics",
+                    kotlinx.serialization.json.buildJsonObject {
+                        put(
+                            "steps",
+                            kotlinx.serialization.json.buildJsonObject {
+                                put("status", "available")
+                            }
+                        )
+                    }
+                )
             }
         )
         val archive = File(context.cacheDir, "health-years.gptbackup")

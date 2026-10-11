@@ -170,6 +170,13 @@ fun CompleteBackupDialog(
                             modifier = Modifier.testTag("backup_encrypt")
                         )
                     }
+                    if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
+                        Text(
+                            "Encrypt backup is required for health data, credentials or memory.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                     if (state.passwordProtectionEnabled) {
                         OutlinedTextField(
                             value = state.backupPassword,

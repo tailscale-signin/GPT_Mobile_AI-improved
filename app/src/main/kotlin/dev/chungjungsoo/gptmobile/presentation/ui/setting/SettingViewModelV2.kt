@@ -383,7 +383,7 @@ class SettingViewModelV2 @Inject constructor(
         val state = _backupUi.value
         if (state.isBusy || state.isWorking) return false
         if (!restoring && !state.canBackup) {
-            _backupUi.update { it.copy(message = "Select backup contents and use a password with at least 8 characters when encryption is on.", isError = true) }
+            _backupUi.update { it.copy(message = "Select backup contents. Health data, credentials and memory require encryption and a password with at least 8 characters.", isError = true) }
             return false
         }
         _backupUi.update {
@@ -577,7 +577,8 @@ class SettingViewModelV2 @Inject constructor(
             get() = !isBusy &&
                 !isWorking &&
                 selection.sections.isNotEmpty() &&
-                (!passwordProtectionEnabled || backupPassword.length >= 8)
+                (!passwordProtectionEnabled || backupPassword.length >= 8) &&
+                (!selection.requiresEncryption || passwordProtectionEnabled)
     }
 
     sealed interface UiEvent {

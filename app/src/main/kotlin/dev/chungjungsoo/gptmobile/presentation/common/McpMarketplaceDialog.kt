@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpMarketplaceScreen
  * Adapter for backward-compatibility delegating to the modernized, full-screen McpMarketplaceScreen.
  */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun McpMarketplaceDialog(
     installedAliases: Set<String>,
     onInstallPreset: (McpPreset) -> Unit,
@@ -16,7 +17,6 @@ fun McpMarketplaceDialog(
     modifier: Modifier = Modifier
 ) {
     McpMarketplaceScreen(
-        installedAliases = installedAliases,
         onNavigationClick = onDismissRequest,
         onInstallPresetWithConfig = { preset, _, _, _, _, _, _ ->
             onInstallPreset(preset)

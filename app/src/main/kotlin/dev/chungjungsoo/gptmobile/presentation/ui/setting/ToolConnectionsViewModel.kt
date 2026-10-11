@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 enum class ToolConnectionHealthStatus {
     CHECKING,
@@ -208,7 +209,9 @@ class ToolConnectionsViewModel @Inject constructor(
     fun savePolicy(connection: ToolConnection, policy: String, reads: String) {
         viewModelScope.launch {
             try {
-                toolConnectionRepository.upsertConnection(connection.copy(toolPolicy = policy, approvedReadTools = reads.take(16000)))
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    toolConnectionRepository.upsertConnection(connection.copy(toolPolicy = policy, approvedReadTools = reads.take(16000)))
+                }
                 refresh()
             } catch (e: Exception) {
                 showError(e)
@@ -227,7 +230,8 @@ class ToolConnectionsViewModel @Inject constructor(
         oauthClientId: String,
         allowCleartext: Boolean,
         clearCredential: Boolean,
-        onSuccess: () -> Unit = {}
+        onSuccess: () -> Unit = {},
+        marketplaceProviderId: String? = null
     ) {
         val normalizedAlias = normalizeAlias(alias)
         if (!isValidAlias(normalizedAlias)) {
@@ -247,6 +251,8 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             val now = System.currentTimeMillis() / 1000
             val clientId = oauthClientId.trim().takeIf { actualAuthType == ToolConnectionAuthType.OAUTH && it.isNotEmpty() }
+            val marketplaceOrigin = existing?.marketplaceOrigin
+                ?: if (marketplaceProviderId != null) "MARKETPLACE" else "MANUAL"
             val connection = ToolConnection(
                 connectionUid = existing?.connectionUid ?: UUID.randomUUID().toString(),
                 name = name.trim(),
@@ -258,7 +264,10 @@ class ToolConnectionsViewModel @Inject constructor(
                 oauthClientId = clientId,
                 allowCleartext = provider.type == ToolConnectionType.MCP && actualEndpoint.startsWith("http://", ignoreCase = true) && allowCleartext,
                 createdAt = existing?.createdAt ?: now,
-                updatedAt = now
+                updatedAt = now,
+                marketplaceOrigin = marketplaceOrigin,
+                marketplaceProviderId = existing?.marketplaceProviderId ?: marketplaceProviderId,
+                marketplaceInstallationId = existing?.marketplaceInstallationId ?: if (marketplaceOrigin == "MARKETPLACE") UUID.randomUUID().toString() else null
             ).preservingPolicyFrom(existing)
             val metadataChanged = existing?.let {
                 it.type != connection.type ||
@@ -279,20 +288,17 @@ class ToolConnectionsViewModel @Inject constructor(
                     credential = credential,
                     clearCredential = clearCredential
                 )
-                toolConnectionRepository.upsertConnection(
-                    connection = connection,
-                    credential = credentialBytes,
-                    clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
-                )
-                if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
-                    pluginMutex.lock()
-                    try {
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    toolConnectionRepository.upsertConnection(
+                        connection = connection,
+                        credential = credentialBytes,
+                        clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
+                    )
+                    if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
                         val latest = settingRepository.getFeatureSettings()
                         val updated = latest.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
                         settingRepository.updateFeatureSettings(updated)
                         _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
-                    } finally {
-                        pluginMutex.unlock()
                     }
                 }
             }.onSuccess {
@@ -309,7 +315,9 @@ class ToolConnectionsViewModel @Inject constructor(
             runCatching {
                 mcpClientManager.close(connectionUid)
                 revokeToolGrants(connectionUid)
-                toolConnectionRepository.deleteConnection(connectionUid)
+                dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    toolConnectionRepository.deleteConnection(connectionUid)
+                }
             }
                 .onSuccess { refresh() }
                 .onFailure(::showError)

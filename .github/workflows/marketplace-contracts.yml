@@ -1,6 +1,9 @@
 name: Marketplace contracts
 
 on:
+  push:
+    branches: ['feat/combined-marketplace-gateway-14-2-2026-10-10']
+    paths: ['app/**', 'mcp/**', '.github/workflows/marketplace-contracts.yml']
   pull_request:
     paths:
       - '.github/workflows/marketplace-contracts.yml'
@@ -9,12 +12,25 @@ on:
       - 'mcp/research/**'
       - 'scripts/tests/test_marketplace_companion.py'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/McpPresetCatalog.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ToolServiceCatalog.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ToolConnection.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2Migrations.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolConnectionRepository.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsViewModel.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModel.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/NativePluginSettings.kt'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NativeMarketplaceTool.kt'
       - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/**'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/**'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/model/ToolServicePolicyTest.kt'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/**'
+      - 'app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/**'
       - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt'
       - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModelTest.kt'
 
@@ -22,13 +38,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: marketplace-contracts-${{ github.event.pull_request.number }}
+  group: marketplace-contracts-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,6 +55,35 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: mcp/amazon/package-lock.json
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+
+      - name: Run focused marketplace contracts
+        run: >-
+          ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2
+          --tests 'dev.chungjungsoo.gptmobile.presentation.ui.mcp.MarketplaceViewModelTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2MigrationsTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.model.ToolServicePolicyTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.ResearchBudgetTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealthTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySessionTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinatorTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchWorkflowTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.research.EvidenceGainPolicyTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.research.SourceIdentityTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflowTest'
 
       - name: Test Amazon HTTP and stdio bridge contracts
         working-directory: mcp/amazon
@@ -68,10 +113,20 @@ jobs:
             -o "$RUNNER_TEMP/ktlint"
           files=(
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalog.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/catalog/McpPresetCatalog.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ToolServiceCatalog.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ToolConnection.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2Migrations.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolConnectionRepository.kt
+            app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsViewModel.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/*.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NativeMarketplaceTool.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/NativePluginSettings.kt
             app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/*.kt
+            app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/*.kt
+            app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/model/ToolServicePolicyTest.kt
+            app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/*.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/McpMarketplaceDialog.kt
             app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/mcp/MarketplaceViewModel.kt
             app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/catalog/GitHubMarketplaceCatalogTest.kt

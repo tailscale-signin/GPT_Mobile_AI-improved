@@ -35,10 +35,16 @@ data class GatewayCapabilities(
     val contractVersion: Int? = null,
     val auth: GatewayAuthCapabilities? = null,
     val identityScope: String? = null,
-    val memory: GatewayMemoryCapabilities? = null
+    val memory: GatewayMemoryCapabilities? = null,
+    val contracts: Map<String, List<String>> = emptyMap(),
+    val features: Map<String, Boolean> = emptyMap()
 ) {
     val supportsKeyFreeConnection: Boolean
         get() = contractVersion == 1 && gatewayVersion?.startsWith("14.") == true && auth?.apiKeyRequired == false
+
+    fun supportsContract(name: String, version: String): Boolean = contracts[name]?.contains(version) == true
+
+    fun supportsFeature(name: String): Boolean = features[name] == true
 }
 
 @Serializable
@@ -79,8 +85,21 @@ data class GatewayCancelResult(
     @SerialName("job_id")
     val jobId: String,
     val canceled: Boolean,
-    val message: String? = null
-)
+    val status: String? = null,
+    val message: String? = null,
+    val cancellationRequested: Boolean = false,
+    val cancellationOutcome: String? = null
+) {
+    val outcome: GatewayCancellationOutcome
+        get() = when ((cancellationOutcome ?: status)?.lowercase()) {
+            "confirmed", "cancelled", "canceled" -> GatewayCancellationOutcome.CONFIRMED
+            "requested", "cancellation_requested", "cancel_requested" -> GatewayCancellationOutcome.REQUESTED
+            "not_canceled", "completed", "failed", "interrupted" -> GatewayCancellationOutcome.NOT_CANCELED
+            else -> GatewayCancellationOutcome.UNKNOWN
+        }
+}
+
+enum class GatewayCancellationOutcome { REQUESTED, CONFIRMED, NOT_CANCELED, UNKNOWN }
 
 /**
  * Gateway progress event from SSE stream.
@@ -96,8 +115,15 @@ data class GatewayProgress(
     @SerialName("request_id")
     val requestId: String? = null,
 
+    val generation: String? = null,
+
     val sequence: Int? = null,
     val event: String? = null,
+    val replayGap: Boolean? = null,
+    val generationChanged: Boolean? = null,
+    val previousGeneration: String? = null,
+    val resultAvailable: Boolean? = null,
+    val recovery: String? = null,
     val status: String? = null,
     val stage: String? = null,
     val message: String? = null,

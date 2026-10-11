@@ -82,6 +82,9 @@ interface AgentPersistenceDao {
     @Query("SELECT * FROM tool_events WHERE event_id = :eventId")
     suspend fun rawGetToolEventById(eventId: String): ToolEvent?
 
+    @Query("SELECT * FROM tool_events WHERE run_id = :runId AND call_id = :callId ORDER BY started_at LIMIT 1")
+    suspend fun rawGetToolEventByCall(runId: String, callId: String): ToolEvent?
+
     @Query("SELECT * FROM tool_events ORDER BY COALESCE(completed_at, started_at, 0) DESC, sequence DESC LIMIT :limit")
     fun rawObserveRecentToolEvents(limit: Int = 100): Flow<List<ToolEvent>>
 
@@ -316,6 +319,44 @@ interface AgentPersistenceDao {
         updateMessage(assistantMessage)
         updateRunStatus(runId, status, startedAt, completedAt, terminalError)
         if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
+    }
+
+    /** Commit the complete accumulated answer and terminal status under the same ownership check. */
+    @Transaction
+    suspend fun finishRunningWithMessage(
+        assistantMessage: MessageV2,
+        runId: String,
+        status: String,
+        completedAt: Long,
+        terminalError: String?
+    ): Boolean {
+        require(status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED"))
+        val run = recoveryRun(runId) ?: return false
+        if (run.status != "RUNNING" && !(run.status == "QUEUED" && status != "COMPLETED")) return false
+        val current = recoveryMessage(run.assistantMessageId) ?: return false
+        if (current.currentRunId != runId ||
+            assistantMessage.currentRunId != runId ||
+            assistantMessage.id != run.assistantMessageId ||
+            assistantMessage.chatId != run.chatId
+        ) {
+            return false
+        }
+        updateMessage(assistantMessage)
+        updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
+        cancelActiveToolEvents(runId, completedAt)
+        if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)
+        return true
+    }
+
+    /** A late streaming checkpoint cannot replace a terminal or newer revision. */
+    @Transaction
+    suspend fun checkpointRunningMessage(message: MessageV2): Boolean {
+        val runId = message.currentRunId ?: return false
+        val run = recoveryRun(runId) ?: return false
+        if (run.status != "RUNNING" || run.assistantMessageId != message.id || run.chatId != message.chatId) return false
+        if (recoveryMessage(message.id)?.currentRunId != runId) return false
+        updateMessage(message)
+        return true
     }
 
     @Query(

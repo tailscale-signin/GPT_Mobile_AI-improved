@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class RoadmapMigrationMatrixTest {
     @Test fun publishedAndIntermediateUpgradePathsPreserveConversationEvidence() = runBlocking {
-        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33)) {
+        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33, 35)) {
             val context = RuntimeEnvironment.getApplication()
             val name = "roadmap-migration-$version-${UUID.randomUUID()}.db"
             val file = context.getDatabasePath(name).also { it.parentFile!!.mkdirs() }
@@ -60,6 +60,9 @@ class RoadmapMigrationMatrixTest {
                 val gatewayValue = if (version >= 27) ",0" else ""
                 old.execSQL("INSERT INTO agent_runs(run_id,chat_id,user_message_id,assistant_message_id,profile_uid,provider_snapshot,model_snapshot,status,created_at$gatewayColumn) VALUES('saved-run',1,1,2,'profile','test','model','COMPLETED',1$gatewayValue)")
                 old.execSQL("INSERT INTO tool_events(event_id,run_id,sequence,call_id,tool_name,model_tool_name,arguments,status,is_error,result) VALUES('saved-event','saved-run',1,'call','read','read','{}','COMPLETED',0,'evidence')")
+                if (version == 35) {
+                    old.execSQL("INSERT INTO tool_connections(connection_uid,name,alias,type,endpoint_url,auth_type,secret_ref,oauth_client_id,allow_cleartext,tool_policy,approved_read_tools,created_at,updated_at) VALUES('legacy-marketplace','Legacy server','legacy_server','MCP','https://example.org/mcp','NONE',NULL,NULL,0,'ASK_WRITES','',1,1)")
+                }
                 old.execSQL("UPDATE sqlite_sequence SET seq = 100 WHERE name = 'messages_v2'")
                 old.version = version
             }
@@ -74,6 +77,14 @@ class RoadmapMigrationMatrixTest {
                 assertEquals("migration-fixture-ref", credentialRef)
                 assertEquals("from v$version", listOf(1), migrated.messageDao().searchMessagesByContent("evidence"))
                 assertEquals("COMPLETED", migrated.agentRunDao().getById("saved-run")?.status)
+                if (version == 35) {
+                    migrated.openHelper.readableDatabase.query("SELECT marketplace_origin, marketplace_provider_id, marketplace_installation_id FROM tool_connections WHERE connection_uid='legacy-marketplace'").use { row ->
+                        assertEquals(true, row.moveToFirst())
+                        assertEquals("MANUAL", row.getString(0))
+                        assertEquals(true, row.isNull(1))
+                        assertEquals(true, row.isNull(2))
+                    }
+                }
                 assertEquals("saved response", migrated.messageDao().loadMessages(1).last().content)
                 org.junit.Assert.assertTrue(migrated.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = 1, content = "next", platformType = null)) > 100)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { migrated.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) } }

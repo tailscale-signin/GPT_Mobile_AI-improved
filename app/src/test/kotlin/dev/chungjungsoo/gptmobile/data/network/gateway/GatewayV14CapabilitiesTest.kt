@@ -15,6 +15,9 @@ class GatewayV14CapabilitiesTest {
         val capabilities = json.decodeFromString<GatewayCapabilities>(fixture)
         assertTrue(capabilities.supportsKeyFreeConnection)
         assertTrue(capabilities.memory?.authority == "client")
+        assertTrue(capabilities.supportsContract("gatewayProgress", "gpt-mobile-gateway-progress/2"))
+        assertTrue(capabilities.supportsFeature("validatedToolArguments"))
+        assertFalse(capabilities.supportsContract("evidence", "gptmobile.evidence.v1"))
     }
 
     @Test
@@ -22,5 +25,6 @@ class GatewayV14CapabilitiesTest {
         assertFalse(json.decodeFromString<GatewayCapabilities>("""{"version":"13.1.0"}""").supportsKeyFreeConnection)
         assertFalse(json.decodeFromString<GatewayCapabilities>("""{"gatewayVersion":"14.0.0","contractVersion":1}""").supportsKeyFreeConnection)
         assertTrue(json.decodeFromString<GatewayCapabilities>("""{"gatewayVersion":"14.0.0","contractVersion":1,"auth":{"mode":"loopback","apiKeyRequired":false}}""").supportsKeyFreeConnection)
+        assertFalse(json.decodeFromString<GatewayCapabilities>("""{"gatewayVersion":"14.0.0","contractVersion":1}""").supportsContract("run", "gptmobile.gateway-run.v1"))
     }
 }

@@ -46,7 +46,8 @@ class NativeMarketplaceTool(
             val request = NativeMarketplaceRequests.build(entry, operation, arguments, configuration)
             registry.reserve(entry)
             val evidence = dev.chungjungsoo.gptmobile.data.marketplace.boundMarketplaceEvidence(fetch(request), configuration.installation.maxResults)
-            val data = redactCredential(evidence.data, configuration.apiKey)
+            val secrets = (listOf(configuration.apiKey) + configuration.endpointSecrets.values).filter(String::isNotBlank).distinct().sortedByDescending(String::length)
+            val data = secrets.fold(evidence.data) { value, secret -> redactCredential(value, secret) }
             val result = buildJsonObject {
                 put("source", entry.preset.websiteUrl)
                 put("provider", entry.preset.name)

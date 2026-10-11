@@ -127,6 +127,18 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(status, 'failed')
         self.assertIsNotNone(finished)
 
+    def test_active_cancellation_reports_request_without_claiming_confirmation(self):
+        import threading
+        self.runtime.register_gateway_job('active', 'local', 'chat', threading.Event(), threading.Event())
+        self.store.claim('active', 'local:single-user')
+        with self.client() as client:
+            response = client.post('/gateway/jobs/active/cancel')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['cancellationOutcome'], 'requested')
+        self.assertTrue(body['cancellationRequested'])
+        self.assertFalse(body['canceled'])
+
     def test_empty_legacy_database_accepts_nonstream_chat(self):
         self.legacy_database()
         with closing(sqlite3.connect(self.db)) as db, db:

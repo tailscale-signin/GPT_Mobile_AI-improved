@@ -10,7 +10,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 @Entity(
     tableName = "tool_connections",
-    indices = [Index(value = ["alias"], unique = true)]
+    indices = [
+        Index(value = ["alias"], unique = true),
+        Index(value = ["marketplace_provider_id"]),
+        Index(value = ["marketplace_installation_id"], unique = true)
+    ]
 )
 data class ToolConnection(
     @PrimaryKey
@@ -51,7 +55,16 @@ data class ToolConnection(
     val createdAt: Long = System.currentTimeMillis() / 1000,
 
     @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis() / 1000
+    val updatedAt: Long = System.currentTimeMillis() / 1000,
+
+    @ColumnInfo(name = "marketplace_origin", defaultValue = "'MANUAL'")
+    val marketplaceOrigin: String = "MANUAL",
+
+    @ColumnInfo(name = "marketplace_provider_id")
+    val marketplaceProviderId: String? = null,
+
+    @ColumnInfo(name = "marketplace_installation_id")
+    val marketplaceInstallationId: String? = null
 ) {
     @get:Ignore
     val isWebSearch: Boolean

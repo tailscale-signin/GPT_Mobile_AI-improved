@@ -10,7 +10,8 @@ interface GatewayAPI {
         jobId: String,
         afterSequence: Int,
         timeoutSeconds: Int,
-        config: ProviderRequestConfig
+        config: ProviderRequestConfig,
+        expectedGeneration: String? = null
     ): Flow<GatewayProgress>
 
     suspend fun getJobResult(

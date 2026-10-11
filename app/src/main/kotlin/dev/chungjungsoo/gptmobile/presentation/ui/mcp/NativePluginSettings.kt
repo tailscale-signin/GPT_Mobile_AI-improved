@@ -29,6 +29,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplacePackage
+import dev.chungjungsoo.gptmobile.data.marketplace.EndpointAuthType
+import dev.chungjungsoo.gptmobile.data.marketplace.NativeEndpointConfig
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation
 
@@ -44,6 +46,10 @@ fun NativePluginSettings(
     var endpoint by remember(entry.id, installation.endpoint) { mutableStateOf(installation.endpoint) }
     var disabledOperations by remember(entry.id, installation.disabledOperations) { mutableStateOf(installation.disabledOperations) }
     var osmEndpoints by remember(entry.id, installation.endpoints) { mutableStateOf(installation.endpoints) }
+    var endpointConfigs by remember(entry.id, installation.endpointConfigs, installation.endpoints) {
+        mutableStateOf((installation.endpoints.mapValues { NativeEndpointConfig(it.value) } + installation.endpointConfigs))
+    }
+    var endpointSecrets by remember(entry.id, installation.endpointConfigs) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var key by remember(entry.id, installation.credentialRef) { mutableStateOf("") }
     var clearKey by remember(entry.id, installation.credentialRef) { mutableStateOf(false) }
     var results by remember(entry.id, installation.maxResults) { mutableStateOf(installation.maxResults.toString()) }
@@ -51,7 +57,22 @@ fun NativePluginSettings(
     val needsKey = NativeMarketplaceCatalog.requiresKey(entry)
     val needsEndpoint = NativeMarketplaceCatalog.requiresEndpoint(entry)
     val isOsm = entry.provider == "openstreetmap"
-    val validEndpoint = if (isOsm) osmEndpoints.values.any(NativeMarketplaceCatalog::validEndpoint) && osmEndpoints.values.all { it.isBlank() || NativeMarketplaceCatalog.validEndpoint(it) } else !needsEndpoint || NativeMarketplaceCatalog.validEndpoint(endpoint)
+    val enabledOperations = setOf("geocode", "restrooms") - disabledOperations
+    val validEndpoint = if (isOsm) {
+        enabledOperations.isNotEmpty() &&
+            enabledOperations.all { operation ->
+                val config = endpointConfigs[operation] ?: NativeEndpointConfig("")
+                val saved = installation.endpointConfig(operation)
+                NativeMarketplaceCatalog.validEndpoint(config.url, config.allowCustomHttpsPort) &&
+                    (
+                        config.authType == EndpointAuthType.NONE ||
+                            NativeMarketplaceCatalog.validKey(endpointSecrets[operation].orEmpty()) ||
+                            (config.authType == saved.authType && config.url.trim() == saved.url && saved.secretRef != null)
+                        )
+            }
+    } else {
+        !needsEndpoint || NativeMarketplaceCatalog.validEndpoint(endpoint)
+    }
     val validKey = !needsKey || NativeMarketplaceCatalog.validKey(key) || (key.isBlank() && installation.credentialRef != null && !clearKey)
     val validLimits = results.toIntOrNull() in 1..10 && allowance.toIntOrNull() in 1..1000
     val red = MaterialTheme.colorScheme.error
@@ -106,13 +127,52 @@ fun NativePluginSettings(
                         disabledOperations = if (checked) disabledOperations - operation else disabledOperations + operation
                     })
                 }
-                val value = osmEndpoints[operation].orEmpty()
+                val config = endpointConfigs[operation] ?: NativeEndpointConfig("")
+                val value = config.url
+                val endpointReady = NativeMarketplaceCatalog.validEndpoint(value, config.allowCustomHttpsPort)
+                val savedEndpoint = installation.endpointConfig(operation)
+                val credentialReady = config.authType == EndpointAuthType.NONE ||
+                    NativeMarketplaceCatalog.validKey(endpointSecrets[operation].orEmpty()) ||
+                    (config.authType == savedEndpoint.authType && config.url.trim() == savedEndpoint.url && savedEndpoint.secretRef != null)
                 OutlinedTextField(
-                    value = value, onValueChange = { osmEndpoints = osmEndpoints + (operation to it) },
+                    value = value, onValueChange = { endpointConfigs = endpointConfigs + (operation to config.copy(url = it)) },
                     label = { Text("$label endpoint") },
-                    supportingText = { Text(if (NativeMarketplaceCatalog.validEndpoint(value)) "Capability configured" else "Add a managed/self-hosted HTTPS endpoint to use this capability.") },
+                    supportingText = { Text(if (endpointReady) "Endpoint configured" else "Add a managed/self-hosted HTTPS endpoint to use this capability.") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy,
-                    isError = operationEnabled && !NativeMarketplaceCatalog.validEndpoint(value), colors = fieldColors
+                    isError = operationEnabled && !endpointReady, colors = fieldColors
+                )
+                TextButton(enabled = !busy, onClick = {
+                    val next = EndpointAuthType.entries[(config.authType.ordinal + 1) % EndpointAuthType.entries.size]
+                    endpointConfigs = endpointConfigs + (operation to config.copy(authType = next))
+                    endpointSecrets = endpointSecrets - operation
+                }) { Text("Authentication: ${config.authType.name.replace('_', ' ')} · change") }
+                if (config.authType != EndpointAuthType.NONE) {
+                    OutlinedTextField(
+                        value = endpointSecrets[operation].orEmpty(),
+                        onValueChange = { endpointSecrets = endpointSecrets + (operation to it) },
+                        label = { Text("Endpoint credential") },
+                        placeholder = { Text("Leave blank to retain the credential for this endpoint") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Allow custom HTTPS port", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = config.allowCustomHttpsPort, enabled = !busy, onCheckedChange = {
+                        endpointConfigs = endpointConfigs + (operation to config.copy(allowCustomHttpsPort = it))
+                    })
+                }
+                Text(
+                    if (!operationEnabled) {
+                        "$label: Disabled"
+                    } else if (endpointReady && credentialReady) {
+                        "$label: Ready"
+                    } else {
+                        "$label: Not configured"
+                    },
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
@@ -147,8 +207,9 @@ fun NativePluginSettings(
         }
         Text("One request per call; no automatic retries. Failed attempts count. Provider limits and account charges also apply.", style = MaterialTheme.typography.bodySmall)
         Button(enabled = !busy && validEndpoint && (validKey || clearKey) && validLimits, onClick = {
-            viewModel.configure(entry, endpoint, key, results.toInt(), allowance.toInt(), clearKey, endpoints = osmEndpoints, disabledOperations = disabledOperations) {
+            viewModel.configure(entry, endpoint, key, results.toInt(), allowance.toInt(), clearKey, endpoints = osmEndpoints, disabledOperations = disabledOperations, endpointConfigs = endpointConfigs, endpointSecrets = endpointSecrets) {
                 key = ""
+                endpointSecrets = emptyMap()
                 clearKey = false
             }
         }) { Text(if (clearKey) "Remove key & disable" else "Save settings") }

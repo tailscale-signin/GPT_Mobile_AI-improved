@@ -49,4 +49,5 @@ release.keystore
 # Local gateway state and Python caches
 __pycache__/
 gateway/*.sqlite3*
+gateway/.gateway-v14.lock
 gateway/.venv/

@@ -519,7 +519,7 @@ class AgentRunner(
                 )
             }
             // Include synchronous stream construction failures in the upstream boundary.
-            emitAll(session.streamRound(exposedDefinitions, replayExchanges))
+            emitAll(session.streamRound(exposedDefinitions, replayExchanges).withAssistantTextMarkupGuard())
         }.catch { error ->
             if (error is CancellationException) throw error
             // Keep the first terminal provider failure; trailing transport errors

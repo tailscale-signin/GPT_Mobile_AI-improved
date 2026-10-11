@@ -156,6 +156,7 @@ fun ToolConnectionsScreen(
                     oauthClientId = "",
                     allowCleartext = cleartext,
                     clearCredential = false,
+                    marketplaceProviderId = "jannafta-amazon",
                     onSuccess = { amazonMcpSetup = false }
                 )
             }

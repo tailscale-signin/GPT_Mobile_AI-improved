@@ -486,6 +486,11 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
 
     override suspend fun rawGetToolEventById(eventId: String): ToolEvent? = rows.firstOrNull { it.eventId == eventId }
 
+    override suspend fun rawGetToolEventByCall(runId: String, callId: String): ToolEvent? = rows
+        .filter { it.runId == runId && it.callId == callId }
+        .sortedBy { it.startedAt }
+        .firstOrNull()
+
     override fun rawObserveToolEventsForChat(chatId: Int): Flow<List<ToolEvent>> {
         observedChatIds += chatId
         return observedToolEvents

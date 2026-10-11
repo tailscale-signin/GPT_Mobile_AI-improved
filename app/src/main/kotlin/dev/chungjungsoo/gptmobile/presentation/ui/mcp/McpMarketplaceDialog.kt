@@ -158,7 +158,6 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun McpMarketplaceScreen(
-    installedAliases: Set<String>,
     onNavigationClick: () -> Unit,
     onInstallPresetWithConfig: (
         preset: McpPreset,
@@ -188,6 +187,7 @@ fun McpMarketplaceScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf<McpCategory?>(null) }
     var pricing by rememberSaveable { mutableStateOf<McpPricingType?>(null) }
+    var selectedConnectionUids by rememberSaveable { mutableStateOf<Map<String, String>>(emptyMap()) }
     var configuring by remember { mutableStateOf<McpPreset?>(null) }
     var editingConnection by remember { mutableStateOf<ToolConnection?>(null) }
     var approving by remember { mutableStateOf<GitHubMarketplacePackage?>(null) }
@@ -208,15 +208,27 @@ fun McpMarketplaceScreen(
     val mcpScroll = rememberLazyListState()
     val presets = remember { GitHubMarketplaceCatalog.allPresets }
     fun added(preset: McpPreset) = preset.isPreinstalled ||
-        preset.alias in installedAliases ||
-        ToolConnectionsViewModel.normalizeAlias(preset.alias) in installedAliases
+        resolveMarketplaceConnections(preset, connectionsState.connections).isNotEmpty()
     val addedIds = presets.filter(::added).map { it.id }.toSet() + downloaded + installations.keys
-    val filtered = remember(presets, section, query, category, pricing, sort, addedIds, statusFilter, installations, packageState) {
+    val filtered = remember(presets, section, query, category, pricing, sort, addedIds, statusFilter, installations, packageState, connectionsState.connections) {
         MarketplacePresentation.filterAndSort(presets, section, query, category, pricing, sort, addedIds).filter { preset ->
             val entry = GitHubMarketplaceCatalog.find(preset.id)
             when (statusFilter) {
                 "Installed" -> preset.id in addedIds
-                "Needs attention" -> preset.id in packageState.errors || (entry != null && installations[preset.id]?.ready(entry) == false)
+                "Needs attention" ->
+                    preset.id in packageState.errors ||
+                        packageState.operations[preset.id]?.phase == dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED ||
+                        (
+                            entry != null &&
+                                NativeMarketplaceCatalog.supports(entry) &&
+                                dev.chungjungsoo.gptmobile.data.marketplace.resolveNativeMarketplaceAvailability(entry, installations[preset.id], features).code in setOf(
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.NEEDS_SETUP,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DISABLED,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.PACKAGE_ACCESS_DISABLED,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.SERVICE_ACCESS_DISABLED,
+                                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceAvailabilityCode.DAILY_LIMIT_REACHED
+                                )
+                            )
                 "Downloading" -> preset.id in packageState.downloadingIds
                 else -> true
             }
@@ -400,8 +412,23 @@ fun McpMarketplaceScreen(
                     val installation = installations[preset.id]
                     val itemVisible = (if (section == MarketplaceSection.PLUGINS) pluginScroll else mcpScroll).layoutInfo.visibleItemsInfo.any { it.key == preset.id }
                     val now = rememberMarketplaceTime(installation?.nextRequestAt ?: 0L, itemVisible, installation?.takeIf { it.usageCount >= it.dailyLimit }?.usageDay)
-                    val connection = connectionsState.connections.firstOrNull { it.alias == preset.alias }
+                    val providerConnections = resolveMarketplaceConnections(preset, connectionsState.connections)
+                    val connection = providerConnections.firstOrNull { it.connectionUid == selectedConnectionUids[preset.id] }
+                        ?: providerConnections.firstOrNull()
                     val connectionHealth = connection?.let { connectionsState.connectionHealth[it.connectionUid] }
+                    val operation = packageState.operations[preset.id]
+                    val operationLabel = operation?.let {
+                        when (it.phase) {
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.QUEUED -> "Queued"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.DOWNLOADING -> "Downloading"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.VERIFYING -> "Verifying package"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.INSTALLING -> "Installing"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.SAVING -> "Saving settings"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.REMOVING -> "Removing"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.REPAIRING -> "Repairing"
+                            dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.FAILED -> "Failed"
+                        }
+                    }
                     val builtinId = when (preset.id) {
                         "airbnb-native" -> ToolPluginId.AIRBNB
                         "builtin-memory" -> ToolPluginId.LOCAL_MEMORY
@@ -411,42 +438,74 @@ fun McpMarketplaceScreen(
                         else -> null
                     }
                     val enabled = if (native) installation?.enabled else (connection?.let { ToolPluginId.connection(it.connectionUid) } ?: builtinId)?.let { features.isToolPluginEnabled(it) }
-                    MarketplacePackageCard(
-                        preset, added(preset), onAddClick = {
-                            when {
-                                preset.integratedTool == "delegation" && onOpenDelegation != null -> onOpenDelegation()
-                                preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
-                                connection != null -> editingConnection = connection
-                                else -> configuring = preset
-                            }
-                        }, download = entry?.takeIf { it.runtime == MarketplaceRuntime.NATIVE },
-                        downloaded = native && installation != null,
-                        downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
-                        changing = preset.id in packageState.changingIds,
-                        connectionStatus = if (native && entry != null) dev.chungjungsoo.gptmobile.data.marketplace.nativeMarketplaceAvailability(entry, installation, features, now) else connectionHealth?.let(::marketplaceConnectionStatus),
-                        error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
-                        onExport = {
-                            exportId = preset.id
-                            exporter.launch("${preset.id}.zip")
-                        }, onRemove = { removing = entry },
-                        enabled = enabled, canEnable = !native || installation?.ready(requireNotNull(entry)) == true,
-                        onEnabledChange = { value ->
-                            if (native && entry != null) {
-                                marketplaceViewModel.setEnabled(entry, value)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MarketplacePackageCard(
+                            preset, added(preset), onAddClick = {
+                                when {
+                                    preset.integratedTool == "delegation" && onOpenDelegation != null -> onOpenDelegation()
+                                    preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
+                                    connection != null -> editingConnection = connection
+                                    else -> configuring = preset
+                                }
+                            }, download = entry?.takeIf { it.runtime == MarketplaceRuntime.NATIVE },
+                            downloaded = native && installation != null,
+                            downloading = preset.id in packageState.downloadingIds, removing = preset.id in packageState.removingIds,
+                            changing = preset.id in packageState.changingIds,
+                            onTestConnection = connection?.takeIf { it.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.MCP }
+                                ?.let { testedConnection -> { marketplaceViewModel.testConnection(testedConnection.connectionUid) } },
+                            testingConnection = connection?.connectionUid?.let { it in packageState.testingConnectionUids } == true,
+                            connectionTest = connection?.let { packageState.connectionTests[it.connectionUid] },
+                            connectionStatus = operationLabel ?: if (native && entry != null) dev.chungjungsoo.gptmobile.data.marketplace.nativeMarketplaceAvailability(entry, installation, features, now) else connectionHealth?.let(::marketplaceConnectionStatus),
+                            error = packageState.errors[preset.id], onDownload = { approving = entry }, onCancel = { marketplaceViewModel.cancelDownload(preset.id) },
+                            onExport = {
+                                exportId = preset.id
+                                exporter.launch("${preset.id}.zip")
+                            }, onRemove = { removing = entry },
+                            enabled = enabled, canEnable = !native || installation?.ready(requireNotNull(entry)) == true,
+                            onEnabledChange = { value ->
+                                if (native && entry != null) {
+                                    marketplaceViewModel.setEnabled(entry, value)
+                                } else {
+                                    (connection?.let { ToolPluginId.connection(it.connectionUid) } ?: builtinId)?.let { id ->
+                                        connectionsViewModel.setPluginsEnabled(if (preset.id == "builtin-web") setOf(id, ToolPluginId.READ_URL) else setOf(id), value)
+                                    }
+                                }
+                            },
+                            onRemoveConnection = connection?.let { { removingConnection = it } },
+                            nativeSettings = if (native && entry != null && installation != null) {
+                                { NativePluginSettings(entry, installation, marketplaceViewModel, preset.id in packageState.removingIds || preset.id in packageState.changingIds, showEnableSwitch = false) }
                             } else {
-                                (connection?.let { ToolPluginId.connection(it.connectionUid) } ?: builtinId)?.let { id ->
-                                    connectionsViewModel.setPluginsEnabled(if (preset.id == "builtin-web") setOf(id, ToolPluginId.READ_URL) else setOf(id), value)
+                                null
+                            },
+                            needsSetup = native && installation != null && !installation.ready(requireNotNull(entry))
+                        )
+                        if (providerConnections.size > 1 && connection != null) {
+                            var connectionsMenuExpanded by remember(preset.id) { mutableStateOf(false) }
+                            Box {
+                                OutlinedButton(onClick = { connectionsMenuExpanded = true }) {
+                                    Text("Connection: ${connection.name}")
+                                    Icon(Icons.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
+                                }
+                                DropdownMenu(
+                                    expanded = connectionsMenuExpanded,
+                                    onDismissRequest = { connectionsMenuExpanded = false }
+                                ) {
+                                    providerConnections.forEach { instance ->
+                                        DropdownMenuItem(
+                                            text = { Text(instance.name) },
+                                            onClick = {
+                                                selectedConnectionUids = selectedConnectionUids + (preset.id to instance.connectionUid)
+                                                connectionsMenuExpanded = false
+                                            },
+                                            trailingIcon = {
+                                                if (instance.connectionUid == connection.connectionUid) Icon(Icons.Rounded.Check, "Selected")
+                                            }
+                                        )
+                                    }
                                 }
                             }
-                        },
-                        onRemoveConnection = connection?.let { { removingConnection = it } },
-                        nativeSettings = if (native && entry != null && installation != null) {
-                            { NativePluginSettings(entry, installation, marketplaceViewModel, preset.id in packageState.removingIds || preset.id in packageState.changingIds, showEnableSwitch = false) }
-                        } else {
-                            null
-                        },
-                        needsSetup = native && installation != null && !installation.ready(requireNotNull(entry))
-                    )
+                        }
+                    }
                 }
             }
         }
@@ -475,10 +534,27 @@ fun McpMarketplaceScreen(
         )
     }
     removing?.let { entry ->
+        val ownedConnections = connectionsState.connections
+            .filter { it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == entry.id }
+            .sortedBy { it.marketplaceInstallationId ?: it.connectionUid }
         AlertDialog(
             onDismissRequest = { removing = null },
             title = { Text("Uninstall ${entry.preset.name}?") },
-            text = { Text("Disables and removes the installed plugin, its package files, saved credentials and matching MCP connection and tool assignments.") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Disables the integration and removes its downloaded package, saved configuration, and Marketplace credentials.")
+                    if (ownedConnections.isEmpty()) {
+                        Text("No Marketplace-created MCP connections are associated with this integration.")
+                    } else {
+                        Text(
+                            "Also removes ${ownedConnections.size} Marketplace-created MCP " +
+                                "${if (ownedConnections.size == 1) "connection" else "connections"}: " +
+                                ownedConnections.joinToString { it.name } + ". Their tool assignments and Marketplace grants are removed."
+                        )
+                    }
+                    Text("Manually created connections are preserved.")
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     removing = null
@@ -605,6 +681,32 @@ private fun marketplaceConnectionStatus(status: ToolConnectionHealth): String = 
     ToolConnectionHealthStatus.OFFLINE -> "Offline"
 }
 
+/** Resolve renamed Marketplace-created connections by durable identity before legacy aliases. */
+internal fun resolveMarketplaceConnections(
+    preset: McpPreset,
+    connections: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection>
+): List<dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection> {
+    val owned = connections.filter {
+        it.marketplaceOrigin == "MARKETPLACE" && it.marketplaceProviderId == preset.id
+    }
+    if (owned.isNotEmpty()) {
+        return owned.sortedBy { it.marketplaceInstallationId ?: it.connectionUid }
+    }
+    val legacyEndpoint = when (preset.id) {
+        "airbnb-openbnb" -> "https://mcp.openbnb.ai/mcp"
+        "google-places-mcp" -> "https://mapstools.googleapis.com/mcp"
+        else -> return emptyList()
+    }
+    val legacy = connections.filter {
+        it.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.MCP &&
+            it.marketplaceOrigin == "MANUAL" &&
+            it.marketplaceProviderId == null &&
+            it.alias == preset.alias &&
+            it.endpointUrl == legacyEndpoint
+    }
+    return legacy.singleOrNull()?.let(::listOf).orEmpty()
+}
+
 @Composable
 fun McpMarketplaceDetailCard(preset: McpPreset, isInstalled: Boolean, onAddClick: () -> Unit) {
     MarketplacePackageCard(preset, isInstalled, onAddClick)
@@ -630,6 +732,9 @@ private fun MarketplacePackageCard(
     canEnable: Boolean = true,
     onEnabledChange: (Boolean) -> Unit = {},
     onRemoveConnection: (() -> Unit)? = null,
+    onTestConnection: (() -> Unit)? = null,
+    testingConnection: Boolean = false,
+    connectionTest: MarketplaceConnectionTestResult? = null,
     nativeSettings: (@Composable () -> Unit)? = null,
     needsSetup: Boolean = false,
     connectionStatus: String? = null
@@ -671,6 +776,9 @@ private fun MarketplacePackageCard(
                 }
             }
             Text(preset.description, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (expanded && onTestConnection != null) {
+                Text("Connection test performs MCP initialization and tool discovery only. It does not execute tools; provider access limits may apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (download != null) {
                 Text(
                     if (NativeMarketplaceCatalog.requiresKey(download)) "Internet required · Provider API key" else "Internet required · No provider API key",
@@ -686,6 +794,13 @@ private fun MarketplacePackageCard(
                 }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            connectionTest?.let { result ->
+                Text(
+                    result.message + if (result.connected) " · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(result.completedAt))}" else " · ref ${result.correlationId.take(8)}",
+                    color = if (result.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
                     download != null && !downloaded -> Button(onClick = onDownload, enabled = !downloading, shape = RoundedCornerShape(12.dp)) {
@@ -728,6 +843,11 @@ private fun MarketplacePackageCard(
                 }
                 if (download != null && downloaded) TextButton(onClick = onRemove, enabled = !removing) { Text(if (removing) "Uninstalling…" else "Uninstall") }
                 if (download == null && onRemoveConnection != null) TextButton(onClick = onRemoveConnection) { Text("Remove connection") }
+                onTestConnection?.let { test ->
+                    TextButton(onClick = test, enabled = !testingConnection && !removing && !changing) {
+                        Text(if (testingConnection) "Testing…" else "Test connection")
+                    }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (preset.websiteLink.isNotBlank()) {
                         TextButton(onClick = {

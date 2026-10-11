@@ -1001,6 +1001,7 @@ def register_gateway_job(
 
         job = {
             "job_id": job_id,
+            "generation": uuid.uuid4().hex,
             "request_id": request_id,
             "model": model,
             "mode": mode,
@@ -1230,6 +1231,7 @@ def public_gateway_job(
             "_"
         )
     }
+    visible["last_sequence"] = int(job.get("_last_sequence", visible.get("last_sequence", 0)) or 0)
 
     if not include_result:
         visible.pop(
@@ -1292,6 +1294,8 @@ def _json_safe_dump(value):
 
 def _runtime_job_from_persisted(public, result, events):
     public = dict(public or {})
+    if not public.get("generation"):
+        public["generation"] = "legacy-" + hashlib.sha256(str(public.get("job_id", "")).encode("utf-8")).hexdigest()[:16]
     return {
         **public,
         "_cancel_event": None,
@@ -6138,17 +6142,24 @@ def get_all_mcp_tools(force_refresh=False):
 # MCP EXECUTION
 # ============================================================
 
-def execute_mcp_tool(full_tool_name, arguments, progress_callback=None, cancel_event=None):
+def execute_mcp_tool(full_tool_name, arguments, progress_callback=None, cancel_event=None, call_id=None):
     # Discovery is cached and contains enabled gateway servers only. Direct client
     # tools are never added to this server-side search surface.
     with mcp_cache_lock:
         catalog = list(mcp_tools_cache or [])
     targets = plan_searches(full_tool_name, arguments or {}, catalog)
     if len(targets) > 1:
+        def execute_target(name, args, progress_callback=None, cancel_event=None):
+            target_id = f"{call_id}:{name}" if call_id else None
+            if target_id:
+                return _execute_mcp_tool_single(name, args, progress_callback, cancel_event, call_id=target_id)
+            return _execute_mcp_tool_single(name, args, progress_callback, cancel_event)
         return run_searches(
-            targets, _execute_mcp_tool_single, cancelled=cancel_event,
+            targets, execute_target, cancelled=cancel_event,
             progress=progress_callback,
         )
+    if call_id:
+        return _execute_mcp_tool_single(full_tool_name, arguments, progress_callback, cancel_event, call_id=call_id)
     return _execute_mcp_tool_single(full_tool_name, arguments, progress_callback, cancel_event)
 
 
@@ -11198,6 +11209,7 @@ def execute_safe_read_with_retry(
     arguments,
     progress_callback=None,
     cancel_event=None,
+    call_id=None,
 ):
     attempts = (
         1
@@ -11227,6 +11239,7 @@ def execute_safe_read_with_retry(
                     progress_callback,
                 cancel_event=
                     cancel_event,
+                call_id=call_id,
             )
 
         except Exception as e:
@@ -16383,6 +16396,7 @@ def _process_chat_payload_core(
                                             on_mcp_progress,
                                         cancel_event=
                                             hard_cancel_event,
+                                        call_id=tool_call_id,
                                     )
                                 else:
                                     result = execute_mcp_tool(
@@ -16392,6 +16406,7 @@ def _process_chat_payload_core(
                                             on_mcp_progress,
                                         cancel_event=
                                             hard_cancel_event,
+                                        call_id=tool_call_id,
                                     )
 
                         elif route == "llama_native":
@@ -18201,6 +18216,7 @@ async def gateway_job_events(
     request: Request,
     job_id: str,
     after_sequence: int = -1,
+    generation: str | None = None,
 ):
     """
     Resumable GET SSE feed for structured operational events.
@@ -18242,12 +18258,25 @@ async def gateway_job_events(
             if job is None:
                 return
 
+            snapshot_builder = globals().get("gateway_replay_snapshot")
+            if snapshot_builder is not None:
+                snapshot = snapshot_builder(job_id, job, events, cursor, GATEWAY_PROGRESS_PROTOCOL, generation)
+                if snapshot is not None:
+                    cursor = int(snapshot["sequence"])
+                    yield (
+                        f"id: {cursor}\n"
+                        "event: gateway_snapshot\n"
+                        "data: " + json.dumps(snapshot, ensure_ascii=False) + "\n\n"
+                    )
+                    events = []
+
             for event in events:
                 sequence = int(
                     event.get("sequence", cursor)
                     or cursor
                 )
                 cursor = max(cursor, sequence)
+                event.setdefault("generation", job.get("generation", job_id))
 
                 yield (
                     f"id: {sequence}\n"
@@ -18269,6 +18298,7 @@ async def gateway_job_events(
                 terminal = {
                     "protocol": GATEWAY_PROGRESS_PROTOCOL,
                     "job_id": job_id,
+                    "generation": job.get("generation", job_id),
                     "event": "job_terminal",
                     "status": status,
                     "stage": job.get("stage"),
@@ -18418,7 +18448,11 @@ def cancel_gateway_job(
 
     return {
         "job_id": job_id,
-        "canceled": True,
+        # Setting the signal proves only that cancellation was requested. An
+        # active model or external tool can still finish or have an unknown effect.
+        "canceled": False,
+        "cancellationRequested": True,
+        "cancellationOutcome": "requested",
         "message": "Cancellation requested",
         "status": "cancellation_requested",
     }
@@ -19245,12 +19279,32 @@ async def chat_completions(
         attempt_id=request.headers.get("x-gateway-attempt-id"),
     )
 
+    idempotency_key = request.headers.get("idempotency-key")
+    if idempotency_key:
+        ledger = globals().get("gateway_action_ledger")
+        # This module is also run directly in legacy mode. Only the v14
+        # composition root installs durable request admission.
+        if ledger is None:
+            raise HTTPException(status_code=503, detail="Durable request admission is unavailable")
+        canonical_payload = dict(incoming_payload)
+        canonical_payload.pop("gateway_job_id", None)
+        admitted_job_id, idempotency_replay = ledger.admit_request(
+            current_device.get(), "POST /v1/chat/completions", idempotency_key,
+            canonical_payload, gateway_job_id,
+        )
+        if idempotency_replay:
+            gateway_job_id = admitted_job_id
+            singleflight_follower = True
+
     device_store.claim(gateway_job_id)
 
     incoming_payload.pop(
         "gateway_job_id",
         None,
     )
+    # Internal dispatch scope; process_chat_payload removes this before any
+    # model adapter receives the provider request.
+    incoming_payload["_gateway_job_id"] = gateway_job_id
 
     if isinstance(incoming_payload.get("_gateway_performance"), dict):
         incoming_payload["_gateway_performance"]["affinity_key"] = gateway_job_id
@@ -19986,6 +20040,13 @@ def v12_enrich_progress(event):
 def process_chat_payload(incoming_payload, cancel_event=None, progress_callback=None, hard_cancel_event=None):
     policy = dict(incoming_payload.get("_gateway_performance") or {}) if isinstance(incoming_payload, dict) else {}
     role = policy.get("request_role", "delegate" if policy.get("delegated_worker") else "primary")
+    job_id = incoming_payload.pop("_gateway_job_id", None) if isinstance(incoming_payload, dict) else None
+    action_context_token = None
+    try:
+        from v14.actions import current_gateway_job_id
+        action_context_token = current_gateway_job_id.set(job_id)
+    except ImportError:
+        current_gateway_job_id = None
     def progress(event):
         if progress_callback is not None:
             progress_callback(dict(event or {}, request_role=role, gateway_version=GATEWAY_VERSION))
@@ -19999,6 +20060,8 @@ def process_chat_payload(incoming_payload, cancel_event=None, progress_callback=
         return 499, {"error": {"message": "Request cancelled.", "code": "request_cancelled"}}
     finally:
         request_policy.reset(marker)
+        if action_context_token is not None:
+            current_gateway_job_id.reset(action_context_token)
 
 
 if __name__ == "__main__":

@@ -1905,15 +1905,38 @@ class ChatViewModel @Inject constructor(
     ) {
         val grouped = _groupedMessages.value
         val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
-        val leadUid = sources.firstOrNull()?.platformUid ?: return
+        val candidates = sources.mapNotNull { source ->
+            _platformsInApp.value.firstOrNull { it.uid == source.platformUid && it.enabled }
+                ?.let(::resolvePlatformModel)
+        }
+        val leadPlatform = candidates.firstOrNull { platform ->
+            if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
+                true
+            } else {
+                val freeProvider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)
+                    ?: return@firstOrNull false
+                dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.cooldownUntilMillis(freeProvider) == null
+            }
+        }
+        if (leadPlatform == null) {
+            val coolingProvider = candidates.firstNotNullOfOrNull { platform ->
+                if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) return@firstNotNullOfOrNull null
+                val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl) ?: return@firstNotNullOfOrNull null
+                val retryAt = dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.cooldownUntilMillis(provider)
+                    ?: return@firstNotNullOfOrNull null
+                provider to retryAt
+            }
+            _attachmentNotice.update {
+                coolingProvider?.let { (provider, retryAt) ->
+                    "Combined synthesis is paused because ${provider.displayName} is cooling down. Try again in ${((retryAt - System.currentTimeMillis()).coerceAtLeast(0) + 999) / 1000} seconds; no synthesis request was sent."
+                } ?: "Combined synthesis is unavailable because no participating provider is ready. No synthesis request was sent."
+            }
+            return
+        }
+        val leadUid = leadPlatform.uid
         val leadIndex = enabledPlatformsInChat.indexOf(leadUid).takeIf { it >= 0 } ?: return
         val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.getOrNull(leadIndex) ?: return
         if (leadMessage.id <= 0) return
-
-        val leadPlatform = _platformsInApp.value
-            .firstOrNull { it.uid == leadUid && it.enabled }
-            ?.let(::resolvePlatformModel)
-            ?: return
 
         val synthesisRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
         val run = AgentRunDraft(
@@ -1924,10 +1947,21 @@ class ChatViewModel @Inject constructor(
             createdAt = currentTimeStamp
         )
 
+        val normalizedResearchTask = userMessage.content.trim().replace(Regex("\\s+"), " ").take(8_000)
+        val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
+        val sharedEvidence = researchSessionStore?.exportChat(leadMessage.chatId)
+            ?.lastOrNull { session ->
+                session.turnId == researchTurnId &&
+                    session.snapshot.task.trim().replace(Regex("\\s+"), " ").take(8_000).equals(normalizedResearchTask, ignoreCase = true)
+            }
+            ?.snapshot
+            ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)
+        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence)
+
         val persisted = chatRepository.persistAgentRetry(
             PersistAgentRetryRequest(
                 userMessage = userMessage,
-                assistantMessage = leadMessage.copy(combinedSources = sources),
+                assistantMessage = leadMessage.copy(combinedSources = attributedSources),
                 run = run
             )
         )
@@ -1955,7 +1989,7 @@ class ChatViewModel @Inject constructor(
                         disableAllTools = true,
                         disableLocalTools = true
                     ),
-                    userMessages = listOf(userMessage.copy(content = combinedSynthesisPrompt(userMessage.content, sources), attachments = emptyList())),
+                    userMessages = listOf(userMessage.copy(content = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence), attachments = emptyList())),
                     assistantMessages = emptyList(),
                     chatToolConfig = _chatToolConfig.value.copy(
                         allToolsDisabled = true,

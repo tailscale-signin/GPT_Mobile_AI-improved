@@ -35,15 +35,23 @@ data class NativePluginInstallation(
     val usageCount: Int = 0,
     val nextRequestAt: Long = 0,
     val endpoints: Map<String, String> = emptyMap(),
-    val disabledOperations: Set<String> = emptySet()
+    val disabledOperations: Set<String> = emptySet(),
+    val endpointConfigs: Map<String, NativeEndpointConfig> = emptyMap()
 ) {
+    fun endpointConfig(operation: String) = endpointConfigs[operation] ?: NativeEndpointConfig(endpoints[operation].orEmpty())
+
     fun ready(entry: GitHubMarketplacePackage) =
-        (entry.provider != "openstreetmap" || endpoints.filterKeys { it !in disabledOperations }.values.any(NativeMarketplaceCatalog::validEndpoint)) &&
+        (
+            entry.provider != "openstreetmap" ||
+                (setOf("geocode", "restrooms") - disabledOperations).let { enabled ->
+                    enabled.isNotEmpty() && enabled.all { endpointConfig(it).ready() }
+                }
+            ) &&
             (!NativeMarketplaceCatalog.requiresKey(entry) || credentialRef != null) &&
             (!NativeMarketplaceCatalog.requiresEndpoint(entry) || NativeMarketplaceCatalog.validEndpoint(endpoint))
 }
 
-data class NativeProviderConfiguration(val installation: NativePluginInstallation, val apiKey: String)
+data class NativeProviderConfiguration(val installation: NativePluginInstallation, val apiKey: String, val endpointSecrets: Map<String, String> = emptyMap())
 
 /** Install/enable state is atomic and persistent; credentials exist only in the Keystore vault. */
 @Singleton
@@ -87,6 +95,7 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
             // Disable first and keep the reference if credential deletion fails, so uninstall can retry.
             if (previous != null) writeLocked(_state.value + (entry.id to previous.copy(enabled = false)))
             previous?.credentialRef?.let { vault.delete(it) }
+            previous?.endpointConfigs?.values?.mapNotNull { it.secretRef }?.distinct()?.forEach { vault.delete(it) }
             writeLocked(_state.value - entry.id)
         }
     }
@@ -100,10 +109,21 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         }
     }
 
-    suspend fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean = false, endpoints: Map<String, String> = emptyMap(), disabledOperations: Set<String> = emptySet()) = withContext(Dispatchers.IO) {
+    suspend fun configure(entry: GitHubMarketplacePackage, endpoint: String, key: String, maxResults: Int, dailyLimit: Int, clearKey: Boolean = false, endpoints: Map<String, String> = emptyMap(), disabledOperations: Set<String> = emptySet(), endpointConfigs: Map<String, NativeEndpointConfig> = emptyMap(), endpointSecrets: Map<String, String> = emptyMap()) = withContext(Dispatchers.IO) {
         requireKnown(entry)
-        require(entry.provider != "openstreetmap" || (endpoints.keys.all { it in setOf("geocode", "restrooms") } && endpoints.values.any(NativeMarketplaceCatalog::validEndpoint))) { "Configure at least one OpenStreetMap capability." }
-        require(endpoints.values.all { it.isBlank() || NativeMarketplaceCatalog.validEndpoint(it) }) { "Enter valid managed/self-hosted HTTPS endpoints." }
+        val osmConfigs = if (endpointConfigs.isNotEmpty()) endpointConfigs else endpoints.mapValues { NativeEndpointConfig(it.value.trim()) }
+        require(osmConfigs.keys.all { it in setOf("geocode", "restrooms") }) { "Unknown endpoint capability." }
+        val enabledOperations = setOf("geocode", "restrooms") - disabledOperations
+        require(
+            entry.provider != "openstreetmap" ||
+                (
+                    enabledOperations.isNotEmpty() &&
+                        enabledOperations.all {
+                            osmConfigs[it]?.let { config -> NativeMarketplaceCatalog.validEndpoint(config.url, config.allowCustomHttpsPort) } == true
+                        }
+                    )
+        ) { "Configure each enabled OpenStreetMap capability." }
+        require(endpointSecrets.keys.all { it in osmConfigs } && endpointSecrets.values.all { it.isBlank() || NativeMarketplaceCatalog.validKey(it) }) { "Invalid endpoint credential." }
         require(!NativeMarketplaceCatalog.requiresEndpoint(entry) || NativeMarketplaceCatalog.validEndpoint(endpoint)) { "Enter a managed/self-hosted HTTPS endpoint." }
         require(key.isBlank() || NativeMarketplaceCatalog.requiresKey(entry)) { "This provider does not use an API key." }
         require(key.isBlank() || NativeMarketplaceCatalog.validKey(key.trim())) { "Enter a valid API key." }
@@ -119,6 +139,40 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
                     bytes.fill(0)
                 }
             }
+            val newEndpointRefs = mutableListOf<String>()
+            val savedEndpointConfigs = try {
+                if (entry.provider == "openstreetmap") {
+                    osmConfigs.mapValues { (operation, config) ->
+                        val previous = current.endpointConfig(operation)
+                        val secret = endpointSecrets[operation].orEmpty()
+                        val ref = if (config.authType == EndpointAuthType.NONE) {
+                            null
+                        } else if (secret.isNotBlank()) {
+                            val newRef = "marketplace_${UUID.randomUUID()}"
+                            newEndpointRefs += newRef
+                            val bytes = secret.encodeToByteArray()
+                            try {
+                                vault.put(newRef, bytes)
+                            } finally {
+                                bytes.fill(0)
+                            }
+                            newRef
+                        } else {
+                            previous.secretRef?.takeIf {
+                                previous.authType == config.authType && previous.url == config.url.trim()
+                            }
+                        }
+                        require(operation !in enabledOperations || config.authType == EndpointAuthType.NONE || ref != null) { "Add the endpoint credential." }
+                        config.copy(url = config.url.trim(), secretRef = ref)
+                    }
+                } else {
+                    emptyMap()
+                }
+            } catch (error: Exception) {
+                newEndpointRefs.forEach { vault.delete(it) }
+                replacement?.let { vault.delete(it) }
+                throw error
+            }
             val ref = replacement ?: if (clearKey) null else current.credentialRef
             val updated = current.copy(
                 endpoint = if (NativeMarketplaceCatalog.requiresEndpoint(entry)) endpoint.trim() else "",
@@ -126,14 +180,18 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
                 maxResults = maxResults.coerceIn(1, 10),
                 dailyLimit = dailyLimit.coerceIn(1, 1000),
                 endpoints = if (entry.provider == "openstreetmap") endpoints.mapValues { it.value.trim() }.filterValues { it.isNotEmpty() } else emptyMap(),
-                disabledOperations = if (entry.provider == "openstreetmap") disabledOperations.intersect(setOf("geocode", "restrooms")) else emptySet()
+                disabledOperations = if (entry.provider == "openstreetmap") disabledOperations.intersect(setOf("geocode", "restrooms")) else emptySet(),
+                endpointConfigs = savedEndpointConfigs
             )
             try {
                 writeLocked(_state.value + (entry.id to updated.copy(enabled = current.enabled && updated.ready(entry))))
             } catch (error: Exception) {
                 replacement?.let { vault.delete(it) }
+                newEndpointRefs.forEach { vault.delete(it) }
                 throw error
             }
+            val retainedRefs = savedEndpointConfigs.values.mapNotNull { it.secretRef }.toSet()
+            current.endpointConfigs.values.mapNotNull { it.secretRef }.filterNot { it in retainedRefs }.distinct().forEach { vault.delete(it) }
             if (current.credentialRef != ref) current.credentialRef?.let { vault.delete(it) }
         }
     }
@@ -159,7 +217,32 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
             ""
         }
         check(!NativeMarketplaceCatalog.requiresKey(entry) || NativeMarketplaceCatalog.validKey(key)) { "API key is missing or invalid." }
-        return NativeProviderConfiguration(record, key)
+        val endpointSecrets = record.endpointConfigs.filterKeys { it !in record.disabledOperations }.mapNotNull { (operation, config) ->
+            if (config.authType == EndpointAuthType.NONE) return@mapNotNull null
+            val bytes = config.secretRef?.let { vault.read(it) }
+            if (bytes == null) {
+                change(entry) { current ->
+                    // Do not invalidate credentials replaced while this read was in flight.
+                    if (current?.endpointConfig(operation) == config) {
+                        current.copy(
+                            enabled = false,
+                            endpointConfigs = current.endpointConfigs + (operation to config.copy(secretRef = null))
+                        )
+                    } else {
+                        current
+                    }
+                }
+                error("Endpoint credential is missing. Add it in plugin settings.")
+            }
+            val secret = try {
+                bytes.decodeToString()
+            } finally {
+                bytes.fill(0)
+            }
+            check(NativeMarketplaceCatalog.validKey(secret)) { "Endpoint credential is invalid." }
+            operation to secret
+        }.toMap()
+        return NativeProviderConfiguration(record, key, endpointSecrets)
     }
 
     suspend fun reserve(entry: GitHubMarketplacePackage, now: Long = System.currentTimeMillis()) = change(entry) { current ->
@@ -210,7 +293,10 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         val bundled = bundleLegacyOpenStreetMap(records)
         _state.value = bundled.filterKeys { GitHubMarketplaceCatalog.find(it)?.let(NativeMarketplaceCatalog::supports) == true }.mapValues { (_, record) ->
             val safeRef = record.credentialRef?.takeIf { it.matches(Regex("marketplace_[a-f0-9-]{36}")) }
-            record.copy(credentialRef = safeRef, enabled = record.enabled && safeRef == record.credentialRef, maxResults = record.maxResults.coerceIn(1, 10), dailyLimit = record.dailyLimit.coerceIn(1, 1000))
+            val configs = (record.endpoints.mapValues { NativeEndpointConfig(it.value) } + record.endpointConfigs).mapValues { (_, config) ->
+                config.copy(secretRef = config.secretRef?.takeIf { it.matches(Regex("marketplace_[a-f0-9-]{36}")) })
+            }
+            record.copy(endpointConfigs = configs, credentialRef = safeRef, enabled = record.enabled && safeRef == record.credentialRef && configs.filterKeys { it !in record.disabledOperations }.values.all { it.authType == EndpointAuthType.NONE || it.secretRef != null }, maxResults = record.maxResults.coerceIn(1, 10), dailyLimit = record.dailyLimit.coerceIn(1, 1000))
         }
         if (bundled != records) writeLocked(_state.value)
         loaded = true
@@ -236,8 +322,8 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
         if (geocode == null && restrooms == null) return records
         val existing = records["optional-openstreetmap"]
         val capabilities = buildMap {
-            geocode?.endpoint?.takeIf(NativeMarketplaceCatalog::validEndpoint)?.let { put("geocode", it) }
-            restrooms?.endpoint?.takeIf(NativeMarketplaceCatalog::validEndpoint)?.let { put("restrooms", it) }
+            geocode?.endpoint?.takeIf { NativeMarketplaceCatalog.validEndpoint(it) }?.let { put("geocode", it) }
+            restrooms?.endpoint?.takeIf { NativeMarketplaceCatalog.validEndpoint(it) }?.let { put("restrooms", it) }
             putAll(existing?.endpoints.orEmpty())
         }
         val source = existing ?: geocode ?: requireNotNull(restrooms)

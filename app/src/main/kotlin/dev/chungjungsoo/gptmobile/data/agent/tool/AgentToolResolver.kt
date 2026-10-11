@@ -74,7 +74,9 @@ class AgentToolResolver @Inject constructor(
     private val publicNews: PublicNewsClient? = null,
     private val publicAirbnb: PublicAirbnbClient? = null,
     private val academicClient: dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient? = null,
-    @param:dagger.hilt.android.qualifiers.ApplicationContext private val documentContext: android.content.Context? = null
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val documentContext: android.content.Context? = null,
+    private val healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
+    private val healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -140,6 +142,31 @@ class AgentToolResolver @Inject constructor(
         )
 
         val resolved = mutableListOf<ResolvedAgentTool>()
+
+        if (!disableLocal &&
+            platform?.enabled == true &&
+            healthReader != null &&
+            healthConsent != null &&
+            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
+        ) {
+            dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.operations.keys.forEach { operation ->
+                val tool = HealthConnectTool(
+                    operation,
+                    healthReader,
+                    accessAllowed = {
+                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                        current == platform &&
+                            current?.enabled == true &&
+                            !current.disableAllTools &&
+                            !current.disableLocalTools &&
+                            chatToolConfig?.allToolsDisabled != true &&
+                            settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
+                    },
+                    aiConsent = healthConsent::isAllowed
+                )
+                resolved += tool.resolved(null, "Smartwatch Health Connect", tool.definition.name).copy(shareableReadOnly = false)
+            }
+        }
 
         if (!disableLocal) {
             // Keep explicitly enabled delegation available in small on-device context windows.

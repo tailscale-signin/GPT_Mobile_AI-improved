@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.health.HealthConnectTools
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
@@ -58,7 +59,7 @@ class ToolEventRecorder @Inject constructor(
             connectionNameSnapshot = connectionName,
             toolName = toolName,
             modelToolName = modelToolName,
-            arguments = arguments.toString(),
+            arguments = if (HealthConnectTools.isHealthTool(modelToolName) || HealthConnectTools.isHealthTool(toolName)) "{}" else arguments.toString(),
             result = null,
             resultType = null,
             status = ToolEventStatus.RUNNING,
@@ -76,8 +77,18 @@ class ToolEventRecorder @Inject constructor(
         error: String? = null
     ): ToolEvent? {
         val startedEvent = dao.getToolEventById(eventId)
+        val healthEvent = HealthConnectTools.isHealthTool(startedEvent?.modelToolName.orEmpty()) ||
+            HealthConnectTools.isHealthTool(startedEvent?.toolName.orEmpty())
+        val safeError = if (healthEvent && error != null) "Health Connect request failed; open plugin settings." else error
         val isDelegationEvent = startedEvent?.modelToolName == "delegate_to_model" || startedEvent?.toolName == "delegate_to_model"
-        val normalizedResult = if (isDelegationEvent && result.isError && result.hasSuccessfulDelegationMarker()) {
+        val normalizedResult = if (healthEvent) {
+            // traceContent alone is not enough: retainedContent otherwise becomes a recoverable checkpoint.
+            result.copy(
+                content = ToolResultContent.Text(HealthConnectTools.REDACTED),
+                retainedContent = null,
+                traceContent = ToolResultContent.Text(HealthConnectTools.REDACTED)
+            )
+        } else if (isDelegationEvent && result.isError && result.hasSuccessfulDelegationMarker()) {
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                 "Delegation",
                 "Corrected contradictory outer tool error after successful delegated handoff · call=${result.callId}",
@@ -90,7 +101,7 @@ class ToolEventRecorder @Inject constructor(
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Tool",
             "Finished ${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError}" +
-                if (normalizedResult.isError) " · reason=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.orEmpty()).take(240)}" else "",
+                if (normalizedResult.isError) " · reason=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError) "E" else "I"
         )
         val content = (normalizedResult.retainedContent ?: normalizedResult.content).serialized()
@@ -123,7 +134,7 @@ class ToolEventRecorder @Inject constructor(
             status = if (normalizedResult.isError) ToolEventStatus.FAILED else ToolEventStatus.COMPLETED,
             isError = normalizedResult.isError,
             completedAt = completedAt,
-            error = if (normalizedResult.isError) error else null
+            error = if (normalizedResult.isError) safeError else null
         )
         if (affectedRows != 1) return null
         return dao.getToolEventById(eventId)

@@ -16,6 +16,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResponseRecoveryContextTest {
+    @Test fun healthToolsAlwaysPerformAFreshPermissionCheckedReadOnRecovery() = runTest {
+        var calls = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("health_connect_summary", "health", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                calls++
+                return AgentToolResult(callId, ToolResultContent.Text("Fresh read with current consent"), false)
+            }
+        }
+        val event = ToolEvent("health-event", "old-run", 0, "old-call", null, "Health", tool.definition.name, tool.definition.name, "{}", "stale data", "TEXT", "COMPLETED")
+        val result = ResponseRecoveryContext(emptyList(), emptyList(), listOf(event)).reuseCompletedTool(tool, tool.definition.name, null).execute("new-call", buildJsonObject {})
+        assertEquals(1, calls)
+        assertFalse(result.sharedResult)
+    }
+
     private val run = AgentRun("old-run", 1, 1, 2, "old-profile", "LLAMA", "qwen", status = "FAILED")
 
     @Test

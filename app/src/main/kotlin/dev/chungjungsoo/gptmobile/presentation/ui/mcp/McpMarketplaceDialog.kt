@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Key
@@ -145,6 +146,7 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
         iconName == "folder" -> Icons.Rounded.Folder
         iconName == "news" -> Icons.Rounded.Newspaper
         iconName == "airbnb" -> Icons.Rounded.Home
+        iconName == "health" -> Icons.Rounded.Favorite
         category == McpCategory.SEARCH -> Icons.Rounded.Search
         category == McpCategory.DEVELOPMENT -> Icons.Rounded.Code
         category == McpCategory.DATABASE -> Icons.Rounded.Dns
@@ -434,6 +436,7 @@ fun McpMarketplaceScreen(
                         "builtin-memory" -> ToolPluginId.LOCAL_MEMORY
                         "builtin-model-delegation" -> ToolPluginId.MODEL_DELEGATION
                         "builtin-web" -> ToolPluginId.WEB_SEARCH
+                        "builtin-health-connect" -> ToolPluginId.HEALTH_CONNECT
                         "device-location" -> ToolPluginId.DEVICE_LOCATION
                         else -> null
                     }
@@ -442,6 +445,7 @@ fun McpMarketplaceScreen(
                         MarketplacePackageCard(
                             preset, added(preset), onAddClick = {
                                 when {
+                                    preset.integratedTool == "health_connect" -> context.startActivity(Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.health.HealthConnectActivity::class.java))
                                     preset.integratedTool == "delegation" && onOpenDelegation != null -> onOpenDelegation()
                                     preset.documentationOnly -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
                                     connection != null -> editingConnection = connection

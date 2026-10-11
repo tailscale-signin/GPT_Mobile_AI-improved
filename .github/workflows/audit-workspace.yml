@@ -1,0 +1,35 @@
+name: Diagnostic audit workspace
+
+on:
+  push:
+    branches: [fix/diagnostic-audit-reliability-2026-10-11]
+    paths: [.github/workflows/audit-workspace.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Package tracked source and tests (no signing material or runtime data)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, zipfile
+          paths = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          suffixes = {'.kt', '.kts', '.toml', '.xml', '.pro', '.properties', '.sh', '.py', '.yml', '.yaml', '.md', '.cpp', '.h', '.txt', '.java'}
+          with zipfile.ZipFile('audit-source.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for name in paths:
+                  p = pathlib.Path(name)
+                  allowed = name.startswith(('app/src/', 'scripts/', 'gradle/', '.github/', 'benchmark/')) or len(p.parts) == 1
+                  excluded = any(part in {'.signing', 'assets', 'jniLibs', '.git'} for part in p.parts)
+                  if name and allowed and not excluded and (p.suffix in suffixes or name in {'gradlew', '.editorconfig'}):
+                      archive.write(p, name)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: audit-source
+          path: audit-source.zip
+          retention-days: 1

@@ -21,13 +21,21 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
 
     override fun beforeLoad(spec: LocalEngineSpec) {
         val model = File(spec.modelPath)
+        val dispatchDirectory = spec.litertDispatchLibDir?.let(::File) ?: File(app.applicationInfo.nativeLibraryDir)
+        val dispatchHash = runCatching {
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(
+                File(dispatchDirectory, "libLiteRtDispatch_Qualcomm.so")
+            )
+        }.getOrDefault("unavailable")
         val signature = listOf(
             BuildConfig.LITERT_LM_VERSION,
             BuildConfig.QAIRT_VERSION,
-            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalled(model),
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.journalIdentity(model, marker.parentFile!!),
             android.os.Build.SOC_MODEL,
-            android.os.Build.FINGERPRINT,
-            spec.accelerator
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(android.os.Build.FINGERPRINT.orEmpty().toByteArray()),
+            spec.accelerator,
+            spec.maxTokens,
+            dispatchHash
         ).joinToString("|")
         if (marker.isFile) {
             // Migrate the previous marker, dropping app-install fields and paths.
@@ -71,19 +79,43 @@ internal class LocalRuntimeQnnImpl(
             "QNN requires the NPU accelerator and a matching SoC model. Use LiteRT-LM for CPU/GPU."
         }
         val probe = probeEnvironment()
-        check(probe.isReady) { probe.errorMessage ?: "Qualcomm NPU libraries are unavailable on this device" }
+        if (!probe.isReady) {
+            val code = when {
+                !probe.isQualcommDevice -> QnnFailureCode.UNSUPPORTED_SOC
+                !android.os.Process.is64Bit() -> QnnFailureCode.WRONG_PROCESS_ABI
+                probe.missingLibraries.isNotEmpty() -> QnnFailureCode.LIBRARY_MISSING
+                probe.errorMessage.orEmpty().contains("No packaged Qualcomm", ignoreCase = true) -> QnnFailureCode.UNSUPPORTED_SOC
+                else -> QnnFailureCode.UNKNOWN_NATIVE_ERROR
+            }
+            throw QnnRuntimeFailure(QnnRuntimeStage.LIBRARY_FILES, code, probe.errorMessage ?: "Qualcomm NPU prerequisites are unavailable")
+        }
         val effectiveSpec = spec.copy(
             accelerator = LocalAccelerators.NPU,
             litertDispatchLibDir = spec.litertDispatchLibDir ?: probe.dispatchDir
         )
         requestedSpec = null
         dispatchedSpec = null
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { loadGuard.beforeLoad(effectiveSpec) }
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { loadGuard.beforeLoad(effectiveSpec) }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            throw classifyQnnFailure(QnnRuntimeStage.MODEL_INTEGRITY, error)
+        }
         try {
             runtime.loadEngine(effectiveSpec)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            loadGuard.loadFinished()
+            throw cancelled
         } catch (error: Throwable) {
             loadGuard.loadFinished()
-            throw error
+            if (error is VirtualMachineError || error is ThreadDeath) throw error
+            val failure = classifyQnnFailure(QnnRuntimeStage.ENGINE_INIT, error)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "QNN",
+                "NATIVE_FAILURE stage=${failure.stage} code=${failure.code} cause=${error::class.java.simpleName}"
+            )
+            throw failure
         }
         loadGuard.loadFinished()
         requestedSpec = spec

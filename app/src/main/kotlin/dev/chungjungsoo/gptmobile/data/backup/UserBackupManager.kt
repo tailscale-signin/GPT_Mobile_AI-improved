@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.backup
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -30,10 +31,11 @@ data class UserBackupData(
     val toolConnections: List<ToolConnection> = emptyList(),
     val localModels: List<LocalModel> = emptyList(),
     val favoriteGroups: List<String> = emptyList(),
-    val messageGroups: Map<Int, String> = emptyMap()
+    val messageGroups: Map<Int, String> = emptyMap(),
+    val benchmarkResults: String? = null
 ) {
     companion object {
-        const val BACKUP_VERSION = 2
+        const val BACKUP_VERSION = 3
     }
 }
 
@@ -67,7 +69,8 @@ data class BackupImportResult(
  */
 class UserBackupManager(
     private val context: Context,
-    private val database: ChatDatabaseV2
+    private val database: ChatDatabaseV2,
+    private val benchmarkStore: BenchmarkStore
 ) {
     /**
      * Exports backup data with AES-256-GCM encryption to the destination URI.
@@ -152,52 +155,62 @@ class UserBackupManager(
             platforms = platforms,
             models = models,
             toolConnections = toolConnections,
-            localModels = localModels
+            localModels = localModels,
+            benchmarkResults = benchmarkStore.exportJson()
         )
     }
 
     private suspend fun restoreBackupData(
         data: UserBackupData,
         clearExisting: Boolean
-    ): BackupImportResult = database.withTransaction {
-        if (clearExisting) {
-            database.clearAllTables()
+    ): BackupImportResult {
+        require(data.version in 1..UserBackupData.BACKUP_VERSION) { "This backup requires a newer app version." }
+        data.benchmarkResults?.let(benchmarkStore::validateBackupJson)
+        val result = database.withTransaction {
+            if (clearExisting) {
+                database.clearAllTables()
+            }
+
+            data.platforms.forEach { platform ->
+                database.platformDao().addPlatform(platform)
+            }
+
+            data.models.forEach { model ->
+                database.chatPlatformModelDao().upsertChatPlatformModel(model)
+            }
+
+            data.localModels.forEach { localModel ->
+                database.localModelDao().upsert(localModel)
+            }
+
+            data.chatRooms.forEach { room ->
+                database.chatRoomDao().addChatRoom(room)
+            }
+
+            data.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
+            data.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
+
+            if (data.messages.isNotEmpty()) {
+                database.messageDao().insertMessageList(data.messages)
+            }
+
+            data.toolConnections.forEach { connection ->
+                database.toolConnectionDao().upsertConnection(connection)
+            }
+
+            BackupImportResult(
+                chatRoomsImported = data.chatRooms.size,
+                messagesImported = data.messages.size,
+                platformsImported = data.platforms.size,
+                modelsImported = data.models.size,
+                toolConnectionsImported = data.toolConnections.size,
+                localModelsImported = data.localModels.size
+            )
         }
-
-        data.platforms.forEach { platform ->
-            database.platformDao().addPlatform(platform)
+        data.benchmarkResults?.let {
+            benchmarkStore.validateBackupJson(it)
+            benchmarkStore.importBackupJson(it)
         }
-
-        data.models.forEach { model ->
-            database.chatPlatformModelDao().upsertChatPlatformModel(model)
-        }
-
-        data.localModels.forEach { localModel ->
-            database.localModelDao().upsert(localModel)
-        }
-
-        data.chatRooms.forEach { room ->
-            database.chatRoomDao().addChatRoom(room)
-        }
-
-        data.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
-        data.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
-
-        if (data.messages.isNotEmpty()) {
-            database.messageDao().insertMessageList(data.messages)
-        }
-
-        data.toolConnections.forEach { connection ->
-            database.toolConnectionDao().upsertConnection(connection)
-        }
-
-        BackupImportResult(
-            chatRoomsImported = data.chatRooms.size,
-            messagesImported = data.messages.size,
-            platformsImported = data.platforms.size,
-            modelsImported = data.models.size,
-            toolConnectionsImported = data.toolConnections.size,
-            localModelsImported = data.localModels.size
-        )
+        return result
     }
 }

@@ -97,6 +97,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <service
+            android:name=".presentation.service.BenchmarkForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <activity android:name="dev.chungjungsoo.gptmobile.presentation.ui.setting.ServerPairingActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

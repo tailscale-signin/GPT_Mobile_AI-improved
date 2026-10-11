@@ -9,6 +9,12 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.room.Room
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -56,6 +62,7 @@ class CompleteBackupManagerTest {
     private val legacy = mockk<AppBackupManager>(relaxed = true)
     private lateinit var preferences: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>
     private lateinit var manager: CompleteBackupManager
+    private lateinit var benchmarkStore: BenchmarkStore
 
     @Before
     fun setup() {
@@ -63,12 +70,14 @@ class CompleteBackupManagerTest {
         database = Room.databaseBuilder(context, ChatDatabaseV2::class.java, "test-${UUID.randomUUID()}.db").build()
         preferences = PreferenceDataStoreFactory.create(scope = scope) { File(context.cacheDir, "${UUID.randomUUID()}.preferences_pb") }
         every { legacy.getBackupStatus() } returns BackupStatus()
-        manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy)
+        benchmarkStore = BenchmarkStore(context)
+        manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, benchmarkStore = benchmarkStore)
     }
 
     @After
     fun cleanup() {
         database.close()
+        benchmarkStore.close()
         scope.cancel()
     }
 
@@ -77,7 +86,7 @@ class CompleteBackupManagerTest {
         val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS))
         val protection = BackupProtection(true, "persistent-password")
         manager.saveProtection(protection)
-        val recreated = CompleteBackupManager(context, database, preferences, vault, settings, legacy)
+        val recreated = CompleteBackupManager(context, database, preferences, vault, settings, legacy, benchmarkStore = benchmarkStore)
         assertEquals(protection, recreated.savedProtection())
         val encrypted = File(context.cacheDir, "saved-password.gptbackup")
         val saved = manager.backup(Uri.fromFile(encrypted), selected, protection.password)
@@ -106,13 +115,49 @@ class CompleteBackupManagerTest {
     }
 
     @Test
+    fun statisticsBackupPreservesBenchmarkRunsAndRebuildsScoreTable() = runBlocking {
+        benchmarkStore.updateEnrollment(mapOf("profile-1" to "device-test"))
+        benchmarkStore.save(
+            BenchmarkRun(
+                id = "benchmark-backup-roundtrip",
+                profileUid = "profile-1",
+                profileName = "Local test",
+                provider = "LITERT_LM",
+                model = "Gemma 3 1B",
+                configKey = "device-test",
+                local = true,
+                mode = BenchmarkMode.QUICK,
+                startedAt = System.currentTimeMillis(),
+                suiteVersion = BenchmarkSuiteRegistry.VERSION,
+                measurementVersion = 2,
+                plannedTrials = 1,
+                samples = listOf(
+                    BenchmarkSample("instruction", "Exact instruction", "task", BenchmarkOutcome.PASSED)
+                )
+            )
+        )
+        val file = File(context.cacheDir, "benchmark-statistics.gptbackup")
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.STATISTICS))
+        val saved = manager.backup(Uri.fromFile(file), selected, encrypt = false)
+        assertTrue(saved.message, saved.success)
+
+        benchmarkStore.delete("benchmark-backup-roundtrip")
+        assertTrue(benchmarkStore.history.value.none { it.id == "benchmark-backup-roundtrip" })
+
+        val restored = manager.restore(Uri.fromFile(file), selection = selected)
+        assertTrue(restored.message, restored.success)
+        assertTrue(benchmarkStore.history.value.any { it.id == "benchmark-backup-roundtrip" })
+        assertTrue(benchmarkStore.snapshot.value?.rows?.any { it.profileUid == "profile-1" } == true)
+    }
+
+    @Test
     fun toolsRoundTripPreservesInstalledPackagesAndGlobalAndProfileToggles() = runBlocking {
         val registryFile = File(context.noBackupFilesDir, "native-marketplace-v1.json")
         val packageFile = File(context.noBackupFilesDir, "optional_marketplace_v1/optional-refuge.zip").apply { parentFile!!.mkdirs() }
         val unrelated = File(context.noBackupFilesDir, "unrelated-private-data").apply { writeText("stay local") }
         val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-refuge"))
         val registry = dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry(registryFile, vault)
-        val manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, registry)
+        val manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, registry, benchmarkStore)
         val selected = CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS))
         val pluginKey = androidx.datastore.preferences.core.stringPreferencesKey("advanced_feature_settings_json")
         val featureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()

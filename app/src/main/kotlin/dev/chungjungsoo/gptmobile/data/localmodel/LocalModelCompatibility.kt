@@ -7,23 +7,23 @@ object LocalModelCompatibility {
         "MiniCPM5-1B-qualcomm-sm8750.litertlm",
         "MiniCPM5-1B-qualcomm-sm8750-c1024.litertlm"
     )
-    private val unsafeGemma4QnnFiles = setOf(
+    private val gemma4QnnFiles = setOf(
         "gemma-4-E2B-it_qualcomm_sm8750.litertlm",
         "gemma-4-E2B-it_qualcomm_qcs8275.litertlm"
     )
 
-    const val RECORDS_VERSION = 1
+    const val RECORDS_VERSION = 2
 
-    // No Gemma 4 qualification has passed device testing. Only release-reviewed exact
-    // tuples may be added here; imports, benchmarks and backups cannot grant admission.
+    // Admission and qualification are different: Gemma 4 may attempt isolated
+    // execution without claiming that its device/runtime tuple has passed testing.
     val records: List<ModelCompatibilityRecord> = listOf(
         ModelCompatibilityRecord(
             "gemma4-qnn-dsp-queue",
-            1,
-            "BLOCKED",
-            unsafeGemma4QnnFiles,
-            evidence = "Observed Android process failure during QNN DSP queue initialization; exact working tuple unqualified",
-            correctiveAction = "Test the SoC-matched Gemma 3 NPU baseline with a short prompt and no tools, or download a separate GPU/CPU export."
+            2,
+            "UNVERIFIED",
+            gemma4QnnFiles,
+            evidence = "Prior QNN DSP queue failure reported; filename-wide block removed. Execution on the current artifact/runtime/device tuple remains unverified.",
+            correctiveAction = "Run the SoC-matched NPU export in the isolated worker with a short text prompt and capture initialization and output evidence."
         ),
         ModelCompatibilityRecord(
             "minicpm5-qnn-allocation",
@@ -43,12 +43,8 @@ object LocalModelCompatibility {
     // https://huggingface.co/Tdamre/MiniCPM5-1B-litert-lm/blob/main/README.md
     fun unsupportedReason(repoId: String, path: String): String? {
         val fileName = path.substringAfterLast('/')
-        // These exact AOT filenames are blocked regardless of how they entered the
-        // app. Imported/legacy LocalModel rows may not retain their source repository.
-        if (unsafeGemma4QnnFiles.any { it.equals(fileName, true) }) {
-            return "This Gemma 4 Qualcomm NPU export is disabled because it can crash the Android process during QNN DSP queue initialization. " +
-                "Use the Gemma 4 GPU/CPU package, or test the SoC-matched Gemma 3 NPU baseline for this Snapdragon device."
-        }
+        // Gemma 4 is admitted here for catalog, imported and legacy rows. Actual
+        // SoC, package, library and native-crash checks belong to the runtime.
         if (unsupportedMiniCpmFiles.none { it.equals(fileName, true) }) {
             return null
         }

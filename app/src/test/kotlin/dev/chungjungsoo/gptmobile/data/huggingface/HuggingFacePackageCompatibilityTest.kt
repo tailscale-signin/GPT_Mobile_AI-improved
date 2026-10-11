@@ -8,6 +8,18 @@ import org.junit.Test
 
 class HuggingFacePackageCompatibilityTest {
     @Test
+    fun gemma4Sm8750IsDiscoverableAndStillRequiresTheMatchingPhone() {
+        val repo = "litert-community/gemma-4-E2B-it-litert-lm"
+        val file = "gemma-4-E2B-it_qualcomm_sm8750.litertlm"
+        assertTrue(isSupportedHubPackage(repo, file, emptyList()))
+        val entry = HuggingFaceLiteRtResult(repo, "abc", file, 3_000_000_000, 1, false, emptyList()).toCatalogEntry()
+        assertEquals(listOf("npu"), entry.supportedAccelerators)
+        assertTrue(LocalAccelerators.isNpuEligible(entry.supportedAccelerators, entry.socToModelFiles, "SM8750"))
+        assertFalse(LocalAccelerators.isNpuEligible(entry.supportedAccelerators, entry.socToModelFiles, "SM8650"))
+        assertFalse(isSupportedHubPackage(repo, "gemma-4-E2B-it_qualcomm_qcs8275.litertlm", emptyList()))
+    }
+
+    @Test
     fun rejectsDocumentedNonWorkingMiniCpmNpuExportsAndAllowsTestedAndroidEdition() {
         val repo = "Tdamre/MiniCPM5-1B-litert-lm"
         assertFalse(isSupportedHubPackage(repo, "MiniCPM5-1B-qualcomm-sm8750.litertlm", emptyList()))

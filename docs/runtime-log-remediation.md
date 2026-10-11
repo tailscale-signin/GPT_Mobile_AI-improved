@@ -6,7 +6,7 @@ The user-provided analysis of 15,978 log rows reports 12 failed local requests (
 
 `LocalRuntimeRouter` now intersects ordered fallback candidates with the installed artifact's declared backends. Missing capability metadata never authorizes a different export. A GPU-only file therefore cannot enter CPU fallback. `LocalLoadFailure` retains each backend, stage, exception and skipped candidate; its cause is the first actual load failure. The IPC worker and LiteRT adapter preserve that chain instead of replacing it with a generic final error.
 
-Gemma 4 SM8750 remains protected. Versioned compatibility records support exact artifact/runtime/dispatch/SoC/firmware identities, but there is no qualified Gemma 4 record. Ordinary UI and pre-send checks currently retain the protective filename rule; the exact-identity matcher is preparation for a separately reviewed qualification release, not an automatic unblock mechanism. Renaming a package, changing a backend setting or updating an app version is not qualification. Blocked model cards explain the condition, profile creation rejects blocked packages, and pre-send checks produce a terminal preflight diagnostic without pretending QNN initialized.
+Update (2026-10-11): at the user's request, the filename-wide Gemma 4 QNN block has been removed. Discovery, selection, profile creation and pre-send checks now admit these exports to the runtime. The informational record is `UNVERIFIED`, not `QUALIFIED`. SoC matching, package/library integrity checks and evidence-based native-crash quarantine still apply. See [QNN unblock investigation](qnn-unblock-investigation-2026-10-11.md) for the directly reviewed log and remaining validation limits.
 
 The catalog now contains SHA-256 and upstream revision values for all 28 artifact entries, verified against publisher revision metadata; see [catalog audit](validation/catalog-hash-audit-2026-10-11.json). Existing download/integrity verification consumes these hashes. A checksum matching an imported package's self-declared manifest establishes internal consistency; only an independently trusted publisher checksum establishes publisher identity. Structural validity remains distinct. A changed mutable upstream URL fails checksum verification until the catalog is deliberately reviewed and updated.
 
@@ -16,7 +16,7 @@ Kotlin paths refer to `app/src/main/kotlin/dev/chungjungsoo/gptmobile/`.
 
 | # | Finding | Repair / disposition and verification boundary |
 | ---: | --- | --- |
-| 1 | Gemma 4 QNN deliberately blocked | Versioned records and exact qualification identity; original crash protection retained. Real device requalification required. |
+| 1 | Gemma 4 QNN deliberately blocked | Filename-wide rejection removed on 2026-10-11 at the user's request; actual runtime prerequisites remain enforced. Device execution is still unverified. |
 | 2 | GPU fallback attempts unsupported CPU | Capability intersection in `LocalRuntimeRouter`, explicit skipped-candidate records; GPU-only regression test. Different compiled exports remain separate downloads. |
 | 3 | Original GPU exception discarded | Ordered `LocalLoadFailure`, first cause retained, IPC serialization and adapter error propagation. Multi-failure regression test. |
 | 4 | Blocked package repeatedly runnable | Persistent blocked model-card and model-picker explanations, disabled blocked selections/profile creation, save guard and pre-send rejection. Existing profiles receive the same actionable preflight result. |
@@ -53,7 +53,7 @@ Kotlin paths refer to `app/src/main/kotlin/dev/chungjungsoo/gptmobile/`.
 2. Keep the pinned LiteRT-LM 0.18.0 / QAIRT 2.51.0 packaging. Verify the actual loaded Qualcomm dispatch and QAIRT libraries rather than assuming installation means execution.
 3. Capture artifact SHA, dispatch SHA, runtime versions, SoC, firmware, initialization stages and first successful output from the isolated worker. A preflight rejection is not a QNN execution test.
 4. Run cancellation, worker-death, memory and sustained comparisons under [G1–G8](gpu-npu-execution-plans.md). Retain raw failed trials as well as successful ones.
-5. Requalify Gemma 4 only for its exact tuple after it passes hardware gates. In a separately reviewed release, connect verified identity acquisition to every selection and pre-send admission path and add the matching qualification record. Test mismatched hashes, runtime, dispatch and firmware before activating that exception; adding a record alone does not unblock ordinary requests in this branch. Do not delete the protective rule globally.
+5. Gemma 4 can now attempt execution without a filename allowlist entry. Promote its evidence to qualified only after the exact tuple passes the hardware gates. An admitted model, successful initialization or a single answer does not establish sustained reliability. A crash during an actual native operation remains recorded by the per-tuple journal.
 
 The historical log cannot identify the first GPU failure because that exception was overwritten. The new attempt chain is intended to capture the next failure accurately. No inference is made that missing libraries, corruption, context overflow or a DSP crash caused that original capture.
 

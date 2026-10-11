@@ -170,7 +170,12 @@ internal fun BenchmarkScoreboardPanel(kind: ScoreboardKind, onRun: () -> Unit, v
                         }
                         if (share.busy) CircularProgressIndicator()
                         share.message?.let { Text(it) }
-                        share.issue?.let { issue -> BenchmarkAction("View submission", Icons.Rounded.OpenInNew, onClick = { uri.openUri("https://github.com/${ScoreboardRepository.REPOSITORY}/issues/$issue") }) }
+                        share.issue?.let { issue ->
+                            BenchmarkAction("View submission", Icons.Rounded.OpenInNew, onClick = { uri.openUri("https://github.com/${ScoreboardRepository.REPOSITORY}/issues/$issue") })
+                            if (share.status != dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardSubmissionStatus.State.ACCEPTED) {
+                                TextButton(onClick = viewModel::checkSubmissionStatus) { Text("Check status") }
+                            }
+                        }
                     }
                 },
                 confirmButton = {

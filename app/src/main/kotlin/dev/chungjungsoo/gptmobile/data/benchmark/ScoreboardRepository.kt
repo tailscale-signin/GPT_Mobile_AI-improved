@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -43,6 +44,22 @@ data class OnlineScoreboardState(
     val message: String? = null,
     val hasSnapshot: Boolean = false
 )
+
+data class ScoreboardSubmissionStatus(val state: State, val message: String) {
+    enum class State { PENDING, ACCEPTED, REJECTED }
+}
+
+internal fun classifyScoreboardSubmission(state: String, comments: List<String>): ScoreboardSubmissionStatus {
+    if (comments.any { it.startsWith("Accepted as a self-reported benchmark.") } && state == "closed") {
+        return ScoreboardSubmissionStatus(ScoreboardSubmissionStatus.State.ACCEPTED, "Accepted and published to the online scoreboard.")
+    }
+    val rejection = comments.lastOrNull { it.startsWith("Scoreboard validation failed:") }
+    if (rejection != null) return ScoreboardSubmissionStatus(
+        ScoreboardSubmissionStatus.State.REJECTED,
+        rejection.substringAfter(':').trim().take(240)
+    )
+    return ScoreboardSubmissionStatus(ScoreboardSubmissionStatus.State.PENDING, "Waiting for repository validation. This screen will check again shortly.")
+}
 
 @Singleton
 class ScoreboardRepository @Inject constructor(
@@ -125,6 +142,28 @@ class ScoreboardRepository @Inject constructor(
             }
         }
         checkNotNull(json.parseToJsonElement(response.boundedMetadata(500_000)).jsonObject["number"]?.jsonPrimitive?.longOrNull) { "GitHub did not return a submission number." }
+    }
+
+    suspend fun submissionStatus(issue: Long, connectionUid: String): ScoreboardSubmissionStatus = withContext(Dispatchers.IO) {
+        require(issue in 1..100_000_000) { "Invalid submission number." }
+        val account = checkNotNull(sharingAccounts().firstOrNull { it.connectionUid == connectionUid }) { "Reconnect the GitHub account used to share this result." }
+        val bytes = account.secretRef?.let { vault.read(it) }
+        val token = try { bytes?.decodeToString()?.trim() } finally { bytes?.fill(0) }
+        check(!token.isNullOrBlank()) { "Reconnect the GitHub account used to share this result." }
+        suspend fun get(path: String) = client.get("https://api.github.com/repos/$REPOSITORY$path") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            header(HttpHeaders.Accept, "application/vnd.github+json")
+            header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+        }
+        val issueResponse = get("/issues/$issue")
+        check(issueResponse.status.value == 200) { "Could not read submission status (HTTP ${issueResponse.status.value})." }
+        val issueJson = json.parseToJsonElement(issueResponse.boundedMetadata(500_000)).jsonObject
+        val issueState = issueJson["state"]?.jsonPrimitive?.content.orEmpty()
+        val commentsResponse = get("/issues/$issue/comments?per_page=100")
+        check(commentsResponse.status.value == 200) { "Could not read validation comments (HTTP ${commentsResponse.status.value})." }
+        val comments = (json.parseToJsonElement(commentsResponse.boundedMetadata(500_000)) as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { it.jsonObject["body"]?.jsonPrimitive?.content }.orEmpty()
+        classifyScoreboardSubmission(issueState, comments)
     }
 
     companion object {

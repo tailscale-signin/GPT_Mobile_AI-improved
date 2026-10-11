@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonPrimitive
 internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): Int = when {
     category == "speed" -> 512
     category == IntelligenceBenchmark.CATEGORY && profile.compatibleType == ClientType.LITERT_LM -> 512
+    category == IntelligenceBenchmark.CATEGORY -> 4096
     profile.compatibleType == ClientType.LITERT_LM -> 256
     profile.model.contains("gpt-oss", true) -> 8192
     else -> 2048

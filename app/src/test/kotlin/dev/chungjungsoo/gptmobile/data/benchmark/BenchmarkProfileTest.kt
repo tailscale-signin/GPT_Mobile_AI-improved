@@ -27,6 +27,7 @@ class BenchmarkProfileTest {
         assertEquals(512, benchmarkProfile(profile, false, "speed").maxTokens)
         assertEquals(8192, benchmarkProfile(profile, false, "task").maxTokens)
         assertEquals(2048, benchmarkProfile(profile.copy(model = "other"), false, "json").maxTokens)
+        assertEquals(4096, benchmarkProfile(profile.copy(model = "other"), false, IntelligenceBenchmark.CATEGORY).maxTokens)
     }
 
     @Test

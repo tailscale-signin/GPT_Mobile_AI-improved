@@ -57,3 +57,25 @@ Suite v5 has 72 Core Text trials or 84 Agent trials, including the 36 Intelligen
 - **LLM-as-judge research:** position, verbosity and self-enhancement biases justify avoiding an opaque model-given Intelligence rating. https://arxiv.org/abs/2306.05685
 
 No external benchmark questions are redistributed in the original mini-suite, and no public leaderboard equivalence or statistical confidence interval is claimed. Six fixed items per domain are insufficient to support those claims. Physical-device runs and formal evaluation packs are still needed for stronger capability conclusions.
+
+
+## Follow-up: Quick 5 / Full 50 and two-model comparison
+
+Suite version 6 supersedes the earlier 72/84-test plans in this document. Run now exposes exactly two options:
+
+| Category | Quick tests | Full tests |
+| --- | ---: | ---: |
+| Timing | 1 | 18 (3 warm-ups, 5 measured repetitions per context band) |
+| Task accuracy | 1 | 8 |
+| Structured JSON | 1 | 6 |
+| Tool contracts | 1 | 12 |
+| Intelligence | 1 | 6 |
+| Total | 5 | 50 |
+
+Each Intelligence test contains one compact question per domain. Full retains all 36 original questions; Quick samples six and explicitly reports a provisional score. Each domain answer is graded independently and persisted before preview truncation, so one wrong answer does not erase credit for the other five. Infrastructure failures still leave incomplete coverage. Unsupported tool cases retain an outcome and remain excluded from accuracy. Test counts refer to fixtures; a fixture may involve tool round trips or a transport retry. Quick never manufactures a consistency or normalized speed rating from one timing observation.
+
+Versions 3–5 retain their original manifests, workloads and cohorts. Existing saved results and backup data remain readable. The historical Agent mode remains available in stored history; new Run plans are Quick and Full, both with tool coverage. Delegation keeps its dedicated workflow.
+
+The new Compare view offers two explicit model pickers, a baseline swap button, side-by-side numbered bar charts and a results table with model 1, model 2 and model 2 minus model 1. Score differences use percentage points. Raw throughput uses reference tokens/second; response latency uses milliseconds. Deltas are withheld for incompatible cohorts or missing values. Charts retain a minimum readable width on very narrow displays and support horizontal scrolling. Navigation, filters and main actions use labelled icon buttons, and verbose local diagnostics are collapsed by default.
+
+Regression coverage checks exact 5/50 plans, all five Quick categories, all 36 Full Intelligence questions, partial domain credit, incomplete/duplicate outcomes, old suite manifests, signed comparison deltas, incompatible scales and local context budgets. Prior PR revision 51a5b01 passed Kotlin lint, Android unit tests/lint, review APK/runtime packaging and CodeQL; this follow-up requires its own CI result.

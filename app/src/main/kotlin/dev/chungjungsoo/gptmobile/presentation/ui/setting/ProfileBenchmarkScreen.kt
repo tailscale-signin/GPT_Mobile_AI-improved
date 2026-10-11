@@ -18,6 +18,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CompareArrows
+import androidx.compose.material.icons.rounded.Deselect
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.SelectAll
+import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Memory
@@ -37,6 +43,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -111,6 +118,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     var detailKey by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var benchmarkOptionsExpanded by rememberSaveable { mutableStateOf(false) }
+    var showToolHealth by rememberSaveable { mutableStateOf(false) }
     val selected = profile
     val local = selected?.compatibleType == ClientType.LITERT_LM
     val tint = benchmarkTint(local)
@@ -134,8 +142,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded tests · ${profiles.size} profiles") }
-            item { SettingsTabs(listOf("Results", "Run", "Delegation", "History"), listOf(2, 0, 4, 3).indexOf(tab).coerceAtLeast(0)) { tab = listOf(2, 0, 4, 3)[it] } }
-            item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
+            item { BenchmarkNavigation(tab) { tab = it } }
+            if (tab != 2 && tab != 5) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -154,14 +162,14 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         BenchmarkPanel("Running · ${current.profileName}") {
                             LinearProgressIndicator(progress = { current.completed.toFloat() / current.total }, modifier = Modifier.fillMaxWidth(), color = tint)
                             Text("${current.completed} / ${current.total} tests · ${current.testName}")
-                            TextButton(onClick = viewModel::cancel) {
+                            OutlinedButton(onClick = viewModel::cancel) {
                                 Icon(Icons.Rounded.Stop, null)
                                 Text("Stop benchmark")
                             }
                         }
                     }
                 }
-                if (tab == 1 || tab == 2) {
+                if (tab == 1) {
                     item {
                         Column {
                             Text("Everyday measurement window", style = MaterialTheme.typography.labelMedium)
@@ -181,8 +189,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Text("Delegates to test", style = MaterialTheme.typography.labelLarge)
                                 Text("Select one or more helpers. Each model is benchmarked sequentially with the same primary and settings.", style = MaterialTheme.typography.bodySmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TextButton(onClick = viewModel::selectAllDelegates, enabled = progress == null) { Text("Select all") }
-                                    TextButton(onClick = viewModel::clearDelegates, enabled = progress == null) { Text("Clear") }
+                                    BenchmarkAction("Select all", Icons.Rounded.SelectAll, onClick = viewModel::selectAllDelegates, enabled = progress == null)
+                                    BenchmarkAction("Clear", Icons.Rounded.Deselect, onClick = viewModel::clearDelegates, enabled = progress == null)
                                 }
                                 delegates.forEach { helper ->
                                     val checked = selectedDelegates.any { it.uid == helper.uid }
@@ -314,34 +322,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
 
                     0 -> {
                         item {
-                            BenchmarkPanel("Local Tool Health") {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(health.lastStatus, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                                    SettingsHelpIcon("App-side argument, budget and dispatch outcomes are distinct from model or provider failures. Omitted tools are unavailable in this request. This panel excludes arguments, precise locations and credentials.")
-                                }
-                                Text("Context ${health.contextTokens} · evidence ${health.evidenceBytes} bytes/result", style = MaterialTheme.typography.bodySmall)
-                                Text("Selected: ${health.selected.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall)
-                                if (health.omitted.isNotEmpty()) Text("Omitted for context: ${health.omitted.joinToString()}", style = MaterialTheme.typography.bodySmall)
-                                Text("Payload ${health.retainedBytes} → admitted ${health.admittedBytes} bytes · supporting observations=${health.supportingEvidence}", style = MaterialTheme.typography.bodySmall)
-                                Text("Last: ${health.lastTool} · ${health.lastError ?: "no structured error"} · dispatched=${health.dispatched} · compacted=${health.compacted}", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                        item {
                             BenchmarkPanel("Run a benchmark") {
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    BenchmarkMode.entries.filter { it != BenchmarkMode.DELEGATION }.forEach { option -> FilterChip(mode == option, { mode = option }, enabled = progress == null, label = { Text(option.label) }) }
+                                BenchmarkPlanPicker(mode, progress == null) { mode = it }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Five categories. One clear result.", style = MaterialTheme.typography.titleSmall)
+                                        Text("Speed · Task accuracy · JSON · Tools · Intelligence", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    SettingsHelpIcon("Quick: exactly 5 tests, one per category, including 6 Intelligence questions in one compact test. Full: exactly 50 tests — 18 timing (3 warm-ups), 8 task accuracy, 6 JSON, 12 tool contracts and 6 Intelligence tests covering 36 questions. Tools use a harmless fixture. Unsupported tools are recorded, not failed. A test may include tool round trips or a transport retry. Each test has a 90-second limit. Only Full can establish repeated timing ratings.")
                                 }
-                                Text(
-                                    if (mode == BenchmarkMode.QUICK) {
-                                        "6 diagnostic trials · provisional only"
-                                    } else if (mode == BenchmarkMode.AGENT) {
-                                        "84 trials · 3 warm-ups · 36 intelligence tasks · 12 tool contracts"
-                                    } else {
-                                        "72 trials · 3 warm-ups · 18 quality cases · 36 intelligence tasks"
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text("90 seconds per test. Speed uses 512 output tokens; local correctness uses 256 and local intelligence 512. Remote correctness reserves 2,048 tokens (8,192 for GPT-OSS). Intelligence preserves profile reasoning; delivery fixtures disable optional reasoning. Tools use a harmless in-memory fixture.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -358,10 +347,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                         ) {
                                             DropdownMenuItem(
                                                 text = { Text("Select all models") },
+                                                leadingIcon = { Icon(Icons.Rounded.SelectAll, null) },
                                                 onClick = { viewModel.selectAllBenchmarks() }
                                             )
                                             DropdownMenuItem(
                                                 text = { Text("Clear selection") },
+                                                leadingIcon = { Icon(Icons.Rounded.Deselect, null) },
                                                 onClick = { viewModel.clearBenchmarks() }
                                             )
                                             benchmarkCandidates.forEach { candidate ->
@@ -393,14 +384,11 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 ) {
                                     Icon(Icons.Rounded.PlayArrow, null)
                                     Text(
-                                        "Benchmark ${selectedBenchmarks.size} selected model${if (selectedBenchmarks.size == 1) "" else "s"}",
+                                        "Run ${mode.label} · ${selectedBenchmarks.size * benchmarkSuite(mode).size} tests",
                                         Modifier.padding(start = 8.dp)
                                     )
                                 }
-                                TextButton(
-                                    onClick = { viewModel.start(mode) },
-                                    enabled = ready && progress == null && !activeRequests
-                                ) { Text("Run only ${selected.name}") }
+                                BenchmarkAction("Run ${selected.name}", Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode) }, enabled = ready && progress == null && !activeRequests, modifier = Modifier.fillMaxWidth())
                                 if (activeRequests && progress == null) Text("Waiting for active model requests to finish.", style = MaterialTheme.typography.labelSmall)
                                 Text("All selected models run sequentially so their provider or local runtime is not contending with another benchmark. Results save after each test.", style = MaterialTheme.typography.labelSmall)
                             }
@@ -428,11 +416,10 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 BenchmarkTile(
                                     "Tool success",
                                     when {
-                                        mode == BenchmarkMode.FULL -> "Not in this suite"
                                         "tools" in activeScore?.unsupportedCategories.orEmpty() && rating.toolSuccessPercent == null -> "Unsupported"
                                         else -> percent(rating.toolSuccessPercent)
                                     },
-                                    "Agent Standard tests tool use",
+                                    "Validated fixture calls",
                                     Modifier.weight(1f),
                                     tint
                                 )
@@ -455,7 +442,21 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 MetricLine("p95 first response", formatLatency(rating.p95FirstTextMs))
                                 MetricLine("Median request time", formatLatency(rating.medianDurationMs))
                                 Text("Suite ${dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION} · latest 5 complete blocks with this configuration and context tier. Fixed instructions and temperature 0. First response includes model loading and queue time. Throughput uses the shared lexical4 comparison unit; one-chunk responses have no measured decode speed.", style = MaterialTheme.typography.bodySmall)
-                                Text("Quality, reliability, speed, first response and consistency use the same scoring policy here and in Results. Overall needs every dimension; missing timing is never invented. Core Text excludes tools; Agent Standard includes tool fixtures. Quick Check remains provisional. Local context tiers and remote cohorts are ranked separately.", style = MaterialTheme.typography.bodySmall)
+                                Text("Quality, reliability, speed, first response and consistency use the same scoring policy here and in Results. Overall needs every dimension; missing timing is never invented. Quick and Full both include tool fixtures. Quick remains provisional. Local context tiers and remote cohorts are ranked separately.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        item { BenchmarkAction("Runtime diagnostics", Icons.Rounded.Memory, showToolHealth, { showToolHealth = !showToolHealth }, modifier = Modifier.fillMaxWidth()) }
+                        if (showToolHealth) item {
+                            BenchmarkPanel("Local Tool Health") {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(health.lastStatus, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                    SettingsHelpIcon("App-side argument, budget and dispatch outcomes are distinct from model or provider failures. Omitted tools are unavailable in this request. This panel excludes arguments, precise locations and credentials.")
+                                }
+                                Text("Context ${health.contextTokens} · evidence ${health.evidenceBytes} bytes/result", style = MaterialTheme.typography.bodySmall)
+                                Text("Selected: ${health.selected.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall)
+                                if (health.omitted.isNotEmpty()) Text("Omitted for context: ${health.omitted.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                                Text("Payload ${health.retainedBytes} → admitted ${health.admittedBytes} bytes · supporting observations=${health.supportingEvidence}", style = MaterialTheme.typography.bodySmall)
+                                Text("Last: ${health.lastTool} · ${health.lastError ?: "no structured error"} · dispatched=${health.dispatched} · compacted=${health.compacted}", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -481,16 +482,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     }
                     2 -> {
                         item {
-                            BenchmarkPanel("Compare AI profiles") {
+                            BenchmarkPanel("Model leaderboard") {
+                                BenchmarkPlanPicker(mode, progress == null) { mode = it }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    BenchmarkMode.entries.filter { it != BenchmarkMode.DELEGATION }.forEach { option -> FilterChip(mode == option, { mode = option }, enabled = progress == null, label = { Text(option.label) }) }
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf("All", "Local", "Remote").forEachIndexed { index, label -> FilterChip(typeFilter == index, { typeFilter = index }, label = { Text(label) }) }
+                                    listOf("All" to Icons.Rounded.BarChart, "Local" to Icons.Rounded.Memory, "Remote" to Icons.Rounded.Cloud).forEachIndexed { index, (label, icon) -> BenchmarkAction(label, icon, typeFilter == index, { typeFilter = index }) }
                                 }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf("App rating", "Intelligence", "Speed").forEach { order -> FilterChip(comparisonSort == order, { comparisonSort = order }, label = { Text(order) }) }
+                                    listOf("App rating" to Icons.Rounded.Sort, "Intelligence" to Icons.Rounded.Psychology, "Speed" to Icons.Rounded.Speed).forEach { (order, icon) -> BenchmarkAction(order, icon, comparisonSort == order, { comparisonSort = order }) }
                                 }
+                                BenchmarkAction("Compare two models", Icons.Rounded.CompareArrows, onClick = { tab = 5 }, modifier = Modifier.fillMaxWidth())
                                 Text("Same suite and test mode; latest 5 runs per current configuration. Compare coverage and sample counts alongside scores. Local and remote use separate verified cohort scales.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -538,8 +538,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 }
                             }
                         }
-                        if (rows.isEmpty()) item { Text("No v2 results yet. Open Run to start a Quick Check or a Standard plan.") }
-                        item { TextButton(onClick = { tab = 1 }) { Text("Open everyday Statistics") } }
+                        if (rows.isEmpty()) item { Text("No results yet. Open Run for a 5-test Quick or 50-test Full benchmark.") }
+                        item { BenchmarkAction("Everyday statistics", Icons.Rounded.BarChart, onClick = { tab = 1 }) }
+                    }
+                    5 -> {
+                        item { BenchmarkPlanPicker(mode, progress == null) { mode = it } }
+                        item {
+                            BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }, profiles)
+                        }
+                        item { BenchmarkAction("Run another model", Icons.Rounded.PlayArrow, onClick = { tab = 0 }, modifier = Modifier.fillMaxWidth()) }
                     }
                     3 -> {
                         item { Text("Saved runs · ${profileHistory.size}", style = MaterialTheme.typography.titleLarge) }
@@ -633,7 +640,7 @@ private fun BenchmarkScoreCard(rating: BenchmarkRating, local: Boolean, runs: In
                 Text("${mode.label} · $runs runs · ${rating.measuredWeight}% coverage", style = MaterialTheme.typography.bodySmall)
                 Text(
                     if (rating.score == null) {
-                        "Complete a Standard plan to measure all rating dimensions"
+                        "Run Full to measure repeated timing and all rating dimensions"
                     } else if (runs < 3) {
                         "Early result · repeat for confidence"
                     } else {

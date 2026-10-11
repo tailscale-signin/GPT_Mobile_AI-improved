@@ -93,7 +93,7 @@ class BenchmarkRunnerTest {
         }, { saved += it })
         assertNull(reason)
         assertEquals(suite.size, saved.size)
-        assertEquals(54, saved.count { it.outcome == BenchmarkOutcome.PASSED })
+        assertEquals(32, saved.count { it.outcome == BenchmarkOutcome.PASSED })
     }
 
     @Test
@@ -394,4 +394,16 @@ class BenchmarkRunnerTest {
     private fun session(events: Flow<ProviderEvent>) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = events
     }
+    @Test
+    fun `batched intelligence retains per domain grades rather than all or nothing`() = runTest {
+        val test = IntelligenceBenchmark.batches.first()
+        val answer = test.expected!!.replace("138", "999")
+        val runner = BenchmarkRunner({ _, _ -> session(flowOf(ProviderEvent.TextDelta(answer), ProviderEvent.Completed)) })
+        val sample = runner.run(test, true)
+        assertEquals(BenchmarkOutcome.FAILED, sample.outcome)
+        assertEquals(6, sample.intelligenceAnswers.size)
+        assertEquals(5, sample.intelligenceAnswers.values.count { it })
+        assertEquals(6, IntelligenceBenchmark.scoreBatches(listOf(sample), true).answered)
+    }
+
 }

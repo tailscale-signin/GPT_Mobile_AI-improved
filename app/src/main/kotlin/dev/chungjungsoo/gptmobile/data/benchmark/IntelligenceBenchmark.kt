@@ -1,6 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 @Serializable
 internal data class IntelligenceScore(
@@ -8,7 +13,9 @@ internal data class IntelligenceScore(
     val answered: Int,
     val planned: Int,
     val domains: Map<String, Double>,
-    val version: Int = IntelligenceBenchmark.VERSION
+    val version: Int = IntelligenceBenchmark.VERSION,
+    val provisional: Boolean = false,
+    val questionsPerDomain: Int = 6
 )
 
 /**
@@ -17,7 +24,7 @@ internal data class IntelligenceScore(
  * Expected answers stay in the evaluator, never in the provider prompt.
  */
 internal object IntelligenceBenchmark {
-    const val VERSION = 1
+    const val VERSION = 2
     const val CATEGORY = "intelligence"
     const val LIMITATION = "36 original text tasks, 6 per domain. A small capability screen, not full intelligence, IQ, or an official MMLU/LiveBench score. Excludes vision, creativity, long-form coding and real-world agency. Scores apply to this fixed prompt and generation policy; repeated runs are not new questions."
 
@@ -80,6 +87,39 @@ internal object IntelligenceBenchmark {
         }
     }
 
+    // Six requests, each with one question per domain. This preserves all 36
+    // scored items while keeping Full at 50 tests and each prompt context-safe.
+    val batches: List<BenchmarkCase> by lazy {
+        (0 until 6).map { index ->
+            val selected = cases.map { (domain, questions) -> domain to questions[index] }
+            val expected = buildJsonObject { selected.forEach { (domain, question) -> put(domain, question.second) } }.toString()
+            val prompt = selected.joinToString("\n") { (domain, question) -> "$domain: ${question.first}" } +
+                "\nReturn only a JSON object with these six exact keys: " + selected.joinToString { (domain, _) -> "\"$domain\"" } + ". Each value must be only the answer, without explanation."
+            BenchmarkCase("intelligence-batch-$index", "Intelligence ${index + 1}", CATEGORY, prompt, expected, workload = "Six domains", seed = index)
+        }
+    }
+
+    fun gradeBatch(test: BenchmarkCase, answer: String): Map<String, Boolean> {
+        val expected = Json.parseToJsonElement(checkNotNull(test.expected)) as JsonObject
+        val actual = runCatching { Json.parseToJsonElement(answer.trim()) as? JsonObject }.getOrNull()
+        return expected.mapValues { (domain, value) ->
+            val response = actual?.get(domain) as? JsonPrimitive
+            response != null && matches(response.content, (value as JsonPrimitive).content)
+        }
+    }
+
+    fun scoreBatches(samples: List<BenchmarkSample>, quick: Boolean): IntelligenceScore {
+        val plan = if (quick) batches.take(1) else batches
+        val byId = samples.filter { it.category == CATEGORY }.groupBy { it.testId }
+        val completed = plan.mapNotNull { test ->
+            byId[test.id]?.singleOrNull()?.takeIf { it.completed && it.workload == test.workload && it.intelligenceAnswers.keys == cases.keys }
+        }
+        val domains = cases.keys.mapNotNull { domain ->
+            if (completed.size == plan.size) domain to (100.0 * completed.count { it.intelligenceAnswers[domain] == true } / plan.size) else null
+        }.toMap()
+        return IntelligenceScore(domains.values.takeIf { domains.size == cases.size }?.average(), completed.size * cases.size, plan.size * cases.size, domains, provisional = quick, questionsPerDomain = plan.size)
+    }
+
     /** Tolerate a final answer label and case without searching prose for a lucky match. */
     fun matches(answer: String, expected: String): Boolean {
         val normalized = answer.trim().replace(Regex("^answer\\s*:\\s*", RegexOption.IGNORE_CASE), "").trim()
@@ -95,6 +135,6 @@ internal object IntelligenceBenchmark {
         }.toMap()
         // Missing/error/unsupported outcomes are not intelligence failures. Report
         // incomplete coverage instead of silently scoring only easier domains.
-        return IntelligenceScore(domains.values.takeIf { domains.size == cases.size }?.average(), answered.size, suite.size, domains)
+        return IntelligenceScore(domains.values.takeIf { domains.size == cases.size }?.average(), answered.size, suite.size, domains, version = 1)
     }
 }

@@ -32,9 +32,18 @@ data class BenchmarkCase(
 )
 
 fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<BenchmarkCase> = BenchmarkWorkloadPlanner.adapt(
-    if (mode == BenchmarkMode.DELEGATION) {
-        delegationBenchmarkSuite()
-    } else if (mode == BenchmarkMode.QUICK) {
+    when (mode) {
+        BenchmarkMode.DELEGATION -> delegationBenchmarkSuite()
+        BenchmarkMode.QUICK -> BenchmarkSuiteRegistry.quick
+        else -> BenchmarkSuiteRegistry.full
+    },
+    contextTokens
+)
+
+/** Historical suites keep their original manifest; old measurements never join a new plan. */
+internal fun benchmarkSuiteForRun(run: BenchmarkRun): List<BenchmarkCase> {
+    if (run.suiteVersion >= 6 || run.mode == BenchmarkMode.DELEGATION) return benchmarkSuite(run.mode, run.fixtureContextTokens)
+    val legacy = if (run.mode == BenchmarkMode.QUICK) {
         listOf(
             BenchmarkCase("speed-0", "Delivery", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."),
             BenchmarkCase("instruction", "Exact instruction", "task", "Reply with exactly BENCHMARK_READY and nothing else.", "BENCHMARK_READY"),
@@ -44,14 +53,10 @@ fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<Benchm
             BenchmarkCase("tool", "Tool readiness", "tools", "Call benchmark_lookup with key=\"parcel\". Reply with only the code returned by that tool. Do not guess.")
         )
     } else {
-        BenchmarkSuiteRegistry.standard(mode == BenchmarkMode.AGENT)
-    },
-    contextTokens
-)
-
-/** Historical suites keep their own manifest and cohort; saved measurements remain visible. */
-internal fun benchmarkSuiteForRun(run: BenchmarkRun): List<BenchmarkCase> = benchmarkSuite(run.mode, run.fixtureContextTokens)
-    .filter { run.suiteVersion >= 5 || it.category != IntelligenceBenchmark.CATEGORY }
+        BenchmarkSuiteRegistry.legacyStandard(run.mode == BenchmarkMode.AGENT).filter { run.suiteVersion >= 5 || it.category != IntelligenceBenchmark.CATEGORY }
+    }
+    return BenchmarkWorkloadPlanner.adapt(legacy, run.fixtureContextTokens)
+}
 
 /** Runs only synthetic prompts and an in-memory fixture. No chat history, MCP or device tools. */
 class BenchmarkRunner(
@@ -247,7 +252,7 @@ class BenchmarkRunner(
             }
             val answer = text.toString().trim()
             val passed = when (test.category) {
-                IntelligenceBenchmark.CATEGORY -> IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
+                IntelligenceBenchmark.CATEGORY -> if (test.id.startsWith("intelligence-batch-")) IntelligenceBenchmark.gradeBatch(test, answer).values.all { it } else IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
                 "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || ReferenceTextTokenizer.starts(answer).size >= 128)
                 "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
                 "tools" -> calls.isNotEmpty() && successful.size == calls.size && answer == code
@@ -263,7 +268,7 @@ class BenchmarkRunner(
             val result = sample(
                 if (passed) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED,
                 if (passed) null else "Response did not meet the fixture's expected result."
-            )
+            ).copy(intelligenceAnswers = if (test.id.startsWith("intelligence-batch-")) IntelligenceBenchmark.gradeBatch(test, answer) else emptyMap())
             return if (passed) result else result.copy(failureCategory = "MODEL_QUALITY")
         } catch (cancel: CancellationException) {
             throw cancel

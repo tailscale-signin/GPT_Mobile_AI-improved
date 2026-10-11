@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkMode(val label: String) { QUICK("Quick Check"), FULL("Core Text Standard"), DELEGATION("Delegation"), AGENT("Agent Standard") }
+enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DELEGATION("Delegation"), AGENT("Legacy Agent") }
 
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL, SKIPPED }
@@ -101,7 +101,8 @@ data class BenchmarkSample(
     val effectiveSettingsConfirmed: Boolean = false,
     val requestedOutputTokens: Int? = null,
     val effectiveRequestOutputTokens: Int? = null,
-    val requestedReasoningEffort: String? = null
+    val requestedReasoningEffort: String? = null,
+    val intelligenceAnswers: Map<String, Boolean> = emptyMap()
 ) {
     val referenceSpeed: Double? get() = firstTextMs?.let { first ->
         val last = lastTextMs ?: return@let null

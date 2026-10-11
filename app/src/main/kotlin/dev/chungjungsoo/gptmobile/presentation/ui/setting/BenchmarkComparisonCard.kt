@@ -49,8 +49,8 @@ internal fun BenchmarkComparisonCard(name: String, model: String, row: Benchmark
                 }
             }
             BenchmarkRatingBar("Overall", row.overall)
-            BenchmarkRatingBar("Intelligence · text capability", row.intelligence?.score, missing = if (row.cohort.startsWith("QUICK|")) "Not in Quick Check" else "${row.intelligence?.answered ?: 0} / 36 answered")
-            Text("Intelligence is independent of speed and app rating. Open this profile for domain results and coverage.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            BenchmarkRatingBar("Intelligence · text capability", row.intelligence?.score, missing = "${row.intelligence?.answered ?: 0} / ${row.intelligence?.planned ?: 36} answered")
+            Text(if (row.intelligence?.provisional == true) "Quick Intelligence: 6 questions, provisional. Run Full for all 36." else "Intelligence is independent of speed and app rating. Open this profile for domain results and coverage.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             benchmarkScoreDimensions(row, row.cohort.contains("device:")).forEach { dimension ->
                 BenchmarkRatingBar(dimension.label, dimension.score, missing = benchmarkMissingScoreLabel(row, dimension.label))
             }
@@ -64,7 +64,7 @@ internal fun BenchmarkComparisonCard(name: String, model: String, row: Benchmark
                         label,
                         when {
                             category in row.unsupportedCategories -> "Unsupported"
-                            category == "tools" && row.cohort.startsWith("FULL|") -> "Not in Core Text"
+                            category == "tools" && row.cohort.startsWith("FULL|") && (row.cohort.split('|').getOrNull(1)?.toIntOrNull() ?: 0) < 6 -> "Not in Core Text"
                             else -> "Not measured"
                         }
                     )
@@ -79,13 +79,18 @@ internal fun BenchmarkComparisonCard(name: String, model: String, row: Benchmark
 }
 
 @Composable
-internal fun BenchmarkRatingBar(label: String, value: Double?, missing: String = "Not measured") {
+internal fun BenchmarkRatingBar(label: String, value: Double?, missing: String = "Not measured", stacked: Boolean = false) {
     val fraction by animateFloatAsState(((value ?: 0.0) / 100).toFloat().coerceIn(0f, 1f), label = label)
     val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.semantics { contentDescription = "$label: ${value?.let { "%.1f out of 100".format(it) } ?: missing}" }) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        if (stacked) {
             Text(label, style = MaterialTheme.typography.labelMedium)
-            Text(value?.let { "%.1f / 100".format(it) } ?: missing, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+            Text(value?.let { "%.1f / 100".format(it) } ?: missing, style = MaterialTheme.typography.titleMedium, color = colors.primary)
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                Text(value?.let { "%.1f / 100".format(it) } ?: missing, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+            }
         }
         Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(8.dp)).background(colors.surfaceContainerHighest)) {
             if (value != null) Box(Modifier.fillMaxWidth(fraction).height(9.dp).background(Brush.horizontalGradient(listOf(colors.primary, colors.tertiary))))
@@ -95,20 +100,20 @@ internal fun BenchmarkRatingBar(label: String, value: Double?, missing: String =
 
 internal fun benchmarkMissingScoreLabel(row: BenchmarkScoreRow?, dimension: String): String = when {
     row == null -> "Run a benchmark"
-    dimension == "Speed" && row.speed != null -> "Needs verified baseline"
-    dimension == "First response" && row.firstTextMs != null -> "Needs verified baseline"
-    dimension == "Consistency" -> "Needs repeated timing"
+    dimension == "Speed" && row.speed != null -> "Full timing needed"
+    dimension == "First response" && row.firstTextMs != null -> "Full timing needed"
+    dimension == "Consistency" -> "Full repetitions needed"
     else -> "Incomplete coverage"
 }
 
 @Composable
 internal fun IntelligenceResults(result: IntelligenceScore?, quick: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        BenchmarkRatingBar("Intelligence", result?.score, missing = if (quick) "Not in Quick Check" else "Incomplete coverage")
-        Text(if (quick) "Run Core Text or Agent Standard to measure Intelligence." else "${result?.answered ?: 0} / ${IntelligenceBenchmark.suite.size} answered · fixed text capability screen v${IntelligenceBenchmark.VERSION}", style = MaterialTheme.typography.labelMedium)
-        if (!quick && result == null) Text("Run the updated Standard suite; older saved runs do not contain Intelligence tests.", style = MaterialTheme.typography.bodySmall)
+        BenchmarkRatingBar(if (quick) "Intelligence · provisional" else "Intelligence", result?.score, missing = "Incomplete coverage")
+        Text("${result?.answered ?: 0} / ${result?.planned ?: if (quick) 6 else 36} questions answered · text capability screen v${result?.version ?: IntelligenceBenchmark.VERSION}", style = MaterialTheme.typography.labelMedium)
+        if (quick) Text("One question per domain is a quick check, not a stable capability estimate. Full checks all 36 questions.", style = MaterialTheme.typography.bodySmall)
         IntelligenceBenchmark.suite.map { it.workload }.distinct().forEach { domain ->
-            MetricLine(domain, result?.domains?.get(domain)?.let { "%.1f / 100".format(it) } ?: "Requires 6 answers")
+            MetricLine(domain, result?.domains?.get(domain)?.let { "%.1f / 100".format(it) } ?: "Incomplete")
         }
         Text("Equal average of six domain accuracies. Infrastructure failures leave coverage incomplete; speed, cost and missing tools do not change Intelligence.", style = MaterialTheme.typography.bodySmall)
         Text(IntelligenceBenchmark.LIMITATION, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

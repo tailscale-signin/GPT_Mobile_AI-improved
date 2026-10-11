@@ -47,8 +47,38 @@ class IntelligenceBenchmarkTest {
         assertEquals(36, suite.map { it.id }.toSet().size)
         assertTrue(suite.groupBy { it.workload }.values.all { it.size == 6 })
         assertTrue(suite.all { it.prompt.toByteArray().size < 700 && !it.expected.isNullOrBlank() })
-        assertEquals(36, benchmarkSuite(BenchmarkMode.FULL).count { it.category == IntelligenceBenchmark.CATEGORY })
-        assertEquals(36, benchmarkSuite(BenchmarkMode.AGENT).count { it.category == IntelligenceBenchmark.CATEGORY })
-        assertEquals(0, benchmarkSuite(BenchmarkMode.QUICK).count { it.category == IntelligenceBenchmark.CATEGORY })
+        assertEquals(6, benchmarkSuite(BenchmarkMode.FULL).count { it.category == IntelligenceBenchmark.CATEGORY })
+        assertEquals(6, benchmarkSuite(BenchmarkMode.AGENT).count { it.category == IntelligenceBenchmark.CATEGORY })
+        assertEquals(1, benchmarkSuite(BenchmarkMode.QUICK).count { it.category == IntelligenceBenchmark.CATEGORY })
     }
+    private fun batchAnswers(): List<BenchmarkSample> = IntelligenceBenchmark.batches.map { test ->
+        BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.PASSED, workload = test.workload, intelligenceAnswers = IntelligenceBenchmark.gradeBatch(test, test.expected!!))
+    }
+
+    @Test
+    fun fullKeepsAll36QuestionsAndQuickSamplesEveryDomainOnce() {
+        val full = IntelligenceBenchmark.scoreBatches(batchAnswers(), false)
+        assertEquals(36, full.answered)
+        assertEquals(36, full.planned)
+        assertEquals(100.0, full.score!!, .0001)
+        assertFalse(full.provisional)
+        val quick = IntelligenceBenchmark.scoreBatches(batchAnswers().take(1), true)
+        assertEquals(6, quick.answered)
+        assertEquals(6, quick.domains.size)
+        assertTrue(quick.provisional)
+        assertNull(IntelligenceBenchmark.scoreBatches(batchAnswers().dropLast(1), false).score)
+        assertNull(IntelligenceBenchmark.scoreBatches(batchAnswers() + batchAnswers().first(), false).score)
+    }
+
+    @Test
+    fun batchGradingGivesPartialCreditAndRejectsMalformedOrMissingAnswers() {
+        val test = IntelligenceBenchmark.batches.first()
+        val grades = IntelligenceBenchmark.gradeBatch(test, test.expected!!.replace("138", "999"))
+        assertEquals(5, grades.values.count { it })
+        assertTrue(IntelligenceBenchmark.gradeBatch(test, "not json").values.none { it })
+        assertTrue(IntelligenceBenchmark.gradeBatch(test, "{}").values.none { it })
+        val bad = batchAnswers().mapIndexed { index, sample -> if (index == 0) sample.copy(intelligenceAnswers = grades, outcome = BenchmarkOutcome.FAILED) else sample }
+        assertEquals(100.0 * 35 / 36, IntelligenceBenchmark.scoreBatches(bad, false).score!!, .0001)
+    }
+
 }

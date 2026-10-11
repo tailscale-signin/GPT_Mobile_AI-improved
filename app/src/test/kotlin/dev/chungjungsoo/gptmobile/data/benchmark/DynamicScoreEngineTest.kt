@@ -85,10 +85,8 @@ class DynamicScoreEngineTest {
     @Test
     fun unsupportedAgentToolsKeepTextScoresAndFullCoverage() {
         val base = run("local", 100, true)
-        val extra = benchmarkSuite(BenchmarkMode.AGENT).filter { it.category == "tools" }.map { test ->
-            BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.UNSUPPORTED, tokenBasis = ReferenceTextTokenizer.VERSION, workload = test.workload, warmup = test.warmup)
-        }
-        val row = DynamicScoreEngine.snapshot(listOf(base.copy(mode = BenchmarkMode.AGENT, samples = base.samples + extra, plannedTrials = 84)), 1, 2000).rows.single()
+        val samples = base.samples.map { if (it.category == "tools") it.copy(outcome = BenchmarkOutcome.UNSUPPORTED) else it }
+        val row = DynamicScoreEngine.snapshot(listOf(base.copy(samples = samples)), 1, 2000).rows.single()
         assertTrue(row.verified)
         assertEquals(100.0, row.reliability!!, .0001)
         assertEquals(100.0, row.overall!!, .0001)
@@ -108,9 +106,9 @@ class DynamicScoreEngineTest {
 
     @Test
     fun standardPlansHaveDeclaredCoverage() {
-        assertEquals(72, benchmarkSuite(BenchmarkMode.FULL).size)
-        assertEquals(84, benchmarkSuite(BenchmarkMode.AGENT).size)
-        assertEquals(6, benchmarkSuite(BenchmarkMode.QUICK).size)
+        assertEquals(50, benchmarkSuite(BenchmarkMode.FULL).size)
+        assertEquals(50, benchmarkSuite(BenchmarkMode.AGENT).size)
+        assertEquals(5, benchmarkSuite(BenchmarkMode.QUICK).size)
         assertEquals(3, benchmarkSuite(BenchmarkMode.FULL).count { it.warmup })
         assertTrue(ReferenceTextTokenizer.starts("abcd efgh!").size == 3)
     }
@@ -118,7 +116,8 @@ class DynamicScoreEngineTest {
     @Test
     fun historicalTextMeasurementsKeepTheirOwnScoresWithoutInventedIntelligence() {
         val historical = run("old", 100).let { block ->
-            block.copy(suiteVersion = 3, plannedTrials = 36, samples = block.samples.filter { it.category != IntelligenceBenchmark.CATEGORY })
+            val manifest = BenchmarkSuiteRegistry.legacyStandard(false).filter { it.category != IntelligenceBenchmark.CATEGORY }
+            block.copy(suiteVersion = 3, plannedTrials = 36, samples = manifest.map { test -> block.samples.first().copy(testId = test.id, category = test.category, workload = test.workload, warmup = test.warmup) })
         }
         val row = DynamicScoreEngine.snapshot(listOf(historical), 1, 2000).rows.single()
         assertEquals(100.0, row.speedScore!!, .0001)
@@ -126,4 +125,30 @@ class DynamicScoreEngineTest {
         assertEquals(100.0, row.overall!!, .0001)
         assertNull(row.intelligence)
     }
+    @Test
+    fun newPlansCoverAllFiveCategoriesAndPreserveOlderManifests() {
+        val quick = benchmarkSuite(BenchmarkMode.QUICK)
+        assertEquals(setOf("speed", "task", "json", "tools", "intelligence"), quick.map { it.category }.toSet())
+        assertEquals(quick.size, quick.map { it.id }.toSet().size)
+        val full = benchmarkSuite(BenchmarkMode.FULL)
+        assertEquals(mapOf("speed" to 18, "task" to 8, "json" to 6, "tools" to 12, "intelligence" to 6), full.groupingBy { it.category }.eachCount())
+        assertEquals(50, full.map { it.id }.toSet().size)
+        val base = run("old", 100)
+        assertEquals(72, benchmarkSuiteForRun(base.copy(suiteVersion = 5)).size)
+        assertEquals(84, benchmarkSuiteForRun(base.copy(suiteVersion = 5, mode = BenchmarkMode.AGENT)).size)
+        assertEquals(6, benchmarkSuiteForRun(base.copy(suiteVersion = 5, mode = BenchmarkMode.QUICK)).size)
+    }
+
+    @Test
+    fun comparisonUsesTheFirstModelAsBaselineAndRejectsDifferentScales() {
+        val rows = DynamicScoreEngine.snapshot(listOf(run("a", 100), run("b", 200)), 1, 2000).rows
+        val first = rows.first { it.profileUid == "a" }
+        val second = rows.first { it.profileUid == "b" }
+        val speed = benchmarkComparisonMetrics(first, second).first { it.label == "Speed score" }
+        assertEquals(50.0, speed.difference!!, .0001)
+        assertEquals(-50.0, benchmarkComparisonMetrics(second, first).first { it.label == "Speed score" }.difference!!, .0001)
+        assertTrue(benchmarkComparisonMetrics(first, second.copy(cohort = "different")).all { it.difference == null })
+        assertNull(benchmarkComparisonMetrics(first.copy(overall = null), second).first().difference)
+    }
+
 }

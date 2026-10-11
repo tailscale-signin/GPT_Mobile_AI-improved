@@ -324,7 +324,13 @@ internal class LocalResearchWorkflow(
                                     }
                                     val text = response?.takeUnless { it.isError }?.let { pageText(it.content.researchPayload()).ifBlank { it.content.researchText() } }.orEmpty()
                                     val outcome = researchReaderOutcome(response, text)
-                                    readerHealth.record(reader.modelToolName, source.url, outcome, researchReaderBillingFailure(response))
+                                    readerHealth.record(
+                                        reader.modelToolName,
+                                        source.url,
+                                        outcome,
+                                        billingFailure = researchReaderBillingFailure(response),
+                                        pageFailure = looksLikeConsentOrScriptShell(text)
+                                    )
                                     if (outcome != ToolOutcome.SUCCESS || response == null) continue
                                     accepted = response
                                     acceptedText = text

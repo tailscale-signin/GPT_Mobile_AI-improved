@@ -82,6 +82,8 @@ jobs:
           --tests 'dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinatorTest'
           --tests 'dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchWorkflowTest'
           --tests 'dev.chungjungsoo.gptmobile.data.research.EvidenceGainPolicyTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.research.SourceIdentityTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflowTest'
 
       - name: Test Amazon HTTP and stdio bridge contracts
         working-directory: mcp/amazon

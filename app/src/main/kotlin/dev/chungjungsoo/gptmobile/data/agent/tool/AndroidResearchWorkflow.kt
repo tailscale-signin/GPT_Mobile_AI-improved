@@ -428,7 +428,13 @@ internal class AndroidResearchWorkflow(
                                     val wasTruncated = ((last?.content?.researchPayload() as? JsonObject)?.get("truncated") == JsonPrimitive(true))
                                     val baseOutcome = researchReaderOutcome(last, retrievedText, minimumCharacters = 80)
                                     val readOutcome = if (baseOutcome == ToolOutcome.SUCCESS && wasTruncated) ToolOutcome.PARTIAL else baseOutcome
-                                    readerHealth.record(reader.modelToolName, source.url, readOutcome, billingFailure = researchReaderBillingFailure(last))
+                                    readerHealth.record(
+                                        reader.modelToolName,
+                                        source.url,
+                                        readOutcome,
+                                        billingFailure = researchReaderBillingFailure(last),
+                                        pageFailure = looksLikeConsentOrScriptShell(retrievedText)
+                                    )
                                     completedEvents.add(
                                         ResearchToolEvent(
                                             query = source.url,

@@ -30,4 +30,10 @@ class SourceIdentityTest {
         assertEquals("", identity.pmid)
         assertTrue(identity.equivalenceKey.isEmpty())
     }
+
+    @Test fun doiResolverUrlsShareTheExplicitDoiIdentity() {
+        for (url in listOf("https://doi.org/10.1234/ABC.XY", "https://dx.doi.org/10.1234/ABC.XY")) {
+            assertEquals("doi:10.1234/abc.xy", SourceIdentity.create(url).equivalenceKey)
+        }
+    }
 }

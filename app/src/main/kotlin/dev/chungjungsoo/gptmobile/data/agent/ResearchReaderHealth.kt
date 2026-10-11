@@ -12,11 +12,13 @@ class ResearchReaderHealth(private val now: () -> Long = System::currentTimeMill
     fun available(reader: String, url: String): Boolean {
         val timestamp = now()
         negatives.entries.removeAll { it.value <= timestamp }
-        return reader !in disabled && (reader to host(url)) !in negatives
+        return reader !in disabled &&
+            (reader to "host:${host(url)}") !in negatives &&
+            (reader to "page:${page(url)}") !in negatives
     }
 
     @Synchronized
-    fun record(reader: String, url: String, outcome: ToolOutcome, billingFailure: Boolean = false) {
+    fun record(reader: String, url: String, outcome: ToolOutcome, billingFailure: Boolean = false, pageFailure: Boolean = false) {
         when {
             billingFailure || outcome == ToolOutcome.AUTH_FAILED -> disabled += reader
             outcome == ToolOutcome.INVALID_RESPONSE -> {
@@ -26,11 +28,20 @@ class ResearchReaderHealth(private val now: () -> Long = System::currentTimeMill
             outcome == ToolOutcome.SUCCESS || outcome == ToolOutcome.PARTIAL -> malformed.remove(reader)
         }
         if (outcome in setOf(ToolOutcome.BLOCKED, ToolOutcome.RATE_LIMITED, ToolOutcome.EMPTY, ToolOutcome.FAILED)) {
-            negatives[reader to host(url)] = now() + 5 * 60 * 1000L
+            // Empty pages, consent shells and individual request failures do not
+            // establish that every other article on this host is unavailable.
+            val scope = if (!pageFailure && outcome in setOf(ToolOutcome.BLOCKED, ToolOutcome.RATE_LIMITED)) {
+                "host:${host(url)}"
+            } else {
+                "page:${page(url)}"
+            }
+            negatives[reader to scope] = now() + 5 * 60 * 1000L
             // Bounded negative cache; eviction changes retry efficiency, never access policy.
             while (negatives.size > 256) negatives.remove(negatives.keys.first())
         }
     }
+
+    private fun page(url: String): String = url.substringBefore('#').take(2048)
 
     private fun host(url: String): String = runCatching { URI(url).host?.lowercase() }.getOrNull() ?: url.take(2048)
 }

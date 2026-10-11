@@ -89,7 +89,7 @@ data class SourceIdentity(
 
         private fun doiFromUrl(url: String): String {
             val uri = runCatching { URI(url) }.getOrNull() ?: return ""
-            return if (uri.host.equals("doi.org", ignoreCase = true) || uri.host.equals("dx.doi.org", ignoreCase = true)) uri.path.orEmpty() else ""
+            return if (uri.host.equals("doi.org", ignoreCase = true) || uri.host.equals("dx.doi.org", ignoreCase = true)) uri.path.orEmpty().removePrefix("/") else ""
         }
 
         private fun normalizeFingerprint(text: String): String = text
@@ -98,4 +98,3 @@ data class SourceIdentity(
             .trim()
     }
 }
-

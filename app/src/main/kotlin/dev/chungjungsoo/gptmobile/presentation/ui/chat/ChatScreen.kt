@@ -866,6 +866,8 @@ fun ChatScreen(
                 onDelegationChanged = chatViewModel::setConversationDelegation,
                 initialReasoning = chatToolConfig.reasoning ?: appAllPlatforms.firstOrNull { it.uid in activePlatformUids }?.reasoning ?: false,
                 onReasoningChanged = chatViewModel::setConversationReasoning,
+                localAssist = featureSettings.localAssist,
+                onLocalAssistChanged = chatViewModel::setLocalAssist,
                 initialCreativity = initialCreativity,
                 locationToolsEnabled = locationToolIds.isNotEmpty() &&
                     availableChatTools.any { it.id in locationToolIds && it.isEnabled && chatToolConfig.isToolEnabled(it.id) },

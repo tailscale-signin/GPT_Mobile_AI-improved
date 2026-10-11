@@ -132,6 +132,43 @@ class DelegationBenchmarkRunnerTest {
         assertTrue(result.error.orEmpty().contains("Unable to resolve host"))
     }
 
+    @Test fun `new tool fixtures independently review both correct and incorrect delegate output`() = runTest {
+        for (correct in listOf(true, false)) {
+            val worker = helper.copy(model = "delegate-model")
+            val judge = source.copy(uid = "judge", model = "judge-model")
+            val settings = delegationBenchmarkSettings(judge.uid).copy(targetProfileUid = worker.uid)
+            val reviews = mutableListOf<String>()
+            val runner = DelegationBenchmarkRunner(
+                createCoordinator = { tools ->
+                    LocalDelegationCoordinator(
+                        source,
+                        { settings },
+                        { listOf(worker, judge) },
+                        { _, _, _ ->
+                            val result = tools.single().execute("fixture", buildJsonObject { put("key", "parcel") })
+                            if (correct) (result.content as ToolResultContent.Text).text else "WRONG"
+                        },
+                        generateReviewerWithProgress = { profile, prompt, _, _, _ ->
+                            assertEquals(judge.uid, profile.uid)
+                            reviews += prompt
+                            """{"review_score":${if (correct) 85 else 30},"verdict":"PASS","issues":[],"corrections":null}"""
+                        }
+                    )
+                },
+                target = worker,
+                config = settings,
+                openPrimary = { _, _ -> error("Tool test must not call primary") },
+                workerTokens = { 0L to 0L },
+                workerCalls = { 0 },
+                reviewerUsage = { ReviewerBenchmarkUsage(calls = reviews.size) }
+            )
+            val sample = runner.run(delegationBenchmarkSuite(BenchmarkMode.QUICK).first { it.id == "delegation-tools" })
+            assertEquals(sample.error, if (correct) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED, sample.outcome)
+            assertEquals(if (correct) 85 else 30, sample.delegation?.reviewerScore)
+            assertTrue(reviews.last().contains("Trusted fixture truth"))
+        }
+    }
+
     private val source = PlatformV2(uid = "primary", name = "Primary", compatibleType = ClientType.OPENAI)
     private val helper = PlatformV2(uid = "helper", name = "Helper", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.2:8080")
     private val config = ModelDelegationSettings(enabled = true, targetProfileUid = "helper", maxPages = 1, crawlDepth = 0, maxLocalModelCalls = 10)

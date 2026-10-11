@@ -124,6 +124,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
                 Text("${trials.count { it.finished && !it.completed }} failed · ${trials.count { it.historical }} historical · ${qualifications.count { it.status == dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus.QUALIFIED }} qualified plans", style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = viewModel::clearRuntimeEvidence, enabled = comparison == null && !busy) { Text("Clear runtime evidence") }
             }
+            LocalAssistToggle(settings.localAssist, { viewModel.updateTuning(assist = it) }, enabled = !busy)
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide tuning" else "Performance tuning") }
             if (expanded) {
                 Text("GPU/NPU experiments", style = MaterialTheme.typography.titleMedium)
@@ -145,13 +146,6 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
                     }
                 }
                 Text("Model default follows the package's settings. On enables speculative decoding only for packages that declare draft or MTP support; other packages use ordinary decoding. Compare speed and answer quality in Benchmarks.", style = MaterialTheme.typography.bodySmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Local Assist (Trial)")
-                        Text("Select complete research records locally before remote synthesis. Warm worker only; off by default.", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(settings.localAssist, { viewModel.updateTuning(assist = it) }, enabled = !busy)
-                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Native performance counters", Modifier.weight(1f))
                     Switch(settings.localNativeMetrics, { viewModel.updateTuning(nativeMetrics = it) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Native performance counters" })

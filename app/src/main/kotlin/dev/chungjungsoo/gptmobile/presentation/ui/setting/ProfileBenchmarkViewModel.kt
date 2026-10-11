@@ -29,7 +29,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
-import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
@@ -43,6 +42,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -71,9 +72,14 @@ class ProfileBenchmarkViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     internal val scoreSnapshot = store.snapshot
     val history = store.history
+    private val finishedRuns = history.map { runs -> runs.filter { it.finished } }.distinctUntilChanged()
+    internal val retests = finishedRuns.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRetests(it) }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val scoreboardRuns = finishedRuns.map { runs -> runs.mapNotNull(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::fromRun) }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val localEnvironment = combine(settings.observeLocalRuntimeBackend(), settings.observeFeatureSettings()) { backend, features ->
         "$backend|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|" +
-            "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}"
+            "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${features.localExecutionPolicy}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}"
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
     val delegationSettings = settings.observeFeatureSettings().map { it.delegation.normalized() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings())
@@ -87,15 +93,24 @@ class ProfileBenchmarkViewModel @Inject constructor(
 
     private val delegateUid = MutableStateFlow("")
     private val selectedDelegateUids = MutableStateFlow<Set<String>?>(null)
-    val delegates = combine(profiles, selected, delegationSettings) { list, primary, config ->
-        val reviewer = list.firstOrNull { it.uid == config.reviewerProfileUid }
+    private val reviewerUid = MutableStateFlow<String?>(null)
+    val benchmarkReviewers = combine(profiles, selected) { list, primary ->
+        list.filter { it.enabled && it.uid != primary?.uid && !it.excludesMemory() && it.model.isNotBlank() }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val benchmarkReviewer = combine(benchmarkReviewers, reviewerUid, delegationSettings) { list, uid, config ->
+        list.firstOrNull { it.uid == (uid ?: config.reviewerProfileUid) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    fun selectBenchmarkReviewer(profile: PlatformV2) {
+        if (!execution.isRunning) reviewerUid.value = profile.uid
+    }
+    val delegates = combine(profiles, selected, benchmarkReviewer) { list, primary, reviewer ->
         list.filter {
             it.enabled &&
+                it.model.isNotBlank() &&
                 it.uid != primary?.uid &&
-                (!config.reviewerEnabled || it.uid != reviewer?.uid) &&
-                (!config.reviewerEnabled || reviewer == null || !it.model.trim().equals(reviewer.model.trim(), ignoreCase = true)) &&
+                it.uid != reviewer?.uid &&
+                (reviewer == null || !it.model.trim().equals(reviewer.model.trim(), ignoreCase = true)) &&
                 !it.excludesMemory() &&
-                (config.allowRemoteWorkers || it.isPrivateDestination()) &&
                 !(primary?.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -222,7 +237,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
 
     fun start(mode: BenchmarkMode) {
         if (mode == BenchmarkMode.DELEGATION) {
-            startDelegationBatch()
+            startDelegationBatch(BenchmarkMode.QUICK)
             return
         }
         val profile = selected.value ?: return
@@ -245,8 +260,10 @@ class ProfileBenchmarkViewModel @Inject constructor(
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating profile", 0, benchmarkSuite(mode).size)
         launchBenchmark {
+            var fixtureContext: Int? = null
             try {
                 chats.validateBenchmarkProfile(profile)
+                fixtureContext = chats.benchmarkContextTokens(profile)
                 if (mode == BenchmarkMode.DELEGATION) {
                     check(config.enabled && config.processingOwnership < 100) { "Enable delegation and give the helper a share of the work before testing." }
                     check(config.researchEnabled && config.maxPages > 0) { "Enable delegate research and allow at least one page for the research test." }
@@ -261,7 +278,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 mutableError.value = safeMessage(error)
                 return@launchBenchmark
             }
-            val suite = benchmarkSuite(mode)
+            val suite = benchmarkSuite(mode, fixtureContext)
             var run = BenchmarkRun(
                 UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                 profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
@@ -269,7 +286,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                 engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
-                delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION }
+                delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION },
+                fixtureContextTokens = fixtureContext
             )
             var currentTest = suite.first()
             try {
@@ -307,7 +325,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         )
                         store.save(run)
                     },
-                    stopOnError = mode != BenchmarkMode.DELEGATION
+                    stopOnError = false
                 )
                 if (stoppedReason != null) {
                     run = run.copy(stoppedReason = stoppedReason)
@@ -373,9 +391,12 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         mutableProgress.value = BenchmarkProgress(target.name, "Validating profile", baseProgress, totalTests)
                         chats.validateBenchmarkProfile(target)
                         store.save(run)
+                        val fixtureContext = chats.benchmarkContextTokens(target)
+                        val localSuite = benchmarkSuite(mode, fixtureContext)
+                        run = run.copy(fixtureContextTokens = fixtureContext)
                         val supportsTools = chats.supportsBenchmarkTools(target)
                         val stoppedReason = runBenchmarkSuite(
-                            suite = suite,
+                            suite = localSuite,
                             runCase = { index, test ->
                                 currentTest = test
                                 if (target.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
@@ -395,7 +416,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                                 )
                                 store.save(run)
                             },
-                            stopOnError = true
+                            stopOnError = false
                         )
                         if (stoppedReason != null) {
                             run = run.copy(stoppedReason = stoppedReason)
@@ -431,17 +452,19 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }
 
     private fun logDelegationRating(run: BenchmarkRun) {
+        val portable = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard.fromRun(run)?.let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::evaluate)
         val rating = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkRating(listOf(run))
         val rankings = dev.chungjungsoo.gptmobile.data.benchmark.delegateRankings(store.history.value, run.configKey, run.delegationSettings)
         val rank = rankings.indexOfFirst { it.run.id == run.id }.takeIf { it >= 0 }?.plus(1)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "DelegationBenchmark",
-            "DELEGATION_SCORE · run=${run.id} score=${rating.score} rank=$rank passed=${rating.passed}/${rating.attempts} " +
+            "DELEGATION_SCORE · run=${run.id} score=${portable?.score ?: rating.score} rank=$rank passed=${rating.passed}/${rating.attempts} " +
                 "toolSuccessPercent=${rating.toolTaskSuccessPercent} tokPerSec=${rating.medianDecodeSpeed} estimated=${rating.estimated}"
         )
     }
 
-    private fun startDelegationBatch() {
+    fun startDelegationBatch(plan: BenchmarkMode) {
+        require(plan == BenchmarkMode.QUICK || plan == BenchmarkMode.FULL)
         val profile = selected.value ?: return
         val helpers = selectedDelegates.value
         if (execution.isRunning || !mutableReady.value) return
@@ -458,8 +481,9 @@ class ProfileBenchmarkViewModel @Inject constructor(
             mutableError.value = "Select at least one delegate to benchmark."
             return
         }
-        val baseConfig = delegationSettings.value
-        val suite = benchmarkSuite(BenchmarkMode.DELEGATION)
+        val chosenReviewer = benchmarkReviewer.value
+        val baseConfig = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSettings(chosenReviewer?.uid.orEmpty())
+        val suite = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSuite(plan)
         val totalTests = suite.size * helpers.size
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating delegation batch", 0, totalTests)
@@ -490,7 +514,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                         profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
                         BenchmarkMode.DELEGATION, System.currentTimeMillis(), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
-                        plannedTrials = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSuite().size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
+                        plannedTrials = suite.size, delegationPlan = plan, delegationSuiteVersion = 1,
+                        reviewerProvider = reviewer?.compatibleType?.name, reviewerModel = reviewer?.model, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                         device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                         engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
                         delegationSettings = config

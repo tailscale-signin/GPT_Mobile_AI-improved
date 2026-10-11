@@ -11,6 +11,9 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Apply bounded fixture settings to a copy, including provider-specific overrides. */
 internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): Int = when {
     category == "speed" -> 512
+    category == IntelligenceBenchmark.CATEGORY && profile.compatibleType == ClientType.LITERT_LM -> 512
+    category == IntelligenceBenchmark.CATEGORY -> 4096
+    profile.compatibleType == ClientType.LITERT_LM -> 256
     profile.model.contains("gpt-oss", true) -> 8192
     else -> 2048
 }
@@ -45,7 +48,7 @@ internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean, category
         model = benchmarkModel,
         // Throughput has a fixed window; correctness reserves enough space for a final answer.
         // Mandatory-reasoning GPT-OSS uses supported low effort, recorded with the sample.
-        reasoning = false,
+        reasoning = category == IntelligenceBenchmark.CATEGORY && profile.reasoning,
         disableAllTools = !allowTools, temperature = 0f, maxTokens = outputBudget, stream = true,
         openRouterRouting = openRouter, ollamaOptions = ollama, batchMode = false,
         systemPrompt = "Follow the benchmark instruction exactly. Use only the provided fixture tool when requested."

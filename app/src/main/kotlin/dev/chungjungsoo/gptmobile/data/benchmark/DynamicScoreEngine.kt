@@ -21,7 +21,10 @@ internal data class BenchmarkScoreRow(
     val sampleCount: Int,
     val explanation: String,
     val speedByBand: Map<String, Double> = emptyMap(),
-    val latencyByBand: Map<String, Double> = emptyMap()
+    val latencyByBand: Map<String, Double> = emptyMap(),
+    val accuracyByCategory: Map<String, Double> = emptyMap(),
+    val unsupportedCategories: Set<String> = emptySet(),
+    val intelligence: IntelligenceScore? = null
 )
 
 @Serializable
@@ -32,11 +35,22 @@ internal data class BenchmarkScoreSnapshot(
     val rows: List<BenchmarkScoreRow>
 )
 
+internal fun benchmarkScoreDimensions(row: BenchmarkScoreRow?, local: Boolean): List<BenchmarkDimension> {
+    val weights = if (local) listOf(40, 25, 10, 10, 15) else listOf(35, 20, 20, 15, 10)
+    return listOf(
+        BenchmarkDimension("Quality", row?.quality, weights[0], "Equal weighting of accuracy categories; unsupported capabilities are excluded"),
+        BenchmarkDimension("Reliability", row?.reliability, weights[1], "Completed requests / attempted requests"),
+        BenchmarkDimension("Speed", row?.speedScore, weights[2], "Equal average of short, medium and long rates against verified cohort leaders"),
+        BenchmarkDimension("First response", row?.latencyScore, weights[3], "First text latency against verified leaders in each workload band"),
+        BenchmarkDimension("Consistency", row?.consistency, weights[4], "Timing variation within each of the three workload bands")
+    )
+}
+
 /** Pure scoring across all enrolled measurements. Presentation filters never enter this API. */
 internal object DynamicScoreEngine {
     const val FRESHNESS_MS = 30L * 24 * 60 * 60 * 1000
-    fun higher(value: Double?, anchor: Double?): Double? = if (valid(value) && valid(anchor)) 100.0 * value!! / anchor!! else null
-    fun lower(value: Double?, anchor: Double?): Double? = if (valid(value) && valid(anchor)) 100.0 * anchor!! / value!! else null
+    fun higher(value: Double?, anchor: Double?): Double? = if (valid(value) && valid(anchor)) (100.0 * value!! / anchor!!).coerceIn(0.0, 100.0) else null
+    fun lower(value: Double?, anchor: Double?): Double? = if (valid(value) && valid(anchor)) (100.0 * anchor!! / value!!).coerceIn(0.0, 100.0) else null
     private fun valid(value: Double?) = value != null && value.isFinite() && value > 0
     fun median(values: List<Double>): Double? {
         val sorted = values.filter { it.isFinite() }.sorted()
@@ -55,17 +69,18 @@ internal object DynamicScoreEngine {
             run.provider in setOf("LLAMA", "OLLAMA") -> "self-hosted:${run.networkPolicy}"
             else -> "remote:${run.networkPolicy}"
         },
-        "warm-serial-v1"
+        "warm-serial-v1",
+        "fixture-context:${run.fixtureContextTokens ?: "remote-standard"}"
     ).joinToString("|")
 
     fun snapshot(history: List<BenchmarkRun>, generation: Long, now: Long, activeRevisions: Map<String, String>? = null): BenchmarkScoreSnapshot {
-        val fresh = history.filter { it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION && it.measurementVersion == 2 && it.mode != BenchmarkMode.DELEGATION && now - it.startedAt in 0..FRESHNESS_MS }
+        val fresh = history.filter { it.suiteVersion in 3..BenchmarkSuiteRegistry.VERSION && it.measurementVersion == 2 && it.mode != BenchmarkMode.DELEGATION && now - it.startedAt in 0..FRESHNESS_MS }
         // The most recently enrolled revision is active; previous revisions remain in history.
         val revisions = activeRevisions ?: fresh.groupBy { it.profileUid }.mapValues { (_, runs) -> runs.maxBy { it.startedAt }.configKey }
         val compatible = fresh.filter { revisions[it.profileUid] == it.configKey }
         val aggregated = compatible.groupBy { listOf(it.profileUid, it.configKey, cohort(it), it.backend.orEmpty(), it.accelerator.orEmpty()) }.values.map { group ->
             val complete = group.filter { block ->
-                val manifest = benchmarkSuite(block.mode).associateBy { it.id }
+                val manifest = benchmarkSuiteForRun(block).associateBy { it.id }
                 block.finished &&
                     !block.canceled &&
                     block.stoppedReason == null &&
@@ -78,7 +93,7 @@ internal object DynamicScoreEngine {
             }.sortedByDescending { it.startedAt }.take(5)
             val run = group.maxBy { it.startedAt }
             val source = complete.ifEmpty { listOf(run) }
-            val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) }
+            val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED, BenchmarkOutcome.UNSUPPORTED, BenchmarkOutcome.SKIPPED) }
             val verified = run.mode in setOf(BenchmarkMode.FULL, BenchmarkMode.AGENT) &&
                 complete.isNotEmpty() &&
                 complete.all { block -> listOf("short", "medium", "long").all { band -> block.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED } >= 5 } }
@@ -94,16 +109,26 @@ internal object DynamicScoreEngine {
                 }
             )
             val latency = median(samples.filter { it.completed }.mapNotNull { it.firstTextMs?.toDouble() })
-            val qualityCases = samples.filter { it.category != "speed" && it.completed }
+            val qualityCases = samples.filter { it.category != "speed" && it.category != IntelligenceBenchmark.CATEGORY }
             val quality = qualityCases.groupBy { it.workload }.values.takeIf { it.isNotEmpty() }?.map { category -> 100.0 * category.count { it.outcome == BenchmarkOutcome.PASSED } / category.size }?.average()
-            val reliability = samples.takeIf { it.isNotEmpty() }?.let { 100.0 * it.count { sample -> sample.completed } / it.size }
+            val reliability = samples.filter { it.category != IntelligenceBenchmark.CATEGORY }.takeIf { it.isNotEmpty() }?.let { 100.0 * it.count { sample -> sample.completed } / it.size }
             val consistency = samples.filter { it.category == "speed" }.groupBy { it.workload }.values.mapNotNull { band ->
                 band.mapNotNull { it.referenceSpeed }.takeIf { it.size >= 3 && it.average() > 0 }?.let { values ->
                     val mean = values.average()
                     100.0 * (1 - sqrt(values.map { (it - mean) * (it - mean) }.average()) / mean).coerceIn(0.0, 1.0)
                 }
             }.takeIf { it.size == 3 }?.average()
-            BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional or incomplete; cannot establish an official anchor", speedByBand, latencyByBand)
+            val accuracy = qualityCases.groupBy { it.category }.mapValues { (_, cases) -> 100.0 * cases.count { it.outcome == BenchmarkOutcome.PASSED } / cases.size }
+            val unsupported = source.flatMap { it.samples }.filter { it.outcome == BenchmarkOutcome.UNSUPPORTED }.map { it.category }.toSet()
+            val intelligence = source.maxBy { it.startedAt }.takeIf { it.suiteVersion >= 5 }?.let {
+                when {
+                    it.suiteVersion >= 6 -> IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK)
+                    it.mode != BenchmarkMode.QUICK -> IntelligenceBenchmark.score(it.samples)
+                    else -> null
+                }
+            }
+            val timingCoverage = listOf("short", "medium", "long").joinToString { band -> "$band ${run.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED }}/5" }
+            BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional timing: $timingCoverage successful timed trials; a complete Standard run is required to establish an anchor", speedByBand, latencyByBand, accuracy, unsupported, intelligence)
         }
         val rows = aggregated.map { row ->
             val cohortRows = aggregated.filter { it.cohort == row.cohort && it.verified }
@@ -113,7 +138,10 @@ internal object DynamicScoreEngine {
             val local = row.cohort.contains("device:")
             val weights = if (local) listOf(40, 25, 10, 10, 15) else listOf(35, 20, 20, 15, 10)
             val dimensions = listOf(row.quality, row.reliability, speedScore, latencyScore, row.consistency)
-            val requiredQuality = compatible.filter { it.id in row.sourceRunIds }.all { block -> block.samples.count { it.category != "speed" && it.completed } == if (block.mode == BenchmarkMode.AGENT) 30 else 18 }
+            val requiredQuality = compatible.filter { it.id in row.sourceRunIds }.all { block ->
+                val manifest = benchmarkSuiteForRun(block).filter { it.category != "speed" && it.category != IntelligenceBenchmark.CATEGORY }
+                manifest.all { test -> block.samples.any { it.testId == test.id && it.outcome !in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.SKIPPED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) } }
+            }
             val overall = if (row.verified && requiredQuality && dimensions.all { it != null }) minOf(dimensions.zip(weights).sumOf { (value, weight) -> value!! * weight } / 100, row.quality!!, row.reliability!!) else null
             row.copy(
                 speedScore = speedScore,

@@ -330,8 +330,28 @@ class ChatRepositoryImpl(
 
     override suspend fun supportsBenchmarkTools(platform: PlatformV2): Boolean = when (platform.compatibleType) {
         ClientType.FREE -> FreeAiProvider.requireFor(platform).supportsTools
-        ClientType.LITERT_LM -> localModelSupportsTools(platform)
+        ClientType.LITERT_LM -> {
+            val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
+            localRuntime.inspectModel(selected.path)?.tools != false
+        }
         else -> true
+    }
+
+    override suspend fun benchmarkContextTokens(platform: PlatformV2): Int? {
+        if (platform.compatibleType != ClientType.LITERT_LM) return null
+        val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
+        val entry = modelCatalogRepository.getCachedVisibleEntries().firstOrNull { it.id == selected.modelId }
+            ?.let { item -> selected.record?.let { dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.forInstalledFile(item, it.fileName) } ?: item }
+        return minOf(
+            localRuntime.inspectModel(selected.path)?.contextTokens ?: Int.MAX_VALUE,
+            dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens(
+                requestedMaxTokens = Int.MAX_VALUE,
+                accelerator = platform.accelerator.orEmpty(),
+                entry = entry,
+                deviceSocModel = deviceSocModel,
+                deviceRamGb = localRuntime.deviceRamGb
+            )
+        ).let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkWorkloadPlanner::contextTier)
     }
 
     /** Resolve the installed package before exposing tools.
@@ -358,7 +378,7 @@ class ChatRepositoryImpl(
         benchmarkCategory: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
         val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
-        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = false)
+        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory)
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)

@@ -33,6 +33,9 @@ interface ChatRepository {
 
     suspend fun supportsBenchmarkTools(platform: PlatformV2): Boolean = false
 
+    /** Null means the remote standard fixture; local fixtures use the actual export limit. */
+    suspend fun benchmarkContextTokens(platform: PlatformV2): Int? = null
+
     /** Validate setup before recording or sending any benchmark requests. */
     suspend fun validateBenchmarkProfile(platform: PlatformV2) = Unit
 

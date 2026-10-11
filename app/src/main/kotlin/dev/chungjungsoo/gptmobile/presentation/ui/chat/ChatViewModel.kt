@@ -500,6 +500,8 @@ class ChatViewModel @Inject constructor(
     private fun drainPromptQueueIfIdle() {
         if (durablePromptQueue != null) return
         if (isGenerationBusy() || queuedPrompts.isEmpty() || !hasUnpausedProfile()) return
+        val selected = queuedPrompts.first().profileUid
+        if (selected != null && (selected !in _activePlatformUids.value || selected in _disabledPlatformUids.value)) return
         val next = queuedPrompts.removeFirst()
         _queuedPromptCount.value = queuedPrompts.size
         sendQuestion(next.text, next.attachments, clearComposer = false, profileUid = next.profileUid)

@@ -21,7 +21,7 @@ The most material unfinished implementation is the complete settings inventory f
 
 | ID | Status | Implementation / remaining acceptance |
 |---|---|---|
-| 001 | implemented-unverified | ChatProfileManagementDialog; menu targets conversation membership and pause state. UI preserves one unpaused profile; legacy queue can still pause all. |
+| 001 | implemented-unverified | ChatProfileManagementDialog; menu targets conversation membership and pause state. UI preserves one unpaused profile; legacy queue can still pause all. Durable queue rechecks membership transactionally and preserves removed-target prompts for explicit review. |
 | 002 | implemented-unverified | SettingsSearchRegistry plus owning memory/privacy/profile descriptors; route/tab and control highlighting. Further nested provider and delegation fields still need coverage. |
 | 003 | implemented-unverified | Visible-card lifecycle cooldown clock; one scheduled daily-limit expiry; root timer removed. Physical trace pending. |
 | 004 | not-started | A new app-wide adaptive shell is not implemented; existing adaptive conversation layout is retained. |

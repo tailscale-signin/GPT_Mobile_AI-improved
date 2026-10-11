@@ -304,6 +304,27 @@ class ChatPromptQueueTest {
     }
 
     @Test
+    fun `removed one-message queue target waits without losing its accepted prompt`() = runTest(dispatcher) {
+        val model = createViewModel(availableProfileCount = 2)
+        runCurrent()
+        model.setPlatformMembership("profile-2", true)
+        runCurrent()
+        model.selectNextMessageProfile("profile-2")
+        send(model, "Wait for my selected profile")
+        model.setPlatformMembership("profile-2", false)
+        runCurrent()
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        assertTrue(submissions.isEmpty())
+        assertEquals(1, model.queuedPromptCount.value)
+        model.setPlatformMembership("profile-2", true)
+        runCurrent()
+        assertEquals(listOf("profile-2"), starts.single().map { it.platform.uid })
+        assertEquals(0, model.queuedPromptCount.value)
+    }
+
+    @Test
     fun `one-message choice rejects profiles outside membership and combined mode`() = runTest(dispatcher) {
         val model = createViewModel(availableProfileCount = 2)
         runCurrent()

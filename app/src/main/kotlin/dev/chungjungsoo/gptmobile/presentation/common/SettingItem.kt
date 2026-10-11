@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -124,7 +123,7 @@ fun SettingsHelpIcon(
     val helpLabel = stringResource(R.string.help_action, title)
     Surface(
         onClick = { open = true },
-        modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = helpLabel },
+        modifier = modifier.size(48.dp).semantics { contentDescription = helpLabel },
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer

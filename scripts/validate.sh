@@ -8,7 +8,7 @@ GRADLE=(./gradlew --no-daemon --stacktrace)
 run_resources() {
     python3 scripts/check_android_resources.py
     python3 scripts/generate_app_icon.py --check
-    python3 scripts/check_qnn_provenance.py --allow-unqualified
+    python3 scripts/check_qnn_provenance.py
 }
 
 case "$TASK" in

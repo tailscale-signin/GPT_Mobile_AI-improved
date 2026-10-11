@@ -54,10 +54,12 @@ internal fun classifyScoreboardSubmission(state: String, comments: List<String>)
         return ScoreboardSubmissionStatus(ScoreboardSubmissionStatus.State.ACCEPTED, "Accepted and published to the online scoreboard.")
     }
     val rejection = comments.lastOrNull { it.startsWith("Scoreboard validation failed:") }
-    if (rejection != null) return ScoreboardSubmissionStatus(
-        ScoreboardSubmissionStatus.State.REJECTED,
-        rejection.substringAfter(':').trim().take(240)
-    )
+    if (rejection != null) {
+        return ScoreboardSubmissionStatus(
+            ScoreboardSubmissionStatus.State.REJECTED,
+            rejection.substringAfter(':').trim().take(240)
+        )
+    }
     return ScoreboardSubmissionStatus(ScoreboardSubmissionStatus.State.PENDING, "Waiting for repository validation. This screen will check again shortly.")
 }
 
@@ -148,7 +150,11 @@ class ScoreboardRepository @Inject constructor(
         require(issue in 1..100_000_000) { "Invalid submission number." }
         val account = checkNotNull(sharingAccounts().firstOrNull { it.connectionUid == connectionUid }) { "Reconnect the GitHub account used to share this result." }
         val bytes = account.secretRef?.let { vault.read(it) }
-        val token = try { bytes?.decodeToString()?.trim() } finally { bytes?.fill(0) }
+        val token = try {
+            bytes?.decodeToString()?.trim()
+        } finally {
+            bytes?.fill(0)
+        }
         check(!token.isNullOrBlank()) { "Reconnect the GitHub account used to share this result." }
         suspend fun get(path: String) = client.get("https://api.github.com/repos/$REPOSITORY$path") {
             header(HttpHeaders.Authorization, "Bearer $token")

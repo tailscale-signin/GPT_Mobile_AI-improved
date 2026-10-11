@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +20,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class ScoreboardShareState(val accounts: List<ToolConnection> = emptyList(), val busy: Boolean = false, val message: String? = null, val issue: Long? = null, val status: ScoreboardSubmissionStatus.State? = null)
@@ -88,16 +88,14 @@ class ScoreboardViewModel @Inject constructor(store: BenchmarkStore, private val
         viewModelScope.launch { checkSubmissionStatus(issue, account) }
     }
 
-    private suspend fun checkSubmissionStatus(issue: Long, account: String): ScoreboardSubmissionStatus? {
-        return try {
-            val status = repository.submissionStatus(issue, account)
-            mutableShare.value = mutableShare.value.copy(status = status.state, message = status.message)
-            if (status.state == ScoreboardSubmissionStatus.State.ACCEPTED) repository.refresh()
-            status
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            mutableShare.value = mutableShare.value.copy(message = "Could not check validation status. Try again shortly.")
-            null
-        }
+    private suspend fun checkSubmissionStatus(issue: Long, account: String): ScoreboardSubmissionStatus? = try {
+        val status = repository.submissionStatus(issue, account)
+        mutableShare.value = mutableShare.value.copy(status = status.state, message = status.message)
+        if (status.state == ScoreboardSubmissionStatus.State.ACCEPTED) repository.refresh()
+        status
+    } catch (error: Exception) {
+        if (error is CancellationException) throw error
+        mutableShare.value = mutableShare.value.copy(message = "Could not check validation status. Try again shortly.")
+        null
     }
 }

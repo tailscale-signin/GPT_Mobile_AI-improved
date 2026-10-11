@@ -446,17 +446,19 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             }
                         }
                         item { BenchmarkAction("Runtime diagnostics", Icons.Rounded.Memory, showToolHealth, { showToolHealth = !showToolHealth }, modifier = Modifier.fillMaxWidth()) }
-                        if (showToolHealth) item {
-                            BenchmarkPanel("Local Tool Health") {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(health.lastStatus, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                                    SettingsHelpIcon("App-side argument, budget and dispatch outcomes are distinct from model or provider failures. Omitted tools are unavailable in this request. This panel excludes arguments, precise locations and credentials.")
+                        if (showToolHealth) {
+                            item {
+                                BenchmarkPanel("Local Tool Health") {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(health.lastStatus, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                        SettingsHelpIcon("App-side argument, budget and dispatch outcomes are distinct from model or provider failures. Omitted tools are unavailable in this request. This panel excludes arguments, precise locations and credentials.")
+                                    }
+                                    Text("Context ${health.contextTokens} · evidence ${health.evidenceBytes} bytes/result", style = MaterialTheme.typography.bodySmall)
+                                    Text("Selected: ${health.selected.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall)
+                                    if (health.omitted.isNotEmpty()) Text("Omitted for context: ${health.omitted.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Payload ${health.retainedBytes} → admitted ${health.admittedBytes} bytes · supporting observations=${health.supportingEvidence}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Last: ${health.lastTool} · ${health.lastError ?: "no structured error"} · dispatched=${health.dispatched} · compacted=${health.compacted}", style = MaterialTheme.typography.bodySmall)
                                 }
-                                Text("Context ${health.contextTokens} · evidence ${health.evidenceBytes} bytes/result", style = MaterialTheme.typography.bodySmall)
-                                Text("Selected: ${health.selected.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall)
-                                if (health.omitted.isNotEmpty()) Text("Omitted for context: ${health.omitted.joinToString()}", style = MaterialTheme.typography.bodySmall)
-                                Text("Payload ${health.retainedBytes} → admitted ${health.admittedBytes} bytes · supporting observations=${health.supportingEvidence}", style = MaterialTheme.typography.bodySmall)
-                                Text("Last: ${health.lastTool} · ${health.lastError ?: "no structured error"} · dispatched=${health.dispatched} · compacted=${health.compacted}", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

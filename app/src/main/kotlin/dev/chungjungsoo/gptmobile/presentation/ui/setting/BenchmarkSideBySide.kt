@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkComparisonMetric
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow
@@ -72,7 +74,10 @@ internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<P
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Compare against", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                    IconButton(onClick = { firstKey = second.selectionKey(); secondKey = first.selectionKey() }) { Icon(Icons.Rounded.SwapHoriz, "Swap baseline and comparison") }
+                    IconButton(onClick = {
+                        firstKey = second.selectionKey()
+                        secondKey = first.selectionKey()
+                    }) { Icon(Icons.Rounded.SwapHoriz, "Swap baseline and comparison") }
                 }
                 ComparisonPicker("2 · Challenger", second, candidates, ::name) { secondKey = it.selectionKey() }
             }
@@ -83,14 +88,15 @@ internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<P
             Text("Two charts · scores / 100", style = MaterialTheme.typography.titleMedium)
             // Keep both charts side by side, with a readable minimum width on phones.
             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val chartWidth = ((maxWidth - 12.dp) / 2).coerceAtLeast(152.dp)
+                val viewportWidth = maxWidth
+                val chartWidth = ((viewportWidth - 12.dp) / 2).coerceAtLeast(152.dp)
                 val scroll = rememberScrollState()
                 Column {
                     Row(Modifier.horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ComparisonChart("1", name(first), metrics, true, Modifier.width(chartWidth))
                         ComparisonChart("2", name(second), metrics, false, Modifier.width(chartWidth))
                     }
-                    if (maxWidth < chartWidth * 2 + 12.dp) Text("Swipe horizontally to see both charts", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall)
+                    if (viewportWidth < chartWidth * 2 + 12.dp) Text("Swipe horizontally to see both charts", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall)
                 }
             }
             Text("Numbered results", style = MaterialTheme.typography.titleMedium)
@@ -149,7 +155,10 @@ private fun ComparisonPicker(label: String, selected: BenchmarkScoreRow, rows: L
                         Text(name(row))
                         Text("Suite ${row.cohort.split('|').getOrNull(1)} · ${row.cohort.substringAfterLast('|')}", style = MaterialTheme.typography.labelSmall)
                     }
-                }, onClick = { onSelect(row); expanded = false }, leadingIcon = { Icon(if (row.cohort.contains("device:")) Icons.Rounded.Memory else Icons.Rounded.Cloud, null) })
+                }, onClick = {
+                    onSelect(row)
+                    expanded = false
+                }, leadingIcon = { Icon(if (row.cohort.contains("device:")) Icons.Rounded.Memory else Icons.Rounded.Cloud, null) })
             }
         }
     }
@@ -159,9 +168,9 @@ private fun ComparisonPicker(label: String, selected: BenchmarkScoreRow, rows: L
 private fun ComparisonChart(number: String, name: String, metrics: List<BenchmarkComparisonMetric>, first: Boolean, modifier: Modifier) {
     Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.BarChart, null, tint = MaterialTheme.colorScheme.primary)
-                Text("$number · $name", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("$number · $name", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             HorizontalDivider()
             metrics.take(10).forEachIndexed { index, metric ->

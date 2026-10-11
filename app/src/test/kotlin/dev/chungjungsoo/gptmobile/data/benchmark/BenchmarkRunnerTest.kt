@@ -394,6 +394,7 @@ class BenchmarkRunnerTest {
     private fun session(events: Flow<ProviderEvent>) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = events
     }
+
     @Test
     fun `batched intelligence retains per domain grades rather than all or nothing`() = runTest {
         val test = IntelligenceBenchmark.batches.first()
@@ -405,5 +406,4 @@ class BenchmarkRunnerTest {
         assertEquals(5, sample.intelligenceAnswers.values.count { it })
         assertEquals(6, IntelligenceBenchmark.scoreBatches(listOf(sample), true).answered)
     }
-
 }

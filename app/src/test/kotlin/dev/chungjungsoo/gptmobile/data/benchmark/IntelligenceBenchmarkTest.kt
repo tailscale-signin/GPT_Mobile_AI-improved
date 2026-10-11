@@ -80,5 +80,4 @@ class IntelligenceBenchmarkTest {
         val bad = batchAnswers().mapIndexed { index, sample -> if (index == 0) sample.copy(intelligenceAnswers = grades, outcome = BenchmarkOutcome.FAILED) else sample }
         assertEquals(100.0 * 35 / 36, IntelligenceBenchmark.scoreBatches(bad, false).score!!, .0001)
     }
-
 }

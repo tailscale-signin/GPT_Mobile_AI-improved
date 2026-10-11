@@ -125,6 +125,7 @@ class DynamicScoreEngineTest {
         assertEquals(100.0, row.overall!!, .0001)
         assertNull(row.intelligence)
     }
+
     @Test
     fun newPlansCoverAllFiveCategoriesAndPreserveOlderManifests() {
         val quick = benchmarkSuite(BenchmarkMode.QUICK)
@@ -150,5 +151,4 @@ class DynamicScoreEngineTest {
         assertTrue(benchmarkComparisonMetrics(first, second.copy(cohort = "different")).all { it.difference == null })
         assertNull(benchmarkComparisonMetrics(first.copy(overall = null), second).first().difference)
     }
-
 }

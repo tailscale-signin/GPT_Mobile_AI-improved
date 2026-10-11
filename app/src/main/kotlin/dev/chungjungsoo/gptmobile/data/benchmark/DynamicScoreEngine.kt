@@ -121,7 +121,11 @@ internal object DynamicScoreEngine {
             val accuracy = qualityCases.groupBy { it.category }.mapValues { (_, cases) -> 100.0 * cases.count { it.outcome == BenchmarkOutcome.PASSED } / cases.size }
             val unsupported = source.flatMap { it.samples }.filter { it.outcome == BenchmarkOutcome.UNSUPPORTED }.map { it.category }.toSet()
             val intelligence = source.maxBy { it.startedAt }.takeIf { it.suiteVersion >= 5 }?.let {
-                if (it.suiteVersion >= 6) IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK) else if (it.mode != BenchmarkMode.QUICK) IntelligenceBenchmark.score(it.samples) else null
+                when {
+                    it.suiteVersion >= 6 -> IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK)
+                    it.mode != BenchmarkMode.QUICK -> IntelligenceBenchmark.score(it.samples)
+                    else -> null
+                }
             }
             val timingCoverage = listOf("short", "medium", "long").joinToString { band -> "$band ${run.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED }}/5" }
             BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional timing: $timingCoverage successful timed trials; a complete Standard run is required to establish an anchor", speedByBand, latencyByBand, accuracy, unsupported, intelligence)

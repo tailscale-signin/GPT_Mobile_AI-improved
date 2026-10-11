@@ -3,8 +3,11 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -62,13 +65,13 @@ internal fun BenchmarkAction(label: String, icon: ImageVector, selected: Boolean
 
 @Composable
 internal fun BenchmarkPlanPicker(mode: BenchmarkMode, enabled: Boolean = true, onSelect: (BenchmarkMode) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         listOf(BenchmarkMode.QUICK, BenchmarkMode.FULL).forEach { option ->
             val active = mode == option
             Card(
                 onClick = { onSelect(option) },
                 enabled = enabled,
-                modifier = Modifier.weight(1f).semantics { selected = active },
+                modifier = Modifier.weight(1f).fillMaxHeight().semantics { selected = active },
                 colors = CardDefaults.cardColors(containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

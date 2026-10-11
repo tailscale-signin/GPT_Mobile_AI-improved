@@ -242,11 +242,11 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                                 }
                                 Button(
                                     onClick = { model.importLocally(days) },
-                                    enabled = state.availability == "available"
-                                        && state.permissions.any { it in HealthMetric.entries.map { metric -> metric.permission } }
-                                        && (days <= 30 || state.historyAvailable && HEALTH_HISTORY_PERMISSION in state.permissions)
-                                        && !state.importing
-                                        && !state.busy
+                                    enabled = state.availability == "available" &&
+                                        state.permissions.any { it in HealthMetric.entries.map { metric -> metric.permission } } &&
+                                        (days <= 30 || state.historyAvailable && HEALTH_HISTORY_PERMISSION in state.permissions) &&
+                                        !state.importing &&
+                                        !state.busy
                                 ) { Text(if (state.localImport == null) "Import to this phone" else "Update local import") }
                                 if (state.importing) LinearProgressIndicator(Modifier.fillMaxWidth())
                                 state.localImport?.let { imported ->

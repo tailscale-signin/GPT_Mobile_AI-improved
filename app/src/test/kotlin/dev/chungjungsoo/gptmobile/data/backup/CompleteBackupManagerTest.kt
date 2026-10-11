@@ -161,7 +161,7 @@ class CompleteBackupManagerTest {
         val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-refuge"))
         val packageBytes = zipOf(
             "manifest.json" to dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceDownloadPolicy.manifest(entry),
-            "README.md" to File("mcp/marketplace/README.md").readBytes()
+            "README.md" to marketplaceReadme()
         )
         val registry = dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry(registryFile, vault)
         val manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, registry, benchmarkStore)
@@ -600,6 +600,11 @@ class CompleteBackupManagerTest {
         }
         override suspend fun references() = values.keys.toSet()
     }
+
+    private fun marketplaceReadme(): ByteArray = listOf(
+        java.io.File("mcp/marketplace/README.md"),
+        java.io.File("../mcp/marketplace/README.md")
+    ).first { it.isFile }.readBytes()
 
     private fun zipOf(vararg entries: Pair<String, ByteArray>): ByteArray = ByteArrayOutputStream().use { bytes ->
         ZipOutputStream(bytes).use { zip ->

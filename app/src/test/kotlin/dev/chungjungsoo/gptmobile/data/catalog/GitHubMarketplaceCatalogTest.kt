@@ -167,13 +167,13 @@ class GitHubMarketplaceCatalogTest {
         val setup = """{"schemaVersion":1,"id":"${entry.id}","provider":"${entry.provider}","runtime":"${entry.runtime.name}","sourceRepository":"${GitHubMarketplaceCatalog.SOURCE_REPOSITORY}","sourceCommit":"${GitHubMarketplaceCatalog.SOURCE_COMMIT}","setup":"old user facing copy"}"""
         val trusted = zipOf(
             "setup.json" to setup.toByteArray(),
-            "README.md" to java.io.File("mcp/marketplace/README.md").readBytes()
+            "README.md" to marketplaceReadme()
         )
         assertEquals(MarketplaceDownloadPolicy.Verification.LEGACY_TRUSTED, MarketplaceDownloadPolicy.verifyPackage(entry, trusted))
 
         val withUnlistedFile = zipOf(
             "setup.json" to setup.toByteArray(),
-            "README.md" to java.io.File("mcp/marketplace/README.md").readBytes(),
+            "README.md" to marketplaceReadme(),
             "payload.txt" to "untrusted".toByteArray()
         )
         try {
@@ -188,7 +188,7 @@ class GitHubMarketplaceCatalogTest {
     fun currentManifestRequiresTheExactContractFields() {
         val entry = packages.first { it.runtime == MarketplaceRuntime.NATIVE }
         val manifest = MarketplaceDownloadPolicy.manifest(entry)
-        val readme = java.io.File("mcp/marketplace/README.md").readBytes()
+        val readme = marketplaceReadme()
         assertEquals(
             MarketplaceDownloadPolicy.Verification.CURRENT,
             MarketplaceDownloadPolicy.verifyPackage(entry, zipOf("manifest.json" to manifest, "README.md" to readme))
@@ -202,6 +202,11 @@ class GitHubMarketplaceCatalogTest {
             // The V2 package contract is closed and versioned.
         }
     }
+
+    private fun marketplaceReadme(): ByteArray = listOf(
+        java.io.File("mcp/marketplace/README.md"),
+        java.io.File("../mcp/marketplace/README.md")
+    ).first { it.isFile }.readBytes()
 
     private fun zipOf(vararg entries: Pair<String, ByteArray>): ByteArray = ByteArrayOutputStream().use { bytes ->
         ZipOutputStream(bytes).use { zip ->

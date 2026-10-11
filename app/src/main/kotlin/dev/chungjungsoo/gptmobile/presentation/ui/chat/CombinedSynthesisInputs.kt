@@ -29,7 +29,12 @@ internal fun combinedSynthesisInputs(
         val original = message.combinedSources.firstOrNull { it.platformUid == uid }
         val content = stripAssistantErrorNote(original?.content ?: message.content).trim()
         if (isAssistantErrorMessage(content)) return@mapNotNull null
-        val status = runs[message.currentRunId]?.status ?: original?.completionStatus ?: AgentRunStatus.COMPLETED
+        // The synthesis run's status describes the editor, not the preserved contributor.
+        val status = if (message.isCombinedSynthesis() && original != null) {
+            original.completionStatus
+        } else {
+            runs[message.currentRunId]?.status ?: original?.completionStatus ?: AgentRunStatus.COMPLETED
+        }
         val assessment = CombinedContributionQuality.assess(status, content)
         if (!assessment.admitted) return@mapNotNull null
         CombinedModelResponse(

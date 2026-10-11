@@ -5,7 +5,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore
+import dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImport
+import dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore
 import dev.chungjungsoo.gptmobile.data.health.HealthDataReader
+import dev.chungjungsoo.gptmobile.data.health.HEALTH_HISTORY_PERMISSION
 import dev.chungjungsoo.gptmobile.data.health.HealthQuery
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -28,15 +31,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 data class HealthConnectScreenState(
     val availability: String = "checking",
     val permissions: Set<String> = emptySet(),
+    val historyAvailable: Boolean = false,
     val busy: Boolean = false,
     val loading: Boolean = false,
+    val importing: Boolean = false,
     val preview: JsonObject? = null,
+    val localImport: HealthConnectLocalImport? = null,
     val error: String? = null
 )
 
@@ -44,6 +52,7 @@ data class HealthConnectScreenState(
 class HealthConnectViewModel @Inject constructor(
     private val reader: HealthDataReader,
     private val consent: HealthConnectConsentStore,
+    private val localImportStore: HealthConnectLocalImportStore,
     private val settings: SettingRepository
 ) : ViewModel() {
     private val mutable = MutableStateFlow(HealthConnectScreenState())
@@ -54,6 +63,7 @@ class HealthConnectViewModel @Inject constructor(
     val theme = settings.observeThemes().stateIn(viewModelScope, SharingStarted.Eagerly, ThemeSetting())
     private val mutations = Mutex()
     private var previewJob: Job? = null
+    private var importJob: Job? = null
     private var accessJob: Job? = null
     private var previewGeneration = 0L
 
@@ -63,9 +73,11 @@ class HealthConnectViewModel @Inject constructor(
         accessJob = viewModelScope.launch {
             try {
                 consent.isAllowed()
+                val savedImport = localImportStore.read()
                 val available = reader.availability()
                 val permissions = reader.grantedPermissions()
-                mutable.update { it.copy(availability = available, permissions = permissions) }
+                val historyAvailable = reader.historyAvailable()
+                mutable.update { it.copy(availability = available, permissions = permissions, historyAvailable = historyAvailable, localImport = savedImport) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -102,6 +114,66 @@ class HealthConnectViewModel @Inject constructor(
         }
     }
 
+    fun importLocally(days: Int) {
+        if (mutable.value.importing || days !in 1..3650) return
+        importJob?.cancel()
+        importJob = viewModelScope.launch {
+            mutations.withLock {
+                mutable.update { it.copy(importing = true, error = null) }
+                try {
+                    val permissionsBefore = reader.grantedPermissions()
+                    check(permissionsBefore.isNotEmpty()) { "Grant at least one Health Connect read permission before importing." }
+                    if (days > 30) {
+                        check(reader.historyAvailable()) { "This Health Connect version does not support access to history older than 30 days." }
+                        check(HEALTH_HISTORY_PERMISSION in permissionsBefore) { "Allow Health Connect history access to import data older than 30 days." }
+                    }
+                    val now = Instant.now()
+                    val zone = ZoneId.systemDefault()
+                    val start = now.atZone(zone).toLocalDate().minusDays(days - 1L).atStartOfDay(zone).toInstant()
+                    val query = HealthQuery(start, now, zone)
+                    val summary = reader.readLocalImport(query)
+                    val status = (summary["status"] as? JsonPrimitive)?.content
+                    check(status == "available" || status == "partial") {
+                        if (status == "no_data") {
+                            "No permitted Google Health data was found in that time range."
+                        } else {
+                            "Health Connect did not return importable data. Check permissions and keep the app open, then retry."
+                        }
+                    }
+                    val metrics = summary["metrics"]?.jsonObject.orEmpty()
+                    check(
+                        metrics.values.any { metric ->
+                            ((metric as? JsonObject)?.get("status") as? JsonPrimitive)?.content == "available"
+                        }
+                    ) {
+                        "No permitted Google Health data was found in that time range."
+                    }
+                    check(reader.grantedPermissions() == permissionsBefore) { "Health Connect permissions changed during import. Nothing was saved." }
+                    val snapshot = HealthConnectLocalImport(Instant.now().toString(), days, summary)
+                    localImportStore.save(snapshot)
+                    mutable.update { it.copy(localImport = snapshot, error = null) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    mutable.update { it.copy(error = error.message?.take(240) ?: "Could not import local health data. Retry while the app is open.") }
+                } finally {
+                    mutable.update { it.copy(importing = false) }
+                }
+            }
+        }
+    }
+
+    fun cancelImport() {
+        importJob?.cancel()
+        importJob = null
+        mutable.update { it.copy(importing = false) }
+    }
+
+    fun clearLocalImport() = mutate {
+        localImportStore.clear()
+        mutable.update { it.copy(localImport = null) }
+    }
+
     fun setAiAllowed(allowed: Boolean) = mutate {
         if (!allowed) clearPreview()
         consent.setAllowed(allowed)
@@ -121,12 +193,14 @@ class HealthConnectViewModel @Inject constructor(
 
     fun revoke() = mutate {
         clearPreview()
+        cancelImport()
         consent.setAllowed(false)
+        localImportStore.clear()
         MarketplaceMutations.mutex.withLock {
             settings.updateFeatureSettings(settings.getFeatureSettings().withToolPluginEnabled(ToolPluginId.HEALTH_CONNECT, false))
         }
         reader.revokePermissions()
-        mutable.update { it.copy(permissions = emptySet()) }
+        mutable.update { it.copy(permissions = emptySet(), localImport = null) }
     }
 
     fun showError(message: String) {
@@ -150,3 +224,4 @@ class HealthConnectViewModel @Inject constructor(
         }
     }
 }
+

@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectTools
 import dev.chungjungsoo.gptmobile.data.health.HealthMetric
+import dev.chungjungsoo.gptmobile.data.health.HEALTH_HISTORY_PERMISSION
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity
@@ -89,6 +90,7 @@ class HealthConnectActivity : ProtectedActivity() {
 
     override fun onStop() {
         model.clearPreview()
+        model.cancelImport()
         super.onStop()
     }
 
@@ -204,6 +206,67 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                             TextButton(onClick = openSystem) { Text("Open Health Connect permissions & sources") }
                         }
                         item {
+                            HealthCard("Import Google Health data locally") {
+                                Text("Save permitted Health Connect summaries in this app's private storage. Multi-year imports require the separate history permission. Data stays out of AI sharing and is available to encrypted app backups when you select Health data.")
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf(listOf(1, 7, 30), listOf(365, 1095, 1825)).forEach { periods ->
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            periods.forEach { period ->
+                                                FilterChip(
+                                                    selected = days == period,
+                                                    onClick = { days = period },
+                                                    enabled = !state.importing && !state.busy,
+                                                    label = {
+                                                        Text(
+                                                            when (period) {
+                                                                1 -> "Today"
+                                                                365 -> "1 year"
+                                                                1095 -> "3 years"
+                                                                1825 -> "5 years"
+                                                                else -> "$period days"
+                                                            }
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                if (days > 30 && state.historyAvailable && HEALTH_HISTORY_PERMISSION !in state.permissions) {
+                                    OutlinedButton(
+                                        onClick = { permissionLauncher.launch(setOf(HEALTH_HISTORY_PERMISSION)) },
+                                        enabled = !state.busy && !state.importing
+                                    ) { Text("Allow history older than 30 days") }
+                                } else if (days > 30 && !state.historyAvailable) {
+                                    Text("This Health Connect version does not support extended history.", color = MaterialTheme.colorScheme.error)
+                                }
+                                Button(
+                                    onClick = { model.importLocally(days) },
+                                    enabled = state.availability == "available" &&
+                                        state.permissions.any { it in HealthMetric.entries.map { metric -> metric.permission } } &&
+                                        (days <= 30 || state.historyAvailable && HEALTH_HISTORY_PERMISSION in state.permissions) &&
+                                        !state.importing &&
+                                        !state.busy
+                                ) { Text(if (state.localImport == null) "Import to this phone" else "Update local import") }
+                                if (state.importing) LinearProgressIndicator(Modifier.fillMaxWidth())
+                                state.localImport?.let { imported ->
+                                    Text(
+                                        "Saved summary covering ${imported.days} days · ${imported.importedAt}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        "Aggregated totals cover the selected period; individual readings and sessions follow Health Connect's paging limits. This local data can be included in an encrypted backup.",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    val importedMetrics = (imported.summary["metrics"] as? JsonObject).orEmpty()
+                                    importedMetrics.entries.forEach { (_, element) ->
+                                        (element as? JsonObject)?.let { HealthMetricCard(it) }
+                                    }
+                                    TextButton(onClick = model::clearLocalImport, enabled = !state.importing && !state.busy) { Text("Delete local import") }
+                                }
+                            }
+                        }
+                        item {
                             HealthCard("2 · Allow AI conversation use") {
                                 HealthSwitch("Share permitted health results with AI", aiAllowed, !state.busy) { allowed -> if (allowed) confirmAi = true else model.setAiAllowed(false) }
                                 Text("Off by default. Android permission alone never authorizes AI sharing. Local previews do not require this switch.", style = MaterialTheme.typography.bodySmall)
@@ -261,7 +324,7 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
         AlertDialog(
             onDismissRequest = { confirmRevoke = false },
             title = { Text("Disconnect Health Connect?") },
-            text = { Text("Disables this plugin, turns off AI sharing and revokes this app's Health Connect permissions. Watch records and existing conversations are not deleted.") },
+            text = { Text("Disables this plugin, turns off AI sharing, deletes this app's saved local import and revokes this app's Health Connect permissions. Watch records and existing conversations are not deleted.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmRevoke = false
@@ -317,3 +380,4 @@ private fun HealthMetricCard(metric: JsonObject) {
 }
 
 private fun friendly(value: String): String = value.replace('_', ' ').replaceFirstChar { it.titlecase() }
+

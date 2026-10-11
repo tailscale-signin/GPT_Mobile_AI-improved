@@ -42,6 +42,14 @@ class CompleteBackupSelectionTest {
         assertTrue(selection.sections.isEmpty())
     }
 
+    @Test fun healthDataIsASeparateSensitiveEncryptedBackupSection() {
+        val selection = CompleteBackupSelection.DEFAULT_SECTIONS
+        assertFalse(selection.contains(CompleteBackupSection.HEALTH_DATA))
+        val health = CompleteBackupSelection(emptySet()).toggled(CompleteBackupSection.HEALTH_DATA, true)
+        assertTrue(health.requiresEncryption)
+        assertTrue(CompleteBackupGroup.HEALTH_DATA.sections.contains(CompleteBackupSection.HEALTH_DATA))
+    }
+
     @Test fun deselectingConversationsDeselectsAttachmentsAndHistory() {
         val selection = CompleteBackupSelection.ALL.toggled(CompleteBackupSection.CONVERSATIONS, false)
         assertFalse(selection.includes(CompleteBackupSection.ATTACHMENTS))

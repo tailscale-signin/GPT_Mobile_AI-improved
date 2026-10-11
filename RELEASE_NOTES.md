@@ -1,25 +1,29 @@
-# GPT Mobile AI 0.9.39.0
+# GPT Mobile AI 0.9.42.0
 
-## Airbnb in the app
-- Add public Airbnb search, listing details and photo cards that run directly on Android without an account, API key, OpenBnB or a computer-hosted MCP server.
-- Use a free public search fallback when Airbnb blocks its search page. Indexed listings explicitly leave dates, availability and prices unconfirmed.
-- Enable Airbnb globally and for your AI profile. Current listing data requires internet access; booking opens Airbnb.
+## Smartwatch Health Connect
+- Add a native, read-only Health Connect plugin for health records synced to the Android phone by compatible watch companion apps. No external MCP server or API key is required.
+- Add themed Overview, Access and AI Tools tabs for local statistics, Android permissions, provider installation/settings, per-profile access and disconnect controls.
+- Expose nine phone-owned AI tools: status, summary, activity, heart rate, sleep, workouts, vitals, body measurements and hydration.
+- Support thirteen read-only record categories: steps, distance, active and total calories, heart rate, resting heart rate, HRV RMSSD, sleep, workouts, oxygen saturation, respiratory rate, weight and hydration.
+- Bound queries to the last 30 days, with explicit time ranges, source-app filtering, units, timestamps and provenance. Missing data, denied permissions and provider failures remain distinct; unavailable measurements are not reported as zero.
 
-## Downloaded plugins and backup
-- Preserve downloaded plugin packages, installations, provider configuration and enabled switches in new Tools backups, and reload installed state after restore.
-- Preserve Amazon Research global and profile enablement instead of switching it off during restore.
-- Include Tools in default and previously saved Settings backup selections. Tools-only restores preserve unrelated current app preferences.
-- Enabling a downloaded native plugin also enables its matching global service switch; profile permissions remain in effect.
-- Include Credentials when backing up provider API keys. Older archives that omitted downloaded packages cannot recover those missing files.
+## Privacy and access
+- The plugin and per-profile access are off by default. AI access requires separate, device-local sharing consent; viewing the local Overview does not grant that consent.
+- Require the app to be visible and the phone unlocked, recheck access before returning records, and prevent cross-profile cache reuse and recovery replay of health results.
+- Redact stored health-tool arguments and payloads; protect the dashboard with the app lock and screenshot restrictions.
+- Authorized remote profiles, gateways and delegates can receive tool results. Health information repeated in AI replies can still be retained by existing conversation, memory, backup/export and provider settings. This release does not claim end-to-end deletion.
 
-## Included stability fixes
-- Retain the 0.9.38.0 fixes for mixed tool-event completion timestamps and Android SQLite FTS5 detection.
+## Setup and scope
+- Open Settings > Plugins/Tools > Smartwatch Health Connect > Configure. Grant only the desired read categories, check Overview, then explicitly enable AI sharing and the permitted profiles.
+- The watch companion app must already share supported records with Health Connect. This plugin reads synced history, not live Bluetooth/watch sensors, and does not provide medical diagnosis.
+- Availability depends on the phone, companion app, permissions and shared record types. See docs/health-connect.md for setup, privacy details and the physical-device test checklist.
 
-## Validation
-- Add coverage for account-free requests, Airbnb cards and details, blocked-page fallback, argument and permission checks, installed-package backup/restore, plugin preferences and every downloadable native adapter's tool/request wiring.
-- Signed publication validates Android tests and lint, native packaging and signing-certificate continuity. Mock tests do not certify every live provider API or physical-device behavior.
+## Validation and distribution
+- The feature's strict Android unit-test, lint and debug-APK validation passed before release preparation. The release workflow independently validates its exact commit, builds the artifacts and verifies native packaging and signing-certificate continuity before publication.
+- Includes 28 targeted regression tests covering health queries, SDK requests, permissions, tool access, recovery, trace redaction and a daylight-saving boundary.
+- Physical-watch/device testing and Google Play health-data declarations/privacy-policy review remain required before claiming device certification or store readiness. This publication is a GitHub release, not a Google Play submission.
 
 ## Release identity
 - Package: dev.melo.gptmobile.improved
-- Version: 0.9.39.0
-- Version code: 108
+- Version: 0.9.42.0
+- Version code: 111

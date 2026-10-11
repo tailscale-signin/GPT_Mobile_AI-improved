@@ -4,6 +4,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -11,14 +12,12 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
-import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -41,7 +40,8 @@ data class OnlineScoreboardState(
     val loading: Boolean = false,
     val updatedAt: Long = 0,
     val cached: Boolean = false,
-    val message: String? = null
+    val message: String? = null,
+    val hasSnapshot: Boolean = false
 )
 
 @Singleton
@@ -58,40 +58,29 @@ class ScoreboardRepository @Inject constructor(
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val saved = preferences.getString("index", null)?.let { runCatching { json.decodeFromString<ScoreboardIndex>(it) }.getOrNull() }
-                ?.takeIf { it.schemaVersion == 1 && it.entries.size <= 1000 && it.entries.all { entry -> BenchmarkScoreboard.evaluate(entry) != null } }
-            if (saved == null) preferences.edit().remove("etag").apply()
+            val saved = preferences.getString("index", null)?.let { raw ->
+                runCatching { ScoreboardFeedSnapshot(raw, ScoreboardFeed.decode(raw), preferences.getString("raw_etag", null)) }.getOrNull()
+            }
+            if (saved == null) preferences.edit().remove("index").remove("raw_etag").apply()
             if (mutableState.value.entries.isEmpty() && saved != null) {
-                mutableState.value = OnlineScoreboardState(BenchmarkScoreboard.best(saved.entries), updatedAt = saved.updatedAt, cached = true)
+                mutableState.value = OnlineScoreboardState(BenchmarkScoreboard.best(saved.index.entries), updatedAt = saved.index.updatedAt, cached = true, hasSnapshot = true)
             }
             mutableState.value = mutableState.value.copy(loading = true, message = null)
             try {
-                val response = client.get("https://api.github.com/repos/$REPOSITORY/contents/scoreboards/index.json?ref=scoreboard-data") {
-                    header(HttpHeaders.Accept, "application/vnd.github.raw+json")
-                    header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
-                    preferences.getString("etag", null)?.let { header(HttpHeaders.IfNoneMatch, it) }
-                }
-                when (response.status.value) {
-                    304 -> mutableState.value = mutableState.value.copy(loading = false, cached = false)
-                    200 -> {
-                        val raw = response.boundedMetadata(MAX_INDEX_BYTES)
-                        val index = json.decodeFromString<ScoreboardIndex>(raw)
-                        check(index.schemaVersion == 1 && index.entries.size <= 1000) { "This scoreboard needs a newer app." }
-                        val entries = index.entries.map { checkNotNull(BenchmarkScoreboard.evaluate(it)) { "The shared scoreboard contains an invalid result." } }
-                        check(entries.map { it.submission.key }.distinct().size == entries.size) { "The shared scoreboard contains duplicate models." }
-                        check(preferences.edit().putString("index", raw).putString("etag", response.headers[HttpHeaders.ETag]).commit()) { "Could not cache the shared scoreboard." }
-                        mutableState.value = OnlineScoreboardState(BenchmarkScoreboard.best(index.entries), updatedAt = index.updatedAt)
-                    }
-                    404 -> throw IOException("Community data is not published yet, or the repository is not publicly accessible. Local results remain available.")
-                    403, 429 -> throw IOException("GitHub is limiting scoreboard requests. Try again later; saved results remain available.")
-                    else -> throw IOException("Could not refresh the community scoreboard (HTTP ${response.status.value}).")
-                }
+                val snapshot = ScoreboardFeed(client).fetch(saved)
+                val persisted = preferences.edit().putString("index", snapshot.raw).putString("raw_etag", snapshot.etag).remove("etag").commit()
+                mutableState.value = OnlineScoreboardState(
+                    BenchmarkScoreboard.best(snapshot.index.entries), updatedAt = snapshot.index.updatedAt, hasSnapshot = true,
+                    message = if (persisted) null else "Scores are current, but could not be saved for offline use."
+                )
+                AppLogRecorder.record("Scoreboard", "REFRESH_OK · entries=${snapshot.index.entries.size} · updatedAt=${snapshot.index.updatedAt} · saved=$persisted")
             } catch (error: Exception) {
                 if (error is CancellationException) {
-                    mutableState.value = mutableState.value.copy(loading = false, cached = true)
+                    mutableState.value = mutableState.value.copy(loading = false, cached = mutableState.value.hasSnapshot)
                     throw error
                 }
-                mutableState.value = mutableState.value.copy(loading = false, cached = true, message = error.message?.take(240) ?: "Could not load the online scoreboard.")
+                mutableState.value = mutableState.value.copy(loading = false, cached = mutableState.value.hasSnapshot, message = error.message?.take(240) ?: "Could not load the online scoreboard.")
+                AppLogRecorder.record("Scoreboard", "REFRESH_FAILED · savedCopy=${mutableState.value.hasSnapshot} · ${mutableState.value.message}", "W")
             }
         }
     }

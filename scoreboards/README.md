@@ -10,8 +10,9 @@ higher score. Quick and Full, and Model and Delegation, are separate rankings.
 
 No service credential is embedded in the app. Anonymous reads require a public
 repository. Sharing requires permission to create repository issues. This
-workflow starts working when merged onto the default branch; the first accepted
-submission creates the data branch. Do not merge or release merely to test it.
+workflow starts working when merged onto the default branch. A deployment push
+initializes an empty data branch before any results are shared, then recovers
+open submissions created before activation. Do not merge or release merely to test it.
 Branch protection must allow this workflow's token to create/update the data
 branch. If organization policy prevents that, an administrator must configure
 an appropriate narrowly scoped installation token; never ship it to clients.
@@ -54,5 +55,28 @@ freshness expiry discards a best result. Scores are recomputed by both Android
 and the repository. Data branches only contain JSON; no submitted code executes.
 The bounded index supports 1,000 entries / 8 MB; exceeding limits rejects a
 submission without deleting existing data. Immutable archives remain in git.
+
+## Activation and recovery
+
+- Deploy `.github/workflows/scoreboard.yml`, `scripts/scoreboard.py` and
+  `scripts/publish_scoreboard.py` to the default branch through the normal PR.
+  Issue events do not execute workflows that exist only on a feature branch.
+- The deployment push publishes a valid empty index. No example/test scores are
+  inserted. It never overwrites existing results or silently resets a missing
+  index on an existing branch; restore that index from git history instead.
+- Run **Community Scoreboard → Run workflow** to retry setup/recover open
+  submissions. Supply `issue_number` to retry a specific issue, including a closed
+  one. Recovery snapshots pages before closing issues so pagination skips none.
+- Verify the anonymous endpoint returns HTTP 200 and a valid schema-1 index:
+  `https://raw.githubusercontent.com/tailscale-signin/GPT_Mobile_AI-improved/scoreboard-data/scoreboards/index.json`.
+  The older Contents API URL remains compatible with the same file. New clients
+  read the static URL to avoid the shared anonymous REST API rate limit.
+- A healthy empty feed means no results have been shared, not that networking
+  failed. Users must choose **Local → full result → Share → Publish**. A local
+  benchmark does not automatically publish private data. Acceptance still needs
+  the workflow on the default branch and working Actions write permissions.
+- Clients validate both cached and fetched data, revalidate with URL-specific
+  ETags, preserve a valid saved copy on errors, and record refresh outcomes in
+  opt-in diagnostics without credentials or submitted payloads.
 
 Run `python3 -m unittest discover -s scripts/tests` for validator/publication tests.

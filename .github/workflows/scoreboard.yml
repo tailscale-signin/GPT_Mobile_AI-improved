@@ -3,14 +3,26 @@ name: Community Scoreboard
 on:
   issues:
     types: [opened, edited, reopened]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/scoreboard.yml'
+      - 'scripts/scoreboard.py'
+      - 'scripts/publish_scoreboard.py'
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Optional submission issue to retry; leave blank to initialize and recover pending submissions'
+        required: false
+        type: string
 
 permissions: {}
 
 jobs:
   validate-and-publish:
-    if: startsWith(github.event.issue.title, '[Scoreboard v1] ')
+    if: github.repository == 'tailscale-signin/GPT_Mobile_AI-improved' && (github.event_name != 'issues' || startsWith(github.event.issue.title, '[Scoreboard v1] '))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: write
       issues: write

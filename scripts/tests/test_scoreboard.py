@@ -4,10 +4,11 @@ from pathlib import Path
 import sys
 import unittest
 import urllib.error
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scoreboard import DOMAINS, best, manifest, parse_issue, score, validate
-from publish_scoreboard import publish
+from publish_scoreboard import initialize, publish, recover_pending
 
 
 def submission(kind="MODEL", plan="QUICK", run="run-one", started=100):
@@ -26,6 +27,77 @@ def submission(kind="MODEL", plan="QUICK", run="run-one", started=100):
 
 
 class ScoreboardTest(unittest.TestCase):
+    def test_initialization_creates_an_empty_data_only_feed(self):
+        class Fake:
+            def __init__(self):
+                self.calls = []
+            def api(self, method, path, data=None, **kwargs):
+                self.calls.append((method, path, data))
+                if method == "GET":
+                    return None
+                return {"sha": "new"}
+        client = Fake()
+        initialize(client)
+        tree = next(d for _, p, d in client.calls if p == "/git/trees")
+        self.assertEqual(["scoreboards/index.json"], [entry["path"] for entry in tree["tree"]])
+        index = json.loads(tree["tree"][0]["content"])
+        self.assertEqual([], index["entries"])
+        self.assertEqual(1, index["schemaVersion"])
+        self.assertGreater(index["updatedAt"], 0)
+        commit = next(d for _, p, d in client.calls if p == "/git/commits")
+        self.assertEqual([], commit["parents"])
+
+    def test_initialization_preserves_existing_scores_and_refuses_missing_index(self):
+        class Fake:
+            index = {"schemaVersion": 1, "entries": [submission()]}
+            def api(self, method, path, **kwargs):
+                if method != "GET":
+                    raise AssertionError("must not mutate existing board")
+                return {"object": {"sha": "parent"}} if path.startswith("/git/ref/") else self.index
+        client = Fake()
+        initialize(client)
+        client.index = None
+        with self.assertRaisesRegex(ValueError, "restore it from history"):
+            initialize(client)
+
+    def test_initialization_race_rereads_winner_without_overwriting(self):
+        class Fake:
+            created = False
+            def api(self, method, path, data=None, **kwargs):
+                if path.startswith("/git/ref/heads/"):
+                    return {"object": {"sha": "winner"}} if self.created else None
+                if path.startswith("/contents/"):
+                    return {"schemaVersion": 1, "entries": [submission()]}
+                if path == "/git/refs":
+                    self.created = True
+                    raise urllib.error.HTTPError("fixed", 422, "race", {}, None)
+                if path in ("/git/trees", "/git/commits"):
+                    return {"sha": "new"}
+                raise AssertionError(path)
+        initialize(Fake())
+
+    def test_recovery_snapshots_pages_before_closing_and_excludes_pull_requests(self):
+        order = []
+        class Fake:
+            def api(self, method, path):
+                order.append(path)
+                if path.endswith("&page=1"):
+                    return [{"number": i, "title": "[Scoreboard v1] fixture"} for i in range(1, 101)]
+                return [{"number": 101, "title": "[Scoreboard v1] fixture"}, {"number": 102, "title": "[Scoreboard v1] PR", "pull_request": {}}, {"number": 103, "title": "unrelated"}]
+        with patch("publish_scoreboard.process_issue", side_effect=lambda g, issue: order.append(issue["number"])):
+            recover_pending(Fake())
+        self.assertTrue(all(isinstance(item, str) for item in order[:2]))
+        self.assertEqual(list(range(1, 102)), order[2:])
+
+    def test_publisher_rejects_invalid_data_before_writing(self):
+        class Fake:
+            def api(self, *args, **kwargs):
+                raise AssertionError("invalid input must not reach GitHub")
+        with self.assertRaises(ValueError):
+            publish(Fake(), submission(), "../private")
+        with self.assertRaises(ValueError):
+            publish(Fake(), dict(submission(), apiKey="private"), 1)
+
     def test_exact_manifests_and_perfect_score(self):
         for kind in ("MODEL", "DELEGATION"):
             for plan, count in (("QUICK", 5), ("FULL", 50)):

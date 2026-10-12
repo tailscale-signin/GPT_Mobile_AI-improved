@@ -372,4 +372,27 @@
     <string name="v0950_picker_readiness">Readiness</string>
     <string name="v0950_picker_approved">Approved automatic selection</string>
     <string name="v0950_picker_worker">Worker</string>
+    <string name="v0950_plan_identity_unresolved">Model alias is unresolved; reviewer independence is unknown.</string>
+    <string name="v0950_plan_identity_official">Model identity uses the configured official-provider ID and known family aliases.</string>
+    <string name="v0950_plan_default_instruction">Gather supported findings and cite the supplied evidence.</string>
+    <string name="v0950_plan_changed">The saved plan changed. Close and reopen this editor to review it.</string>
+    <string name="v0950_plan_instruction_invalid">Enter an instruction for every step, up to 1000 characters.</string>
+    <string name="v0950_plan_budget_invalid">Each output limit must be between 128 and 4096 tokens.</string>
+    <string name="v0950_plan_cycle">Dependencies must not form a cycle.</string>
+    <string name="v0950_plan_invalid">This plan is invalid. Check instructions, limits, and dependencies.</string>
+    <string name="v0950_role_research">Research</string>
+    <string name="v0950_role_extraction">Document extraction</string>
+    <string name="v0950_role_repository">Repository analysis</string>
+    <string name="v0950_role_comparison">Structured comparison</string>
+    <string name="v0950_block_primary">Uses the same model as the primary profile</string>
+    <string name="v0950_block_reviewer">Uses the same model as the reviewer</string>
+    <string name="v0950_block_privacy">Restricted by profile privacy settings</string>
+    <string name="v0950_block_cloud">Cloud helpers are not allowed</string>
+    <string name="v0950_block_busy">The local runtime is reserved by the primary model</string>
+    <string name="v0950_block_approval">This profile is outside the approved worker pool</string>
+    <string name="v0950_block_missing">The selected profile is unavailable</string>
+    <plurals name="v0950_plan_step_count">
+        <item quantity="one">%1$d step. Completed read-only steps can be reused when resuming this response.</item>
+        <item quantity="other">%1$d steps. Completed read-only steps can be reused when resuming this response.</item>
+    </plurals>
 </resources>

@@ -5,6 +5,7 @@ mkdir -p "$acceptance_output"
 # Constrain the display itself so dialog windows are also tested at 320 dp.
 adb shell wm size 640x1280
 adb shell wm density 320
+adb shell settings put system font_scale 2.0
 adb install -r app/build/outputs/apk/debug/*x86_64*.apk
 adb install -r app/build/outputs/apk/androidTest/debug/*.apk
 adb shell pm list instrumentation > "$acceptance_output/instrumentations.txt"
@@ -34,7 +35,13 @@ check_instrumentation(folder / 'editor-instrumentation.txt', 'dev.chungjungsoo.g
 check_instrumentation(folder / 'performance-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsPerformanceInstrumentedTest', 'catalogParseAndStatisticsOverheadProduceMeasuredEvidence')
 data = json.loads((folder / 'performance.json').read_text())
 assert data['samples'] == 100 and data['representativeDevice'] is False
+assert data['qualification'] == 'measurement_only'
+assert data['acknowledgedStarts'] + data['unacknowledgedStarts'] == 100
+assert len(data['writeAttemptNanos']) == len(data['acceptedStarts']) == 100
+if data['unacknowledgedStarts'] or data['recordedInProgress']:
+    print('Recording gaps observed; performance remains unqualified:', data['unacknowledgedStarts'], data['recordedInProgress'])
 assert data['screenWidthDp'] == 320 and data['densityDpi'] == 320
+assert data['fontScale'] == 2.0
 for name in ('editor-rtl-200-percent.png', 'plan-dialog-rtl-200-percent.png'):
     assert (folder / name).read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
 CHECK

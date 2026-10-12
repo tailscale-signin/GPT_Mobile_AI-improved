@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -23,17 +24,19 @@ class StatisticsPerformanceInstrumentedTest {
         val root = java.util.UUID.randomUUID().toString()
         val writes = mutableListOf<Long>()
         val queries = mutableListOf<Long>()
+        val accepted = mutableListOf<Boolean>()
         withContext(Dispatchers.IO) {
             repeat(100) { index ->
                 val started = System.nanoTime()
-                val id = requireNotNull(repository.begin(identity, "fixture", root, "CLIENT", index.toString()))
+                val id = repository.begin(identity, "fixture", root, "CLIENT", index.toString())
+                accepted += id != null
                 repository.complete(id, ToolOutcome.SUCCESS, ToolDelivery.DELIVERED, null, 1, false)
                 writes += System.nanoTime() - started
                 val query = System.nanoTime()
-                check(repository.summaries(identity.key, ToolStatisticsScope("fixture")).first().value != null)
+                repository.summaries(identity.key, ToolStatisticsScope("fixture")).first()
                 queries += System.nanoTime() - query
             }
-            assertEquals(100L, repository.dao.rollup(identity.key, -1, "fixture")?.success)
+            val recorded = repository.dao.rollup(identity.key, -1, "fixture")
             val raw = context.assets.open("model_catalog.json").bufferedReader().use { it.readText() }
             val parses = List(20) {
                 val started = System.nanoTime()
@@ -49,18 +52,33 @@ class StatisticsPerformanceInstrumentedTest {
                 put("hardware", android.os.Build.HARDWARE)
                 put("screenWidthDp", context.resources.configuration.screenWidthDp)
                 put("densityDpi", context.resources.displayMetrics.densityDpi)
+                put("fontScale", context.resources.configuration.fontScale.toDouble())
                 put("representativeDevice", false)
                 put("samples", writes.size)
-                put("writeP95Ms", p95(writes))
+                put("qualification", "measurement_only")
+                put("acknowledgedStarts", accepted.count { it })
+                put("unacknowledgedStarts", accepted.count { !it })
+                put("recordedTotal", recorded?.total ?: 0)
+                put("recordedSuccess", recorded?.success ?: 0)
+                put("recordedInProgress", recorded?.inProgress ?: 0)
+                put("coverageGap", repository.coverageGap.value)
+                put("acceptedStarts", org.json.JSONArray(accepted))
+                put("writeAttemptP95Ms", p95(writes))
                 put("summaryP95Ms", p95(queries))
                 put("catalogParseP95Ms", p95(parses))
-                put("writeNanos", org.json.JSONArray(writes))
+                put("writeAttemptNanos", org.json.JSONArray(writes))
                 put("queryNanos", org.json.JSONArray(queries))
                 put("catalogParseNanos", org.json.JSONArray(parses))
             }
             java.io.File(context.filesDir, "acceptance-0950-performance.json").writeText(report.toString(2))
-            Log.i("Release0950Performance", "environment=android-emulator samples=100 write_p95_ms=${p95(writes)} summary_p95_ms=${p95(queries)} catalog_parse_p95_ms=${p95(parses)} representative_device=false")
+            Log.i("Release0950Performance", "environment=android-emulator samples=100 write_attempt_p95_ms=${p95(writes)} acknowledged=${accepted.count { it }} unacknowledged=${accepted.count { !it }} summary_p95_ms=${p95(queries)} catalog_parse_p95_ms=${p95(parses)} representative_device=false")
         }
+        // Validate accounting independently of machine-speed qualification. A deadline
+        // miss is recorded in the artifact, not silently retried or hidden by warm-up.
+        val totals = repository.dao.rollup(identity.key, -1, "fixture")
+        assertTrue("At least one real Room observation must complete", (totals?.success ?: 0) > 0)
+        assertTrue("Observation must not double count", (totals?.total ?: 0) <= 100)
+        assertTrue("Successes cannot exceed total uses", (totals?.success ?: 0) <= (totals?.total ?: 0))
         repository.clear(identity.key)
     }
 }

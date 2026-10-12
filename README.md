@@ -1,102 +1,162 @@
 # GPT Mobile AI (Improved)
 
-An Android AI workspace for cloud and on-device models, combined multi-profile conversations, research delegation with isolated review, local memory, document retrieval, multi-engine web search, and permission-controlled plugins and MCP tools. Includes a native GitHub workspace, detailed execution diagnostics, and an optional authenticated llama.cpp gateway. Forked from [GPT Mobile](https://github.com/Taewan-P/gpt_mobile).
+**Your AI chat, research and tools in one Android app.**
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+Chat with online AI services or compatible models running on your phone. Compare answers, research topics with sources, ask questions about your documents, and keep useful memories for future conversations.
+
 [![Android 12+](https://img.shields.io/badge/Android-12%2B-green.svg)](app/build.gradle.kts)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
-## Current source and development status
+[Download the app](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/latest) · [Get started](#get-started) · [Explore features](#what-you-can-do) · [Privacy](#privacy-and-your-data) · [Get help](#help-and-troubleshooting)
 
-**Source version on `main`: 0.9.31.0**, as configured in [app/build.gradle.kts](app/build.gradle.kts). This overview describes repository source, not a guarantee that an installed APK or published release contains every change.
+> This page describes the latest code on `main`. The downloadable app may be behind the source code; check the release notes for what your installed version includes. New hardware support and experimental integrations still need device testing.
 
-**Feature and correction snapshot: October 6, 2026.** The combined-chat, permissions, diagnostics and workspace improvements in [PR #608](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/608) are merged. The newer recovery, chat-UI and telemetry-removal work in [draft PR #609](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/609) is **not yet merged** and is listed separately below.
+## Get started
 
-See the [implementation and validation record](docs/audits/approved-roadmap-implementation.md) for the earlier approved roadmap, evidence and remaining physical-device gates. Local OCR, app-owned voice, accessibility expansion and localization expansion were excluded from that roadmap; do not treat them as newly delivered features.
+1. **Install the app.** You need Android 12 or newer. Open [Releases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/latest), expand **Assets**, and download a release `.apk`, not the source-code ZIP or `.aab`. The universal APK includes the supported processor variants. Android may ask you to allow installation from your browser or file manager.
+2. **Choose an AI connection.** In **Settings → AI**, add an online provider and its API key, select an available free-service option, or set up a compatible model from **Local Models**. An API key is the access credential supplied by your chosen AI service.
+3. **Start a conversation.** Select one AI profile for a normal chat, or several profiles to compare their answers. A profile is a saved model and its settings.
+4. **Add extras when you need them.** Enable research, memory or a plugin separately. Review its permissions and setup requirements before using it. You do not need a PC gateway or an MCP server for basic chat.
 
-See [GPU/NPU execution plans and reliability](docs/gpu-npu-execution-plans.md) for measured routing, native process isolation, on-device comparisons and the qualification gates for advanced GPU/NPU experiments.
+**Costs:** the app is open source, but online AI providers and some tools may charge for usage. Free-service availability and limits can change. Using several models, running benchmarks or doing deeper research can use more requests, data and battery.
 
-## Features available on main
+## What you can do
 
-| Area | Available flow | Limits and status |
+### Chat with one AI or compare several
+
+Use different AI models in the same conversation, watch answers appear as they are written, and open each model's individual response. **Combined mode** brings contributions together in one answer while keeping the original responses available to inspect.
+
+Save separate profiles for writing, coding or research. Queue follow-up questions, edit messages, retry interrupted responses, and compare conversation branches without replacing the original discussion. Optional **delegation** lets a helper model do research and a separate reviewer check the material before the main model writes the answer. A second AI opinion is not a guarantee of accuracy.
+
+### Research the web and academic papers
+
+**Deep Research** combines ordinary web search with supported academic sources. In a conversation, open **Multi Search → Research**, turn research on, and choose **Web + Papers**, **Papers only** or **Web only**. Academic access also needs the plugin, selected profile and papers permission enabled.
+
+The effort slider controls how much research to attempt:
+
+| Research effort | Source target |
+| --- | ---: |
+| 0% | Research off |
+| 25% | 30 |
+| 50% | 90 |
+| 75% | 180 |
+| 100% | 300 |
+
+These are **targets, not promised results**. Your safety cap, enabled engines, permissions, request limits, available pages and service restrictions can reduce the total. More results do not automatically mean better evidence.
+
+The research view keeps source links, captured passages, reading progress and coverage information. It distinguishes pages actually read from search listings and partial reads. Where captured text is available, evidence checks can verify that a quotation appears in that source; they do not prove the claim itself is true.
+
+Supported core academic connections include **Crossref, OpenAlex, arXiv, Europe PMC and DataCite**, with **OpenCitations** for citation links. Eligible PubMed Central text is retrieved through Europe PMC, not counted as a separate independent search. The core anonymous routes do not require a separate academic API key, but still have quotas. Other listed connectors may remain pending or disabled.
+
+Deep Research settings show successful and failed HTTP attempts for supported academic engines, with lifetime, 24-hour, 7-day and 30-day views. No recorded requests means **unknown**, not 100% success. You can also review pending engines and adjust source, time, request and storage limits.
+
+### Use your documents and remember useful details
+
+Import supported documents, ask questions about their contents, and follow links back to the retrieved material. The app searches both matching words and related meaning. Extraction limits apply; a scanned image-only document does not become searchable through built-in OCR.
+
+Local memory can retain useful facts and recurring topics for later conversations. Review, pin, correct or remove memories, and inspect where they came from. Conflicting automatic facts are presented for review instead of silently replacing an existing fact. Memory processing runs on the phone; **allowing a cloud model to recall those memories is a separate choice**.
+
+### Add tools without enabling everything
+
+Open **Plugins/Tools** to manage integrated plugins and external connections. Enable only the tools you need and choose which AI profiles may use them. Saved approvals can be reviewed and revoked.
+
+| Optional tool | What it adds | What to know |
 | --- | --- | --- |
-| Conversations | Streaming, multiple profiles, reasoning controls, queued questions, non-destructive edits and branch comparisons | Follow-ups join compatible delegation turns at a request boundary; other messages remain queued. No universal mid-stream provider steering. |
-| Combined responses | Permanent themed profile buttons open each model's streaming or saved response, including the lead profile's original answer | Buttons slide into place over one second with 500 ms staggering. Status dots show generating, completed or failed runs. The composer fades out over two seconds while inspecting a source and returns in 500 ms from Combined or Back. |
-| Delegation and review | Worker research, an isolated reviewer, configurable delegation, bounded execution and final synthesis | At 100% delegation, the worker prepares the task, the reviewer checks its evidence, and the primary performs a final synthesis without tools. This is not a guarantee of correctness, zero primary-model usage or a particular token saving. |
-| Navigation and onboarding | Bottom anchoring, unread-response focus, scroll-up interruption of following, retry after interrupted/error responses, wide-screen list/detail and a four-step first-run flow | Transparent conversation controls and themed icons are merged. Fold, rotation, frame-time and sustained streaming behavior still require physical-device validation. |
-| Local memory | Explicit facts, repeated topics, review/pins, corrections, merge/split, provenance, conversation scopes and encrypted fact authority | Rule extraction is immediate. Optional enrichment waits for an idle loaded local model, uses bounded inference and may be deferred. |
-| Semantic memory | Bundled local encoder with ObjectBox HNSW; Room provenance/graph; LangChain4j complete-turn context windows | The bundled encoder is English-oriented. Multilingual topic aliases do not establish multilingual semantic parity. Token counts are estimates. |
-| Documents | Persistent lexical and semantic retrieval, indexed documents, source links, scope checks and deletion tombstones | Broad questions use a bounded, explicitly partial sample. Extraction limits apply; scanned-document OCR is not implemented here. |
-| GitHub workspace | Repository/file filters, browsing, breadcrumbs, guarded complete-file editing, per-file unstaging, branches, commits, pull requests and SHA-linked review checks | Hidden when the GitHub API plugin is unavailable or disabled. Editor: 20 files, 2,000 lines per loaded file. PR file catalogs are live; checks belong to the inspected SHA. Commits use expected-head checks. |
-| Plugins and MCP | Plugin-specific settings, portable setup options, resources/prompts, form input and saved tool/provider approvals shared across models | Saved approvals survive catalog refreshes and can be revoked in Plugins/Tools. Credentials, active bindings and permission grants are not exported. Connection and authentication requirements still apply. |
-| MCP compatibility | Modern and SDK/legacy transports, discovery fallback for supported older servers, and negotiated durable tasks | Missing discovery versions or method-not-found responses can fall back to standard initialization. Incompatible versions, malformed responses and authentication failures are not silently accepted. Durable tasks remain an optional draft extension; no sampling, URL elicitation or task notification subscription is advertised. |
-| Web research | Multi-engine search across selected compatible, enabled and authorized engines, with URL deduplication and source provenance | Shared budgets, bounded concurrency, per-engine timeouts, permissions and cooldowns still apply. Partial results survive individual engine or optional crawl failures. Repository, memory and file searches are not treated as general web searches. |
-| Diagnostics | Readable research/review cards, memory provenance inside expanded debug details, exact provider/model token comparison and individual request details | Duplicate request IDs are removed from totals; model version, quantization and case distinctions remain separate. Estimated usage stays marked as estimated. External DNS/server failures remain visible rather than being counted as successful work. |
-| Response export | Export the selected AI response as Markdown or plain text without prompts, thoughts, tools or diagnostics | On this main snapshot, both formats still use a `.md` filename. The `.txt` correction for plain text is in draft PR #609. |
-| Budgets | Shared token/currency reservations across concurrent delegates, price provenance and expiry, reported-usage reconciliation | Estimates are not invoice limits. Unknown prices block enforced monetary budgets. Tool fees/cache discounts are not priced automatically. |
-| Recipes | Editable recipes, paused manual review and optional WorkManager scheduling through the existing queue | Scheduling is off by default, deferrable, and disables tools/delegation. Local-only is rechecked at dispatch. Remote schedules need spending and output caps. |
-| Settings | Search, streamlined AI and Plugins/Tools categories, compact provider sections, theme/profile/plugin layouts and Debug / Statistics / Benchmark tabs | The former Effective Settings and Presets panels were removed in the recent settings simplification. Benchmark recommendations describe measured runs, not universal speed guarantees. |
-| Share-in | Android text/URL/file sharing and selected text, conversation chooser, draft/summarize/local knowledge actions | No provider request or upload on receipt. Imports are bounded to 10 files, 25 MiB each, 50 MiB total and 16,000 shared text characters. |
-| Privacy controls | Temporary conversations, optional device-unlock gate, screenshot/recents protection, deletion controls and storage information | Temporary conversations use local persistence while active, then are purged on leave/startup. This is not forensic secure erasure or an encrypted chat database. Additional telemetry removal remains in draft PR #609. |
-| Optional gateway | Paired-device authentication, revocation, device-owned durable jobs, explicit network binding and bounded completion recovery | Defaults to loopback. See [gateway setup](gateway/README.md). The gateway is not needed for on-device memory. Updating the Android app does not update a separately running PC gateway. |
+| Web search and News | Web results and supported news/trend sources | Internet access; some connections need their own setup or credentials. |
+| Maps, places and travel | Place results, embedded maps and supported travel/listing cards | Location permission and provider setup depend on the tool. Availability and prices can change. |
+| Amazon search | Product search, detail cards and available photos | Results depend on the selected provider; check current details on the retailer's site. |
+| GitHub workspace | Browse repositories and files, edit changes, and work with branches, commits and pull requests | A connected GitHub account with the necessary repository permissions. |
+| External MCP tools | Connect compatible third-party tools and services | MCP is a standard way for an AI app to connect to tools. Each server has its own access and setup requirements. |
 
-## Recent merged corrections
+A marketplace listing is not proof that a service is configured, free, reachable or supported on your device. Tools can contact external services even when the chat model runs locally.
 
-[PRs #606](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/606), [#607](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/607) and [#608](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/608) include the following reliability and presentation changes:
+### Run compatible AI models on your phone
 
-- **Completion handling:** finish Android response collection at the terminal event, flush buffered text, and prevent late events from replacing a completed answer. Empty/reasoning-only completions have at most one answer-only repair within the original deadline and remaining output allowance; completed actions are not replayed.
-- **Gateway tool ownership:** separate gateway-owned and client-owned execution, constrain incompatible batches and reject unsafe partial/mixed batches rather than executing them. Failures remain explicit when safe recovery is unavailable.
-- **Search and accounting:** remove the fixed two-engine web-search cap while retaining consent and execution limits; combine exact provider/model usage across roles and retries, deduplicate invocation IDs, and correct unspent delegate-token accounting.
-- **Chat and tools:** preserve combined source responses and status after synthesis, replace streamed planner/reviewer JSON with readable debug cards, retain saved tool approvals across models/catalog refreshes, and keep them revocable in Plugins/Tools.
+Use **Local Models** to find, download and configure supported model packages. Compatible models can answer without an internet connection after setup. Storage, memory and speed requirements vary by model.
 
-MCP negotiation fixes in [PR #603](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/603), [#604](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/604) and [#605](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/605) add legacy initialization paths for supported older servers, inconclusive discovery responses and method-not-found discovery errors without bypassing authentication failures.
+The app includes LiteRT-LM and compatible Qualcomm QNN/NPU paths. In plain language, **CPU** is the general processor, **GPU** handles graphics and parallel work, and **NPU** is a specialised AI processor. A package must support the selected hardware; choosing NPU does not make a GPU-only model compatible. Advanced acceleration options are not a promise that every model can use several processors at once.
 
-For gateway changes, deploy the matching server and companion modules and restart the gateway; do not replace only `gateway.py` or assume an APK update changes the server. See [the upgrade guide](gateway/V13_UPGRADE.md) and [completion recovery notes](gateway/COMPLETION_RECOVERY.md). These changes do not repair external DNS outages, expired credentials or incorrect service endpoints.
+Local runtime checks and diagnostics help identify incompatible packages and loading failures. Optional **Local Assist** can use an already loaded, eligible model to select relevant research material; it skips that step when no suitable model is ready. A PC running Ollama or the optional llama.cpp gateway is another connection option, but it is **not** the same as running the model on your phone.
 
-## Pending improvements — draft PR #609
+### Test models and compare results
 
-The following work is implemented on `feat/recovery-combined-ui-2026-10-06`, **not in `main` as of this snapshot**. Follow [PR #609](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/609) for its current review and validation status.
+The benchmark tools offer a **Quick test with 5 tests** and a **Full test with 50 tests**, plus detailed results and comparisons. They cover response timing, task accuracy, structured answers, tool use and a small capability test.
 
-| Area | Changes awaiting merge |
+The **Scoreboard** has **Local** and **Online** views for remote-model results. Here, Local means results saved on your device, not on-device AI models. Entries use the provider and actual model ID rather than your profile name. On-device models retain their Run, Compare and History views.
+
+Open a result for individual test outcomes. Retest charts show gains in yellow and losses in red, with numeric differences. Model and delegation rankings are separate, and Quick and Full runs are not mixed. Sharing online is an explicit action through your connected GitHub account; it is not automatic.
+
+Community scores are self-reported best runs, not independent certification or an IQ test. Your GitHub username is public when you submit a result. See [how the scoreboards work](scoreboards/README.md).
+
+### View supported smartwatch and health data
+
+The optional **Smartwatch Health Connect** plugin reads data that a compatible companion app has already shared with Health Connect on your phone. It does not connect directly to every watch or stream its live sensors.
+
+View permitted activity, sleep, heart-rate and other supported summaries locally. Separately enable AI sharing and the desired profiles to ask questions about that data. AI reads are limited to 30 days and require the app to be visible and the phone unlocked.
+
+An explicit local import can save a **summary covering up to five years**, where the records and history permission are available. This is not a complete archive of every raw reading. Moving that saved summary through backup requires the separate encrypted **Health data** section. The imported summary is not automatically sent to an AI.
+
+Compatibility depends on what the companion app actually shares. This feature is not medical advice or a diagnostic device. See [Health Connect setup and privacy](docs/health-connect.md).
+
+### Keep chats organised and take your data with you
+
+Use folders, favourites, pins, search and archives to organise conversations. Personalise the interface with themes and profile colours. Export a selected response as plain text (`.txt`) or Markdown (`.md`). Debug mode adds a more detailed export for troubleshooting; review it before sharing.
+
+Selective backup and restore let you choose what to keep, including profiles, conversations, memory, attachments, settings and benchmark history. Health summaries have their own encrypted selection. Follow the archive's encryption and recovery instructions, and keep any required recovery key safe before changing devices or uninstalling the app.
+
+For repeatable tasks, advanced users can save editable recipes and optionally schedule supported runs. Scheduling is off by default and remains subject to Android timing and app safety limits.
+
+## Privacy and your data
+
+**Local storage and local AI are useful options, but they do not make every action offline.** Your selected model, recall settings and enabled tools determine what leaves the phone.
+
+| Activity | Network behaviour |
 | --- | --- |
-| Interrupted-work recovery | Preserve partial answers, tool arguments/results, research, errors and generation checkpoints; make saved recovery context available to the next turn and reuse completed calls without repeating writes. |
-| Combined output and routing | Preserve unique content from every selected profile, remove exact duplicates, refresh generating-chip transitions, and correct general web requests incorrectly routed to GitHub tools. |
-| Home, navigation and archive | Themed backgrounds/search/header controls, redesigned conversation settings, back fades, profile-label interactions, drag-to-pin/reorder/unpin, improved unread positioning, a half-height archive sheet and lossless compressed archive storage. |
-| Exports, quick replies and titles | Use `.txt` for plain text and `.md` for Markdown, improve the export dialog, generate short quick-reply labels that send complete questions, and request a concise single-line subject title on the first response. |
-| Privacy cleanup | Remove obsolete telemetry collectors/screens, provider attribution headers and the bundled memory SDK's remote logging/DataTransport components; keep local debug diagnostics opt-in and reduce unnecessary persisted invocation history. This does not remove requests to explicitly configured cloud models or network tools. |
-| Memory details and generation time | Simplify memory debug groups with icons/theme colours and show `Worked for 25m 37s` at the top left inside the expanded AI bubble. Use theme colour at 30% opacity, a one-second fade-in and a 0.5-second fade-out, including combined-worker generation time. |
+| Reviewing saved chats, local memories and already indexed documents | Can work offline. |
+| Running a compatible on-device model | Can work offline after the model is installed. |
+| Asking an online AI model | Sends the selected conversation context to that service. |
+| Web research, external tools and GitHub | Contacts the configured services. |
+| Using Ollama or a PC gateway | Requires access to that server. |
+| Viewing Health Connect data locally | Reads the phone's health store; separately authorised AI sharing may send results to a model, gateway or delegate. |
 
-The PR records successful unit tests and debug APK builds, but Android lint remains blocked by dependency checksum verification and device/emulator visual and gesture checks have not been run. Those results are branch-specific, not a claim that the pending features are released or fully device-validated. Dependency verification remains enabled.
+Credentials and authoritative fact memory use protected encrypted storage. **Not every chat, attachment, database or search index is encrypted by the app.** App lock and screenshot protection are additional controls, not a replacement for storage encryption.
 
-## On-device and network behavior
+Temporary conversations turn off memory capture and recall, avoid portable backups, and are removed when you leave or the app restarts. This is not guaranteed forensic erasure. Deleting local conversations cannot delete copies retained by an external provider.
 
-| Capability | Network required? |
+Automatic Android cloud backup and device transfer are disabled; use the app's explicit backup flow. Local diagnostics are optional. A debug export can contain conversation and execution details, so review and redact it before attaching it to a public issue. Health information repeated in a conversation may remain in that chat, its exports or a provider's records even when health-tool traces are redacted.
+
+## Help and troubleshooting
+
+**A local model will not load?** Check the model package, available memory, device compatibility and selected processor. An unsupported NPU package cannot always fall back to CPU or GPU. See the [local-runtime guide](docs/gpu-npu-execution-plans.md).
+
+**Research returns fewer sources than expected?** Check the effort setting, safety cap, selected scope, enabled engines, permissions and engine status. Blocked pages, service quotas and time limits can leave a run partial.
+
+**No smartwatch data?** Confirm that the companion app has synced records into Health Connect and that the app has read permission for those categories. Missing data is not the same as a zero measurement.
+
+**The online scoreboard is empty?** There may be no shared results yet. A connection error is different; the app keeps available local results. See the [scoreboard guide](scoreboards/README.md).
+
+Report bugs through [GitHub Issues](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues). Include the app version, phone model, Android version and steps to reproduce. Do not include API keys, private documents, health records or unreviewed debug exports.
+
+## Guides and development
+
+| Topic | Guide |
 | --- | --- |
-| Fact capture, review, lexical retrieval and existing indexed documents | No |
-| Bundled semantic memory encoder/index | No |
-| LiteRT-LM inference and enrichment | No after a compatible model/package has been downloaded |
-| Cloud model profiles, web search, remote MCP, GitHub and connected memory plugins | Yes, to their configured services |
-| Ollama or gateway profiles | A reachable configured server; these are not on-device inference |
+| Research architecture and source access | [Academic research](docs/deep-research-implementation.md) |
+| Current research limits and engine catalogue | [Effort settings](app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/DeepResearchSettings.kt) · [Engine registry](app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/engine/ResearchEngineRegistry.kt) |
+| Local models and hardware qualification | [GPU/NPU execution](docs/gpu-npu-execution-plans.md) |
+| Memory behaviour and chat folders | [Memory and organisation](docs/implementation/memory-v2-chat-folders-2026-10-09.md) |
+| Benchmarks and scoreboards | [Benchmark guide](docs/implementation/npu-benchmark-assist-comparisons-2026-10-11.md) · [Community scores](scoreboards/README.md) |
+| Health data | [Health Connect](docs/health-connect.md) |
+| PC-assisted AI | [Gateway setup](gateway/README.md) |
+| Debug exports | [Export and recovery details](docs/implementation/debug-export-combined-integrity.md) |
+| Contributing and validation | [Contributing](CONTRIBUTING.md) · [Validation](docs/validation.md) · [Changelog](CHANGELOG.md) |
 
-The selected model and enabled tools determine where message/attachment context is sent. Local memory's cloud-recall control is independent of the provider choice. A local model can still call network tools if the user enables them. ObjectBox, Room and LangChain4j run in the app; no Python/Mem0 server or second vector engine is required for the local memory path.
+Technical guides include historical implementation notes and unfinished rollout stages. Their presence does not mean every planned feature is enabled. Current code and release notes take precedence over older snapshots.
 
-Supported adapters include OpenAI, Anthropic, Google, Groq, OpenRouter, NVIDIA, OpenAI-compatible APIs, Ollama, the optional gateway and LiteRT-LM. Available models and provider features depend on the configured service. Qualcomm QNN/NPU packages require a compatible device and packaged runtime; unsupported NPU packages are not generic CPU/GPU fallbacks. A configured llama.cpp gateway is a server connection, not on-device inference.
+<details>
+<summary><strong>Build and test the app</strong></summary>
 
-## Data and backups
-
-- Android Keystore-backed `SecretVault` protects credentials, authoritative fact memory and memory-bearing context receipts.
-- Room chat/history/derived graph data, imported files and local vector indexes have app-private storage protection; they are **not all application-level encrypted**. App lock protects entry, not database bytes.
-- Backup and restore present three saved groups: **AI platforms** (profiles, credentials/APIs, local models), **Conversations** (chats, favorites, memory, attachments, agent/tool history, statistics, Amazon data), and **Settings & tools** (preferences, themes, plugins, MCP connections). Older archives and partial selections remain compatible; active operations hide the restore action.
-- Automatic Android cloud backup and device transfer are disabled/excluded. Use the explicit selective backup/export flow; encryption and selected data sections matter.
-- Temporary sessions disable memory capture/indexing/recall and pause diagnostic logging. Temporary rows and their files are excluded from portable backups and purged on leaving/restart. App-private WAL/storage remnants are not a secure-erasure guarantee.
-- Deletion removes dependent runs/approvals/context, cancels pending enrichment and deletes unshared app-owned attachments. Optional learned-memory deletion removes memories supported by that chat, including jointly supported facts, to avoid retaining unwanted evidence. It does not delete a remote provider's records.
-- Anonymous daily cost records remain after conversation deletion so deletion cannot reset an active spending allowance. Profile/model/conversation attribution and content are removed.
-- Plugin configuration export omits credentials, URL paths/queries, grants and active bindings. Re-enter endpoints and secrets during setup.
-
-Do not interpret the privacy controls or pending telemetry cleanup as a guarantee of zero network traffic, universally encrypted storage, or a complete security audit.
-
-## Build and test
-
-Use JDK 21, the checked-in Gradle wrapper, Android SDK platform 37 and build tools 37.0.0. Minimum Android version is 12 / API 31. Versions are pinned in [the catalog](gradle/libs.versions.toml); Room uses explicit migrations and exported schemas.
+Use JDK 21, Android SDK platform 37, build tools 37.0.0 and the included Gradle wrapper. See [app configuration](app/build.gradle.kts) and [dependency versions](gradle/libs.versions.toml) for the current source settings.
 
 ```bash
 ./gradlew :app:testDebugUnitTest
@@ -105,26 +165,21 @@ python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
 ./gradlew :app:assembleDebugAndroidTest
 ```
 
-Dependency verification checks resolved artifacts against [reviewed checksum metadata](gradle/verification-metadata.xml). Gateway installation uses exact versions and SHA-256 hashes. See [validation and dependency maintenance](docs/validation.md) before updating either lock. A checksum bootstrap is trust-on-first-use, not independent proof of publisher identity.
-
-Device-required checks:
+On Windows, use `gradlew.bat` in place of `./gradlew`. Device-required checks include:
 
 ```bash
 ./gradlew :app:connectedDebugAndroidTest
 ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
 ```
 
-The benchmark fixture is included only in the benchmark variant. It contains synthetic conversations and makes no model/network requests. Baseline Profile generation and performance comparison require real measured outputs; no generated profile or 60/120-fps guarantee is claimed. See [device validation](docs/validation.md#device-validation).
+Dependency verification stays enabled. Review [validation and dependency maintenance](docs/validation.md) before changing runtime packages or checksum locks. Passing a build does not establish real-phone speed, watch compatibility or full end-to-end correctness. Release signing is separate; do not distribute a debug or benchmark APK as a production release.
 
-Release signing is configured separately. Do not ship a benchmark/debug APK as a production release.
+The PC gateway is optional and updated separately from the Android app. Deploy the matching gateway package and modules rather than replacing one server file. Keep authentication enabled and use the documented network setup.
 
-## License
+</details>
 
-GNU General Public License v3.0; see [LICENSE](LICENSE). Upstream and third-party notices remain applicable. The README badge reflects the existing license; it does not relicense the project.
+## Credits and license
 
-### Runtime reliability and academic research
+Based on [GPT Mobile](https://github.com/Taewan-P/gpt_mobile), with additional research, local-model, memory, tool and workflow features in this fork.
 
-- [GPU/NPU execution plans and hardware qualification](docs/gpu-npu-execution-plans.md)
-- [Remediation of all 30 reported log findings](docs/runtime-log-remediation.md)
-- [Deep Research implementation, provider registry and release gates](docs/deep-research-implementation.md)
-- [Validation record for this branch](docs/validation/implementation-2026-10-11.md)
+Licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE); upstream credits and third-party notices remain applicable.

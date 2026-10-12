@@ -1,4 +1,4 @@
-name: Diagnostic audit validation
+name: Diagnostic audit finalization
 
 on:
   push:
@@ -12,7 +12,7 @@ env:
   OBX_DISABLE_ANALYTICS: 'true'
 
 jobs:
-  apply:
+  finalize:
     if: github.ref == 'refs/heads/fix/diagnostic-audit-reliability-2026-10-11'
     runs-on: ubuntu-latest
     permissions:
@@ -23,41 +23,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - name: Verify and apply audited source patch
+      - name: Verify and apply final render patch
         run: |
           python3 - <<'PY'
           import base64, gzip, hashlib, pathlib, subprocess
-          encoded = ''.join(pathlib.Path(f'.audit/phase2-{i}.b64').read_text().strip() for i in (1, 2, 3, 4))
-          for before, after in [('BqFv/3/z3/9', 'BqFv/3//z3/9'), ('TDpk/1r9ZE', 'TDpk//1r9ZE'), ('fvZj/Lq8Prk', 'fvZj//Lq8Prk')]:
-              encoded = encoded.replace(before, after)
-          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
-          assert hashlib.sha256(patch).hexdigest() == 'd0ec8b07e92dc9f597482fb64f89bcc3e017d45a11c47160f1c6bcb8ee2ce394', 'Patch integrity check failed'
-          target = pathlib.Path('/tmp/diagnostic-audit.patch')
+          patch = gzip.decompress(base64.b64decode(pathlib.Path('.audit/final-render.b64').read_text().strip(), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '6a6a296bbf9efb459b1a1d5e15fe8a527a63d7bef6fda9f48641a3d11dd6fbf6', 'Patch integrity check failed'
+          target = pathlib.Path('/tmp/final-render.patch')
           target.write_bytes(patch)
-          if subprocess.run(['git', 'apply', '--reverse', '--check', str(target)], capture_output=True).returncode != 0:
-              subprocess.run(['git', 'apply', '--check', str(target)], check=True)
-              subprocess.run(['git', 'apply', str(target)], check=True)
-          import re
-          tests = {'ProgressiveToolCatalogTest.kt', 'HealthExternalStoragePolicyTest.kt', 'GenerationSafetyTest.kt', 'RunScopedHealthReaderTest.kt', 'OpenRouterCatalogLimitsTest.kt', 'SafeClipboardTest.kt'}
-          for p in pathlib.Path('app/src/test').rglob('*.kt'):
-              if p.name in tests:
-                  s = p.read_text()
-                  names = sorted(set(re.findall(r'\b(assert\w+)\(', s)))
-                  p.write_text(s.replace('import org.junit.Assert.*', '\n'.join('import org.junit.Assert.' + name for name in names)))
+          subprocess.run(['git', 'apply', '--check', str(target)], check=True)
+          subprocess.run(['git', 'apply', str(target)], check=True)
           PY
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
           java-version: '21'
-      - name: Format changed Kotlin source
+      - name: Format and verify changed Kotlin source
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 https://github.com/ktlint/ktlint/releases/download/1.3.1/ktlint -o "$RUNNER_TEMP/ktlint"
-          git add -N app/src
-          mapfile -d '' files < <(git diff --name-only -z 63bfbebde4c1ce1b74890a91c20517ae2dd4cc19 -- 'app/src/**/*.kt')
+          mapfile -d '' files < <(git diff --name-only --diff-filter=ACMR -z 63bfbebde4c1ce1b74890a91c20517ae2dd4cc19 -- 'app/src/**/*.kt')
           java -jar "$RUNNER_TEMP/ktlint" --format "${files[@]}"
           java -jar "$RUNNER_TEMP/ktlint" "${files[@]}"
-      - name: Commit source changes to the requested branch
+      - name: Remove one-time staging and install read-only validation
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess
+          expected = {f'.audit/phase1-{i}.b64' for i in (1,2,3)} | {f'.audit/phase2-{i}.b64' for i in (1,2,3,4)} | {'.audit/final-render.b64', '.audit/retained-workflow.yml'}
+          tracked = set(subprocess.check_output(['git', 'ls-files', '.audit']).decode().splitlines())
+          assert tracked == expected, 'Unexpected staging files: do not delete unrelated work'
+          workflow = pathlib.Path('.audit/retained-workflow.yml').read_text()
+          assert 'contents: read' in workflow and 'contents: write' not in workflow
+          pathlib.Path('.github/workflows/audit-workspace.yml').write_text(workflow)
+          subprocess.run(['git', 'rm', '--', *sorted(expected)], check=True)
+          PY
+      - name: Commit final source only to the requested branch
         id: commit
         env:
           EXPECTED_SHA: ${{ github.sha }}
@@ -65,22 +65,20 @@ jobs:
           set -euo pipefail
           branch=fix/diagnostic-audit-reliability-2026-10-11
           test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$EXPECTED_SHA"
-          git add -- app/src
+          git add -- app/src .github/workflows/audit-workspace.yml
           git diff --cached --check
-          if ! git diff --cached --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'fix: add generation safeguards, progressive tools and health privacy boundaries'
-            git push origin "HEAD:refs/heads/$branch"
-          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: finalize asynchronous rendering and remove one-time audit staging'
+          git push origin "HEAD:refs/heads/$branch"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           git show --stat --oneline HEAD >> "$GITHUB_STEP_SUMMARY"
-      - name: Package formatted changed source for review
+      - name: Package final changed source for review
         if: always()
         run: |
           python3 - <<'PY'
           import pathlib, subprocess, zipfile
-          paths = subprocess.check_output(['git', 'diff', '--name-only', '63bfbebde4c1ce1b74890a91c20517ae2dd4cc19', '--', 'app/src']).decode().splitlines()
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=ACMR', '63bfbebde4c1ce1b74890a91c20517ae2dd4cc19', '--', 'app/src']).decode().splitlines()
           with zipfile.ZipFile('audit-formatted.zip', 'w', zipfile.ZIP_DEFLATED) as z:
               for name in paths:
                   p = pathlib.Path(name)
@@ -90,18 +88,19 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: audit-formatted-source
+          name: audit-final-source
           path: audit-formatted.zip
           retention-days: 2
 
   android:
-    needs: apply
+    needs: finalize
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.apply.outputs.sha }}
+          ref: ${{ needs.finalize.outputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
@@ -114,8 +113,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          echo "Tested source: $(git rev-parse HEAD)" | tee audit-android.log
           chmod +x gradlew
-          ./gradlew --no-daemon --continue --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:lintDebug 2>&1 | tee audit-android.log
+          ./gradlew --no-daemon --continue --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:lintDebug 2>&1 | tee -a audit-android.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
@@ -134,13 +134,14 @@ jobs:
           retention-days: 7
 
   preflight:
-    needs: apply
+    needs: finalize
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ needs.apply.outputs.sha }}
+          ref: ${{ needs.finalize.outputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Resource and patch validation
         run: |
           git diff --check 63bfbebde4c1ce1b74890a91c20517ae2dd4cc19 HEAD

@@ -60,7 +60,8 @@ class ResearchBudget(
     fun tryCharge(phase: Phase, physicalRequest: Boolean, cost: Int = 1): Boolean {
         require(cost > 0)
         val phaseUsed = used.getValue(phase)
-        if (phaseUsed + cost > limits.getValue(phase) || used.values.sum() + cost > total) return false
+        // Subtract before comparing so a large batch cannot wrap the counters.
+        if (cost > limits.getValue(phase) - phaseUsed || cost > total - used.values.sum()) return false
         used[phase] = phaseUsed + cost
         if (physicalRequest) physicalRequests += cost
         try {
@@ -76,11 +77,19 @@ class ResearchBudget(
     @Synchronized
     fun restore(snapshot: Snapshot) {
         require(snapshot.total == total && snapshot.usedLogical in 0..total)
-        Phase.entries.forEach { phase ->
-            val remaining = snapshot.remainingByPhase[phase] ?: 0
-            used[phase] = (limits.getValue(phase) - remaining).coerceIn(0, limits.getValue(phase))
+        require(snapshot.remaining == total - snapshot.usedLogical)
+        require(snapshot.physicalRequests in 0..snapshot.usedLogical)
+        require(snapshot.remainingByPhase.keys == limits.keys)
+        // Validate the entire checkpoint before changing live counters. Never silently
+        // clamp corrupt phase data into a fresh allowance after an app restart.
+        val restoredUsed = Phase.entries.associateWith { phase ->
+            val remaining = snapshot.remainingByPhase.getValue(phase)
+            require(remaining in 0..limits.getValue(phase))
+            limits.getValue(phase) - remaining
         }
-        physicalRequests = snapshot.physicalRequests.coerceAtLeast(0)
+        require(restoredUsed.values.sum() == snapshot.usedLogical)
+        used.putAll(restoredUsed)
+        physicalRequests = snapshot.physicalRequests
     }
 
     @Synchronized

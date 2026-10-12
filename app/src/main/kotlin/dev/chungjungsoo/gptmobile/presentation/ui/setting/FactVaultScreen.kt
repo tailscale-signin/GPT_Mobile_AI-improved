@@ -155,14 +155,15 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 item {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Memories", "Review", "Overview").forEach { label ->
-                            FilterChip(tab == label, {
-                                tab = label
-                                query = ""
-                            }, label = { Text(when (label) {
+                            val title = when (label) {
                                 "Memories" -> "Library"
                                 "Overview" -> "Activity"
                                 else -> label
-                            }) })
+                            }
+                            FilterChip(tab == label, {
+                                tab = label
+                                query = ""
+                            }, label = { Text(title) })
                         }
                     }
                 }

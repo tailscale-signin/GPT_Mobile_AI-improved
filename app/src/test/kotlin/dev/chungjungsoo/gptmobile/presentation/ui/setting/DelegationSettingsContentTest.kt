@@ -69,8 +69,14 @@ class DelegationSettingsContentTest {
         }
         compose.onNodeWithTag("delegate_model_dropdown").assertDoesNotExist()
         compose.onNodeWithTag("conversation_delegation_toggle").performClick()
-        compose.onNodeWithTag("delegate_model_dropdown").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("delegate_model_dropdown").performScrollTo().assertIsDisplayed()
+        // Drive dialog/text-field animations explicitly instead of waiting for Robolectric idling.
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag("delegate_model_dropdown").performClick()
+        compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithText("Online helper").performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.mainClock.autoAdvance = true
         assertEquals("online", selected?.targetProfileUid)
         assertTrue(selected?.enabled == true)
         assertTrue(selected?.allowRemoteWorker == true)

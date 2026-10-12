@@ -363,8 +363,14 @@ class FactVaultRepository @Inject constructor(
             KnowledgeEntity(text.trim().lowercase(Locale.ROOT), text.trim(), "FACT")
         )
         val effectiveScope = old?.scope ?: scope
+        val canonicalId = scopedFactId(fact, effectiveScope)
+        require(_state.value.facts.none { it.id != old?.id && it.scope == effectiveScope && scopedFactId(it.fact, effectiveScope) == canonicalId }) { "This memory already exists. Merge the records instead." }
+        // Edits keep their original ID, which may still be the hash of an older value.
+        // Re-adding that older value must never replace the edited record.
+        var entryId = old?.id ?: canonicalId
+        while (old == null && _state.value.facts.any { it.id == entryId }) entryId = UUID.randomUUID().toString()
         val entry = VaultFact(
-            old?.id ?: scopedFactId(fact, effectiveScope), fact, enabled = old?.enabled ?: true,
+            entryId, fact, enabled = old?.enabled ?: true,
             sourceChatId = old?.sourceChatId ?: 0, sourceMessageId = old?.sourceMessageId ?: 0,
             savedAtMillis = System.currentTimeMillis(), source = "manual", confidence = 1f, scope = effectiveScope, pinned = old?.pinned ?: false,
             revision = (old?.revision ?: 0) + 1,
@@ -374,8 +380,7 @@ class FactVaultRepository @Inject constructor(
             lastSeenMillis = old?.lastSeenMillis ?: System.currentTimeMillis(),
             previousValues = ((old?.previousValues.orEmpty()) + listOfNotNull(old?.fact?.target?.name?.takeIf { it != text.trim() })).takeLast(12)
         )
-        require(old == null || _state.value.facts.none { it.id != old.id && it.scope == effectiveScope && scopedFactId(it.fact, effectiveScope) == scopedFactId(fact, effectiveScope) }) { "This memory already exists. Merge the records instead." }
-        val retained = _state.value.facts.filterNot { it.id == id || it.id == entry.id }
+        val retained = _state.value.facts.filterNot { it.id == old?.id }
         require(retained.size < _state.value.settings.maxFacts) { "Memory is full." }
         persist(
             _state.value.copy(
@@ -593,7 +598,7 @@ class FactVaultRepository @Inject constructor(
         val current = _state.value
         if (!current.enabled || !current.settings.recallEnabled || (!isLocal && !current.settings.allowCloudRecall)) return@withLock emptyList()
         val cutoff = if (current.settings.retentionDays > 0) System.currentTimeMillis() - current.settings.retentionDays * 86_400_000L else 0L
-        current.facts.filter { it.enabled && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
+        current.facts.filter { it.enabled && it.supersededBy == null && !it.awaitingReview && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
     }
 
     private suspend fun loadLocked() {
@@ -768,7 +773,7 @@ class FactVaultRepository @Inject constructor(
                 val snapshot = _state.value
                 if (!snapshot.enabled || !snapshot.settings.semanticRecall) return@withLock false
                 val cutoff = if (snapshot.settings.retentionDays > 0) System.currentTimeMillis() - snapshot.settings.retentionDays * 86_400_000L else 0L
-                engine.synchronize(snapshot.facts.filter { it.enabled && it.supersededBy == null && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }, 128)
+                engine.synchronize(snapshot.facts.filter { it.enabled && it.supersededBy == null && !it.awaitingReview && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }, 128)
                 engine.status.value.let { it.available && it.indexed < it.total }
             }
             kotlinx.coroutines.yield()

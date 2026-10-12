@@ -41,5 +41,4 @@ class DelegationSettingsContentTest {
         compose.onNodeWithText("Search Queries: 9").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Pages To Read: 11").performScrollTo().assertIsDisplayed()
     }
-
 }

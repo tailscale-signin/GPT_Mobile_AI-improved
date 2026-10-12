@@ -753,7 +753,8 @@ class ChatViewModel @Inject constructor(
                 val latest = settingRepository.getFeatureSettings()
                 val granted = latest.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
                     .withProfileToolPluginEnabled(profileUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
-                settingRepository.updateFeatureSettings(granted.copy(delegation = granted.delegation.copy(deepResearch = granted.delegation.deepResearch.copy(academicSources = true))))
+                val behavior = granted.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+                settingRepository.updateFeatureSettings(granted.copy(profileBehavior = granted.profileBehavior + (profileUid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true))))
             }
         }
     }

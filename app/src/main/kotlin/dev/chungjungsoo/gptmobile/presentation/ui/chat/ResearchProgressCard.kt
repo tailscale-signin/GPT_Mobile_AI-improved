@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.research.ResearchSession
+import dev.chungjungsoo.gptmobile.data.research.readableWorkCount
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,8 +41,8 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(if (active) "Research · ${snapshot.phase}" else "Research evidence", style = MaterialTheme.typography.titleSmall)
             Text("${snapshot.searches} searches · ${snapshot.engineResponses} engine reports · ${snapshot.engineFailures} unavailable", style = MaterialTheme.typography.bodySmall)
-            Text("${snapshot.sources.count { it.readable }} / ${snapshot.targetSources} readable sources · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
-            val accepted = snapshot.sources.count { it.readable }
+            Text("${snapshot.sources.readableWorkCount()} / ${snapshot.targetSources} readable sources · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
+            val accepted = snapshot.sources.readableWorkCount()
             Text(
                 "${snapshot.sources.count { it.readable && it.status == "Read" }} complete · ${snapshot.sources.count { it.readable && it.status != "Read" }} partial · ${if (accepted == 0) {
                     "No readable sources"
@@ -80,6 +81,9 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                                 Text(source.status + if (source.originId.isNotBlank()) " · Related content: ${source.originId}" else "", style = MaterialTheme.typography.labelSmall)
                                 if (source.paperId.isNotBlank()) {
                                     Text("${source.doi.ifBlank { source.paperId }} · ${source.reviewStatus} · ${source.engines.distinct().size} providers", style = MaterialTheme.typography.bodySmall)
+                                    if (source.isRetracted == true) Text("Retraction reported · check the article notice", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)
+                                    if (source.isPreprint == true) Text("Preprint · peer review is not established", style = MaterialTheme.typography.bodySmall)
+                                    Text("${source.publicationType} · ${source.contentLicense ?: "License not supplied"}", style = MaterialTheme.typography.bodySmall)
                                     Text("Version: ${source.versionId.take(100)} · ${source.providerReceipts.size} receipts", style = MaterialTheme.typography.labelSmall)
                                 }
                                 if (source.publishedAt.isNotBlank()) Text("Published: ${source.publishedAt}", style = MaterialTheme.typography.bodySmall)

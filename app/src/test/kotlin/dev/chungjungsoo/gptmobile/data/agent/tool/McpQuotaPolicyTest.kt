@@ -12,4 +12,11 @@ class McpQuotaPolicyTest {
         assertFalse(isMcpQuotaFailure("Connection closed"))
         assertFalse(isMcpQuotaFailure("HTTP 401: authenticate"))
     }
+
+    @Test
+    fun semanticCredentialErrorsAreConnectionScopedButSourceDenialsAreNot() {
+        assertTrue(isMcpCredentialFailure("HTTP 401 Unauthorized: invalid API key"))
+        assertFalse(isMcpCredentialFailure("HTTP 403: page blocked"))
+        assertFalse(isMcpCredentialFailure("""{"status":"http_401","errorOrigin":"upstream_source"}"""))
+    }
 }

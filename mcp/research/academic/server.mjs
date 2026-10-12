@@ -22,15 +22,16 @@ const tools = operations.map(operation => ({
   inputSchema: {
     type: 'object', additionalProperties: false,
     properties: {
+      ephemeral: { type: 'boolean' },
       query: { type: 'string', minLength: 1, maxLength: 500 }, identifier: { type: 'string', maxLength: 500 },
       paperId: { type: 'string', maxLength: 500 }, versionId: { type: 'string', maxLength: 700 }, quote: { type: 'string', maxLength: 4000 },
       direction: { type: 'string', enum: ['references', 'citations'] },
       scope: { type: 'string', enum: ['papers'] }, discipline: { type: 'array', items: { type: 'string' }, maxItems: 5 },
       depth: { type: 'integer', minimum: 1, maximum: 100 }, maxResults: { type: 'integer', minimum: 1, maximum: 50 },
-      maxProviderCalls: { type: 'integer', minimum: 1, maximum: 3 }, cursor: { type: 'string', enum: ['1', '2', '3'] },
+      maxProviderCalls: { type: 'integer', minimum: 1, maximum: 64 }, cursor: { type: 'string', enum: Array.from({ length: 10 }, (_, i) => String(i + 1)) },
       fromYear: { type: 'integer', minimum: 1500, maximum: 3000 }, toYear: { type: 'integer', minimum: 1500, maximum: 3000 },
       reviewStatus: { type: 'string', enum: ['any', 'unknown', 'preprint', 'peer_reviewed'] },
-      enabledProviderIds: { type: 'array', items: { type: 'string', maxLength: 40 }, maxItems: 26 },
+      enabledProviderIds: { type: 'array', items: { type: 'string', maxLength: 40 }, maxItems: 256 },
       includeDomains: { type: 'array', items: { type: 'string', maxLength: 200 }, maxItems: 20 },
       excludeDomains: { type: 'array', items: { type: 'string', maxLength: 200 }, maxItems: 20 }
     },
@@ -81,7 +82,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       if (extra.signal.aborted) { cancel(); reject(new Error('Academic operation cancelled.')); return; }
       active.stdin.write(JSON.stringify({ id, name: request.params.name, arguments: args }) + '\n');
     });
-    return { isError: Boolean(message.error), content: [{ type: 'text', text: JSON.stringify(message.error ? { status: message.error } : message.result) }] };
+    return { isError: Boolean(message.error), content: [{ type: 'text', text: JSON.stringify(message.error ? { status: message.error, errorOrigin: 'upstream_source' } : message.result) }] };
   } catch {
     return { isError: true, content: [{ type: 'text', text: 'Academic operation interrupted or unavailable; completed evidence remains available.' }] };
   } finally {

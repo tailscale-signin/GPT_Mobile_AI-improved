@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.research
 
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
+import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore
 import java.nio.file.Files
@@ -52,5 +55,24 @@ class DeepResearchOverhaulTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test
+    fun arxivVersionsRetainBothSnapshotsButShareOneWorkSlot() {
+        val first = ResearchSource("S1", "https://arxiv.org/abs/2401.00001v1", "Version one", status = "Read", passage = "First captured text", paperId = "arxiv:2401.00001v1")
+        val second = first.copy(id = "S2", url = "https://arxiv.org/abs/2401.00001v2", paperId = "arxiv:2401.00001v2", passage = "Second captured text")
+        assertEquals(2, listOf(first, second).count { it.readable })
+        assertEquals(1, listOf(first, second).readableWorkCount())
+    }
+
+    @Test
+    fun profileConsentDoesNotEnablePapersForOtherProfiles() {
+        val settings = AppFeatureSettings(
+            delegation = ModelDelegationSettings(deepResearch = DeepResearchSettings(academicSources = false)),
+            profileBehavior = mapOf("allowed" to ProfileBehaviorSettings(academicSourcesAllowed = true), "other" to ProfileBehaviorSettings())
+        )
+        assertTrue(settings.delegationFor("allowed").deepResearch.academicSources)
+        assertFalse(settings.delegationFor("other").deepResearch.academicSources)
+        assertFalse(settings.delegation.deepResearch.academicSources)
     }
 }

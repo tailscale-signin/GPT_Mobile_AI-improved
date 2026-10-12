@@ -47,7 +47,11 @@ data class ResearchSource(
     val paperId: String = "",
     val versionId: String = "",
     val providerReceipts: List<String> = emptyList(),
-    val reviewStatus: String = "unknown"
+    val reviewStatus: String = "unknown",
+    val publicationType: String = "unknown",
+    val isPreprint: Boolean? = null,
+    val isRetracted: Boolean? = null,
+    val contentLicense: String? = null
 ) {
     val readable: Boolean get() = originId.isBlank() && retrievalQuality == "FULL_TEXT" && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
@@ -77,6 +81,10 @@ data class ResearchSource(
         put("versionId", versionId)
         put("providerReceipts", JsonArray(providerReceipts.map(::JsonPrimitive)))
         put("reviewStatus", reviewStatus)
+        put("publicationType", publicationType)
+        isPreprint?.let { put("isPreprint", it) }
+        isRetracted?.let { put("isRetracted", it) }
+        contentLicense?.let { put("contentLicense", it) }
     }
 }
 
@@ -170,7 +178,7 @@ data class ResearchSnapshot(
                 ) {
                     return@mapNotNull null
                 }
-                val status = s.text("status").takeIf { it in setOf("Discovered", "Read", "Partially read", "Used as evidence", "Blocked", "Failed") } ?: "Failed"
+                val status = s.text("status").takeIf { it in setOf("Discovered", "Metadata only", "Read", "Partially read", "Used as evidence", "Blocked", "Failed") } ?: "Failed"
                 val source = ResearchSource(
                     id, url, s.text("title").take(240), status, s.text("passage").take(6000), s.number("depth").coerceIn(0, 2),
                     (s["retrievedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, s.text("publishedAt").take(80),
@@ -196,7 +204,11 @@ data class ResearchSnapshot(
                     equivalenceGroup = s.text("equivalenceGroup").takeIf { it.length <= 512 }
                         ?: SourceIdentity.create(source.url, source.title, source.passage).equivalenceKey,
                     paperId = s.text("paperId").take(512), versionId = s.text("versionId").take(700),
-                    providerReceipts = s.strings("providerReceipts").take(30), reviewStatus = s.text("reviewStatus").ifBlank { "unknown" }
+                    providerReceipts = s.strings("providerReceipts").take(30), reviewStatus = s.text("reviewStatus").ifBlank { "unknown" },
+                    publicationType = s.text("publicationType").take(80).ifBlank { "unknown" },
+                    isPreprint = (s["isPreprint"] as? JsonPrimitive)?.booleanOrNull,
+                    isRetracted = (s["isRetracted"] as? JsonPrimitive)?.booleanOrNull,
+                    contentLicense = s.text("contentLicense").take(1000).takeIf(String::isNotBlank)
                 )
             }.distinctBy { source ->
                 when {
@@ -239,7 +251,7 @@ data class ResearchSnapshot(
 
 interface ResearchJournal {
     fun readerHealth(): dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth? = null
-    fun budget(totalLogicalCalls: Int): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
+    fun budget(totalLogicalCalls: Int, downloadLimitBytes: Int = 512 * 1024 * 1024): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
     suspend fun load(): ResearchSnapshot?
     suspend fun load(task: String): ResearchSnapshot? = load()
     suspend fun save(snapshot: ResearchSnapshot)
@@ -279,3 +291,12 @@ fun relatedResearchPassages(left: String, right: String): Boolean {
     if (a.size < 20 || b.size < 20) return false
     return a.intersect(b).size.toDouble() / minOf(a.size, b.size) >= 0.85
 }
+
+/** Captured versions stay distinct; known versions of one work share one target slot. */
+fun Collection<ResearchSource>.readableWorkCount(): Int = filter { it.readable }.distinctBy { source ->
+    when {
+        source.doi.isNotBlank() -> "doi:${source.doi}"
+        source.paperId.startsWith("arxiv:") -> source.paperId.replace(Regex("v[0-9]+$"), "")
+        else -> source.equivalenceGroup.ifBlank { source.canonicalUrl }
+    }
+}.size

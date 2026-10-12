@@ -51,9 +51,9 @@ data class DeepResearchSettings(
     )
 
     fun preset(value: ResearchIntensity) = when (value) {
-        ResearchIntensity.QUICK -> copy(intensity = value, effort = 25, maxPages = targetForEffort(25), maxRounds = 2, linkDepth = 0)
-        ResearchIntensity.RESEARCH -> copy(intensity = value, effort = 50, maxPages = targetForEffort(50), maxRounds = 4, linkDepth = 1)
-        ResearchIntensity.EXHAUSTIVE -> copy(intensity = value, effort = 100, maxPages = targetForEffort(100), maxRounds = 8, linkDepth = 2, concurrency = 6, pageTimeoutSeconds = 30)
+        ResearchIntensity.QUICK -> copy(intensity = value, schemaVersion = 2, effort = 25, maxPages = targetForEffort(25), maxRounds = 2, linkDepth = 0)
+        ResearchIntensity.RESEARCH -> copy(intensity = value, schemaVersion = 2, effort = 50, maxPages = targetForEffort(50), maxRounds = 4, linkDepth = 1)
+        ResearchIntensity.EXHAUSTIVE -> copy(intensity = value, schemaVersion = 2, effort = 100, maxPages = targetForEffort(100), maxRounds = 8, linkDepth = 2, concurrency = 6, pageTimeoutSeconds = 30)
     }
 
     /** Explicit safety caps are separate from ambiguous legacy page defaults. */

@@ -108,7 +108,8 @@ class ToolExecutionBudget(
                     }
                     val boundedResult = bounded(
                         result,
-                        preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME
+                        preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME,
+                        observationLimitBytes = if (tool.definition.name in ACADEMIC_ACQUISITION_TOOLS) 256 * 1024 else 64 * 1024
                     )
                     val normalizedResult = if (
                         tool.definition.name == DELEGATION_TOOL_NAME &&
@@ -163,9 +164,14 @@ class ToolExecutionBudget(
 
     private fun bounded(
         rawResult: AgentToolResult,
-        preserveSuccessfulHandoff: Boolean = false
+        preserveSuccessfulHandoff: Boolean = false,
+        observationLimitBytes: Int = 64 * 1024
     ): AgentToolResult {
-        val result = ToolObservationRetention.bound(rawResult)
+        // Academic acquisition must see the bounded typed page before model compaction.
+        // The ordinary 64-KiB envelope replaces large pages with an excerpt wrapper,
+        // hiding papers/nextCursor from the coordinator. Keep up to 256 KiB only for
+        // these read-only tools; model excerpts, redacted traces and run caps stay bounded.
+        val result = ToolObservationRetention.bound(rawResult, maxBytes = observationLimitBytes)
         val text = when (val value = result.content) {
             is ToolResultContent.Text -> value.text
             is ToolResultContent.Json -> value.value.toString()
@@ -316,6 +322,7 @@ class ToolExecutionBudget(
     private companion object {
         const val DELEGATION_TOOL_NAME = "delegate_to_model"
         const val DELEGATION_HANDOFF_RESERVE_BYTES = 64 * 1024
+        val ACADEMIC_ACQUISITION_TOOLS = setOf("deep_research_search_papers", "deep_research_read_paper")
     }
 }
 

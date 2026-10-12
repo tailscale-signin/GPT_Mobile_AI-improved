@@ -10,11 +10,15 @@ import { validateResearchSource } from '../research-source.mjs';
 
 test('academic schema rejects unknown fields and unbounded requests before dispatch', () => {
   for (const args of [{ query: '' }, { query: 'x', depth: 0 }, { query: 'x', sources: 'all' },
-    { query: 'x', maxProviderCalls: 4 }, { query: 'x', fromYear: 2026, toYear: 2020 },
+    { query: 'x', maxProviderCalls: 65 }, { query: 'x', fromYear: 2026, toYear: 2020 },
     { query: 'x', includeDomains: ['http://127.0.0.1'] }, { query: 'x', cursor: '999' }]) {
     assert.throws(() => validateArguments('deep_research_search_papers', args));
   }
   assert.equal(validateArguments('deep_research_search_papers', { query: 'inference', maxProviderCalls: 3 }).query, 'inference');
+  const expanded = validateArguments('deep_research_search_papers', { query: 'inference', maxProviderCalls: 5, cursor: '10', ephemeral: true,
+    enabledProviderIds: Array.from({ length: 37 }, (_, i) => `engine_${i}`) });
+  assert.equal(expanded.enabledProviderIds.length, 37);
+  assert.equal(expanded.ephemeral, true);
 });
 
 test('local academic child path and tool names are pinned; arbitrary wrappers are rejected', () => {

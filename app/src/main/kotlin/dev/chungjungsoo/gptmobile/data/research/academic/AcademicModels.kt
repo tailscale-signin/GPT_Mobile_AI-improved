@@ -55,7 +55,8 @@ data class AcademicEvidence(
     val retrievalStatus: String,
     val section: String = "Extracted text",
     val contentLicense: String? = null,
-    val providerReceipts: List<String> = emptyList()
+    val providerReceipts: List<String> = emptyList(),
+    val canonicalUrl: String = sourceUrl
 ) {
     fun verify(quote: String, requestedVersion: String): String = when {
         requestedVersion != versionId -> "version_mismatch"
@@ -78,6 +79,7 @@ internal fun mergeAcademicPapers(papers: List<AcademicPaper>): List<AcademicPape
     val first = group.first()
     first.copy(
         sourceProviders = group.flatMap { it.sourceProviders }.distinct(),
+        identifiers = group.flatMap { it.identifiers.entries }.associate { it.key to it.value },
         providerReceipts = group.flatMap { it.providerReceipts }.distinct(),
         openAccessUrl = group.firstNotNullOfOrNull { it.openAccessUrl },
         isRetracted = if (group.any { it.isRetracted == true }) true else first.isRetracted,

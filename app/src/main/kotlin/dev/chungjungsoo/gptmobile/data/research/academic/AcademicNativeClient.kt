@@ -10,11 +10,11 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.utils.io.readAvailable
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.Proxy
 import java.net.URI
@@ -78,9 +78,12 @@ private class AcademicHttpFailure(val status: Int, val retryAtMs: Long? = null) 
 class AcademicNativeClient @Inject constructor(@param:ApplicationContext context: Context) {
     private val preferences = context.getSharedPreferences("academic-quotas-v1", Context.MODE_PRIVATE)
     private val evidenceDirectory = File(context.filesDir, "academic-evidence-v1")
+    private val downloadDirectory = File(context.cacheDir, "academic-downloads")
     private val permits = CORE.associateWith { Semaphore(1) } + mapOf("opencitations" to Semaphore(1))
     private val global = Semaphore(8)
+    private val sourcePermits = ConcurrentHashMap<String, Semaphore>()
     private val snapshotMutex = Mutex()
+    private val quotaLocks = ConcurrentHashMap<String, Mutex>()
     private val statuses = ConcurrentHashMap<String, AcademicProviderStatus>()
     private val telemetry = dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore(File(context.filesDir, "research-telemetry"))
     private data class Cached(val at: Long, val papers: List<AcademicPaper>)
@@ -160,7 +163,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                         cache[key] = Cached(System.currentTimeMillis(), it)
                     }
                     val filtered = papers.filter { paper ->
-                        researchDomainAllowed(paper.canonicalUrl, request.includeDomains, request.excludeDomains) &&
+                        researchDomainAllowed(paper.openAccessUrl?.takeIf(String::isNotBlank) ?: paper.canonicalUrl, request.includeDomains, request.excludeDomains) &&
                             (request.fromYear == null || paper.year?.let { it >= request.fromYear } == true) &&
                             (request.toYear == null || paper.year?.let { it <= request.toYear } == true) &&
                             (request.reviewStatus == "any" || paper.reviewStatus == request.reviewStatus)
@@ -187,7 +190,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                 }
             }
         }.awaitAll()
-        val merged = mergeAcademicPapers(results.flatMap { it.first })
+        val merged = mergeAcademicPapers(results.flatMap { it.first }).map(::remember)
         val states = results.map { it.second }
         AcademicSearchResult(
             searchId = UUID.randomUUID().toString(),
@@ -203,8 +206,13 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     internal suspend fun getPaper(identifier: String, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy()): AcademicPaper? = withContext(Dispatchers.IO) {
         check(allowed()) { "permission_denied" }
         val doi = SourceIdentity.normalizeDoi(identifier.removePrefix("doi:"))
-        papers[if (doi.isNotBlank()) "doi:$doi" else identifier]?.let { saved ->
-            require(researchDomainAllowed(saved.canonicalUrl, policy.included, policy.excluded)) { "Paper domain is excluded" }
+        (
+            papers[if (doi.isNotBlank()) "doi:$doi" else identifier] ?: papers.values.firstOrNull { cached ->
+                cached.identifiers["pmcid"] == identifier.removePrefix("pmcid:").uppercase() ||
+                    cached.identifiers["pmid"] == identifier.removePrefix("pmid:")
+            }
+            )?.let { saved ->
+            require(researchDomainAllowed(saved.openAccessUrl?.takeIf(String::isNotBlank) ?: saved.canonicalUrl, policy.included, policy.excluded)) { "Paper domain is excluded" }
             require(saved.sourceProviders.any(policy::allows)) { "Academic provider disabled" }
             return@withContext saved
         }
@@ -252,9 +260,14 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             paper.sourceProviders.firstOrNull() ?: "crossref"
         }
         require(policy.allows(provider)) { "Academic provider disabled" }
-        val body = permits.getValue(provider).withPermit {
-            reserve(provider, allowed)
-            fetch(url, policy.included, policy.excluded, allowed, provider, sourceDocument = true)
+        val readerIdentity = if (pmc.isNotBlank() || arxiv.isNotBlank()) provider else "source:${URI(url).host.orEmpty().lowercase()}"
+        val readerPermit = permits[readerIdentity] ?: sourcePermits.computeIfAbsent(readerIdentity) {
+            check(sourcePermits.size < 512) { "Source-host concurrency registry is full" }
+            Semaphore(2)
+        }
+        val body = readerPermit.withPermit {
+            reserve(readerIdentity, allowed)
+            fetch(url, policy.included, policy.excluded, allowed, readerIdentity, sourceDocument = pmc.isBlank())
         }
         if (body.second.contains("pdf", true) || body.first.startsWith("%PDF")) return@withContext AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway")
         val document = Jsoup.parse(body.first, "", if (pmc.isNotBlank()) Parser.xmlParser() else Parser.htmlParser())
@@ -271,7 +284,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             } else {
                 "read"
             },
-            contentLicense = paper.contentLicense, providerReceipts = paper.providerReceipts
+            contentLicense = paper.contentLicense, providerReceipts = paper.providerReceipts, canonicalUrl = paper.canonicalUrl
         )
         if (evidence.retrievalStatus in setOf("read", "partially_read")) {
             if (persistent) {
@@ -333,7 +346,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         }
     }
 
-    private suspend fun reserve(provider: String, allowed: suspend () -> Boolean) {
+    private suspend fun reserve(provider: String, allowed: suspend () -> Boolean) = quotaLocks.computeIfAbsent(provider) { Mutex() }.withLock {
+        reserveLocked(provider, allowed)
+    }
+
+    private suspend fun reserveLocked(provider: String, allowed: suspend () -> Boolean) {
         check(allowed()) { "permission_denied" }
         val now = System.currentTimeMillis()
         check(!preferences.getBoolean("$provider:authBlocked", false)) { "authentication_blocked_retest_required" }
@@ -387,7 +404,10 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             var responseCode: Int? = null
             var successful = false
             val result = try {
-                http.prepareGet(target) { header("User-Agent", "GPTMobileAcademic/1 (keyless public research)") }.execute { response ->
+                http.prepareGet(target) {
+                    header("User-Agent", "GPTMobileAcademic/1 (keyless public research)")
+                    timeout { requestTimeoutMillis = if (sourceDocument || uri.path.endsWith("fullTextXML")) 30_000 else 20_000 }
+                }.execute { response ->
                     responseCode = response.status.value
                     if (response.status.value in 300..399) {
                         redirect = uri.resolve(response.headers["Location"] ?: error("Missing redirect target")).toString()
@@ -406,18 +426,28 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     }
                     if (response.status.value !in 200..299) throw AcademicHttpFailure(response.status.value)
                     val stream = response.bodyAsChannel()
-                    val output = ByteArrayOutputStream()
-                    val buffer = ByteArray(8192)
-                    while (true) {
-                        check(allowed()) { "permission_denied" }
-                        val read = stream.readAvailable(buffer)
-                        if (read < 0) break
-                        require(output.size() + read <= 2 * 1024 * 1024) { "Academic response exceeds 2 MiB" }
-                        boundBudget?.chargeBytes(read)
-                        output.write(buffer, 0, read)
+                    check(downloadDirectory.mkdirs() || downloadDirectory.isDirectory)
+                    check(downloadDirectory.usableSpace >= 8L * 1024 * 1024) { "Insufficient space for academic reading" }
+                    val download = File.createTempFile("academic-", ".body", downloadDirectory)
+                    try {
+                        val buffer = ByteArray(8192)
+                        var size = 0
+                        download.outputStream().use { output ->
+                            while (true) {
+                                check(allowed()) { "permission_denied" }
+                                val read = stream.readAvailable(buffer)
+                                if (read < 0) break
+                                require(size + read <= 2 * 1024 * 1024) { "Academic response exceeds 2 MiB" }
+                                boundBudget?.chargeBytes(read)
+                                output.write(buffer, 0, read)
+                                size += read
+                            }
+                        }
+                        successful = true
+                        download.readText(Charsets.UTF_8) to response.headers["Content-Type"].orEmpty()
+                    } finally {
+                        download.delete()
                     }
-                    successful = true
-                    output.toString("UTF-8") to response.headers["Content-Type"].orEmpty()
                 }
             } finally {
                 telemetry.record(

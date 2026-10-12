@@ -1333,6 +1333,16 @@ class ChatRepositoryImpl(
                 }
             )
             val unavailableConnections = mutableListOf<String>()
+            val synthesisRun = runId.startsWith("combined-synthesis:")
+            val sourceAcquisitionRequested = chatToolConfig?.research?.let { selection ->
+                selection.researchToggle &&
+                    selection.depth > 0 &&
+                    !synthesisRun &&
+                    runFeatures.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                    runFeatures.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                    !platform.disableAllTools &&
+                    !platform.disableRemoteTools
+            } == true
             val supportsTools = when (platform.compatibleType) {
                 ClientType.FREE -> FreeAiProvider.requireFor(platform).supportsTools
                 ClientType.LITERT_LM -> localModelSupportsTools(platform)
@@ -1341,7 +1351,7 @@ class ChatRepositoryImpl(
             val memoryBoundary = effectiveUserMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
             val privateConversation = memoryBoundary?.isTemporary == true
             suspend fun resolveAuthorizedTools() = (
-                if (platform.disableAllTools || !supportsTools) {
+                if (platform.disableAllTools || (!supportsTools && !sourceAcquisitionRequested)) {
                     emptyList()
                 } else {
                     val sharingEnabled = runCatching {
@@ -1377,7 +1387,6 @@ class ChatRepositoryImpl(
             val resolvedTools = resolveAuthorizedTools()
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = effectiveUserMessages.lastOrNull()
-            val synthesisRun = runId.startsWith("combined-synthesis:")
             val routingTask = dev.chungjungsoo.gptmobile.data.agent.tool.repositoryRoutingTask(
                 latestUser?.content.orEmpty(),
                 effectiveUserMessages.dropLast(1).map { it.content }
@@ -1445,7 +1454,7 @@ class ChatRepositoryImpl(
                 processingOwnership < 100 &&
                 localDelegation.researchAvailable()
             var reviewedPreparationUnavailable = requiresReviewedPreparation && !localResearch
-            var exposedTools = if (reviewedPreparationUnavailable) {
+            var exposedTools = if (reviewedPreparationUnavailable || !supportsTools) {
                 emptyList()
             } else {
                 orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy))
@@ -1561,18 +1570,40 @@ class ChatRepositoryImpl(
                     "resultBytes=${toolBudgetLimits.maxToolOutputBytes} · localResearch=$localResearch"
             )
             val toolBudget = ToolExecutionBudget(toolBudgetLimits)
+            val explicitResearchSelection = chatToolConfig?.research
+            val explicitResearch = explicitResearchSelection?.let { selection ->
+                selection.researchToggle &&
+                    selection.depth > 0 &&
+                    initialDelegationSettings.deepResearch.enabled &&
+                    runFeatures.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                    runFeatures.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                    !platform.disableAllTools &&
+                    !platform.disableRemoteTools &&
+                    !synthesisRun
+            } == true
+            val acquisitionBudget = if (explicitResearch || (localResearch && initialDelegationSettings.deepResearch.schemaVersion >= 2)) {
+                ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.researchAcquisitionLimits(toolBudgetLimits, initialDelegationSettings.deepResearch))
+            } else {
+                toolBudget
+            }
+
             val authorizedBoundedTools = taskRoutedTools.filter { resolved ->
                 (behavior.crawlersEnabled && resolved.selectionId() in behavior.crawlerToolIds) ||
                     resolved in connectedMemoryTools ||
                     localResearch ||
+                    explicitResearch ||
                     contextPlan.tools.any {
                         it.name == resolved.modelToolName ||
                             (it.name == "web_search" && resolved.isWebSearchEngine()) ||
                             (it.name in setOf("amazon_search", "amazon_get_products") && it.name == resolved.realToolName)
                     }
             }.map { resolved ->
+                val acquisitionTool = resolved.modelToolName.startsWith("deep_research_") ||
+                    resolved.isWebSearchEngine() ||
+                    resolved.realToolName in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "free_search__fetch", "free_search__read_doc")
+                val boundBudget = if (acquisitionTool) acquisitionBudget else toolBudget
                 resolved.copy(
-                    tool = toolBudget.bind(resolved.tool.withRunContext(runId), onFinished = { callId, success ->
+                    tool = boundBudget.bind(resolved.tool.withRunContext(runId), onFinished = { callId, success ->
                         toolApprovals?.finish(runId, callId, success)
                     }) { callId, arguments ->
                         resolved.connectionUid?.let { uid ->
@@ -1611,8 +1642,8 @@ class ChatRepositoryImpl(
                 true,
                 true,
                 afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } },
-                canExecute = toolBudget::canExecute,
-                remainingBytes = toolBudget::remainingOutputBytes,
+                canExecute = acquisitionBudget::canExecute,
+                remainingBytes = acquisitionBudget::remainingOutputBytes,
                 policy = searchPolicy,
                 ownerRoute = "$runId:${platform.uid}",
                 configurationRevision = { settingRepository.getFeatureSettings().hashCode().toString() }
@@ -1664,6 +1695,26 @@ class ChatRepositoryImpl(
             var preparedEvidenceComplete = false
             var preparedEvidenceReviewed = false
             suspend fun prepareDelegatedEvidence() {
+                if (!localResearch && explicitResearch && latestUser?.content?.isNotBlank() == true) {
+                    emit(ApiState.Notice("Deep Research is discovering and reading sources. Model assistance is optional; evidence will remain unreviewed without a reviewer.", persistent = false))
+                    val directConfig = delegationConfig.copy(researchEnabled = true, automaticResearch = true)
+                    val research = dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflow(
+                        directConfig,
+                        delegatedTools,
+                        generate = { _, _ -> null },
+                        journal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey),
+                        stillEnabled = {
+                            val current = settingRepository.getFeatureSettings()
+                            current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                                current.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                                current.delegationFor(platform.uid).deepResearch.enabled
+                        }
+                    ).run(latestUser.content, "$runId:research-acquisition")
+                    preparedEvidenceComplete = research.pagesRead > 0
+                    preparedEvidenceReviewed = false
+                    if (research.handoff.isNotBlank()) appendPreparedEvidence(research.handoff)
+                    emit(ApiState.Notice("Deep Research retained ${research.pagesRead}/${directConfig.deepResearch.maxPages} readable sources. Evidence is unreviewed; see source coverage and stop reasons.", persistent = false))
+                }
                 if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && (processingOwnership == 0 || !isGitHubTask(latestUser.content)) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
                     emit(ApiState.Notice("Local model is planning research and preparing evidence…", persistent = false))
                     val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })

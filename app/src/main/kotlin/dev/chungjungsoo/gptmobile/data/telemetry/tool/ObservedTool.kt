@@ -38,7 +38,11 @@ class ObservedTool(private val delegate: AgentTool, private val identity: ToolId
                             value.isError -> ToolOutcome.FAILURE
                             else -> ToolOutcome.SUCCESS
                         },
-                        if (value == null) ToolDelivery.FAILED else ToolDelivery.DELIVERED,
+                        when {
+                            value == null -> ToolDelivery.FAILED
+                            value.outputBudgetExhausted || (value.retainedContent != null && value.retainedContent != value.content) -> ToolDelivery.TRUNCATED
+                            else -> ToolDelivery.DELIVERED
+                        },
                         value?.errorCode,
                         (System.nanoTime() - started) / 1_000_000,
                         value?.sharedResult == true

@@ -60,7 +60,7 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
             }
         }
         val result = withTimeoutOrNull(settings.timeoutSeconds * 1000L) { delegate.execute(callId, bounded) }
-            ?: return AgentToolResult(callId, ToolResultContent.Text("Plugin timed out after ${settings.timeoutSeconds} seconds."), true)
+            ?: return AgentToolResult(callId, ToolResultContent.Text("Plugin timed out after ${settings.timeoutSeconds} seconds. Dispatch outcome is unknown; reconcile before repeating this action."), true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN")
         val retail = (result.content as? ToolResultContent.Json)?.value as? JsonObject
         if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {
             val content = ToolResultContent.Json(AmazonProducts.limitResult(retail, settings.maxOutputCharacters))
@@ -88,7 +88,8 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
             result
         } else {
             result.copy(
-                content = ToolResultContent.Text(text.take(settings.maxOutputCharacters) + "\n[Output limited by this plugin's settings. Narrow the request for remaining content.]")
+                content = ToolResultContent.Text(text.take(settings.maxOutputCharacters) + "\n[Output limited by this plugin's settings. Narrow the request for remaining content.]"),
+                retainedContent = result.retainedContent ?: result.content
             )
         }
     }

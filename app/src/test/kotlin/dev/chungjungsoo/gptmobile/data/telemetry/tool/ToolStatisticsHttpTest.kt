@@ -55,6 +55,16 @@ class ToolStatisticsHttpTest {
             val calculatorIdentity = ToolIdentity.of(calculator.definition.name)
             assertEquals(1L, repository.dao.rollup(calculatorIdentity.key, -1, "helper")?.total)
             assertNull(repository.dao.rollup(calculatorIdentity.key, -1, "primary"))
+            val raw = dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text("fixture ".repeat(500))
+            val limitedTool = object : dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+                override val definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("fixture_read", "Fixture", kotlinx.serialization.json.JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject) = dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(callId, raw, false)
+            }
+            val limited = dev.chungjungsoo.gptmobile.data.agent.tool.ConfiguredPluginTool(limitedTool, dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings(maxOutputCharacters = 1000))
+            budget.bind(limited).execute("limited", kotlinx.serialization.json.JsonObject(emptyMap()))
+            val recorded = repository.dao.invocations().single { it.subject == ToolIdentity.of("fixture_read").key }
+            assertEquals("SUCCESS", recorded.outcome)
+            assertEquals("TRUNCATED", recorded.delivery)
             repository.clear(identity.key)
             assertNull(repository.begin(identity, "profile", "run", "CLIENT", "call"))
             assertNull(repository.dao.rollup(identity.key, -1, "profile"))

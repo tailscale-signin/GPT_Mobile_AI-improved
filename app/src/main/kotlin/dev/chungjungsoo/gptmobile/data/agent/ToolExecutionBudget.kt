@@ -162,7 +162,7 @@ class ToolExecutionBudget(
                     }
                     if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                    deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
+                    deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content || (result.retainedContent != null && result.retainedContent != result.content)) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {

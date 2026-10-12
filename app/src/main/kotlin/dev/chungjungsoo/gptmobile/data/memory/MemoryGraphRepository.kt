@@ -198,7 +198,7 @@ class MemoryGraphRepository @Inject constructor(
         now: Long,
         existingEntities: Map<String, MemoryGraphEntityRecord>
     ): MemoryGraphEntityRecord {
-        val normalized = normalize(name).take(120)
+        val normalized = normalize(name)
         val id = stableId("entity", scope, normalized)
         val existing = existingEntities[id]
         return MemoryGraphEntityRecord(

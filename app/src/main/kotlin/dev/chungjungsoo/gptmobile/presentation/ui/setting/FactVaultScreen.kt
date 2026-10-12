@@ -82,7 +82,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     var inspecting by remember { mutableStateOf<VaultFact?>(null) }
     var editing by remember { mutableStateOf<VaultFact?>(null) }
     var adding by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf("") }
+    var draft by rememberSaveable { mutableStateOf("") }
     var selectedMemories by remember { mutableStateOf<Set<String>>(emptySet()) }
     var restructuring by remember { mutableStateOf(false) }
     var replacementText by remember { mutableStateOf("") }
@@ -100,7 +100,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                     Text(entry.fact.target.name)
                     Text("Source: ${entry.source.replace('_', ' ')}")
                     Text("Scope: ${entry.scope}")
-                    Text("Extraction confidence: ${(entry.confidence * 100).toInt()}%")
+                    Text(if (entry.source == "manual") "Added or corrected by you" else "Source-bound extraction · verify against the original message")
+                    Text("Revision: ${entry.revision}")
                     Text("Saved: ${entry.savedAtMillis.takeIf { it > 0 }?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "Not recorded"}")
                     Text("Last supported: ${entry.lastSeenMillis.takeIf { it > 0 }?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "Not recorded"}")
                     Text(
@@ -145,7 +146,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                             }
                             Text("${vault.facts.size} memories · ${documents.size} indexed documents", style = MaterialTheme.typography.labelLarge)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("${vault.facts.count { !it.enabled }} awaiting review or disabled", style = MaterialTheme.typography.bodySmall)
+                                Text("${vault.facts.count { it.awaitingReview || it.pendingReplacements.isNotEmpty() }} pending · ${vault.facts.count { !it.enabled && !it.awaitingReview && it.pendingReplacements.isEmpty() && it.supersededBy == null }} disabled", style = MaterialTheme.typography.bodySmall)
                                 SettingsHelpIcon(semanticStatus.detail + " Auto-recall skips Free profiles.")
                             }
                         }
@@ -153,12 +154,19 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 }
                 item {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Overview", "Memories", "Documents", "Review", "Controls", "Topics").forEach { label ->
+                        listOf("Memories", "Review", "Overview").forEach { label ->
                             FilterChip(tab == label, {
                                 tab = label
                                 query = ""
-                            }, label = { Text(if (label == "Memories") "Saved Facts" else label) })
+                            }, label = { Text(when (label) { "Memories" -> "Library"; "Overview" -> "Activity"; else -> label }) })
                         }
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        TextButton(onClick = { tab = "Controls" }) { Text("Controls") }
+                        TextButton(onClick = { tab = "Documents" }) { Text("Sources") }
+                        TextButton(onClick = { tab = "Topics" }) { Text("Topics") }
                     }
                 }
                 if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
@@ -173,8 +181,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 when (tab) {
                     "Overview" -> {
                         item {
-                            SettingsPanel("Memory overview") {
-                                Text("${vault.facts.count { it.enabled }} available facts · ${vault.facts.count { !it.enabled || it.pendingReplacements.isNotEmpty() }} need review")
+                            SettingsPanel("Current memory status") {
+                                Text("${vault.facts.count { it.enabled && it.supersededBy == null && !it.awaitingReview }} available facts · ${vault.facts.count { it.awaitingReview || it.pendingReplacements.isNotEmpty() }} need review")
                                 Text("${documents.size} indexed documents · ${vault.topics.size} recurring topics")
                                 Text(semanticStatus.detail, style = MaterialTheme.typography.bodySmall)
                                 TextButton(onClick = { tab = "Review" }) { Text(stringResource(R.string.ui_v2_review_proposed_facts)) }
@@ -196,8 +204,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                     "Memories", "Review" -> {
                         item {
                             OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.ui_v2_find_a_memory)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("All", "Pinned", "Review").forEach { label -> FilterChip(filter == label, { filter = label }, label = { Text(label) }) }
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("All", "Pinned", "Disabled").forEach { label -> FilterChip(filter == label, { filter = label }, label = { Text(label) }) }
                             }
                         }
                         if (selectedMemories.isNotEmpty()) {
@@ -222,16 +230,23 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         val shown = vault.facts.filter {
                             "${it.fact.entity.name} ${it.fact.target.name}".contains(query, true) &&
                                 (filter != "Pinned" || it.pinned) &&
-                                ((tab != "Review" && filter != "Review") || !it.enabled || it.pendingReplacements.isNotEmpty())
+                                (filter != "Disabled" || !it.enabled && !it.awaitingReview && it.pendingReplacements.isEmpty() && it.supersededBy == null) &&
+                                (tab != "Review" || it.awaitingReview || it.pendingReplacements.isNotEmpty())
                         }.sortedWith(compareByDescending<VaultFact> { it.pinned }.thenByDescending { it.savedAtMillis })
-                        if (shown.isEmpty()) item { Text(stringResource(R.string.ui_v2_no_memories_here_yet_add_one_or_tell_your_ai_what_to_remember), style = MaterialTheme.typography.bodyMedium) }
+                        if (shown.isEmpty()) item { Text(if (tab == "Review") "All caught up. New suggestions and conflicting changes appear here." else "No matching memories. Add a fact, preference, or useful note.", style = MaterialTheme.typography.bodyMedium) }
                         items(shown, key = { it.id }) { entry ->
                             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(if (entry.fact.relation.relationType == "REMEMBERS" || entry.source == "local_model_observation") entry.fact.target.name else "${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.titleMedium)
                                     Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                    Text("${entry.scope} · ${entry.occurrences} supporting messages · ${(entry.confidence * 100).toInt()}% extraction confidence", style = MaterialTheme.typography.labelSmall)
+                                    Text("${entry.scope} · ${entry.occurrences} supporting messages · revision ${entry.revision}", style = MaterialTheme.typography.labelSmall)
                                     TextButton(onClick = { inspecting = entry }) { Text(stringResource(R.string.ui_v2_source_and_history)) }
+                                    if (entry.awaitingReview && entry.pendingReplacements.isEmpty()) {
+                                        Row {
+                                            TextButton(onClick = { viewModel.setFactEnabled(entry.id, true) }, enabled = !busy) { Text("Accept") }
+                                            TextButton(onClick = { deleting = entry.id }, enabled = !busy) { Text("Reject") }
+                                        }
+                                    }
                                     if (entry.pendingReplacements.isNotEmpty()) {
                                         Text(stringResource(R.string.ui_v2_change_needs_your_review_existing_memory_stays_active), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                                         entry.pendingReplacements.keys.forEach { oldId ->
@@ -335,15 +350,29 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                         }
                                         TextButton(onClick = viewModel::applyRecommendedControls, enabled = !busy) { Text(stringResource(R.string.ui_v2_recommended)) }
                                     }
+                                    Text("Learning mode", style = MaterialTheme.typography.titleSmall)
+                                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf("Manual", "Review first", "Automatic").forEach { mode ->
+                                            val selected = when (mode) {
+                                                "Manual" -> !settings.learningEnabled
+                                                "Review first" -> settings.learningEnabled && settings.reviewBeforeRecall
+                                                else -> settings.learningEnabled && !settings.reviewBeforeRecall
+                                            }
+                                            FilterChip(selected, {
+                                                viewModel.updateSettings(settings.copy(learningEnabled = mode != "Manual", reviewBeforeRecall = mode == "Review first"))
+                                            }, label = { Text(mode) }, enabled = !busy)
+                                        }
+                                    }
+                                    Text("Manual saves only what you add. Review first holds new suggestions for approval. Automatic admits source-bound facts under your capture controls.", style = MaterialTheme.typography.bodySmall)
                                     var sensitivity by remember(settings.captureSensitivity) { mutableStateOf(settings.captureSensitivity.toFloat()) }
-                                    Text("Automatic capture strength · ${sensitivity.toInt()}%", style = MaterialTheme.typography.titleSmall)
+                                    Text("Capture breadth · ${sensitivity.toInt()}%", style = MaterialTheme.typography.titleSmall)
                                     Slider(
                                         value = sensitivity,
                                         onValueChange = { sensitivity = it },
                                         onValueChangeFinished = { viewModel.updateSettings(settings.copy(captureSensitivity = sensitivity.toInt())) },
                                         valueRange = 0f..100f,
                                         enabled = !busy && vault.enabled && settings.learningEnabled,
-                                        modifier = Modifier.semantics { contentDescription = "Automatic memory capture strength" }
+                                        modifier = Modifier.semantics { contentDescription = "Memory capture breadth" }
                                     )
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text(stringResource(R.string.ui_v2_only_key_facts), style = MaterialTheme.typography.labelSmall)
@@ -370,7 +399,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                     VaultToggle("Semantic Recall · Fully On-Device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
                                     Text("${semanticStatus.indexed} / ${semanticStatus.total} semantic memories · no server required", style = MaterialTheme.typography.bodySmall)
                                     TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text(stringResource(R.string.ui_v2_rebuild_semantic_index)) }
-                                    VaultToggle("Always Include Pinned Memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
+                                    VaultToggle("Prioritize Pinned Memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled, "Up to two pinned memories get priority within the recall count and estimated token budget. Scope and cloud permissions always apply.") { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
                                     VaultToggle("Allow Recall In Cloud Requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
                                     VaultToggle("Recall Only Within The Original Chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
                                     VaultToggle("Review New Memories Before Use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
@@ -433,20 +462,30 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
         if (adding || editing != null) {
             AlertDialog(
                 onDismissRequest = {
-                    adding = false
-                    editing = null
-                },
-                title = { Text(stringResource(R.string.ui_v2_remember_something)) },
-                text = { OutlinedTextField(draft, { draft = it.take(1000) }, label = { Text(stringResource(R.string.ui_v2_fact_preference_or_note)) }, supportingText = { Text("${draft.length}/1000") }) },
-                confirmButton = {
-                    TextButton(enabled = draft.isNotBlank(), onClick = {
-                        viewModel.saveFact(draft, editing?.id)
+                    if (!busy) {
                         adding = false
                         editing = null
+                    }
+                },
+                title = { Text(stringResource(R.string.ui_v2_remember_something)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(draft, { draft = it.take(1000) }, enabled = !busy, label = { Text(stringResource(R.string.ui_v2_fact_preference_or_note)) }, supportingText = { Text("${draft.length}/1000") })
+                        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled = draft.isNotBlank() && !busy, onClick = {
+                        viewModel.saveFact(draft, editing?.id) {
+                            adding = false
+                            editing = null
+                            draft = ""
+                        }
                     }) { Text(stringResource(R.string.local_tools_settings_panel_label_13)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = {
+                    TextButton(enabled = !busy, onClick = {
                         adding = false
                         editing = null
                     }) { Text(stringResource(R.string.fact_vault_screen_label_19)) }
@@ -519,7 +558,7 @@ internal val memoryControlSearchEntries = listOf(
     SettingsSearchEntry("memory.control.1", "Forget Memories When Their Conversation Is Deleted", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Forget Memories When Their Conversation Is Deleted"),
     SettingsSearchEntry("memory.control.2", "Recall Saved Memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Recall Saved Memories"),
     SettingsSearchEntry("memory.control.3", "Semantic Recall · Fully On-Device", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Semantic Recall · Fully On-Device"),
-    SettingsSearchEntry("memory.control.4", "Always Include Pinned Memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Always Include Pinned Memories"),
+    SettingsSearchEntry("memory.control.4", "Prioritize Pinned Memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Always Include Pinned Memories"),
     SettingsSearchEntry("memory.control.5", "Allow Recall In Cloud Requests", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Allow Recall In Cloud Requests"),
     SettingsSearchEntry("memory.control.6", "Recall Only Within The Original Chat", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Recall Only Within The Original Chat"),
     SettingsSearchEntry("memory.control.7", "Review New Memories Before Use", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Review New Memories Before Use"),

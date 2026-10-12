@@ -38,7 +38,19 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(if (active) "Research · ${snapshot.phase}" else "Research evidence", style = MaterialTheme.typography.titleSmall)
             Text("${snapshot.searches} searches · ${snapshot.engineResponses} engine reports · ${snapshot.engineFailures} unavailable", style = MaterialTheme.typography.bodySmall)
-            Text("${snapshot.sources.count { it.readable }} read · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
+            Text("${snapshot.sources.count { it.readable }} / ${snapshot.targetSources} readable sources · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
+            val accepted = snapshot.sources.count { it.readable }
+            Text(
+                "${snapshot.sources.count { it.readable && it.status == "Read" }} complete · ${snapshot.sources.count { it.readable && it.status != "Read" }} partial · ${if (accepted == 0) {
+                    "No readable sources"
+                } else if (accepted < snapshot.targetSources) {
+                    "Partial coverage"
+                } else {
+                    "Target reached"
+                }}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(if (snapshot.claims.any { it.verdict == "Supported" }) "Some claims reviewed; see evidence for individual verdicts" else "Unreviewed evidence", style = MaterialTheme.typography.bodySmall)
             val papers = snapshot.sources.filter { it.paperId.isNotBlank() }
             if (papers.isNotEmpty()) Text("${papers.size} academic works · ${papers.flatMap { it.engines }.distinct().size} underlying sources · ${papers.count { it.readable }} passages read", style = MaterialTheme.typography.bodySmall)
             Row {

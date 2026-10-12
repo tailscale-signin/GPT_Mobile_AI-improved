@@ -32,7 +32,7 @@ data class ResearchCorpus(
     }
 
     companion object {
-        private const val MAX_SOURCES = 120
+        private const val MAX_SOURCES = 900
         private const val MAX_CLAIMS = 30
         private const val MAX_EVENTS = 200
 

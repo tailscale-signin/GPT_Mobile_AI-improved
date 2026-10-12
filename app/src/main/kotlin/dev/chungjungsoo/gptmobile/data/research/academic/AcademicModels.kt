@@ -29,7 +29,7 @@ data class AcademicPaper(
 )
 
 @Serializable
-data class AcademicProviderStatus(val id: String, val state: String, val fetched: Int = 0, val cacheHit: Boolean = false, val retryAtMs: Long? = null, val limitation: String? = null, val receiptId: String = "", val owner: String = "native")
+data class AcademicProviderStatus(val id: String, val state: String, val fetched: Int = 0, val cacheHit: Boolean = false, val retryAtMs: Long? = null, val limitation: String? = null, val receiptId: String = "", val owner: String = "native", val requests: Int = 0, val successes: Int = 0, val failures: Int = 0)
 
 @Serializable
 data class AcademicSearchResult(

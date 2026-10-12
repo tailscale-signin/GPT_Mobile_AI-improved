@@ -3,7 +3,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 /** One bounded turn budget shared by discovery, review, recovery, and finalization. */
 class ResearchBudget(
     totalLogicalCalls: Int,
-    private val reservations: Reservations = Reservations()
+    private val reservations: Reservations = Reservations(),
+    private val persist: ((Snapshot) -> Unit)? = null
 ) {
     enum class Phase { DISCOVERY, VERIFICATION, RECOVERY, FINALIZATION }
 
@@ -61,7 +62,24 @@ class ResearchBudget(
         if (phaseUsed >= limits.getValue(phase) || used.values.sum() >= total) return false
         used[phase] = phaseUsed + 1
         if (physicalRequest) physicalRequests++
+        try {
+            persist?.invoke(snapshot())
+        } catch (failure: Exception) {
+            used[phase] = phaseUsed
+            if (physicalRequest) physicalRequests--
+            throw failure
+        }
         return true
+    }
+
+    @Synchronized
+    fun restore(snapshot: Snapshot) {
+        require(snapshot.total == total && snapshot.usedLogical in 0..total)
+        Phase.entries.forEach { phase ->
+            val remaining = snapshot.remainingByPhase[phase] ?: 0
+            used[phase] = (limits.getValue(phase) - remaining).coerceIn(0, limits.getValue(phase))
+        }
+        physicalRequests = snapshot.physicalRequests.coerceAtLeast(0)
     }
 
     @Synchronized

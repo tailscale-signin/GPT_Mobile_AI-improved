@@ -42,7 +42,7 @@ internal fun MultiSearchResearchPanel(
     OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Multi Search · Research", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                Text("Deep Research", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                 Switch(selection.researchToggle, { value ->
                     onChange(selection.copy(researchToggle = value))
                     if (value && unlockReason != null) consent = true
@@ -63,7 +63,7 @@ internal fun MultiSearchResearchPanel(
             }
             val effective = selection.applyTo(defaults).deepResearch
             Text(unlockReason ?: "Unlocked · ${selection.intensity()?.name?.lowercase() ?: "standard"}", color = if (unlockReason == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Up to 3 sources per query · ${effective.maxRounds} rounds · up to ${effective.maxPages} pages. Limits and source availability apply.", style = MaterialTheme.typography.bodySmall)
+            Text("${selection.depth}% effort · target ${effective.maxPages} readable sources${if (effective.sourceSafetyCap != null) " · limited by your safety cap" else ""}. ${if (selection.depth == 100) "All enabled eligible engines receive a query opportunity." else "Availability and quotas apply."}", style = MaterialTheme.typography.bodySmall)
             Row {
                 TextButton(onClick = { consent = true }) { Text("Academic permissions") }
                 TextButton(onClick = onSaveDefault) { Text("Save profile default") }
@@ -78,7 +78,8 @@ internal fun MultiSearchResearchPanel(
                     Text("Allow native fallback if gateway fails", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     Switch(selection.allowNativeFallback, { onChange(selection.copy(allowNativeFallback = it)) })
                 }
-                listOf("openalex", "crossref", "arxiv", "europepmc", "datacite", "opencitations").forEach { id ->
+                dev.chungjungsoo.gptmobile.data.research.engine.ResearchEngineRegistry.entries.filter { it.ready && it.id != "pmc_oa" }.forEach { manifest ->
+                    val id = manifest.id
                     val enabled = selection.enabledProviders.isEmpty() || id in selection.enabledProviders
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(id, Modifier.weight(1f))

@@ -38,7 +38,7 @@ data class ResearchSource(
     val contentFingerprint: String = passage.trim().lowercase().takeIf(String::isNotBlank)?.let(::researchHash).orEmpty(),
     val retrievalQuality: String = when (status) {
         "Read", "Used as evidence" -> "FULL_TEXT"
-        "Partially read" -> "ABSTRACT"
+        "Partially read" -> "FULL_TEXT"
         "Blocked" -> "BLOCKED"
         "Failed" -> "EMPTY"
         else -> "LEAD"
@@ -49,7 +49,7 @@ data class ResearchSource(
     val providerReceipts: List<String> = emptyList(),
     val reviewStatus: String = "unknown"
 ) {
-    val readable: Boolean get() = retrievalQuality in setOf("FULL_TEXT", "ABSTRACT") && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
+    val readable: Boolean get() = retrievalQuality == "FULL_TEXT" && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
         put("id", id)
         put("url", url)
@@ -133,10 +133,12 @@ data class ResearchSnapshot(
     val notes: List<String> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
     val complete: Boolean = false,
-    val toolEvents: List<ResearchToolEvent> = emptyList()
+    val toolEvents: List<ResearchToolEvent> = emptyList(),
+    val targetSources: Int = 0
 ) {
     fun json() = buildJsonObject {
-        put("version", 2)
+        put("version", 3)
+        put("targetSources", targetSources)
         put("task", task)
         put("phase", phase)
         put("round", round)
@@ -157,8 +159,8 @@ data class ResearchSnapshot(
     companion object {
         fun parse(value: JsonObject): ResearchSnapshot? = runCatching {
             val version = value["version"]?.jsonPrimitive?.int
-            require(version == 1 || version == 2)
-            val sources = value.rows("sources").take(120).mapNotNull { s ->
+            require(version in 1..3)
+            val sources = value.rows("sources").take(900).mapNotNull { s ->
                 val id = s.text("id")
                 val url = s.text("url").take(2048)
                 if (!id.matches(Regex("S[1-9][0-9]{0,2}")) ||
@@ -186,7 +188,7 @@ data class ResearchSnapshot(
                     retrievalQuality = s.text("retrievalQuality").takeIf { it in setOf("FULL_TEXT", "ABSTRACT", "METADATA", "BLOCKED", "EMPTY", "LEAD") }
                         ?: when (status) {
                             "Read", "Used as evidence" -> "FULL_TEXT"
-                            "Partially read" -> "ABSTRACT"
+                            "Partially read" -> "FULL_TEXT"
                             "Blocked" -> "BLOCKED"
                             "Failed" -> "EMPTY"
                             else -> "LEAD"
@@ -204,7 +206,7 @@ data class ResearchSnapshot(
                     source.pmcid.isNotBlank() -> "pmcid:${source.pmcid}"
                     else -> source.canonicalUrl.ifBlank { source.url }
                 }
-            }.take(120)
+            }.take(900)
             val claimRows = value.rows("claims").take(30)
             val claims = validatedResearchClaims(claimRows, sources).map { claim ->
                 val verdict = claimRows.firstOrNull { it.text("sourceId") == claim.sourceId && it.text("text").trim().take(600) == claim.text && it.text("quote").trim().take(1200) == claim.quote }
@@ -212,8 +214,8 @@ data class ResearchSnapshot(
                 claim.copy(verdict = verdict)
             }
             ResearchSnapshot(
-                task = value.text("task").take(8000), phase = value.text("phase").take(40), round = value.number("round").coerceIn(0, 3),
-                searches = value.number("searches").coerceIn(0, 9), attempts = value.number("attempts").coerceIn(0, 60),
+                task = value.text("task").take(8000), targetSources = value.number("targetSources").coerceIn(0, 300), phase = value.text("phase").take(40), round = value.number("round").coerceIn(0, 8),
+                searches = value.number("searches").coerceIn(0, 80), attempts = value.number("attempts").coerceIn(0, 900),
                 engineResponses = value.number("engineResponses").coerceAtLeast(0), engineFailures = value.number("engineFailures").coerceAtLeast(0),
                 sources = sources, claims = claims,
                 questions = value.strings("questions").take(8).map { it.take(350) }, queries = value.strings("queries").take(12).map { it.take(500) }, notes = value.strings("notes").take(20).map { it.take(500) },

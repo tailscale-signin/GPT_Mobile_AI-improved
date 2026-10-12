@@ -102,7 +102,7 @@ internal class DeepResearchTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if (!permitted()) return failure(callId, "permission_denied", "Deep Research is locked. Check the chat Research toggle, depth, Papers consent and profile permission.")
         try {
-            val providerCalls = ((arguments["maxProviderCalls"] as? JsonPrimitive)?.intOrNull ?: 3).coerceIn(1, 3)
+            val providerCalls = ((arguments["maxProviderCalls"] as? JsonPrimitive)?.intOrNull ?: if (selection.depth == 100) AcademicNativeClient.CORE.size else 3).coerceIn(1, AcademicNativeClient.CORE.size)
             budget.reserve(
                 operation,
                 if (operation == "search_papers") {
@@ -173,10 +173,10 @@ internal class DeepResearchTool(
             "search_papers" -> json.encodeToJsonElement(
                 client.search(
                     AcademicSearchRequest(
-                        query = str("query"), depth = selection.depth, page = str("cursor").ifBlank { "1" }.toInt().also { require(it in 1..3) }, maxResults = (number("maxResults") ?: if (selection.depth < 35) 10 else 25).coerceIn(1, 50),
+                        query = str("query"), depth = selection.depth, page = str("cursor").ifBlank { "1" }.toInt().also { require(it in 1..10) }, maxResults = (number("maxResults") ?: if (selection.depth < 35) 10 else 25).coerceIn(1, 50),
                         fromYear = number("fromYear"), toYear = number("toYear"), reviewStatus = str("reviewStatus").ifBlank { "any" },
                         includeDomains = researchDomains(options.includeDomains), excludeDomains = researchDomains(options.excludeDomains),
-                        maxProviderCalls = (number("maxProviderCalls") ?: 3).coerceIn(1, 3)
+                        maxProviderCalls = (number("maxProviderCalls") ?: if (selection.depth == 100) AcademicNativeClient.CORE.size else 3).coerceIn(1, AcademicNativeClient.CORE.size)
                     ),
                     selection,
                     permitted
@@ -228,13 +228,14 @@ internal class DeepResearchTool(
     }
 }
 
-internal class AcademicRunBudget(private val limit: Int = 30, private val maxReads: Int = 12) {
+internal class AcademicRunBudget(private val limit: Int = 30, private val maxReads: Int = 12, private val maxBytes: Int = 256 * 1024) {
     private val mutex = Mutex()
     private var calls = 0
     private var bytes = 0
     private var reads = 0
     suspend fun reserve(operation: String, cost: Int = 1) = mutex.withLock {
-        check(cost in 1..3 && calls + (if (operation == "status") 0 else cost) <= limit && bytes < 256 * 1024) { "Academic budget exhausted; synthesize the retained evidence" }
+        if (operation in setOf("status", "verify_evidence")) return@withLock
+        check(cost in 1..64 && calls + cost <= limit && bytes < maxBytes) { "Academic budget exhausted; synthesize the retained evidence" }
         if (operation == "read_paper") {
             check(reads < maxReads) { "Academic reading budget exhausted" }
             reads++
@@ -243,7 +244,7 @@ internal class AcademicRunBudget(private val limit: Int = 30, private val maxRea
     }
     suspend fun chargeBytes(count: Int) = mutex.withLock {
         bytes += count
-        check(bytes <= 256 * 1024) { "Academic output budget exhausted" }
+        check(bytes <= maxBytes) { "Academic output budget exhausted" }
     }
     fun remaining() = (limit - calls).coerceAtLeast(0)
 }

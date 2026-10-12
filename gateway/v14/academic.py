@@ -34,7 +34,7 @@ HOSTS = {"api.openalex.org", "api.crossref.org", "export.arxiv.org", "arxiv.org"
 SUPPORTED = set(CORE) | {"dblp", "zenodo", "doaj", "inspirehep", "hal", "ror", "opencitations"}
 OA_HOSTS = {"arxiv.org", "www.ebi.ac.uk", "pmc.ncbi.nlm.nih.gov", "aclanthology.org", "zenodo.org"}
 MAX_BODY = 2 * 1024 * 1024
-MAX_PDF = 12 * 1024 * 1024
+MAX_PDF = 20 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024
 
 
@@ -189,7 +189,7 @@ class AcademicRouter:
         self.enabled = set(enabled) & SUPPORTED
         self.lock = threading.RLock()
         self.permits = {key: threading.Semaphore(1) for key in SUPPORTED}
-        self.global_permit = threading.Semaphore(3)
+        self.global_permit = threading.Semaphore(8)
         self.statuses = {}
         self.papers = {}
         self.cache = {}
@@ -197,7 +197,7 @@ class AcademicRouter:
 
     def _remember(self, record):
         with self.lock:
-            if len(self.papers) >= 256 and record["paperId"] not in self.papers:
+            if len(self.papers) >= 1200 and record["paperId"] not in self.papers:
                 self.papers.pop(next(iter(self.papers)))
             self.papers[record["paperId"]] = record
         return record
@@ -252,7 +252,7 @@ class AcademicRouter:
             raise AcademicError("arguments_too_large")
         op = name.removeprefix("deep_research_")
         if op == "status":
-            return {"schemaVersion": 1, "owner": "gateway_mcp", "providers": [{"id": p, **self.statuses.get(p, {"state": "available" if p in self.enabled else "disabled_until_verified"})} for p in sorted(SUPPORTED | CONDITIONAL)], "quotas": self.quotas.status(), "pdfReaderAvailable": self._pdf_reader() is not None, "excludedProviders": sorted(EXCLUDED)}
+            return {"schemaVersion": 1, "owner": "gateway_mcp", "providers": [{"id": p, **self.statuses.get(p, {"state": "unknown" if p in self.enabled else "disabled_until_verified"})} for p in sorted(SUPPORTED | CONDITIONAL)], "quotas": self.quotas.status(), "pdfReaderAvailable": self._pdf_reader() is not None, "excludedProviders": sorted(EXCLUDED)}
         if op == "search_papers":
             result = self.search(args, cancelled)
         elif op == "get_paper":
@@ -274,7 +274,7 @@ class AcademicRouter:
         depth = max(1, min(int(args.get("depth", 50)), 100))
         limit = max(1, min(int(args.get("maxResults", 25)), 50))
         page = int(args.get("cursor") or 1)
-        if not 1 <= page <= 3:
+        if not 1 <= page <= 10:
             raise AcademicError("invalid_cursor")
         mix = list(CORE[:2]) + ["datacite"]
         if re.search(r"gpu|npu|learning|transformer|physics|algorithm", query, re.I):
@@ -288,8 +288,8 @@ class AcademicRouter:
         requested = args.get("enabledProviderIds") or sorted(self.enabled)
         if not isinstance(requested, list) or "all" in requested or set(requested) & EXCLUDED:
             raise AcademicError("invalid_provider_allowlist")
-        planned = [p for p in dict.fromkeys(mix + list(CORE)) if p in self.enabled and p in requested]
-        planned = planned[:max(1, min(int(args.get("maxProviderCalls", 3)), 3))]
+        planned = [p for p in dict.fromkeys(mix + list(CORE) + sorted(self.enabled - {"opencitations", "ror"})) if p in self.enabled and p in requested]
+        planned = planned if depth == 100 else planned[:max(1, min(int(args.get("maxProviderCalls", 3)), len(SUPPORTED)))]
         def search_one(provider):
             receipt = uuid.uuid4().hex
             cache_key = digest(json.dumps([provider, args], sort_keys=True))
@@ -320,12 +320,13 @@ class AcademicRouter:
                     self.statuses[provider] = state
                 return [], state
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            results = list(pool.map(search_one, planned))
+            futures = [pool.submit(search_one, provider) for provider in planned]
+            results = [future.result() for future in concurrent.futures.as_completed(futures)]
         merged = merge_papers([p for records, _ in results for p in records])
         states = [state for _, state in results]
         more = len(merged) > limit or any(s["fetched"] >= min(limit, 20) for s in states)
         return {"schemaVersion": 1, "searchId": uuid.uuid4().hex, "query": query, "status": "complete" if states and all(s["state"] in ("success", "empty") for s in states) else "partial",
-                "papers": merged[:limit], "providers": states, "totalDistinctPapers": len(merged[:limit]), "truncated": more, "nextCursor": str(page + 1) if more and page < 3 else None,
+                "papers": merged[:limit], "providers": states, "totalDistinctPapers": len(merged[:limit]), "truncated": more, "nextCursor": str(page + 1) if more and page < 10 else None,
                 "coverage": {"searchedProviders": len(states), "unavailableProviders": sum(s["state"] not in ("success", "empty") for s in states)}, "depth": depth}
 
     def _search_provider(self, provider, query, limit, page, args, cancelled):
@@ -513,8 +514,13 @@ class AcademicRouter:
             temporary = target.with_suffix("." + uuid.uuid4().hex + ".tmp")
             temporary.write_text(json.dumps(evidence)); os.replace(temporary, target)
             snapshots = sorted(self.root.glob("*.json"), key=lambda item: item.stat().st_mtime)
-            for stale in snapshots[:-128]:
-                stale.unlink(missing_ok=True)
+            total_bytes = sum(item.stat().st_size for item in snapshots)
+            for stale in snapshots:
+                if total_bytes <= 128 * 1024**2:
+                    break
+                if self.now() - stale.stat().st_mtime > 30 * 86400:
+                    total_bytes -= stale.stat().st_size
+                    stale.unlink(missing_ok=True)
         return evidence
 
     def citations(self, args, cancelled):

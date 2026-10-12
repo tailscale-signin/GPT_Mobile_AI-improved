@@ -32,10 +32,10 @@ class ResearchEvidenceTest {
 
     @Test fun phoneLimitsClampUntrustedBackups() {
         val config = DeepResearchSettings(maxPages = 9999, maxRounds = 99, linkDepth = 99, concurrency = 999).normalized()
-        assertEquals(30, config.maxPages)
-        assertEquals(3, config.maxRounds)
+        assertEquals(300, config.maxPages)
+        assertEquals(8, config.maxRounds)
         assertEquals(2, config.linkDepth)
-        assertEquals(3, config.concurrency)
+        assertEquals(6, config.concurrency)
     }
 
     @Test fun snapshotRoundTripPreservesEvidenceAndProgress() {

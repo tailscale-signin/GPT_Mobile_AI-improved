@@ -17,7 +17,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
@@ -50,7 +53,43 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val key = chatId to turnId
             turnBudgets[key]?.second ?: run {
                 check(turnBudgets.size < 512) { "Research budget capacity reached. Retry after existing turns expire." }
-                ResearchBudget(totalLogicalCalls).also { turnBudgets[key] = now to it }
+                val budgetFile = File(directory, researchHash("budget:$chatId:$turnId") + ".budget")
+                val saved = if (persistent && budgetFile.isFile) {
+                    runCatching {
+                        Json.parseToJsonElement(AtomicFile(budgetFile).openRead().use { it.readBytes() }.decodeToString()).jsonObject
+                    }.getOrNull()
+                } else {
+                    null
+                }
+                check(!persistent || !budgetFile.isFile || saved != null) { "Research budget checkpoint is corrupt; start a new turn" }
+                val total = saved?.number("total")?.takeIf { it in 1..2400 } ?: totalLogicalCalls
+                val persist: ((ResearchBudget.Snapshot) -> Unit)? = if (!persistent) {
+                    null
+                } else {
+                    { snapshot ->
+                        check(directory.mkdirs() || directory.isDirectory)
+                        val bytes = buildJsonObject {
+                            put("chatId", chatId)
+                            put("total", snapshot.total)
+                            put("used", snapshot.usedLogical)
+                            put("physical", snapshot.physicalRequests)
+                            put("phases", buildJsonObject { snapshot.remainingByPhase.forEach { (phase, remaining) -> put(phase.name, remaining) } })
+                        }.toString().toByteArray()
+                        val atomic = AtomicFile(budgetFile)
+                        val output = atomic.startWrite()
+                        try {
+                            output.write(bytes)
+                            atomic.finishWrite(output)
+                        } catch (failure: Exception) {
+                            atomic.failWrite(output)
+                            throw failure
+                        }
+                    }
+                }
+                ResearchBudget(total, persist = persist).also { budget ->
+                    if (saved != null) budget.restore(ResearchBudget.Snapshot(total, saved.number("used"), saved.number("physical"), total - saved.number("used"), ResearchBudget.Phase.entries.associateWith { saved["phases"]!!.jsonObject.number(it.name) }))
+                    turnBudgets[key] = now to budget
+                }
             }
         }
         override fun stopRequested() = runId in stops || chatId in deletedChats
@@ -82,8 +121,10 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             lock.withLock {
                 if (chatId in deletedChats) return@withLock
                 val session = ResearchSession(runId, chatId, snapshot, turnId)
-                mutable.update { (it + (runId to session)).entries.sortedByDescending { row -> row.value.snapshot.updatedAt }.take(24).associate { row -> row.toPair() } }
-                if (!persistent) return@withLock
+                if (!persistent) {
+                    mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
+                    return@withLock
+                }
                 try {
                     check(directory.mkdirs() || directory.isDirectory)
                     val atomic = AtomicFile(file(runId))
@@ -91,7 +132,25 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         put("runId", runId)
                         put("chatId", chatId)
                         put("turnId", turnId)
-                        put("snapshot", snapshot.json())
+                        val sourceRefs = snapshot.sources.map { source ->
+                            val bytes = source.json().toString().toByteArray()
+                            val name = researchHash(bytes.decodeToString()) + ".source"
+                            val destination = File(directory, name)
+                            if (!destination.isFile) {
+                                val sourceFile = AtomicFile(destination)
+                                val sourceStream = sourceFile.startWrite()
+                                try {
+                                    sourceStream.write(bytes)
+                                    sourceFile.finishWrite(sourceStream)
+                                } catch (error: Exception) {
+                                    sourceFile.failWrite(sourceStream)
+                                    throw error
+                                }
+                            }
+                            JsonPrimitive(name)
+                        }
+                        put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.json() - "sources"))
+                        put("sourceRefs", JsonArray(sourceRefs))
                     }.toString().toByteArray()
                     require(data.size <= 512 * 1024)
                     val stream = atomic.startWrite()
@@ -102,7 +161,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         atomic.failWrite(stream)
                         throw e
                     }
-                    directory.listFiles().orEmpty().filter { it.extension == "json" }.sortedByDescending { it.lastModified() }.drop(48).forEach { AtomicFile(it).delete() }
+                    mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
+                    // Active and resumable corpora are pinned. Retention must never drop
+                    // sources merely because the old cache held 128 files.
                 } catch (_: Exception) {
                     mutable.update { it + (runId to session.copy(snapshot = snapshot.copy(notes = snapshot.notes + "Research history could not be saved."))) }
                 }
@@ -129,7 +190,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         readerHealth.keys.removeAll { it.first == chatId }
         synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
-            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId }.forEach { AtomicFile(it).delete() }
+            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension == "budget" && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
+            val retained = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { file ->
+                runCatching { (Json.parseToJsonElement(file.readText()).jsonObject["sourceRefs"] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
+            }.toSet()
+            directory.listFiles().orEmpty().filter { it.extension == "source" && it.name !in retained }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }
         }
     }
@@ -143,6 +208,24 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         val value = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
         val runId = value.text("runId")
-        ResearchSession(runId, value.number("chatId"), requireNotNull(ResearchSnapshot.parse(value["snapshot"]!!.jsonObject)), value.text("turnId").ifBlank { runId })
+        val raw = value["snapshot"]!!.jsonObject
+        val references = value["sourceRefs"] as? JsonArray
+        val restored = if (references == null) {
+            raw
+        } else {
+            require(references.size <= 900)
+            val rows = references.map { entry ->
+                val name = (entry as? JsonPrimitive)?.contentOrNull.orEmpty()
+                require(name.matches(Regex("[a-f0-9]{64}\\.source")))
+                val sourceBytes = AtomicFile(File(directory, name)).openRead().use { input ->
+                    require(input.channel.size() <= 64 * 1024)
+                    input.readBytes()
+                }
+                require(researchHash(sourceBytes.decodeToString()) + ".source" == name)
+                Json.parseToJsonElement(sourceBytes.decodeToString()).jsonObject
+            }
+            kotlinx.serialization.json.JsonObject(raw + ("sources" to JsonArray(rows)))
+        }
+        ResearchSession(runId, value.number("chatId"), requireNotNull(ResearchSnapshot.parse(restored)), value.text("turnId").ifBlank { runId })
     }.getOrNull()
 }

@@ -355,7 +355,7 @@ class AgentToolResolver @Inject constructor(
                     dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, !current.disableRemoteTools) == null
             }
             val academicOptions = researchSelection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch
-            val academicBudget = AcademicRunBudget(maxReads = academicOptions.maxPages)
+            val academicBudget = AcademicRunBudget(limit = academicOptions.requestCeiling, maxReads = academicOptions.maxPages * 3, maxBytes = academicOptions.downloadLimitMiB * 1024 * 1024)
             DeepResearchTool.OPERATIONS.forEach { operation ->
                 val remote = academicRemote.singleOrNull {
                     it.connectionUid == researchSelection.gatewayConnectionUid && it.shareableReadOnly && it.realToolName.endsWith("deep_research_$operation")

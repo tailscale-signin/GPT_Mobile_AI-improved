@@ -16,7 +16,7 @@ data class MultiSearchResearchSelection(
     val enabledProviders: Set<String> = emptySet()
 ) {
     val academicEligibleByUi: Boolean get() = researchToggle && depth > 0 && scope != ResearchContentScope.WEB_ONLY
-    fun normalized() = copy(depth = depth.coerceIn(0, 100), enabledProviders = enabledProviders.take(26).toSet())
+    fun normalized() = copy(depth = depth.coerceIn(0, 100), enabledProviders = enabledProviders.filter { it.matches(Regex("[a-z0-9_-]{1,80}")) }.toSet())
     fun intensity(): ResearchIntensity? = when {
         !researchToggle || depth <= 0 -> null
         depth <= 34 -> ResearchIntensity.QUICK
@@ -26,15 +26,9 @@ data class MultiSearchResearchSelection(
     fun applyTo(defaults: ModelDelegationSettings): ModelDelegationSettings {
         val tier = intensity() ?: return defaults
         val scaled = defaults.withStrategy(depth)
-        val caps = defaults.deepResearch.preset(tier)
         return scaled.copy(
-            deepResearch = defaults.deepResearch.copy(
-                intensity = tier,
-                contentScope = scope,
-                maxPages = minOf(defaults.deepResearch.maxPages, caps.maxPages),
-                maxRounds = minOf(defaults.deepResearch.maxRounds, caps.maxRounds),
-                linkDepth = minOf(defaults.deepResearch.linkDepth, caps.linkDepth)
-            ).normalized()
+            deepResearch = defaults.deepResearch.forEffort(depth).copy(contentScope = scope),
+            preparationTimeoutSeconds = if (depth == 100) defaults.deepResearch.activeRunSeconds else scaled.preparationTimeoutSeconds
         )
     }
 }

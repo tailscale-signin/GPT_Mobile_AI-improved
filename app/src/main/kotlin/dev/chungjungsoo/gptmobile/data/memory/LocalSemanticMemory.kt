@@ -102,12 +102,13 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         }
     }
 
-    suspend fun search(query: String, scope: String, limit: Int = 80, includePersonal: Boolean = true): Map<String, Double> = withContext(ownerDispatcher) {
+    suspend fun search(query: String, scope: String, limit: Int = 80, includePersonal: Boolean = true, inheritedScopes: Set<String> = emptySet()): Map<String, Double> = withContext(ownerDispatcher) {
         mutex.withLock {
             if (retryDeferred()) return@withLock emptyMap()
             try {
                 if (query.isBlank()) return@withLock emptyMap()
-                val allowedScope = if (includePersonal) MemoryVector_.scope.equal("personal").or(MemoryVector_.scope.equal(scope)) else MemoryVector_.scope.equal(scope)
+                var allowedScope = if (includePersonal) MemoryVector_.scope.equal("personal").or(MemoryVector_.scope.equal(scope)) else MemoryVector_.scope.equal(scope)
+                inheritedScopes.forEach { allowedScope = allowedScope.or(MemoryVector_.scope.equal(it)) }
                 box().query(allowedScope.and(MemoryVector_.embedding.nearestNeighbors(embed(query), limit.coerceIn(1, 256))))
                     .build().use { search -> search.findWithScores().associate { it.get().factId to (1.0 - it.score).coerceIn(-1.0, 1.0) } }
             } catch (cancelled: CancellationException) {

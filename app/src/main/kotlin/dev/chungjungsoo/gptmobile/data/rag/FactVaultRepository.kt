@@ -39,7 +39,9 @@ data class VaultFact(
     val evidenceSources: Set<String> = emptySet(),
     val supersededBy: String? = null,
     val previousValues: List<String> = emptyList(),
-    val pendingReplacements: Map<String, String> = emptyMap()
+    val pendingReplacements: Map<String, String> = emptyMap(),
+    val awaitingReview: Boolean = false,
+    val revision: Int = 1
 )
 
 /** References only: fact text stays encrypted in the vault, not copied into message metadata. */
@@ -156,7 +158,7 @@ class FactVaultRepository @Inject constructor(
             current.copy(
                 facts = current.facts.filterNot { it.id == id },
                 topics = current.topics.filterNot { scopedFactId(topicFact(it.label), it.scope) == id },
-                suppressedIds = current.suppressedIds + id,
+                suppressedIds = current.suppressedIds + id + scopedFactId(removed.fact, removed.scope),
                 suppressedEvidence = current.suppressedEvidence + listOf(removed.evidenceHash).filter { it.isNotBlank() }.map { "${removed.scope}:$it" },
                 suppressedMessages = current.suppressedMessages + listOfNotNull(sourceKey(removed.sourceChatId, removed.sourceMessageId)?.let { "${removed.scope}:$it" })
             )
@@ -235,6 +237,8 @@ class FactVaultRepository @Inject constructor(
         if (!settings.recallEnabled || (!isLocal && !settings.allowCloudRecall)) return@withLock FactRecall()
         val candidates = current.facts.filter {
             it.enabled &&
+                it.supersededBy == null &&
+                !it.awaitingReview &&
                 boundary.acceptsSource(it) &&
                 recallBoundary.accepts(it.scope) &&
                 (!settings.sameChatOnly || it.sourceChatId == chatId) &&
@@ -247,7 +251,7 @@ class FactVaultRepository @Inject constructor(
                 if (FactRecall(selected + entry).prefix().toByteArray().size <= settings.recallTokens * 3) selected += entry
             }
         }
-        val semanticScores = if (settings.semanticRecall) semantic?.search(query.take(MAX_QUERY_CHARS), scope, includePersonal = boundary.includePersonal).orEmpty() else emptyMap()
+        val semanticScores = if (settings.semanticRecall) semantic?.search(query.take(MAX_QUERY_CHARS), scope, includePersonal = recallBoundary.includePersonal, inheritedScopes = recallBoundary.inheritedScopes).orEmpty() else emptyMap()
         for (entry in MemoryRecallPolicy.rank(query.take(MAX_QUERY_CHARS), candidates, previousContext, settings.rankByRecency, settings.rankByFrequency, now, semanticScores)) {
             if (selected.any { it.id == entry.id }) continue
             if (selected.size >= settings.maxRecall) break
@@ -339,7 +343,7 @@ class FactVaultRepository @Inject constructor(
             val replacements = facts.filter { it.enabled && it.supersededBy == null && conflicts(it) }
                 .associate { it.id to reviewFingerprint(it) }
             facts += VaultFact(
-                id, fact, enabled = !config.reviewBeforeRecall && replacements.isEmpty(), pendingReplacements = replacements, sourceChatId = chatId, sourceMessageId = messageId,
+                id, fact, enabled = !config.reviewBeforeRecall && replacements.isEmpty(), awaitingReview = config.reviewBeforeRecall || replacements.isNotEmpty(), pendingReplacements = replacements, sourceChatId = chatId, sourceMessageId = messageId,
                 savedAtMillis = now, lastSeenMillis = now, lastSourceKey = sourceKey(chatId, messageId).orEmpty(), evidenceSources = setOfNotNull(sourceKey(chatId, messageId)), source = source, confidence = if (source == "local_model_observation") 0.8f else 0.9f, scope = scope, evidenceHash = evidence
             )
             admitted++
@@ -352,24 +356,41 @@ class FactVaultRepository @Inject constructor(
         require(text.isNotBlank() && text.length <= 1000) { "Use 1–1000 characters for a memory." }
         require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
         val old = _state.value.facts.firstOrNull { it.id == id }
+        require(id == null || old != null) { "This memory was removed. Add a new memory instead." }
         val fact = KnowledgeFact(
             KnowledgeEntity("user", "User", "PERSON"),
             KnowledgeRelation("user", "REMEMBERS", text.trim().lowercase(Locale.ROOT), 1f, ""),
             KnowledgeEntity(text.trim().lowercase(Locale.ROOT), text.trim(), "FACT")
         )
         val effectiveScope = old?.scope ?: scope
+        val canonicalId = scopedFactId(fact, effectiveScope)
+        require(_state.value.facts.none { it.id != old?.id && it.scope == effectiveScope && scopedFactId(it.fact, effectiveScope) == canonicalId }) { "This memory already exists. Merge the records instead." }
+        // Edits keep their original ID, which may still be the hash of an older value.
+        // Re-adding that older value must never replace the edited record.
+        var entryId = old?.id ?: canonicalId
+        while (old == null && _state.value.facts.any { it.id == entryId }) entryId = UUID.randomUUID().toString()
         val entry = VaultFact(
-            scopedFactId(fact, effectiveScope), fact, enabled = old?.enabled ?: true,
+            entryId, fact, enabled = old?.enabled ?: true,
             sourceChatId = old?.sourceChatId ?: 0, sourceMessageId = old?.sourceMessageId ?: 0,
             savedAtMillis = System.currentTimeMillis(), source = "manual", confidence = 1f, scope = effectiveScope, pinned = old?.pinned ?: false,
+            revision = (old?.revision ?: 0) + 1,
+            evidenceSources = old?.evidenceSources.orEmpty(),
+            evidenceHash = old?.evidenceHash.orEmpty(),
+            occurrences = old?.occurrences ?: 1,
+            lastSeenMillis = old?.lastSeenMillis ?: System.currentTimeMillis(),
             previousValues = ((old?.previousValues.orEmpty()) + listOfNotNull(old?.fact?.target?.name?.takeIf { it != text.trim() })).takeLast(12)
         )
-        val retained = _state.value.facts.filterNot { it.id == id || it.id == entry.id }
+        val retained = _state.value.facts.filterNot { it.id == old?.id }
         require(retained.size < _state.value.settings.maxFacts) { "Memory is full." }
         persist(
             _state.value.copy(
                 facts = retained + entry,
-                suppressedIds = (_state.value.suppressedIds + listOfNotNull(id)) - entry.id
+                suppressedIds = (_state.value.suppressedIds + listOfNotNull(id)) - entry.id,
+                suppressedEvidence = _state.value.suppressedEvidence + if (old != null && old.fact.target.name != text.trim()) {
+                    listOf(old.evidenceHash, evidenceHash(old.fact.target.name)).filter { it.isNotBlank() }.map { "${old.scope}:$it" }
+                } else {
+                    emptyList()
+                }
             )
         )
     }
@@ -427,7 +448,7 @@ class FactVaultRepository @Inject constructor(
                 }
             }
             val index = facts.indexOfFirst { it.id == id }
-            facts[index] = entry.copy(enabled = enabled, supersededBy = if (enabled) null else entry.supersededBy, pendingReplacements = if (enabled) emptyMap() else entry.pendingReplacements)
+            facts[index] = entry.copy(enabled = enabled, awaitingReview = false, supersededBy = if (enabled) null else entry.supersededBy, pendingReplacements = if (enabled) emptyMap() else entry.pendingReplacements)
         }
         return current.copy(facts = facts)
     }
@@ -467,6 +488,7 @@ class FactVaultRepository @Inject constructor(
                         id,
                         fact,
                         enabled = !current.settings.reviewBeforeRecall,
+                        awaitingReview = current.settings.reviewBeforeRecall,
                         sourceChatId = message.chatId,
                         sourceMessageId = message.id,
                         savedAtMillis = System.currentTimeMillis(),
@@ -555,6 +577,7 @@ class FactVaultRepository @Inject constructor(
                     id = id,
                     fact = fact,
                     enabled = !current.settings.reviewBeforeRecall,
+                    awaitingReview = current.settings.reviewBeforeRecall,
                     sourceChatId = message.chatId,
                     sourceMessageId = message.id,
                     savedAtMillis = System.currentTimeMillis(),
@@ -575,7 +598,7 @@ class FactVaultRepository @Inject constructor(
         val current = _state.value
         if (!current.enabled || !current.settings.recallEnabled || (!isLocal && !current.settings.allowCloudRecall)) return@withLock emptyList()
         val cutoff = if (current.settings.retentionDays > 0) System.currentTimeMillis() - current.settings.retentionDays * 86_400_000L else 0L
-        current.facts.filter { it.enabled && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
+        current.facts.filter { it.enabled && it.supersededBy == null && !it.awaitingReview && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
     }
 
     private suspend fun loadLocked() {
@@ -721,10 +744,10 @@ class FactVaultRepository @Inject constructor(
             0L
         }
         val visible = snapshot.facts.filter {
-            it.enabled && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff)
+            it.enabled && it.supersededBy == null && !it.awaitingReview && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff)
         }
         val indexed = if (snapshot.settings.semanticRecall) visible else visible.map { it.copy(evidenceHash = "semantic-disabled") }
-        if (indexed == indexedFacts) return
+        if (indexed == indexedFacts && semantic?.status?.value?.let { it.available && it.indexed < it.total } != true) return
         graph.clear()
         visible.forEach {
             graph.addEntity(it.fact.entity)
@@ -750,7 +773,7 @@ class FactVaultRepository @Inject constructor(
                 val snapshot = _state.value
                 if (!snapshot.enabled || !snapshot.settings.semanticRecall) return@withLock false
                 val cutoff = if (snapshot.settings.retentionDays > 0) System.currentTimeMillis() - snapshot.settings.retentionDays * 86_400_000L else 0L
-                engine.synchronize(snapshot.facts.filter { it.enabled && it.supersededBy == null && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }, 128)
+                engine.synchronize(snapshot.facts.filter { it.enabled && it.supersededBy == null && !it.awaitingReview && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }, 128)
                 engine.status.value.let { it.available && it.indexed < it.total }
             }
             kotlinx.coroutines.yield()

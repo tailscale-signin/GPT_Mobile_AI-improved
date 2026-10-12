@@ -11,6 +11,53 @@ import org.junit.Test
 
 class FactVaultRepositoryTest {
     @Test
+    fun `editing preserves reference identity and advances revision after reload`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.saveManual("I use Blender")
+        val original = repository.state.value.facts.single()
+        repository.saveManual("I use Maya", original.id)
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        restored.load()
+        val edited = restored.state.value.facts.single()
+        assertEquals(original.id, edited.id)
+        assertEquals(2, edited.revision)
+        assertEquals("I use Maya", edited.fact.target.name)
+        assertEquals(listOf("I use Blender"), edited.previousValues)
+    }
+
+    @Test
+    fun `editing a deleted record fails instead of resurrecting it`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.saveManual("A useful fact")
+        val id = repository.state.value.facts.single().id
+        repository.deleteFact(id)
+        var rejected = false
+        try {
+            repository.saveManual("A changed fact", id)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertTrue(repository.state.value.facts.isEmpty())
+    }
+
+    @Test
+    fun `accepted suggestions become disabled records without returning to review`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.updateSettings(FactVaultSettings(reviewBeforeRecall = true))
+        repository.prepareTurn("I prefer Kotlin", 1, 1, isLocal = true)
+        val suggestion = repository.state.value.facts.single()
+        assertTrue(suggestion.awaitingReview)
+        repository.setFactEnabled(suggestion.id, true)
+        assertFalse(repository.state.value.facts.single().awaitingReview)
+        repository.setFactEnabled(suggestion.id, false)
+        assertFalse(repository.state.value.facts.single().awaitingReview)
+        assertFalse(repository.state.value.facts.single().enabled)
+    }
+
+    @Test
     fun `new capture recall and connected memory controls persist with normalized budgets`() = runBlocking {
         val storage = MemoryVault()
         val repository = FactVaultRepository(storage, KnowledgeGraphEngine())

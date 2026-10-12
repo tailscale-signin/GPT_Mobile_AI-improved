@@ -16,6 +16,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @HiltViewModel
 class FactVaultViewModel @Inject constructor(
@@ -50,6 +52,8 @@ class FactVaultViewModel @Inject constructor(
         open(id)
     }
     fun shareDocument(id: String, projectId: String) = perform { documentsRepository.shareWithProject(id, projectId) }
+    private val operationMutex = Mutex()
+    private var pendingOperations = 0
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
@@ -96,7 +100,10 @@ class FactVaultViewModel @Inject constructor(
     fun restructure(ids: Set<String>, replacements: List<String>) = perform { repository.restructure(ids, replacements) }
     fun reviewFacts(ids: Set<String>, enabled: Boolean) = perform { repository.reviewFacts(ids, enabled) }
     fun delete(id: String) = perform { repository.deleteFact(id) }
-    fun saveFact(text: String, id: String? = null) = perform { repository.saveManual(text, id) }
+    fun saveFact(text: String, id: String? = null, onSaved: () -> Unit = {}) = perform {
+        repository.saveManual(text, id)
+        onSaved()
+    }
     fun clear() = perform { repository.clear() }
     fun rebuildSemanticIndex() = perform { repository.rebuildSemanticIndex() }
     fun removeDocument(id: String) = perform { documentsRepository.delete(id) }
@@ -107,18 +114,23 @@ class FactVaultViewModel @Inject constructor(
     }
 
     private fun perform(action: suspend () -> Unit) {
-        if (_busy.value) return
+        pendingOperations++
         _busy.value = true
         viewModelScope.launch {
             try {
-                action()
-                _error.value = null
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (error: Exception) {
-                _error.value = if (error is IllegalArgumentException) error.message else "Memory could not be updated. Try again; saved content has been kept."
+                operationMutex.withLock {
+                    try {
+                        action()
+                        _error.value = null
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (error: Exception) {
+                        _error.value = if (error is IllegalArgumentException) error.message else "Memory could not be updated. Try again; saved content has been kept."
+                    }
+                }
             } finally {
-                _busy.value = false
+                pendingOperations--
+                _busy.value = pendingOperations > 0
             }
         }
     }

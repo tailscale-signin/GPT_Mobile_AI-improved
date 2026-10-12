@@ -236,7 +236,9 @@ class FactVaultRepository @Inject constructor(
         if (current != original) persist(current)
         if (!settings.recallEnabled || (!isLocal && !settings.allowCloudRecall)) return@withLock FactRecall()
         val candidates = current.facts.filter {
-            it.enabled && it.supersededBy == null && !it.awaitingReview &&
+            it.enabled &&
+                it.supersededBy == null &&
+                !it.awaitingReview &&
                 boundary.acceptsSource(it) &&
                 recallBoundary.accepts(it.scope) &&
                 (!settings.sameChatOnly || it.sourceChatId == chatId) &&

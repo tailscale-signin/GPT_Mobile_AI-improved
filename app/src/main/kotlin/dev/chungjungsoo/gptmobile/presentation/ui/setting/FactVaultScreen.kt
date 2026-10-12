@@ -158,7 +158,11 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                             FilterChip(tab == label, {
                                 tab = label
                                 query = ""
-                            }, label = { Text(when (label) { "Memories" -> "Library"; "Overview" -> "Activity"; else -> label }) })
+                            }, label = { Text(when (label) {
+                                "Memories" -> "Library"
+                                "Overview" -> "Activity"
+                                else -> label
+                            }) })
                         }
                     }
                 }

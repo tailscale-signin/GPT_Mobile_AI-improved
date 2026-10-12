@@ -28,7 +28,6 @@ jobs:
           python3 - <<'PY'
           import base64, gzip, hashlib, pathlib, subprocess
           encoded = ''.join(pathlib.Path(f'.audit/phase2-{i}.b64').read_text().strip() for i in (1, 2, 3, 4))
-          # Restore three slash characters lost during text transport, then verify exact source integrity.
           for before, after in [('BqFv/3/z3/9', 'BqFv/3//z3/9'), ('TDpk/1r9ZE', 'TDpk//1r9ZE'), ('fvZj/Lq8Prk', 'fvZj//Lq8Prk')]:
               encoded = encoded.replace(before, after)
           patch = gzip.decompress(base64.b64decode(encoded, validate=True))
@@ -38,10 +37,10 @@ jobs:
           if subprocess.run(['git', 'apply', '--reverse', '--check', str(target)], capture_output=True).returncode != 0:
               subprocess.run(['git', 'apply', '--check', str(target)], check=True)
               subprocess.run(['git', 'apply', str(target)], check=True)
-          # Explicit JUnit imports in new tests; production source is not rewritten by this step.
           import re
+          tests = {'ProgressiveToolCatalogTest.kt', 'HealthExternalStoragePolicyTest.kt', 'GenerationSafetyTest.kt', 'RunScopedHealthReaderTest.kt', 'OpenRouterCatalogLimitsTest.kt', 'SafeClipboardTest.kt'}
           for p in pathlib.Path('app/src/test').rglob('*.kt'):
-              if p.name in {'ProgressiveToolCatalogTest.kt', 'HealthExternalStoragePolicyTest.kt'}:
+              if p.name in tests:
                   s = p.read_text()
                   names = sorted(set(re.findall(r'\b(assert\w+)\(', s)))
                   p.write_text(s.replace('import org.junit.Assert.*', '\n'.join('import org.junit.Assert.' + name for name in names)))

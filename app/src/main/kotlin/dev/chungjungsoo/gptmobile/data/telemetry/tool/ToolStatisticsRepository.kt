@@ -151,7 +151,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
         val previous = ToolOutcome.valueOf(old.outcome)
         val outcome = if (reportedOutcome == ToolOutcome.UNKNOWN) old.authoritativeOutcome?.let(ToolOutcome::valueOf) ?: reportedOutcome else reportedOutcome
         if (previous != ToolOutcome.IN_PROGRESS && previous != ToolOutcome.UNKNOWN) return
-        if (previous == outcome && old.delivery == delivery) return
+        if (previous == outcome && old.delivery == delivery.name) return
         val validDuration = durationMs?.coerceIn(0L, 86400000L)
         val measured = outcome == ToolOutcome.SUCCESS && !shared && validDuration != null && old.durationMs == null
         for (bucket in listOf(-1L, old.startedAt / 3600000L)) {

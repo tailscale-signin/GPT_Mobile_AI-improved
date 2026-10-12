@@ -168,7 +168,7 @@ fun GPTMobileTheme(
         SideEffect {
             val window = (view.context as Activity).window
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = foreground(colorScheme.background) == Color.Black
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = androidx.core.graphics.ColorUtils.calculateLuminance(colorScheme.background.toArgb()) > 0.179
         }
     }
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)

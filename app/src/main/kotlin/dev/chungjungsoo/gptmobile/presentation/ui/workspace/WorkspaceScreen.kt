@@ -450,8 +450,8 @@ private fun BudgetPanel(model: WorkspaceViewModel) {
                 OutlinedTextField(source, { source = it }, label = { Text("Price source URL or contract reference") })
                 Button(onClick = {
                     model.action {
+                        val profile = profiles.first { it.uid == uid }
                         model.settings.mutateFeatureSettings { current ->
-                            val profile = profiles.first { it.uid == uid }
                             val price = ModelPrice(profile.model, micros(input), micros(output), source, System.currentTimeMillis())
                             val budget = current.spendBudget.copy(prices = current.spendBudget.prices + (uid to price))
                             budget.validate()

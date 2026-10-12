@@ -73,9 +73,20 @@ class DelegationSettingsContentTest {
         // Drive dialog/text-field animations explicitly instead of waiting for Robolectric idling.
         compose.mainClock.autoAdvance = false
         compose.onNodeWithTag("delegate_model_dropdown").performClick()
+        // Dialog roots need Android layout passes between recomposition frames.
+        repeat(3) {
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+        }
         compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
         compose.onNodeWithText("Online helper").performClick()
+        repeat(3) {
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+        }
         compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
         compose.mainClock.autoAdvance = true
         assertEquals("online", selected?.targetProfileUid)
         assertTrue(selected?.enabled == true)

@@ -1,29 +1,29 @@
-# GPT Mobile AI 0.9.42.0
+# GPT Mobile AI 0.9.43.0
 
-## Smartwatch Health Connect
-- Add a native, read-only Health Connect plugin for health records synced to the Android phone by compatible watch companion apps. No external MCP server or API key is required.
-- Add themed Overview, Access and AI Tools tabs for local statistics, Android permissions, provider installation/settings, per-profile access and disconnect controls.
-- Expose nine phone-owned AI tools: status, summary, activity, heart rate, sleep, workouts, vitals, body measurements and hydration.
-- Support thirteen read-only record categories: steps, distance, active and total calories, heart rate, resting heart rate, HRV RMSSD, sleep, workouts, oxygen saturation, respiratory rate, weight and hydration.
-- Bound queries to the last 30 days, with explicit time ranges, source-app filtering, units, timestamps and provenance. Missing data, denied permissions and provider failures remain distinct; unavailable measurements are not reported as zero.
+## Local Health Connect history
+- Add local Health Connect imports in Smartwatch settings, with summary ranges from today through five years, subject to the records actually available from Health Connect.
+- Check extended-history support and request the separate Android history permission before multi-year imports. Existing AI health-tool queries remain limited to the last 30 days.
+- Keep the imported snapshot in app-private storage. Importing or viewing health data locally does not grant AI sharing consent or enable profile access.
 
-## Privacy and access
-- The plugin and per-profile access are off by default. AI access requires separate, device-local sharing consent; viewing the local Overview does not grant that consent.
-- Require the app to be visible and the phone unlocked, recheck access before returning records, and prevent cross-profile cache reuse and recovery replay of health results.
-- Redact stored health-tool arguments and payloads; protect the dashboard with the app lock and screenshot restrictions.
-- Authorized remote profiles, gateways and delegates can receive tool results. Health information repeated in AI replies can still be retained by existing conversation, memory, backup/export and provider settings. This release does not claim end-to-end deletion.
+## Encrypted health backup and restore
+- Add an optional Health data section to complete backup and restore. It is excluded from the default selection and requires encryption.
+- Protect health backups with a password or a separate recovery key file. Keep the recovery key safe and separate from the backup; it is required to restore passwordless encrypted archives.
+- Validate restored snapshots and preserve the original imported time range, including multi-year history. A saved snapshot is a summary of the selected range, not a complete raw-record export or a promise that every watch provides five years of data.
+- Retain the existing independent consent controls for AI access and remote sharing.
+
+## Release validation
+- Correct the plaintext-backup ViewModel test to select non-sensitive settings rather than ALL sections, which includes health data, credentials and memory.
+- Add ViewModel regression coverage for health backup with a recovery key, recovery-key cancellation without writing a backup, and password-encrypted health backup.
+- Retain the five-year snapshot codec and archive round-trip coverage introduced by the Health Connect local-import change.
+- The signed-release workflow validates the exact release commit, runs unit tests and Android lint, and checks native packaging, artifact identity and signing-certificate continuity before publication. No test or encryption gate has been disabled.
 
 ## Setup and scope
-- Open Settings > Plugins/Tools > Smartwatch Health Connect > Configure. Grant only the desired read categories, check Overview, then explicitly enable AI sharing and the permitted profiles.
-- The watch companion app must already share supported records with Health Connect. This plugin reads synced history, not live Bluetooth/watch sensors, and does not provide medical diagnosis.
-- Availability depends on the phone, companion app, permissions and shared record types. See docs/health-connect.md for setup, privacy details and the physical-device test checklist.
-
-## Validation and distribution
-- The feature's strict Android unit-test, lint and debug-APK validation passed before release preparation. The release workflow independently validates its exact commit, builds the artifacts and verifies native packaging and signing-certificate continuity before publication.
-- Includes 28 targeted regression tests covering health queries, SDK requests, permissions, tool access, recovery, trace redaction and a daylight-saving boundary.
-- Physical-watch/device testing and Google Play health-data declarations/privacy-policy review remain required before claiming device certification or store readiness. This publication is a GitHub release, not a Google Play submission.
+- Open Settings > Plugins/Tools > Smartwatch Health Connect > Configure to manage permissions and local imports.
+- The watch companion app must share supported records with Health Connect. Availability depends on Android history support, permissions, companion-app sync and retained records.
+- Physical-device multi-year import and clean-device restore testing remain required; this release does not claim watch certification, medical diagnosis or Google Play approval.
+- This publication is a GitHub release, not a Google Play submission.
 
 ## Release identity
 - Package: dev.melo.gptmobile.improved
-- Version: 0.9.42.0
-- Version code: 111
+- Version: 0.9.43.0
+- Version code: 112

@@ -133,8 +133,8 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("boolean", "TOOL_STORM_FINALIZATION", providers.gradleProperty("toolStormFinalization").map { (it != "false").toString() }.getOrElse("true"))
         minSdk = 31
         targetSdk = 37
-        versionCode = 111
-        versionName = "0.9.42.0"
+        versionCode = 112
+        versionName = "0.9.43.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

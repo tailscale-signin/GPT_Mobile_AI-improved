@@ -35,21 +35,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Cable
-import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FolderOpen
-import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Memory
-import androidx.compose.material.icons.rounded.Newspaper
-import androidx.compose.material.icons.rounded.Psychology
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.Tune
@@ -71,16 +62,13 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -106,12 +94,12 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
-import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
-import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -138,8 +126,8 @@ fun ToolConnectionsScreen(
     val marketplaceViewModel: dev.chungjungsoo.gptmobile.presentation.ui.mcp.MarketplaceViewModel = hiltViewModel()
     val installations by marketplaceViewModel.installations.collectAsStateWithLifecycle()
     val marketplaceState by marketplaceViewModel.uiState.collectAsStateWithLifecycle()
-    var pluginSettings by remember { mutableStateOf<IntegratedPluginUi?>(null) }
-    var connectionManagerPlugin by remember { mutableStateOf<IntegratedPluginUi?>(null) }
+    var pluginSettings by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var connectionManagerPlugin by remember { mutableStateOf<String?>(null) }
     var amazonMcpSetup by remember { mutableStateOf(false) }
     if (amazonMcpSetup) {
         dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpPresetConfigureDialog(
@@ -361,13 +349,14 @@ fun ToolConnectionsScreen(
                         toggleEnabled = ready || serviceEnabled(service)
                     ) {
                         if (service.integrated) {
-                            val plugin = INTEGRATED_PLUGINS.first { it.id == service.id }
+                            val destination = pluginSettingsDestination(service.definition)
                             OutlinedButton(onClick = {
-                                when (service.id) {
-                                    ToolPluginId.HEALTH_CONNECT -> context.startActivity(Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.health.HealthConnectActivity::class.java))
-                                    ToolPluginId.MODEL_DELEGATION -> delegationSettingsOpen = true
-                                    ToolPluginId.LOCAL_MEMORY -> memorySettingsOpen = true
-                                    else -> pluginSettings = plugin
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("PluginSettings", "route · plugin=${service.id} · destination=$destination")
+                                when (destination) {
+                                    PluginSettingsDestination.HEALTH -> context.startActivity(Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.health.HealthConnectActivity::class.java))
+                                    PluginSettingsDestination.DELEGATION -> delegationSettingsOpen = true
+                                    PluginSettingsDestination.MEMORY -> memorySettingsOpen = true
+                                    else -> pluginSettings = service.id
                                 }
                             }) {
                                 Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp))
@@ -401,7 +390,7 @@ fun ToolConnectionsScreen(
                             CollapsibleToolConnectionCard(
                                 connection = connection,
                                 onEditClick = { onEditConnectionClick(connection.connectionUid) },
-                                onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Rounded.Tune) },
+                                onRuntimeSettings = { pluginSettings = ToolPluginId.connection(connection.connectionUid) },
                                 onPermissionsClick = { permissionsConnection = connection },
                                 onBrowseClick = { browsingConnection = connection },
                                 onOAuthClick = { startOAuth(connection) },
@@ -434,24 +423,37 @@ fun ToolConnectionsScreen(
         )
     }
 
-    pluginSettings?.let { plugin ->
-        PluginConfigurationDialog(
-            plugin.id,
-            plugin.name,
-            features,
-            viewModel::updateFeature,
-            onSave = { viewModel.configurePlugin(plugin.id, it) },
-            onConnection = {
-                pluginSettings = null
-                connectionManagerPlugin = plugin
-            },
-            onDismiss = { pluginSettings = null },
-            onRevokePermissions = { viewModel.revokePluginGrants(plugin.id) },
-            isAmazon = plugin.id == ToolPluginId.AMAZON_SEARCH || uiState.connections.any { ToolPluginId.connection(it.connectionUid) == plugin.id && it.type == ToolConnectionType.AMAZON_SERPAPI }
-        )
+    pluginSettings?.let { pluginId ->
+        val plugin = services.firstOrNull { it.id == pluginId }?.definition
+            ?: uiState.connections.firstOrNull { ToolPluginId.connection(it.connectionUid) == pluginId }?.let {
+                dev.chungjungsoo.gptmobile.data.model.ToolServiceDefinition(pluginId, it.name, "", "connection", supportsGenericSettings = true)
+            }
+        if (pluginSettingsDestination(plugin) == PluginSettingsDestination.DEEP_RESEARCH) {
+            DeepResearchSettingsScreen(onClose = { pluginSettings = null })
+        } else if (plugin == null || pluginSettingsDestination(plugin) == PluginSettingsDestination.UNAVAILABLE) {
+            AlertDialog(onDismissRequest = { pluginSettings = null }, title = { Text("Settings unavailable") },
+                text = { Text("This plugin is no longer available or has no settings handler.") },
+                confirmButton = { TextButton(onClick = { pluginSettings = null }) { Text("Close") } })
+        } else {
+            PluginConfigurationDialog(
+                plugin.id,
+                plugin.name,
+                features,
+                viewModel::updateFeature,
+                onSave = { viewModel.configurePlugin(plugin.id, it) },
+                onConnection = {
+                    pluginSettings = null
+                    connectionManagerPlugin = plugin.id
+                },
+                onDismiss = { pluginSettings = null },
+                onRevokePermissions = { viewModel.revokePluginGrants(plugin.id) },
+                isAmazon = plugin.id == ToolPluginId.AMAZON_SEARCH || uiState.connections.any { ToolPluginId.connection(it.connectionUid) == plugin.id && it.type == ToolConnectionType.AMAZON_SERPAPI }
+            )
+        }
     }
 
-    connectionManagerPlugin?.let { plugin ->
+    connectionManagerPlugin?.let { pluginId ->
+        val plugin = services.firstOrNull { it.id == pluginId }?.definition ?: return@let
         val connections = ToolServiceCatalog.connectionsForPlugin(plugin.id, uiState.connections)
         val packages = services.firstOrNull { it.id == plugin.id }?.packages.orEmpty()
         AlertDialog(
@@ -536,31 +538,6 @@ fun ToolConnectionsScreen(
         )
     }
 }
-
-private data class IntegratedPluginUi(
-    val id: String,
-    val name: String,
-    val description: String,
-    val icon: ImageVector
-)
-
-private val INTEGRATED_PLUGINS = listOf(
-    IntegratedPluginUi(ToolPluginId.HEALTH_CONNECT, "Smartwatch Health Connect", "Read-only synced health statistics with granular permissions and explicit AI-sharing consent.", Icons.Rounded.Favorite),
-    IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured delegate model.", Icons.Rounded.Psychology),
-    IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context.", Icons.Rounded.Memory),
-    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & Time", "Provides current date context without a remote MCP server.", Icons.Rounded.Schedule),
-    IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally.", Icons.Rounded.Calculate),
-    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read Files", "Reads bounded slices of files made available to the app.", Icons.Rounded.FolderOpen),
-    IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Rounded.Language),
-    IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Rounded.Code),
-    IntegratedPluginUi(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Finds Amazon products with prices, ratings and product links. Add a SerpApi API key in Tool Connections.", Icons.Rounded.Storefront),
-    IntegratedPluginUi(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Read public Amazon Canada, US, UK and France pages. No API key required. Preview access varies.", Icons.Rounded.Storefront),
-    IntegratedPluginUi(ToolPluginId.NEWS, "News", "Google News, Trends and Hacker News. Free public feeds plus optional MCP backends.", Icons.Rounded.Newspaper),
-    IntegratedPluginUi(ToolPluginId.AIRBNB, "Airbnb", "Browse public stays directly in the app without sign-up. Internet is required; OpenBnB connections are optional.", Icons.Rounded.Home),
-    IntegratedPluginUi(ToolPluginId.GOOGLE_PLACES, "Google Places", "Google place search and details, with an optional hosted Google Maps MCP connection.", Icons.Rounded.LocationOn),
-    IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Rounded.Search),
-    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Rounded.LocationOn)
-)
 
 @Composable
 private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {

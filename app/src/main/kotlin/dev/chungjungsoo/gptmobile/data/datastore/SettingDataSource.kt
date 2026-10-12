@@ -22,6 +22,10 @@ interface SettingDataSource {
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
     suspend fun updateDebugMode(enabled: Boolean)
     suspend fun updateFeatureSettings(settings: AppFeatureSettings) = Unit
+    suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {
+        val current = getFeatureSettings()
+        updateFeatureSettings(current.copy(delegation = current.delegation.copy(deepResearch = settings.migrated())))
+    }
     suspend fun getFeatureSettings(): AppFeatureSettings = AppFeatureSettings()
     fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
     suspend fun getDebugMode(): Boolean

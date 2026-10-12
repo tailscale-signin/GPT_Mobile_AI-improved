@@ -356,11 +356,12 @@ class AgentToolResolver @Inject constructor(
                     dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, !current.disableRemoteTools) == null
             }
             val persistentAcademicEvidence = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == false } == true
-            val academicOptions = researchSelection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch
+            val academicPlan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(featureSettings, profileUid, researchSelection)
+            val academicOptions = academicPlan.settings
             val sharedTurnBudget = userMessage?.let { message ->
-                researchSessions?.journal("academic:${message.chatId}:${message.id}", message.chatId, persistentAcademicEvidence, "${message.chatId}:${message.id}")?.budget(academicOptions.requestCeiling, academicOptions.downloadLimitMiB * 1024 * 1024)
+                researchSessions?.journal("academic:${message.chatId}:${message.id}", message.chatId, persistentAcademicEvidence, "${message.chatId}:${message.id}")?.goalBudget(academicPlan)
             }
-            val academicBudget = AcademicRunBudget(limit = academicOptions.requestCeiling, maxReads = academicOptions.maxPages * 3, maxBytes = academicOptions.downloadLimitMiB * 1024 * 1024, shared = sharedTurnBudget)
+            val academicBudget = AcademicRunBudget(shared = sharedTurnBudget ?: dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(1, ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(academicPlan.fingerprint, academicPlan.limits)), goalDriven = true)
             DeepResearchTool.OPERATIONS.forEach { operation ->
                 val remote = academicRemote.singleOrNull {
                     it.connectionUid == researchSelection.gatewayConnectionUid && it.shareableReadOnly && it.realToolName.endsWith("deep_research_$operation")
@@ -379,7 +380,23 @@ class AgentToolResolver @Inject constructor(
                                     )
                             )
                 }
-                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget, persistentEvidence = persistentAcademicEvidence)
+                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget, persistentEvidence = persistentAcademicEvidence,
+                    runKey = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
+                    remoteCapability = {
+                        val statusTool = academicRemote.singleOrNull { it.connectionUid == researchSelection.gatewayConnectionUid && it.realToolName.endsWith("deep_research_status") && it.shareableReadOnly }
+                        val statusAllowed = statusTool?.connectionUid?.let { uid ->
+                            toolConnectionRepository.getConnection(uid)?.let { connection ->
+                                statusTool.realToolName in connection.approvedReadTools.lines().map(String::trim) &&
+                                    toolConnectionRepository.listBindingsWithConnections(profileUid).any { it.binding.connectionUid == uid && it.binding.toolName == statusTool.realToolName }
+                            }
+                        } == true
+                        if (statusTool == null || !statusAllowed || !liveAccess()) false else {
+                            val result = statusTool.tool.execute("research-capability", JsonObject(emptyMap()))
+                            val payload = (result.content as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json)?.value as? JsonObject
+                                ?: (result.content as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text)?.text?.let { runCatching { kotlinx.serialization.json.Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                            !result.isError && (payload?.get("researchPolicyVersions") as? kotlinx.serialization.json.JsonArray)?.any { it.toString() == "3" } == true
+                        }
+                    })
                 resolved += ResolvedAgentTool(facade, remote?.connectionUid, "Deep Research", remote?.realToolName ?: facade.definition.name, facade.definition.name, shareableReadOnly = false, canReuseResult = access)
             }
         }

@@ -31,10 +31,17 @@ data class DeepResearchSettings(
     val activeRunSeconds: Int = 3600,
     val downloadLimitMiB: Int = 512,
     val corpusLimitMiB: Int = 128,
-    val migrationNotice: String = ""
+    val migrationNotice: String = "",
+    val customSourceTarget: Int? = null,
+    val userLimits: ResearchUserLimits = ResearchUserLimits(),
+    val disabledEngineIds: Set<String> = emptySet()
 ) {
     fun normalized() = copy(
-        maxPages = minOf(maxPages.coerceIn(0, 300), sourceSafetyCap?.coerceIn(0, 300) ?: 300),
+        maxPages = if (schemaVersion == 3) {
+            if (enabled && effort > 0) customSourceTarget ?: targetForEffort(effort) else 0
+        } else {
+            maxPages.coerceAtLeast(0)
+        },
         effort = effort.coerceIn(0, 100),
         sourceSafetyCap = sourceSafetyCap?.coerceIn(0, 300),
         requestCeiling = requestCeiling.coerceIn(1, 2400),
@@ -51,12 +58,12 @@ data class DeepResearchSettings(
     )
 
     fun preset(value: ResearchIntensity) = when (value) {
-        ResearchIntensity.QUICK -> copy(intensity = value, schemaVersion = 2, effort = 25, maxPages = targetForEffort(25), maxRounds = 2, linkDepth = 0)
-        ResearchIntensity.RESEARCH -> copy(intensity = value, schemaVersion = 2, effort = 50, maxPages = targetForEffort(50), maxRounds = 4, linkDepth = 1)
-        ResearchIntensity.EXHAUSTIVE -> copy(intensity = value, schemaVersion = 2, effort = 100, maxPages = targetForEffort(100), maxRounds = 8, linkDepth = 2, concurrency = 6, pageTimeoutSeconds = 30)
+        ResearchIntensity.QUICK -> copy(intensity = value, schemaVersion = 3, effort = 25, maxPages = targetForEffort(25), maxRounds = 2, linkDepth = 0)
+        ResearchIntensity.RESEARCH -> copy(intensity = value, schemaVersion = 3, effort = 50, maxPages = targetForEffort(50), maxRounds = 4, linkDepth = 1)
+        ResearchIntensity.EXHAUSTIVE -> copy(intensity = value, schemaVersion = 3, effort = 100, maxPages = targetForEffort(100), maxRounds = 8, linkDepth = 2, concurrency = 6, pageTimeoutSeconds = 30)
     }
 
-    /** Explicit safety caps are separate from ambiguous legacy page defaults. */
+    /** Effort presets and custom goals are independent of deprecated source caps. */
     fun forEffort(percent: Int): DeepResearchSettings {
         val depth = percent.coerceIn(0, 100)
         val tier = when {
@@ -64,16 +71,26 @@ data class DeepResearchSettings(
             depth < 75 -> ResearchIntensity.RESEARCH
             else -> ResearchIntensity.EXHAUSTIVE
         }
-        val legacyCap = sourceSafetyCap ?: maxPages.takeIf { schemaVersion < 2 && it in 1..30 && it !in setOf(12, 24) }
         val base = preset(tier)
         return base.copy(
             effort = depth,
-            schemaVersion = 2,
-            sourceSafetyCap = legacyCap,
-            maxPages = minOf(targetForEffort(depth), legacyCap ?: 300),
-            migrationNotice = if (schemaVersion < 2) "Research effort now sets the source target. Legacy 12/24-page defaults no longer impose a hidden cap; other smaller legacy caps are preserved." else migrationNotice
+            schemaVersion = 3,
+            maxPages = if (!enabled || depth == 0) 0 else customSourceTarget ?: targetForEffort(depth),
+            migrationNotice = if (schemaVersion < 3) "The old research source cap has been removed. Your research goal is preserved." else migrationNotice
         ).normalized()
     }
+
+    fun migrated(): DeepResearchSettings {
+        require(schemaVersion in 1..3) { "Unsupported research settings version" }
+        require(customSourceTarget == null || customSourceTarget > 0) { "Source goal must be positive" }
+        userLimits.validate()
+        return if (schemaVersion < 3) copy(
+            schemaVersion = 3,
+            migrationNotice = "The old research source cap has been removed. Your research goal is preserved."
+        ).normalized() else normalized()
+    }
+
+    val goalDriven: Boolean get() = enabled && effort > 0 && schemaVersion == 3
 
     companion object {
         fun targetForEffort(percent: Int): Int {

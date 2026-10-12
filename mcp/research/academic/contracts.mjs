@@ -2,6 +2,12 @@ import { z } from 'zod';
 
 export const operations = ['search_papers', 'get_paper', 'read_paper', 'citations', 'verify_evidence', 'status'];
 const common = {
+  researchRequestAllowance: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  researchDownloadAllowance: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  researchPolicyVersion: z.literal(3).optional(),
+  researchSourceGoal: z.number().int().positive().max(2147483647).optional(),
+  researchRunId: z.string().max(200).optional(),
+  researchPolicyFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   ephemeral: z.boolean().optional(),
   depth: z.number().int().min(1).max(100).optional(),
   maxProviderCalls: z.number().int().min(1).max(64).optional(),
@@ -13,7 +19,7 @@ const identifier = z.string().min(1).max(500);
 const schemas = {
   search_papers: z.object({ ...common, query: z.string().min(1).max(500), scope: z.literal('papers').optional(),
     discipline: z.array(z.string().max(60)).max(5).optional(), maxResults: z.number().int().min(1).max(50).optional(),
-    cursor: z.enum(Array.from({ length: 10 }, (_, i) => String(i + 1))).optional(), fromYear: z.number().int().min(1500).max(3000).optional(),
+    cursor: z.string().regex(/^[1-9][0-9]{0,9}$/).refine(v => Number(v) <= 2147483647).optional(), fromYear: z.number().int().min(1500).max(3000).optional(),
     toYear: z.number().int().min(1500).max(3000).optional(), reviewStatus: z.enum(['any', 'unknown', 'preprint', 'peer_reviewed']).optional()
   }).strict().refine(a => a.fromYear === undefined || a.toYear === undefined || a.fromYear <= a.toYear, 'Invalid year interval'),
   get_paper: z.object({ ...common, identifier }).strict(),

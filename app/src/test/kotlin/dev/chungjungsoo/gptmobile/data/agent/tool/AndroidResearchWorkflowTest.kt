@@ -8,6 +8,11 @@ import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.research.ResearchJournal
 import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -20,10 +25,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 class AndroidResearchWorkflowTest {
     private val passage = "The research device supports two parallel page requests. This documented limit applies to all ordinary page retrieval operations."
@@ -36,7 +37,7 @@ class AndroidResearchWorkflowTest {
         }
         override fun stopRequested() = stop
     }
-    private fun config(pages: Int = 2) = ModelDelegationSettings(maxInputCharacters = 12000, maxOutputTokens = 768, deepResearch = DeepResearchSettings(maxPages = pages, maxRounds = 1, concurrency = 1))
+    private fun config(pages: Int = 2) = ModelDelegationSettings(maxInputCharacters = 12000, maxOutputTokens = 768, deepResearch = DeepResearchSettings(schemaVersion = 3, customSourceTarget = pages.takeIf { it > 0 }, effort = if (pages == 0) 0 else 50, maxPages = pages, maxRounds = 1, concurrency = 1))
     private fun tool(name: String, execute: suspend (String, JsonObject) -> AgentToolResult): ResolvedAgentTool {
         val definition = AgentToolDefinition(
             name,
@@ -115,7 +116,7 @@ class AndroidResearchWorkflowTest {
         val result = AndroidResearchWorkflow(config(), listOf(search(), reader()), ::model, journal).run("Research request limits", "run")
         assertEquals(1, result.pagesRead)
         assertEquals("Supported", journal.snapshot!!.claims.single().verdict)
-        assertTrue(journal.snapshot!!.complete)
+        assertFalse(journal.snapshot!!.complete)
         assertTrue(journal.snapshot!!.toolEvents.any { it.outcome == "SUCCESS" && it.sourceIds == listOf("S1") && it.latencyMs >= 0 })
         assertTrue(journal.snapshot!!.toolEvents.any { it.reader == "read_url" && it.outcome == "SUCCESS" && it.sourceIds == listOf("S1") })
         val bad = Journal()
@@ -251,8 +252,7 @@ class AndroidResearchWorkflowTest {
             journal
         ).run("Research", "quick")
         assertEquals(0, reads)
-        assertTrue(journal.snapshot!!.claims.isEmpty())
-        assertEquals("Discovered", journal.snapshot!!.sources.single().status)
+        assertNull(journal.snapshot)
     }
 
     @Test fun connectedReadersRequireExplicitOptIn() = runBlocking {

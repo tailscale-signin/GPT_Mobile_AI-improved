@@ -12,7 +12,8 @@ data class ToolServiceDefinition(
     val description: String,
     val iconName: String,
     val usesNetwork: Boolean = false,
-    val supportsLocalTools: Boolean = !usesNetwork
+    val supportsLocalTools: Boolean = !usesNetwork,
+    val supportsGenericSettings: Boolean = false
 )
 
 /** Shared identities for the service list, profile controls and runtime tool filtering. */
@@ -39,18 +40,18 @@ object ToolServiceCatalog {
         ToolServiceDefinition(ToolPluginId.DEEP_RESEARCH, "Deep Research", "Opt-in academic discovery, open-access evidence and quote verification. Native keyless sources; optional private gateway for PDFs.", "search", true),
         ToolServiceDefinition(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Let a configured helper research and process information.", "delegation"),
         ToolServiceDefinition(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recall and capture private memory on your device.", "memory"),
-        ToolServiceDefinition(ToolPluginId.CURRENT_DATE, "Date & Time", "Current date and time, calculated on your device.", "schedule"),
-        ToolServiceDefinition(ToolPluginId.CALCULATOR, "Calculator", "Evaluate arithmetic expressions on your device.", "calculator"),
-        ToolServiceDefinition(ToolPluginId.READ_FILES, "Files", "Read files shared with the app.", "folder"),
-        ToolServiceDefinition(ToolPluginId.READ_URL, "Web Pages", "Read web pages using the app's built-in plugin.", "web", true),
-        ToolServiceDefinition(ToolPluginId.GITHUB, "GitHub", "Repository tools and workspace access in one service.", "github", true),
-        ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Product search, deals and price tracking. Connect a search key or an Amazon MCP server.", "amazon", true),
-        ToolServiceDefinition(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Preview: Amazon Canada/US search and details, local history and manual targets. No API key; public-page availability varies.", "shopping", true, supportsLocalTools = true),
-        ToolServiceDefinition(ToolPluginId.NEWS, "News", "Google News, Google Trends and Hacker News, with optional unified MCP providers.", "news", true),
-        ToolServiceDefinition(ToolPluginId.AIRBNB, "Airbnb", "Public listing search and details directly in the app without sign-up. Optional OpenBnB connections remain available.", "airbnb", true),
-        ToolServiceDefinition(ToolPluginId.GOOGLE_PLACES, "Google Places", "Text and nearby place search, place details, and Google Maps Grounding MCP. A Google API key is required.", "google", true),
-        ToolServiceDefinition(ToolPluginId.WEB_SEARCH, "Web Search", "Search the web with the app's built-in engines.", "search", true),
-        ToolServiceDefinition(ToolPluginId.DEVICE_LOCATION, "Device Location", "Share the phone's location when you allow it.", "location")
+        ToolServiceDefinition(ToolPluginId.CURRENT_DATE, "Date & Time", "Current date and time, calculated on your device.", "schedule", supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.CALCULATOR, "Calculator", "Evaluate arithmetic expressions on your device.", "calculator", supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.READ_FILES, "Files", "Read files shared with the app.", "folder", supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.READ_URL, "Web Pages", "Read web pages using the app's built-in plugin.", "web", true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.GITHUB, "GitHub", "Repository tools and workspace access in one service.", "github", true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Product search, deals and price tracking. Connect a search key or an Amazon MCP server.", "amazon", true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.AMAZON_FREE, "Amazon Research Free", "Preview: Amazon Canada/US search and details, local history and manual targets. No API key; public-page availability varies.", "shopping", true, supportsLocalTools = true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.NEWS, "News", "Google News, Google Trends and Hacker News, with optional unified MCP providers.", "news", true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.AIRBNB, "Airbnb", "Public listing search and details directly in the app without sign-up. Optional OpenBnB connections remain available.", "airbnb", true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.GOOGLE_PLACES, "Google Places", "Text and nearby place search, place details, and Google Maps Grounding MCP. A Google API key is required.", "google", true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.WEB_SEARCH, "Web Search", "Search the web with the app's built-in engines.", "search", true, supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.DEVICE_LOCATION, "Device Location", "Share the phone's location when you allow it.", "location", supportsGenericSettings = true)
     )
 
     fun forPackage(entry: GitHubMarketplacePackage): ToolServiceDefinition {

@@ -182,6 +182,8 @@ class SettingRepositoryImpl @Inject constructor(
         dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = settings.diagnosticsCollection
     }
 
+    override suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) = settingDataSource.updateResearchSettings(settings)
+
     override fun observeFeatureSettings(): Flow<AppFeatureSettings> =
         settingDataSource.observeFeatureSettings()
 

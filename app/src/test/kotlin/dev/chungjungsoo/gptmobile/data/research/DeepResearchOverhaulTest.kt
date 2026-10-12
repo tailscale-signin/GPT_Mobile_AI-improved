@@ -8,11 +8,11 @@ import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore
-import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.file.Files
 
 class DeepResearchOverhaulTest {
     @Test
@@ -21,8 +21,8 @@ class DeepResearchOverhaulTest {
         assertTrue(targets.zipWithNext().all { it.first <= it.second })
         assertEquals(listOf(0, 30, 90, 180, 300), listOf(0, 25, 50, 75, 100).map { DeepResearchSettings.targetForEffort(it) })
         assertEquals(300, MultiSearchResearchSelection(true, 100).applyTo(ModelDelegationSettings()).deepResearch.maxPages)
-        assertEquals(150, DeepResearchSettings(sourceSafetyCap = 150).forEffort(100).maxPages)
-        assertEquals(8, DeepResearchSettings(maxPages = 8, schemaVersion = 1).forEffort(100).maxPages)
+        assertEquals(300, DeepResearchSettings(sourceSafetyCap = 150).forEffort(100).maxPages)
+        assertEquals(300, DeepResearchSettings(maxPages = 8, schemaVersion = 1).forEffort(100).maxPages)
         assertTrue(DeepResearchSettings(schemaVersion = 1).forEffort(100).migrationNotice.isNotBlank())
     }
 

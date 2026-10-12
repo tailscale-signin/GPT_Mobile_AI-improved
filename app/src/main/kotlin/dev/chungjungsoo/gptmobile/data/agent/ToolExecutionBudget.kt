@@ -42,7 +42,7 @@ class ToolExecutionBudget(
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
-            if (attempts.incrementAndGet() > limits.maxObservedToolCalls.coerceIn(1, 1024) || callId.length > 256 || boundedJsonBytes(arguments, 16 * 1024) > 16 * 1024) {
+            if ((!limits.researchAcquisition && attempts.incrementAndGet() > limits.maxObservedToolCalls.coerceIn(1, 1024)) || callId.length > 256 || boundedJsonBytes(arguments, 16 * 1024) > 16 * 1024) {
                 return { withBudgetState(ToolResultEnvelope.error(callId.take(256), "TOOL_BATCH_OVERSIZE", "Observed tool attempt or argument limit reached. No action dispatched.")) }
             }
             val invocation = "$executionOwner:${tool.definition.name}:$callId"
@@ -282,7 +282,7 @@ class ToolExecutionBudget(
     }
 
     private fun withBudgetState(result: AgentToolResult): AgentToolResult {
-        val configuredCalls = limits.maxToolCalls.takeUnless { it == Int.MAX_VALUE }
+        val configuredCalls = limits.maxToolCalls.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
         val callLimit = executionLimit.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
         val resultByteLimit = limits.maxToolOutputBytes.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
         val resultBytesUsed = resultByteLimit?.let { limit ->

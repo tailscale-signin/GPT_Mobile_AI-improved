@@ -1154,11 +1154,11 @@ class LocalDelegationCoordinatorTest {
         assertEquals(2, calls)
     }
 
-    @Test fun `whole preparation deadline is shared and does not reset with retries`() = runTest {
+    @Test fun `non research preparation deadline is shared and does not reset with retries`() = runTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(researchEnabled = true, preparationTimeoutSeconds = 30) },
+            { config.copy(researchEnabled = true, preparationTimeoutSeconds = 30, deepResearch = config.deepResearch.copy(enabled = false)) },
             { listOf(target) },
             { _, _, _ ->
                 calls++

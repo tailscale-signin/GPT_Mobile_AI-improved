@@ -1321,15 +1321,17 @@ internal class LocalDelegationCoordinator(
         )
     }
 
-    suspend fun prepare(task: String, tools: List<ResolvedAgentTool>, callId: String, automatic: Boolean = false, targetOverride: PlatformV2? = null): LocalResearchResult {
-        val config = settings().normalized()
-        if (config.deepResearch.enabled && config.deepResearch.effort > 0) return prepareWithinBudget(task, tools, callId, automatic, targetOverride) {}
+    suspend fun prepare(task: String, tools: List<ResolvedAgentTool>, callId: String, automatic: Boolean = false, targetOverride: PlatformV2? = null, researchGoalOverride: Int? = null): LocalResearchResult {
+        require(researchGoalOverride == null || researchGoalOverride > 0)
+        val defaults = settings().normalized()
+        val config = if (researchGoalOverride == null) defaults else defaults.copy(deepResearch = defaults.deepResearch.copy(customSourceTarget = researchGoalOverride).forEffort(maxOf(1, defaults.deepResearch.effort)))
+        if (config.deepResearch.enabled && config.deepResearch.effort > 0) return prepareWithinBudget(task, tools, callId, automatic, targetOverride, config) {}
         preparationStartedAt.compareAndSet(-1L, nowMs())
         val remaining = config.preparationTimeoutSeconds * 1000L - (nowMs() - preparationStartedAt.get())
         var retained: LocalResearchResult? = null
         val result = if (remaining > 0) {
             withTimeoutOrNull(remaining) {
-                prepareWithinBudget(task, tools, callId, automatic, targetOverride) { retained = it }
+                prepareWithinBudget(task, tools, callId, automatic, targetOverride, config) { retained = it }
             }
         } else {
             null
@@ -1363,9 +1365,10 @@ internal class LocalDelegationCoordinator(
         callId: String,
         automatic: Boolean = false,
         targetOverride: PlatformV2? = null,
+        pinnedConfig: ModelDelegationSettings? = null,
         retain: (LocalResearchResult) -> Unit
     ): LocalResearchResult {
-        val config = settings().normalized()
+        val config = pinnedConfig ?: settings().normalized()
         if (!config.researchEnabled || (automatic && !config.automaticResearch)) {
             AppLogRecorder.record("Delegation", "Research skipped · automatic=$automatic · enabled=${config.researchEnabled} · target=null")
             return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)

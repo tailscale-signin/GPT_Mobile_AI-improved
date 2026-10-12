@@ -293,6 +293,8 @@ internal class AndroidResearchWorkflow(
             state.searches,
             if (noResearchNeeded) {
                 LocalResearchOutcome.NO_RESEARCH_NEEDED
+            } else if (sources.isEmpty()) {
+                LocalResearchOutcome.NO_USEFUL_OUTPUT
             } else if (acceptedCount < sourceTarget) {
                 LocalResearchOutcome.FAILED
             } else {

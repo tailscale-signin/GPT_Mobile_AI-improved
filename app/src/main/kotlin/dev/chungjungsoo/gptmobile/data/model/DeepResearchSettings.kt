@@ -40,7 +40,7 @@ data class DeepResearchSettings(
         maxPages = if (schemaVersion == 3) {
             if (enabled && effort > 0) customSourceTarget ?: targetForEffort(effort) else 0
         } else {
-            maxPages.coerceAtLeast(0)
+            maxPages.coerceIn(0, 300)
         },
         effort = effort.coerceIn(0, 100),
         sourceSafetyCap = sourceSafetyCap?.coerceIn(0, 300),

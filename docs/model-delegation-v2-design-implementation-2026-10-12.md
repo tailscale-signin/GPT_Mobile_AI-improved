@@ -3,9 +3,9 @@
 
 **GPT Mobile AI improved** · 12 October 2026 · Version 1.0
 
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Audited baseline:** `main` at `7553e4ff14316f0d28639d5cc0ed24cb59511066`  
-**Status:** Proposed application upgrade; documentation-only deliverable.  
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`
+**Audited baseline:** `main` at `7553e4ff14316f0d28639d5cc0ed24cb59511066`
+**Status:** Proposed application upgrade; documentation-only deliverable.
 **Scope:** Delegation settings, model/profile/chat integration, execution policy, tool wiring, recovery, diagnostics, and migration.
 
 > **Design decision:** Make delegation easy to configure, explicit about where data goes, and predictable at runtime. Upgrade the existing infrastructure rather than build a competing agent system.
@@ -574,46 +574,46 @@ All repository references below are pinned to the audited commit. The audit read
 
 ### 18.1 Repository references
 
-**R01 · Global delegation UI and controls.** [presentation/ui/setting/ModelDelegationSettingsPanel.kt][R01]  
+**R01 · Global delegation UI and controls.** [presentation/ui/setting/ModelDelegationSettingsPanel.kt][R01]
 Read lines 1–560; the file ended within that range.
 
-**R02 · Legacy policy, normalization, allowance floors and endpoint classification.** [data/model/ModelDelegationSettings.kt][R02]  
+**R02 · Legacy policy, normalization, allowance floors and endpoint classification.** [data/model/ModelDelegationSettings.kt][R02]
 Complete file.
 
-**R03 · Settings writes, reset behavior and benchmark-derived scores.** [presentation/ui/setting/LocalToolsViewModel.kt][R03]  
+**R03 · Settings writes, reset behavior and benchmark-derived scores.** [presentation/ui/setting/LocalToolsViewModel.kt][R03]
 Complete file.
 
-**R04 · Conversation editor and selection-based remote flag.** [presentation/ui/setting/ConversationDelegationCard.kt][R04]  
+**R04 · Conversation editor and selection-based remote flag.** [presentation/ui/setting/ConversationDelegationCard.kt][R04]
 Complete file.
 
-**R05 · Conversation override application.** [data/model/ConversationDelegationSettings.kt][R05]  
+**R05 · Conversation override application.** [data/model/ConversationDelegationSettings.kt][R05]
 Complete file.
 
-**R06 · Worker eligibility, readiness, fallback and review coordination.** [data/agent/tool/LocalDelegationCoordinator.kt][R06]  
+**R06 · Worker eligibility, readiness, fallback and review coordination.** [data/agent/tool/LocalDelegationCoordinator.kt][R06]
 Selected ranges 1–310 and 345–535.
 
-**R07 · Read-only tool sharing and cancellation behavior.** [data/agent/tool/SharedToolCallBroker.kt][R07]  
+**R07 · Read-only tool sharing and cancellation behavior.** [data/agent/tool/SharedToolCallBroker.kt][R07]
 Complete file.
 
-**R08 · Parent/child execution integration, recovery and accounting.** [data/repository/ChatRepositoryImpl.kt][R08]  
+**R08 · Parent/child execution integration, recovery and accounting.** [data/repository/ChatRepositoryImpl.kt][R08]
 Selected ranges 1–240, 850–1090 and 1240–1490.
 
-**R09 · Application-owned runs and foreground cancellation.** [data/agent/AgentRunCoordinator.kt][R09]  
+**R09 · Application-owned runs and foreground cancellation.** [data/agent/AgentRunCoordinator.kt][R09]
 Selected range 1–285.
 
-**R10 · Feature-settings repository boundary.** [data/repository/SettingRepositoryImpl.kt][R10]  
+**R10 · Feature-settings repository boundary.** [data/repository/SettingRepositoryImpl.kt][R10]
 Selected range 1–220; underlying DataStore implementation not inspected.
 
-**R11 · Feature, diagnostic and conversation settings.** [data/model/AppFeatureSettings.kt][R11]  
+**R11 · Feature, diagnostic and conversation settings.** [data/model/AppFeatureSettings.kt][R11]
 Selected range 1–210.
 
-**R12 · Profile participation and delegation defaults.** [data/model/ProfileBehaviorSettings.kt][R12]  
+**R12 · Profile participation and delegation defaults.** [data/model/ProfileBehaviorSettings.kt][R12]
 Complete file.
 
-**R13 · Existing warm local record selector.** [data/assist/AssistCoordinator.kt][R13]  
+**R13 · Existing warm local record selector.** [data/assist/AssistCoordinator.kt][R13]
 Complete file.
 
-**R14 · Repository development conventions.** [AGENTS.md][R14]  
+**R14 · Repository development conventions.** [AGENTS.md][R14]
 Complete root file.
 
 ### 18.2 Official implementation guidance

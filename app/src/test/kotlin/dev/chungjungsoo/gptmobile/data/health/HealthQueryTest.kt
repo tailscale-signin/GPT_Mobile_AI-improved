@@ -25,6 +25,12 @@ class HealthQueryTest {
     private val now = Instant.parse("2026-10-11T19:00:00Z")
     private val zone = ZoneId.of("America/Toronto")
 
+    @Test fun queryKeepsTheValidationInstantForDelayedThirtyDayReads() {
+        val query = HealthQuery.parse(buildJsonObject { put("days", 30) }, now, zone)
+        assertEquals(now, query.requestedAt)
+        assertTrue(query.start >= query.requestedAt.minus(java.time.Duration.ofDays(30)))
+    }
+
     @Test fun defaultsUsePhoneCalendarDayNotUtcDay() {
         val query = HealthQuery.parse(buildJsonObject {}, now, zone)
         assertEquals(Instant.parse("2026-10-11T04:00:00Z"), query.start)

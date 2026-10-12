@@ -146,6 +146,9 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason",
             if (status == "FAILED" || (status == "RETRY" && reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY"))) "W" else "I"
         )
+        if (status == "SUCCESS" || status == "SKIPPED" && reason == "NO_ELIGIBLE_FACTS") {
+            MemoryEnrichmentQueue.markCompleted(applicationContext, inputData)
+        }
         val data = androidx.work.workDataOf("outcome" to status, "reason" to reason)
         return when (status) {
             "RETRY" -> Result.retry()

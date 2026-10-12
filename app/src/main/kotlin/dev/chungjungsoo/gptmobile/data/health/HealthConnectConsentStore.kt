@@ -17,6 +17,9 @@ import kotlinx.coroutines.withContext
 @Singleton
 class HealthConnectConsentStore @Inject constructor(@ApplicationContext context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "health-connect-ai-consent-v1"))
+    private val externalFile = AtomicFile(File(context.noBackupFilesDir, "health-connect-external-storage-consent-v1"))
+    private val external = MutableStateFlow(false)
+    val externalStorageAllowed = external.asStateFlow()
     private val mutable = MutableStateFlow(false)
     val allowed = mutable.asStateFlow()
     private val mutex = Mutex()
@@ -26,6 +29,7 @@ class HealthConnectConsentStore @Inject constructor(@ApplicationContext context:
         mutex.withLock {
             if (!loaded) {
                 mutable.value = runCatching { file.readFully().toString(Charsets.UTF_8) == "explicit-ai-conversation-consent-v1" }.getOrDefault(false)
+                external.value = mutable.value && runCatching { externalFile.readFully().toString(Charsets.UTF_8) == "explicit-external-memory-consent-v1" }.getOrDefault(false)
                 loaded = true
             }
             mutable.value
@@ -37,9 +41,11 @@ class HealthConnectConsentStore @Inject constructor(@ApplicationContext context:
             // Revocation takes effect in memory even when storage is unavailable.
             if (!value) {
                 mutable.value = false
+                external.value = false
+                externalFile.delete()
                 loaded = true
                 file.delete()
-                check(!file.baseFile.exists()) { "Could not persist health consent revocation." }
+                check(!file.baseFile.exists() && !externalFile.baseFile.exists()) { "Could not persist health consent revocation." }
                 return@withLock
             }
             val stream = file.startWrite()
@@ -51,6 +57,35 @@ class HealthConnectConsentStore @Inject constructor(@ApplicationContext context:
             } catch (error: Exception) {
                 file.failWrite(stream)
                 throw error
+            }
+        }
+    }
+
+    suspend fun isExternalStorageAllowed(): Boolean {
+        if (!isAllowed()) return false
+        return external.value
+    }
+
+    suspend fun setExternalStorageAllowed(value: Boolean) {
+        if (value) check(isAllowed()) { "Enable health AI sharing before external memory storage." }
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                if (!value) {
+                    external.value = false
+                    externalFile.delete()
+                    check(!externalFile.baseFile.exists()) { "Could not persist external health-storage revocation." }
+                    return@withLock
+                }
+                check(mutable.value) { "Health AI sharing was revoked." }
+                val stream = externalFile.startWrite()
+                try {
+                    stream.write("explicit-external-memory-consent-v1".toByteArray())
+                    externalFile.finishWrite(stream)
+                    external.value = true
+                } catch (error: Exception) {
+                    externalFile.failWrite(stream)
+                    throw error
+                }
             }
         }
     }

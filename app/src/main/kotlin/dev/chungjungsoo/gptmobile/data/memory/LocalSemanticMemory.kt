@@ -36,6 +36,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     private var store: BoxStore? = null
     private var embedder: TextEmbedder? = null
     private var embedderGeneration = 0
+    private var lastReleaseReason = "first_use"
     private var lastUsed = 0L
     private var retryAfter = 0L
     private val _status = MutableStateFlow(SemanticMemoryStatus())
@@ -70,7 +71,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                 .build()
         ).also { engine ->
             embedderGeneration++
-            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_CREATED · owner=${System.identityHashCode(this)} · engine=${System.identityHashCode(engine)} · generation=$embedderGeneration · nativeAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()} · lazy=true")
+            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_CREATED · owner=${System.identityHashCode(this)} · engine=${System.identityHashCode(engine)} · generation=$embedderGeneration · processNativeAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()} · memoryAttribution=process_not_engine · cause=$lastReleaseReason · liveHandles=1 · backend=cpu_embedding · lazy=true")
         }
     }
 
@@ -176,8 +177,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         mutex.withLock {
             // Deletion failures must be visible; never report forgotten vectors as removed.
             if (store != null || File(context.noBackupFilesDir, "memory-vectors-use-qa-v1").exists()) box().removeAll()
-            embedder?.close()
-            embedder = null
+            closeEmbedder("memory_cleared")
             retryAfter = 0L
             _status.value = SemanticMemoryStatus()
         }
@@ -188,8 +188,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         if (!mutex.tryLock()) return@withContext
         try {
             if (android.os.SystemClock.elapsedRealtime() - lastUsed >= idleMillis) {
-                embedder?.close()
-                embedder = null
+                closeEmbedder(if (idleMillis <= 0) "memory_pressure" else "idle_timeout")
                 store?.closeThreadResources()
                 store?.close()
                 store = null
@@ -206,10 +205,20 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             it is LinkageError || it.message.orEmpty().let { message -> "not found" in message && "Known fields" in message }
         }
         retryAfter = if (schemaFailure) Long.MAX_VALUE else android.os.SystemClock.elapsedRealtime() + 60_000L
-        runCatching { embedder?.close() }
-        embedder = null
+        runCatching { closeEmbedder("initialization_failure") }
         AppLogRecorder.record("Memory", "SEMANTIC_ENGINE_FAILED · cause=${failure.javaClass.simpleName} · detail=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.message.orEmpty()).take(240)}", "E")
         _status.value = _status.value.copy(available = false, detail = "Semantic engine unavailable · exact and topic recall remain active")
+    }
+
+    private fun closeEmbedder(reason: String) {
+        val engine = embedder ?: return
+        try {
+            engine.close()
+            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_RELEASED · generation=$embedderGeneration · reason=$reason · liveHandles=0 · memoryAttribution=process_not_engine")
+        } finally {
+            embedder = null
+            lastReleaseReason = reason
+        }
     }
 
     private fun retryDeferred() = android.os.SystemClock.elapsedRealtime() < retryAfter

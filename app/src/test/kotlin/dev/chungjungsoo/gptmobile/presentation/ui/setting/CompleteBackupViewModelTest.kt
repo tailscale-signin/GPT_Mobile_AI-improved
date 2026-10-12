@@ -163,6 +163,19 @@ class CompleteBackupViewModelTest {
     }
 
     @Test
+    fun sensitiveSectionsNeverFallBackToUnencryptedBackup() = runTest(dispatcher) {
+        val destination = mockk<Uri>()
+        viewModel.selectAllBackupSections()
+        assertTrue(viewModel.prepareBackupPicker(restoring = false))
+        viewModel.backupDestinationSelected(destination)
+        advanceUntilIdle()
+        assertEquals(destination, viewModel.backupUi.value.backupUri)
+        coVerify(exactly = 0) { manager.backup(any(), any(), any(), encrypt = false) }
+        viewModel.backupRecoveryKeySelected(null)
+        assertEquals(null, viewModel.backupUi.value.backupUri)
+    }
+
+    @Test
     fun passwordSurvivesToggleAndDialogReopeningAndPrepopulatesRestore() = runTest(dispatcher) {
         coEvery { manager.savedProtection() } returns BackupProtection(true, "saved-password")
         viewModel.openBackupRestoreDialog()

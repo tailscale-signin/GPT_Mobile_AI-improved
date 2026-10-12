@@ -164,6 +164,10 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var input: Int? = null
             var output: Int? = null
             var generatedBytes = 0L
+            var visibleBytes = 0L
+            var reasoningBytes = 0L
+            var finishReason: String? = null
+            var settingsConfirmed = false
             var status = "INTERRUPTED"
             var lastPublished = started
             liveRequests.update { it + (record.id to record.copy(outputTokens = 0)) }
@@ -172,16 +176,24 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                     when (event) {
                         is ProviderEvent.TextDelta -> {
                             if (first == null) first = (System.nanoTime() - started) / 1_000_000
-                            generatedBytes += event.text.toByteArray().size
+                            val size = event.text.toByteArray().size
+                            visibleBytes += size
+                            generatedBytes += size
                         }
-                        is ProviderEvent.ThinkingDelta -> generatedBytes += event.text.toByteArray().size
+                        is ProviderEvent.ThinkingDelta -> {
+                            val size = event.text.toByteArray().size
+                            reasoningBytes += size
+                            generatedBytes += size
+                        }
                         is ProviderEvent.RequestConfigured -> dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "Model",
-                            "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileOutputCap=${event.configuredProfileOutputTokens ?: 0} · requestedOutputCap=${event.requestedOutputTokens ?: 0} · effectiveOutputCap=${event.effectiveOutputTokens ?: 0}"
+                            "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
                         )
                         is ProviderEvent.Usage -> {
-                            event.inputTokens?.let { input = if (event.cumulative) maxOf(input ?: 0, it) else (input ?: 0) + it }
-                            event.outputTokens?.let { output = if (event.cumulative) maxOf(output ?: 0, it) else (output ?: 0) + it }
+                            input = mergeUsageCount(input, event.inputTokens, event.cumulative)
+                            output = mergeUsageCount(output, event.outputTokens, event.cumulative)
+                            finishReason = event.finishReason?.take(80) ?: finishReason
+                            settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
                         }
                         ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL")) status = "COMPLETED"
                         is ProviderEvent.Failed -> {
@@ -217,7 +229,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             } finally {
                 withContext(NonCancellable) {
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=${if (input == null) "estimated" else "provider"} · outputSource=${if (output == null) "estimated" else "provider"} · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             dao.save(

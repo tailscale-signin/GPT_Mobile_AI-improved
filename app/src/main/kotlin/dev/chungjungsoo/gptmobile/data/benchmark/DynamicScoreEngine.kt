@@ -78,78 +78,92 @@ internal object DynamicScoreEngine {
         // The most recently enrolled revision is active; previous revisions remain in history.
         val revisions = activeRevisions ?: fresh.groupBy { it.profileUid }.mapValues { (_, runs) -> runs.maxBy { it.startedAt }.configKey }
         val compatible = fresh.filter { revisions[it.profileUid] == it.configKey }
-        val aggregated = compatible.groupBy { listOf(it.profileUid, it.configKey, cohort(it), it.backend.orEmpty(), it.accelerator.orEmpty()) }.values.map { group ->
-            val complete = group.filter { block ->
-                val manifest = benchmarkSuiteForRun(block).associateBy { it.id }
-                block.finished &&
-                    !block.canceled &&
-                    block.stoppedReason == null &&
-                    block.samples.size == block.plannedTrials &&
-                    block.plannedTrials == manifest.size &&
-                    block.samples.map { it.testId }.toSet() == manifest.keys &&
-                    block.samples.all { sample ->
-                        manifest[sample.testId]?.let { case -> sample.category == case.category && sample.workload == case.workload && sample.warmup == case.warmup && sample.tokenBasis == ReferenceTextTokenizer.VERSION } == true
-                    }
-            }.sortedByDescending { it.startedAt }.take(5)
-            val run = group.maxBy { it.startedAt }
-            val source = complete.ifEmpty { listOf(run) }
-            val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED, BenchmarkOutcome.UNSUPPORTED, BenchmarkOutcome.SKIPPED) }
-            val verified = run.mode in setOf(BenchmarkMode.FULL, BenchmarkMode.AGENT) &&
-                complete.isNotEmpty() &&
-                complete.all { block -> listOf("short", "medium", "long").all { band -> block.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED } >= 5 } }
-            val speedByBand = listOf("short", "medium", "long").mapNotNull { band ->
-                median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band }.mapNotNull { it.referenceSpeed }) })?.let { band to it }
-            }.toMap()
-            val latencyByBand = listOf("short", "medium", "long").mapNotNull { band ->
-                median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band && it.completed }.mapNotNull { it.firstTextMs?.toDouble() }) })?.let { band to it }
-            }.toMap()
-            val speed = median(
-                source.mapNotNull { block ->
-                    median(block.samples.filter { !it.warmup && it.category == "speed" }.mapNotNull { it.referenceSpeed })
-                }
-            )
-            val latency = median(samples.filter { it.completed }.mapNotNull { it.firstTextMs?.toDouble() })
-            val qualityCases = samples.filter { it.category != "speed" && it.category != IntelligenceBenchmark.CATEGORY }
-            val quality = qualityCases.groupBy { it.workload }.values.takeIf { it.isNotEmpty() }?.map { category -> 100.0 * category.count { it.outcome == BenchmarkOutcome.PASSED } / category.size }?.average()
-            val reliability = samples.filter { it.category != IntelligenceBenchmark.CATEGORY }.takeIf { it.isNotEmpty() }?.let { 100.0 * it.count { sample -> sample.completed } / it.size }
-            val consistency = samples.filter { it.category == "speed" }.groupBy { it.workload }.values.mapNotNull { band ->
-                band.mapNotNull { it.referenceSpeed }.takeIf { it.size >= 3 && it.average() > 0 }?.let { values ->
-                    val mean = values.average()
-                    100.0 * (1 - sqrt(values.map { (it - mean) * (it - mean) }.average()) / mean).coerceIn(0.0, 1.0)
-                }
-            }.takeIf { it.size == 3 }?.average()
-            val accuracy = qualityCases.groupBy { it.category }.mapValues { (_, cases) -> 100.0 * cases.count { it.outcome == BenchmarkOutcome.PASSED } / cases.size }
-            val unsupported = source.flatMap { it.samples }.filter { it.outcome == BenchmarkOutcome.UNSUPPORTED }.map { it.category }.toSet()
-            val intelligence = source.maxBy { it.startedAt }.takeIf { it.suiteVersion >= 5 }?.let {
-                when {
-                    it.suiteVersion >= 6 -> IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK)
-                    it.mode != BenchmarkMode.QUICK -> IntelligenceBenchmark.score(it.samples)
-                    else -> null
-                }
-            }
-            val timingCoverage = listOf("short", "medium", "long").joinToString { band -> "$band ${run.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED }}/5" }
-            BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional timing: $timingCoverage successful timed trials; a complete Standard run is required to establish an anchor", speedByBand, latencyByBand, accuracy, unsupported, intelligence)
-        }
-        val rows = aggregated.map { row ->
-            val cohortRows = aggregated.filter { it.cohort == row.cohort && it.verified }
-            val anchor = cohortRows.mapNotNull { it.speed }.filter(::valid).maxOrNull()
-            val speedScore = row.speedByBand.mapNotNull { (band, value) -> higher(value, cohortRows.mapNotNull { it.speedByBand[band] }.filter(::valid).maxOrNull()) }.takeIf { it.size == 3 }?.average()
-            val latencyScore = row.latencyByBand.mapNotNull { (band, value) -> lower(value, cohortRows.mapNotNull { it.latencyByBand[band] }.filter(::valid).minOrNull()) }.takeIf { it.size == 3 }?.average()
-            val local = row.cohort.contains("device:")
-            val weights = if (local) listOf(40, 25, 10, 10, 15) else listOf(35, 20, 20, 15, 10)
-            val dimensions = listOf(row.quality, row.reliability, speedScore, latencyScore, row.consistency)
-            val requiredQuality = compatible.filter { it.id in row.sourceRunIds }.all { block ->
-                val manifest = benchmarkSuiteForRun(block).filter { it.category != "speed" && it.category != IntelligenceBenchmark.CATEGORY }
-                manifest.all { test -> block.samples.any { it.testId == test.id && it.outcome !in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.SKIPPED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) } }
-            }
-            val overall = if (row.verified && requiredQuality && dimensions.all { it != null }) minOf(dimensions.zip(weights).sumOf { (value, weight) -> value!! * weight } / 100, row.quality!!, row.reliability!!) else null
-            row.copy(
-                speedScore = speedScore,
-                latencyScore = latencyScore,
-                overall = overall,
-                explanation = row.explanation + if (anchor != null) "; speed = equal mean of 100 × band rate / verified band leader; ${cohortRows.size} eligible profiles" else "; no verified cohort anchor"
+        val aggregated = compatible.groupBy { listOf(it.profileUid, it.configKey, cohort(it), it.backend.orEmpty(), it.accelerator.orEmpty()) }.values.map(::aggregateGroup)
+        val anchors = aggregated.filter { it.verified }.groupBy { it.cohort }.mapValues { (_, rows) ->
+            CohortAnchors(
+                rows.mapNotNull { it.speed }.filter(::valid).maxOrNull(),
+                listOf("short", "medium", "long").associateWith { band -> rows.mapNotNull { it.speedByBand[band] }.filter(::valid).maxOrNull() },
+                listOf("short", "medium", "long").associateWith { band -> rows.mapNotNull { it.latencyByBand[band] }.filter(::valid).minOrNull() },
+                rows.size
             )
         }
+        val runsById = compatible.associateBy { it.id }
+        val rows = aggregated.map { normalizeRow(it, anchors[it.cohort], runsById) }
         return BenchmarkScoreSnapshot(generation, now, rows = rows)
+    }
+
+    private fun aggregateGroup(group: List<BenchmarkRun>): BenchmarkScoreRow {
+        val complete = group.filter { block ->
+            val manifest = benchmarkSuiteForRun(block).associateBy { it.id }
+            block.finished &&
+                !block.canceled &&
+                block.stoppedReason == null &&
+                block.samples.size == block.plannedTrials &&
+                block.plannedTrials == manifest.size &&
+                block.samples.map { it.testId }.toSet() == manifest.keys &&
+                block.samples.all { sample ->
+                    manifest[sample.testId]?.let { case -> sample.category == case.category && sample.workload == case.workload && sample.warmup == case.warmup && sample.tokenBasis == ReferenceTextTokenizer.VERSION } == true
+                }
+        }.sortedByDescending { it.startedAt }.take(5)
+        val run = group.maxBy { it.startedAt }
+        val source = complete.ifEmpty { listOf(run) }
+        val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED, BenchmarkOutcome.UNSUPPORTED, BenchmarkOutcome.SKIPPED) }
+        val verified = run.mode in setOf(BenchmarkMode.FULL, BenchmarkMode.AGENT) &&
+            complete.isNotEmpty() &&
+            complete.all { block -> listOf("short", "medium", "long").all { band -> block.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED } >= 5 } }
+        val speedByBand = listOf("short", "medium", "long").mapNotNull { band ->
+            median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band }.mapNotNull { it.referenceSpeed }) })?.let { band to it }
+        }.toMap()
+        val latencyByBand = listOf("short", "medium", "long").mapNotNull { band ->
+            median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band && it.completed }.mapNotNull { it.firstTextMs?.toDouble() }) })?.let { band to it }
+        }.toMap()
+        val speed = median(
+            source.mapNotNull { block ->
+                median(block.samples.filter { !it.warmup && it.category == "speed" }.mapNotNull { it.referenceSpeed })
+            }
+        )
+        val latency = median(samples.filter { it.completed }.mapNotNull { it.firstTextMs?.toDouble() })
+        val qualityCases = samples.filter { it.category != "speed" && it.category != IntelligenceBenchmark.CATEGORY }
+        val quality = qualityCases.groupBy { it.workload }.values.takeIf { it.isNotEmpty() }?.map { category -> 100.0 * category.count { it.outcome == BenchmarkOutcome.PASSED } / category.size }?.average()
+        val reliability = samples.filter { it.category != IntelligenceBenchmark.CATEGORY }.takeIf { it.isNotEmpty() }?.let { 100.0 * it.count { sample -> sample.completed } / it.size }
+        val consistency = samples.filter { it.category == "speed" }.groupBy { it.workload }.values.mapNotNull { band ->
+            band.mapNotNull { it.referenceSpeed }.takeIf { it.size >= 3 && it.average() > 0 }?.let { values ->
+                val mean = values.average()
+                100.0 * (1 - sqrt(values.map { (it - mean) * (it - mean) }.average()) / mean).coerceIn(0.0, 1.0)
+            }
+        }.takeIf { it.size == 3 }?.average()
+        val accuracy = qualityCases.groupBy { it.category }.mapValues { (_, cases) -> 100.0 * cases.count { it.outcome == BenchmarkOutcome.PASSED } / cases.size }
+        val unsupported = source.flatMap { it.samples }.filter { it.outcome == BenchmarkOutcome.UNSUPPORTED }.map { it.category }.toSet()
+        val intelligence = source.maxBy { it.startedAt }.takeIf { it.suiteVersion >= 5 }?.let {
+            when {
+                it.suiteVersion >= 6 -> IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK)
+                it.mode != BenchmarkMode.QUICK -> IntelligenceBenchmark.score(it.samples)
+                else -> null
+            }
+        }
+        val timingCoverage = listOf("short", "medium", "long").joinToString { band -> "$band ${run.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED }}/5" }
+        return BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional timing: $timingCoverage successful timed trials; a complete Standard run is required to establish an anchor", speedByBand, latencyByBand, accuracy, unsupported, intelligence)
+    }
+
+    private data class CohortAnchors(val speed: Double?, val speeds: Map<String, Double?>, val latencies: Map<String, Double?>, val count: Int)
+
+    private fun normalizeRow(row: BenchmarkScoreRow, anchors: CohortAnchors?, runsById: Map<String, BenchmarkRun>): BenchmarkScoreRow {
+        val anchor = anchors?.speed
+        val speedScore = row.speedByBand.mapNotNull { (band, value) -> higher(value, anchors?.speeds?.get(band)) }.takeIf { it.size == 3 }?.average()
+        val latencyScore = row.latencyByBand.mapNotNull { (band, value) -> lower(value, anchors?.latencies?.get(band)) }.takeIf { it.size == 3 }?.average()
+        val local = row.cohort.contains("device:")
+        val weights = if (local) listOf(40, 25, 10, 10, 15) else listOf(35, 20, 20, 15, 10)
+        val dimensions = listOf(row.quality, row.reliability, speedScore, latencyScore, row.consistency)
+        val requiredQuality = row.sourceRunIds.mapNotNull(runsById::get).all { block ->
+            val manifest = benchmarkSuiteForRun(block).filter { it.category != "speed" && it.category != IntelligenceBenchmark.CATEGORY }
+            manifest.all { test -> block.samples.any { it.testId == test.id && it.outcome !in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.SKIPPED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) } }
+        }
+        val overall = if (row.verified && requiredQuality && dimensions.all { it != null }) minOf(dimensions.zip(weights).sumOf { (value, weight) -> value!! * weight } / 100, row.quality!!, row.reliability!!) else null
+        return row.copy(
+            speedScore = speedScore,
+            latencyScore = latencyScore,
+            overall = overall,
+            explanation = row.explanation + if (anchor != null) "; speed = equal mean of 100 × band rate / verified band leader; ${anchors?.count ?: 0} eligible profiles" else "; no verified cohort anchor"
+        )
     }
 }

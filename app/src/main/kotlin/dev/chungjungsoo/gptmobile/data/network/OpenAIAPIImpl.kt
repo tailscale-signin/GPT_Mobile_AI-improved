@@ -202,7 +202,7 @@ class OpenAIAPIImpl @Inject constructor(
 
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "Provider",
-                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${response.headers["X-Request-ID"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: "provider-default"} · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
+                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: "provider-default"} · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
                     )
                     // Capture Gateway headers from response
                     val gatewayJobId = response.headers["X-Gateway-Job-ID"]
@@ -431,7 +431,7 @@ class OpenAIAPIImpl @Inject constructor(
 
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "Provider",
-                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
+                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
                     )
                     // Success - read SSE stream
                     val channel = response.bodyAsChannel()

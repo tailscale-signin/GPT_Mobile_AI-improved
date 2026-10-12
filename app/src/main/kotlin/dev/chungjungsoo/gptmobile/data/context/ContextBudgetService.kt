@@ -5,15 +5,23 @@ import kotlinx.serialization.Serializable
 
 /** Zero outputTokens means no app-imposed output limit; prompt reservation is independent. */
 @Serializable
-data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outputTokens: Int = 0, val totalRunTokens: Int = Int.MAX_VALUE, val profileContextCeilings: Map<String, Int> = emptyMap()) {
-    fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceAtLeast(0), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152))
+data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outputTokens: Int = 0, val totalRunTokens: Int = Int.MAX_VALUE, val profileContextCeilings: Map<String, Int> = emptyMap(), val generationTimeoutMinutes: Int = 30, val responseCharacterLimit: Int = 1_048_576, val repetitionGuardEnabled: Boolean = true, val adaptiveToolCatalog: Boolean = true) {
+    fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceAtLeast(0), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152), generationTimeoutMinutes = generationTimeoutMinutes.coerceIn(0, 1440), responseCharacterLimit = if (responseCharacterLimit == 0) 0 else responseCharacterLimit.coerceIn(4096, 16_777_216))
 }
 
 data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int?, val notice: String, val promptTokens: Int = 0)
 
 /** Conservative byte-based estimates. Provider-reported counts remain the accounting authority. */
 object ContextBudgetService {
-    fun estimate(text: String): Int = (text.toByteArray(Charsets.UTF_8).size + 2) / 3
+    fun estimate(text: String): Int = ((text.toByteArray(Charsets.UTF_8).size.toLong() + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+    fun breakdown(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>): ContextCostBreakdown = ContextCostBreakdown(
+        system = estimate(system),
+        toolSchemas = tools.sumOf { estimate(it.name + it.description + it.inputSchema.toString()).toLong() + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        currentMessage = turns.filter { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        history = turns.filterNot { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        attachments = turns.sumOf { (it.userMessage.attachments.size.toLong() + (it.assistantMessage?.attachments?.size ?: 0)) * 2048 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    )
     fun plan(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>, settings: TokenBudgetSettings): ContextPlan {
         val config = settings.normalized()
         val outputLimit = config.outputTokens.takeIf { it > 0 }
@@ -24,7 +32,8 @@ object ContextBudgetService {
                 tools,
                 256 * 1024,
                 outputLimit,
-                "Context: no app-imposed limit. The provider or local model's actual context capacity still applies."
+                "Context: no app-imposed limit. The provider or local model's actual context capacity still applies.",
+                promptTokens = breakdown(turns, system, tools).total
             )
         }
         val output = (outputLimit ?: 32768).coerceAtMost(config.contextTokens / 4)

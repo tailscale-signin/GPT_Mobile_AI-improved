@@ -1,0 +1,120 @@
+name: Diagnostic audit validation
+
+on:
+  push:
+    branches: [fix/diagnostic-audit-reliability-2026-10-11]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'scripts/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/audit-workspace.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'scripts/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/audit-workspace.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagnostic-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OBX_DISABLE_ANALYTICS: 'true'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Resource, whitespace and changed-source formatting checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=63bfbebde4c1ce1b74890a91c20517ae2dd4cc19
+          git diff --check "$base" HEAD
+          bash scripts/validate.sh resources
+          curl --fail --location --retry 3 https://github.com/ktlint/ktlint/releases/download/1.3.1/ktlint -o "$RUNNER_TEMP/ktlint"
+          mapfile -d '' files < <(git diff --name-only --diff-filter=ACMR -z "$base" HEAD -- 'app/src/**/*.kt')
+          if ((${#files[@]})); then java -jar "$RUNNER_TEMP/ktlint" "${files[@]}"; fi
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        id: environment
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Android unit tests
+        id: tests
+        shell: bash
+        run: |
+          set -o pipefail
+          echo "Tested source: $(git rev-parse HEAD)" | tee audit-unit.log
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee -a audit-unit.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: audit-unit-results
+          path: |
+            audit-unit.log
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
+          retention-days: 7
+      - name: Debug APK build
+        id: apk
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee audit-apk.log
+      - name: Android lint
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:lintDebug 2>&1 | tee audit-lint.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: audit-android-results
+          path: |
+            audit-*.log
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
+            app/build/reports/lint-results-debug.*
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: success()
+        with:
+          name: diagnostic-audit-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7

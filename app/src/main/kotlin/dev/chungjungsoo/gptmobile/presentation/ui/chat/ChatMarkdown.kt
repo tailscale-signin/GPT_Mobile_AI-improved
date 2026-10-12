@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.content.ClipData
 import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -40,8 +39,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -97,7 +94,16 @@ private const val DISPLAY_MATH_PLACEHOLDER_TEST_NONCE = "test"
  * during chat scrolling or recomposition is computationally heavy and causes frame drops.
  * Caching the formatted AnnotatedString prevents repetitive parsing of identical code blocks.
  */
-private val codeHighlightCache = LruCache<String, AnnotatedString>(400)
+private val codeHighlightCache = object : LruCache<String, AnnotatedString>(2 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: AnnotatedString): Int =
+        (key.length.toLong() * 2 + value.length.toLong() * 2 + value.spanStyles.size * 64L).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+}
+
+private data class PreparedChatMarkdown(
+    val parsed: ParsedChatMarkdown = ParsedChatMarkdown(emptyList(), emptyList()),
+    val markdown: String = "",
+    val memoryRanges: List<IntRange> = emptyList()
+)
 
 @Composable
 fun ChatMarkdown(
@@ -110,16 +116,25 @@ fun ChatMarkdown(
     modifier: Modifier = Modifier
 ) {
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val clipboard = LocalClipboard.current
+    val clipboardContext = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val parsed = remember(content) { parseChatMarkdown(dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)) }
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
-    val highlightsBuilder = remember(isDarkTheme) {
-        Highlights.Builder().theme(SyntaxThemes.atom(isDarkTheme))
+    var rendered by remember(contentIdentity) { mutableStateOf(PreparedChatMarkdown()) }
+    LaunchedEffect(contentIdentity, content, streaming, memoryValues) {
+        // Publish parsing, transformed text and highlight ranges together. Old snapshots
+        // stay visible while cancellable preparation runs away from the UI thread.
+        rendered = withContext(Dispatchers.Default) {
+            val parsed = parseChatMarkdown(
+                dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content),
+                cacheResult = !streaming
+            )
+            val combined = buildCombinedMarkdown(parsed.blocks, displayMathNonce)
+            PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, memoryValues))
+        }
     }
-    val combinedMarkdown = remember(parsed.blocks, displayMathNonce) {
-        buildCombinedMarkdown(parsed.blocks, displayMathNonce)
-    }
+    val parsed = rendered.parsed
+    val combinedMarkdown = rendered.markdown
+    val memoryRanges = rendered.memoryRanges
     val inlineMathByPlaceholder = remember(parsed.inlineMath) {
         parsed.inlineMath.associateBy { it.placeholder }
     }
@@ -131,7 +146,6 @@ fun ChatMarkdown(
             }
             .toMap()
     }
-    val memoryRanges = remember(combinedMarkdown, memoryValues) { memoryHighlightRanges(combinedMarkdown, memoryValues) }
     val normalTextColor = MaterialTheme.colorScheme.onSurface
     // One timestamp per arriving chunk, rather than one boxed Long per character.
     val arrivalSegments = remember(contentIdentity) { mutableStateListOf<Pair<Int, Long>>() }
@@ -254,15 +268,15 @@ fun ChatMarkdown(
             }
         }
     }
-    val copyCodeToClipboard: (String) -> Unit = remember(clipboard, scope) {
+    val copyCodeToClipboard: (String) -> Unit = remember(clipboardContext, scope) {
         { code ->
             scope.launch {
-                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(CLIPBOARD_LABEL_CODE, code)))
+                dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(clipboardContext, code, CLIPBOARD_LABEL_CODE)
             }
         }
     }
     val components = remember(
-        highlightsBuilder,
+        isDarkTheme,
         copyCodeToClipboard,
         displayMathByPlaceholder,
         annotator,
@@ -335,7 +349,6 @@ fun ChatMarkdown(
                                     code = code,
                                     language = language,
                                     style = style,
-                                    highlightsBuilder = highlightsBuilder,
                                     isDarkTheme = isDarkTheme
                                 )
                             }
@@ -364,7 +377,6 @@ fun ChatMarkdown(
                                     code = code,
                                     language = language,
                                     style = style,
-                                    highlightsBuilder = highlightsBuilder,
                                     isDarkTheme = isDarkTheme
                                 )
                             }
@@ -559,7 +571,6 @@ private fun HighlightedCodeContent(
     code: String,
     language: String?,
     style: TextStyle,
-    highlightsBuilder: Highlights.Builder,
     isDarkTheme: Boolean
 ) {
     val cacheKey = "$isDarkTheme:$language:$code"
@@ -571,9 +582,14 @@ private fun HighlightedCodeContent(
     ) {
         if (cached == null) {
             val result = withContext(Dispatchers.Default) {
-                buildHighlightedAnnotatedString(code, language, highlightsBuilder)
+                // Builders are mutable: never share one across parallel code blocks.
+                if (code.length > 128 * 1024) {
+                    AnnotatedString(code)
+                } else {
+                    buildHighlightedAnnotatedString(code, language, Highlights.Builder().theme(SyntaxThemes.atom(isDarkTheme)))
+                }
             }
-            codeHighlightCache.put(cacheKey, result)
+            if (code.length <= 128 * 1024) codeHighlightCache.put(cacheKey, result)
             value = result
         }
     }

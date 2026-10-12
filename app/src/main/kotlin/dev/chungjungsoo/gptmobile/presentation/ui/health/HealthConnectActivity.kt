@@ -54,9 +54,9 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chungjungsoo.gptmobile.data.health.HEALTH_HISTORY_PERMISSION
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectTools
 import dev.chungjungsoo.gptmobile.data.health.HealthMetric
-import dev.chungjungsoo.gptmobile.data.health.HEALTH_HISTORY_PERMISSION
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity
@@ -119,10 +119,12 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
     val features by model.features.collectAsStateWithLifecycle()
     val profiles by model.profiles.collectAsStateWithLifecycle()
     val aiAllowed by model.aiAllowed.collectAsStateWithLifecycle()
+    val externalStorageAllowed by model.externalStorageAllowed.collectAsStateWithLifecycle()
     var tab by remember { mutableStateOf(0) }
     var days by remember { mutableStateOf(1) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var confirmAi by remember { mutableStateOf(false) }
+    var confirmExternal by remember { mutableStateOf(false) }
     var confirmRevoke by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { model.refreshAccess() }
     LaunchedEffect(state.permissions) { selected = state.permissions.intersect(HealthMetric.entries.map { it.permission }.toSet()) }
@@ -270,6 +272,8 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                             HealthCard("2 · Allow AI conversation use") {
                                 HealthSwitch("Share permitted health results with AI", aiAllowed, !state.busy) { allowed -> if (allowed) confirmAi = true else model.setAiAllowed(false) }
                                 Text("Off by default. Android permission alone never authorizes AI sharing. Local previews do not require this switch.", style = MaterialTheme.typography.bodySmall)
+                                HealthSwitch("Allow external memory writes for health-enabled profiles", externalStorageAllowed, aiAllowed && !state.busy) { allowed -> if (allowed) confirmExternal = true else model.setExternalStorageAllowed(false) }
+                                Text("Separate consent for known MCP memory-write tools. When off, these writes are blocked for health-enabled profiles, even for non-health messages. This does not change your AI provider's conversation retention policy.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         item {
@@ -305,6 +309,20 @@ private fun HealthConnectScreen(model: HealthConnectViewModel, onBack: () -> Uni
                 }
             }
         }
+    }
+    if (confirmExternal) {
+        AlertDialog(
+            onDismissRequest = { confirmExternal = false },
+            title = { Text("Allow external memory storage?") },
+            text = { Text("A health-enabled AI profile could send health-derived facts to configured external memory servers. These servers may retain them. This installation-only consent is separate from health reads and AI conversation use, and is not included in backups. Revoking it does not delete records already stored externally.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmExternal = false
+                    model.setExternalStorageAllowed(true)
+                }) { Text("Allow external storage") }
+            },
+            dismissButton = { TextButton(onClick = { confirmExternal = false }) { Text("Keep blocked") } }
+        )
     }
     if (confirmAi) {
         AlertDialog(
@@ -380,4 +398,3 @@ private fun HealthMetricCard(metric: JsonObject) {
 }
 
 private fun friendly(value: String): String = value.replace('_', ' ').replaceFirstChar { it.titlecase() }
-

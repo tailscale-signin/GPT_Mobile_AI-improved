@@ -38,7 +38,9 @@ data class AgentRunLimits(
     val maxObservedToolCalls: Int = 256,
     val maxToolCallsPerRound: Int = 32,
     val maxRetainedEvidenceTokens: Int = 16_000,
-    val allowToolStormFinalization: Boolean = true
+    val allowToolStormFinalization: Boolean = true,
+    val maxGeneratedCharacters: Int = 0,
+    val detectRepetition: Boolean = false
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
@@ -57,6 +59,7 @@ class AgentRunner(
             emit(failed("Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
             return@flow
         }
+        val guardedSession = session.withGenerationSafety(GenerationSafety(limits.maxGeneratedCharacters, limits.detectRepetition))
         val toolByName = tools.associateBy { it.definition.name }
         var executableToolByName = toolByName
         var exposedDefinitions = tools.map { it.definition }
@@ -68,10 +71,10 @@ class AgentRunner(
 
         val finishedInTime = if (limits.runTimeoutMillis < Long.MAX_VALUE) {
             withTimeoutOrNull(limits.runTimeoutMillis) {
-                executeLoop(session, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
+                executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
             }
         } else {
-            executeLoop(session, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
+            executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
             true
         }
 
@@ -116,22 +119,6 @@ class AgentRunner(
                 return "${call.name}|host=${host ?: "invalid-url"}"
             }
             return call.name
-        }
-
-        fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {
-            is ToolResultContent.Text -> content.text
-            is ToolResultContent.Json -> content.value.toString()
-            is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
-        }
-
-        fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
-            if (!result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
-            val text = when (val content = result.content) {
-                is ToolResultContent.Text -> content.text
-                is ToolResultContent.Json -> content.value.toString()
-                is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
-            }.lowercase()
-            return CONTROL_FAILURE_MARKERS.none(text::contains)
         }
 
         while (true) {
@@ -276,29 +263,7 @@ class AgentRunner(
             val executedResults = executeToolBatch(executableCalls, toolsForBatch)
             toolCallCount += executableCalls.size
 
-            val newlyBlockedTools = mutableSetOf<String>()
-            // Count reliability once per tool per model round, not once per parallel
-            // invocation. A single burst of four searches must not consume four
-            // "consecutive failure" slots and instantly poison the tool for the turn.
-            executableCalls.zip(executedResults)
-                .groupBy(keySelector = { failureScope(it.first) }, valueTransform = { it.second })
-                .forEach { (toolName, roundResults) ->
-                    val failures = when {
-                        roundResults.any { result -> result.isError && terminalToolFailure(toolResultText(result)) } -> MAX_CONSECUTIVE_TOOL_FAILURES
-                        roundResults.any { !it.isError } -> 0
-                        roundResults.none(::countsTowardToolFailureCircuit) -> consecutiveToolFailures[toolName] ?: 0
-                        else -> (consecutiveToolFailures[toolName] ?: 0) + 1
-                    }
-                    consecutiveToolFailures[toolName] = failures
-                    if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) {
-                        if ("|host=" in toolName) {
-                            blockedReadScopes += toolName
-                            AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · scope=$toolName · failures=$failures · otherHostsAvailable=true", "W")
-                        } else {
-                            newlyBlockedTools += toolName
-                        }
-                    }
-                }
+            val newlyBlockedTools = updateFailureCircuits(executableCalls, executedResults, consecutiveToolFailures, blockedReadScopes, ::failureScope)
             if (newlyBlockedTools.isNotEmpty()) {
                 executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
                 exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools }
@@ -500,9 +465,11 @@ class AgentRunner(
         var hasRoundOutputUsage = false
         var hasRoundTotalUsage = false
         var roundDecodeSpeed: Double? = null
+        var roundFinishReason: String? = null
+        var roundSettingsConfirmed = false
 
         suspend fun emitRoundUsage() {
-            if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage && roundDecodeSpeed == null) return
+            if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed) return
             emit(
                 AgentRunEvent.Provider(
                     ProviderEvent.Usage(
@@ -510,7 +477,9 @@ class AgentRunner(
                         outputTokens = roundOutputTokens.takeIf { hasRoundOutputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
                         totalTokens = roundTotalTokens.takeIf { hasRoundTotalUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
                         cumulative = false,
-                        decodeTokensPerSecond = roundDecodeSpeed
+                        decodeTokensPerSecond = roundDecodeSpeed,
+                        finishReason = roundFinishReason,
+                        effectiveSettingsConfirmed = roundSettingsConfirmed
                     )
                 )
             )
@@ -589,6 +558,8 @@ class AgentRunner(
 
                 is ProviderEvent.Usage -> {
                     event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
+                    event.finishReason?.let { roundFinishReason = it }
+                    roundSettingsConfirmed = roundSettingsConfirmed || event.effectiveSettingsConfirmed
                     event.inputTokens?.let { tokens ->
                         roundInputTokens = if (event.cumulative) {
                             maxOf(roundInputTokens, tokens.toLong())
@@ -627,6 +598,55 @@ class AgentRunner(
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
         return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed)
+    }
+
+    private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {
+        is ToolResultContent.Text -> content.text
+        is ToolResultContent.Json -> content.value.toString()
+        is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
+    }
+
+    private fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
+        if (!result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
+        val text = when (val content = result.content) {
+            is ToolResultContent.Text -> content.text
+            is ToolResultContent.Json -> content.value.toString()
+            is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
+        }.lowercase()
+        return CONTROL_FAILURE_MARKERS.none(text::contains)
+    }
+
+    private fun updateFailureCircuits(
+        executableCalls: List<ProviderEvent.ToolCall>,
+        executedResults: List<AgentToolResult>,
+        consecutiveToolFailures: MutableMap<String, Int>,
+        blockedReadScopes: MutableSet<String>,
+        failureScope: (ProviderEvent.ToolCall) -> String
+    ): Set<String> {
+        val newlyBlockedTools = mutableSetOf<String>()
+        // Count reliability once per tool per model round, not once per parallel
+        // invocation. A single burst of four searches must not consume four
+        // "consecutive failure" slots and instantly poison the tool for the turn.
+        executableCalls.zip(executedResults)
+            .groupBy(keySelector = { failureScope(it.first) }, valueTransform = { it.second })
+            .forEach { (toolName, roundResults) ->
+                val failures = when {
+                    roundResults.any { result -> result.isError && terminalToolFailure(toolResultText(result)) } -> MAX_CONSECUTIVE_TOOL_FAILURES
+                    roundResults.any { !it.isError } -> 0
+                    roundResults.none(::countsTowardToolFailureCircuit) -> consecutiveToolFailures[toolName] ?: 0
+                    else -> (consecutiveToolFailures[toolName] ?: 0) + 1
+                }
+                consecutiveToolFailures[toolName] = failures
+                if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) {
+                    if ("|host=" in toolName) {
+                        blockedReadScopes += toolName
+                        AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · scope=$toolName · failures=$failures · otherHostsAvailable=true", "W")
+                    } else {
+                        newlyBlockedTools += toolName
+                    }
+                }
+            }
+        return newlyBlockedTools
     }
 
     private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>): List<AgentToolResult> {

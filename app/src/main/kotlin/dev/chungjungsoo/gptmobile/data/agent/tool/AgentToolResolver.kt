@@ -149,10 +149,11 @@ class AgentToolResolver @Inject constructor(
             healthConsent != null &&
             featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
         ) {
+            val runHealthReader = dev.chungjungsoo.gptmobile.data.health.RunScopedHealthReader(healthReader)
             dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.operations.keys.forEach { operation ->
                 val tool = HealthConnectTool(
                     operation,
-                    healthReader,
+                    runHealthReader,
                     accessAllowed = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
                         current == platform &&
@@ -816,6 +817,13 @@ class AgentToolResolver @Inject constructor(
                                 latest.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(current.connectionUid)) &&
                                 latest.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(current).id)
                         ) { "MCP plugin is disabled." }
+                        if (dev.chungjungsoo.gptmobile.data.health.HealthExternalStoragePolicy.requiresConsent(remoteTool.name) &&
+                            latest.isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
+                        ) {
+                            check(healthConsent?.isExternalStorageAllowed() == true) {
+                                "HEALTH_EXTERNAL_STORAGE_CONSENT_REQUIRED: External memory writes are blocked for this health-enabled profile. Review Smartwatch Health > Access; health read permissions do not authorize remote storage."
+                            }
+                        }
                         mcpConfig(current, forceRefresh, rejectedHeader)
                     },
                     remoteToolName = remoteTool.name,

@@ -79,7 +79,8 @@ object ChatRepositoryModule {
         conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion,
         workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository,
         amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache,
-        researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
+        researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore,
+        openRouterModelRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -111,6 +112,7 @@ object ChatRepositoryModule {
         conversationDeletion = conversationDeletion,
         workspace = workspace,
         amazonMedia = amazonMedia,
-        researchSessions = researchSessions
+        researchSessions = researchSessions,
+        openRouterModelRepository = openRouterModelRepository
     )
 }

@@ -8,6 +8,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolExchangeCompactorTest {
+    @Test fun equalMeasurementsFromDifferentToolsKeepTheirOwnEvidence() {
+        val exchanges = listOf("heart_rate", "sleep_minutes").mapIndexed { index, name ->
+            val call = ProviderEvent.ToolCall("call-$index", name, buildJsonObject { put("date", "2026-10-11") })
+            AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("60"), false)))
+        }
+        val replay = ToolExchangeCompactor.compact(exchanges, 1000, 512)
+        assertEquals(listOf("60", "60"), replay.flatMap { it.results }.map { (it.content as ToolResultContent.Text).text })
+    }
+
+    @Test fun manySmallResultsDoNotExhaustTheBudgetWithUnusedReservations() {
+        val exchanges = (0 until 12).map { index ->
+            val call = ProviderEvent.ToolCall("call-$index", "read", buildJsonObject { put("index", index) })
+            AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("value=$index"), false)))
+        }
+        val replay = ToolExchangeCompactor.compact(exchanges, 1000, 512)
+        assertEquals(exchanges, replay)
+        assertTrue(ToolExchangeCompactor.estimateTokens(replay) <= 1000)
+    }
+
     @Test
     fun compact_preserves_latest_failure_instructions_and_bounds_old_errors() {
         val instruction = "Give a final response and ask the user to continue."

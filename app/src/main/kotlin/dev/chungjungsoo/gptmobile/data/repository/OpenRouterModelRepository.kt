@@ -7,6 +7,8 @@ import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
@@ -21,44 +23,51 @@ class OpenRouterModelRepository @Inject constructor() {
     @Volatile
     private var cachedModels: List<OpenRouterModelItem>? = null
 
-    suspend fun fetchModels(forceRefresh: Boolean = false): Result<List<OpenRouterModelItem>> = withContext(Dispatchers.IO) {
-        cachedModels?.takeIf { !forceRefresh }?.let {
-            return@withContext Result.success(it)
-        }
+    private val mutex = kotlinx.coroutines.sync.Mutex()
+    private var cachedAt = 0L
+    private var failedAt = Long.MIN_VALUE
 
-        runCatching {
-            val connection = (URL(MODELS_URL).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 15000
-                readTimeout = 15000
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "GPTMobile/1.0")
+    suspend fun fetchModels(forceRefresh: Boolean = false): Result<List<OpenRouterModelItem>> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val now = System.nanoTime() / 1_000_000
+            cachedModels?.takeIf { !forceRefresh && now - cachedAt in 0..3_600_000 }?.let {
+                return@withLock Result.success(it)
             }
 
-            try {
-                val responseCode = connection.responseCode
-                if (responseCode !in 200..299) {
-                    val errorBody = connection.errorStream
-                        ?.bufferedReader()
-                        ?.use { it.readText() }
-                        ?.takeIf { it.isNotBlank() }
-                    throw IllegalStateException(
-                        buildString {
-                            append("Failed to fetch OpenRouter models: HTTP ")
-                            append(responseCode)
-                            if (errorBody != null) append(" - ").append(errorBody)
-                        }
-                    )
+            if (!forceRefresh && failedAt != Long.MIN_VALUE && now - failedAt in 0..30_000) {
+                return@withLock Result.failure(IllegalStateException("OpenRouter catalog is cooling down after a failed refresh."))
+            }
+            runCatching {
+                val connection = (URL(MODELS_URL).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "GPTMobile/1.0")
                 }
 
-                val responseBody = connection.inputStream.bufferedReader().use { it.readText() }
-                val sorted = json.decodeFromString<OpenRouterModelsResponse>(responseBody)
-                    .data
-                    .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name ?: it.id })
-                cachedModels = sorted
-                sorted
-            } finally {
-                connection.disconnect()
+                try {
+                    val responseCode = connection.responseCode
+                    if (responseCode !in 200..299) {
+                        throw IllegalStateException("Failed to fetch OpenRouter models: HTTP $responseCode")
+                    }
+
+                    val responseBody = connection.inputStream.use { dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(it, 8 * 1024 * 1024) }
+                    val sorted = json.decodeFromString<OpenRouterModelsResponse>(responseBody)
+                        .data
+                        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name ?: it.id })
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    cachedModels = sorted
+                    cachedAt = System.nanoTime() / 1_000_000
+                    failedAt = Long.MIN_VALUE
+                    dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.remember(sorted)
+                    sorted
+                } finally {
+                    connection.disconnect()
+                }
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                failedAt = System.nanoTime() / 1_000_000
             }
         }
     }

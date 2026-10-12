@@ -87,12 +87,21 @@ class ScoreboardRepository @Inject constructor(
             mutableState.value = mutableState.value.copy(loading = true, message = null)
             try {
                 val snapshot = ScoreboardFeed(client).fetch(saved)
+                if (snapshot.index.entries.isEmpty() && !saved?.index?.entries.isNullOrEmpty()) {
+                    mutableState.value = mutableState.value.copy(loading = false, cached = true, message = "The published feed is empty. Showing the last usable snapshot; dataset date is unchanged.")
+                    AppLogRecorder.record("Scoreboard", "REFRESH_EMPTY · previousSnapshotRetained=true · incomingUpdatedAt=${snapshot.index.updatedAt}", "W")
+                    return@withLock
+                }
                 val persisted = preferences.edit().putString("index", snapshot.raw).putString("raw_etag", snapshot.etag).remove("etag").commit()
                 mutableState.value = OnlineScoreboardState(
                     BenchmarkScoreboard.best(snapshot.index.entries),
                     updatedAt = snapshot.index.updatedAt,
                     hasSnapshot = true,
-                    message = if (persisted) null else "Scores are current, but could not be saved for offline use."
+                    message = when {
+                        !persisted -> "Scores are current, but could not be saved for offline use."
+                        snapshot.index.entries.isEmpty() -> "The public feed was reached successfully, but no validated remote-model results have been published yet."
+                        else -> null
+                    }
                 )
                 AppLogRecorder.record("Scoreboard", "REFRESH_OK · entries=${snapshot.index.entries.size} · updatedAt=${snapshot.index.updatedAt} · saved=$persisted")
             } catch (error: Exception) {

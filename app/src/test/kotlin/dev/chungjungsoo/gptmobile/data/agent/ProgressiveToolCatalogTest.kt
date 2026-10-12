@@ -32,4 +32,24 @@ class ProgressiveToolCatalogTest {
         assertTrue(catalog.execute("d", JsonObject(emptyMap())).isError)
         assertEquals(24, catalog.selected(tools).size)
     }
+
+    @Test fun repeatedSearchesProgressThroughUndiscoveredTools() = runTest {
+        val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task"))
+        val query = JsonObject(mapOf("query" to JsonPrimitive("task")))
+        catalog.execute("first", query)
+        val first = catalog.selected(tools).map { it.name }.toSet()
+        catalog.execute("second", query)
+        val second = catalog.selected(tools).map { it.name }.toSet()
+        assertEquals(36, first.size)
+        assertEquals(48, second.size)
+        assertTrue(second.containsAll(first))
+    }
+
+    @Test fun explicitKnownToolRemainsDiscoverableAfterActivation() = runTest {
+        val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task_1"))
+        val result = catalog.execute("known", JsonObject(mapOf("query" to JsonPrimitive("task_1"))))
+        assertFalse(result.isError)
+        assertTrue(result.content.toString().contains("task_1"))
+        assertTrue(catalog.selected(tools).any { it.name == "task_1" })
+    }
 }

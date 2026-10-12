@@ -47,7 +47,9 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
         if (query.isBlank() && names.isEmpty()) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Provide a task query or exact tool names."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
-        val found = (names.mapNotNull(candidates::get) + if (query.isNotBlank()) ranked(query) else emptyList()).distinctBy { it.name }.take(12)
+        val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
+        val undiscovered = if (query.isNotBlank()) ranked(query).filterNot { it.name in active } else emptyList()
+        val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
         active.addAll(found.map { it.name })
         val result = buildJsonObject {
             put(
@@ -63,6 +65,7 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
             )
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             put("authorized_tool_count", candidates.size)
+            put("remaining_tool_count", candidates.size - active.size)
         }
         AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = false)
     }

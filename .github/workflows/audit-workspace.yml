@@ -67,21 +67,47 @@ jobs:
           java-version: '21'
           cache: gradle
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        id: environment
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
-      - name: Android unit tests, lint and debug build
+      - name: Android unit tests
+        id: tests
         shell: bash
         run: |
           set -o pipefail
-          echo "Tested source: $(git rev-parse HEAD)" | tee audit-android.log
+          echo "Tested source: $(git rev-parse HEAD)" | tee audit-unit.log
           chmod +x gradlew
-          ./gradlew --no-daemon --continue --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:lintDebug 2>&1 | tee -a audit-android.log
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee -a audit-unit.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: audit-unit-results
+          path: |
+            audit-unit.log
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
+          retention-days: 7
+      - name: Debug APK build
+        id: apk
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee audit-apk.log
+      - name: Android lint
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:lintDebug 2>&1 | tee audit-lint.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: audit-android-results
           path: |
-            audit-android.log
+            audit-*.log
             app/build/test-results/testDebugUnitTest
             app/build/reports/tests/testDebugUnitTest
             app/build/reports/lint-results-debug.*

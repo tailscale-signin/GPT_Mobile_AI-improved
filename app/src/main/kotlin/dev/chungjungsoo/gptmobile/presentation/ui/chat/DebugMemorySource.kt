@@ -66,6 +66,8 @@ private fun String.cleanDebugMemoryText(): String =
 private val memoryWord = Regex("[\\p{L}\\p{N}]+(?:['’-][\\p{L}\\p{N}]+)*")
 
 internal fun memoryHighlightRanges(text: String, values: List<String>): List<IntRange> {
+    // The common non-debug path should not tokenize the entire answer at all.
+    if (values.none { it.isNotBlank() } || text.isBlank()) return emptyList()
     val responseWords = memoryWord.findAll(text).toList()
     val byWord = responseWords.indices.groupBy { responseWords[it].value.lowercase() }
     val ranges = mutableListOf<IntRange>()

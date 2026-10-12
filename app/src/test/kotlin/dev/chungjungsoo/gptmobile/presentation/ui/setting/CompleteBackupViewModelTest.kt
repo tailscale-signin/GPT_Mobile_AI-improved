@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.data.backup.BackupProtection
 import dev.chungjungsoo.gptmobile.data.backup.BackupRestoreResult
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
@@ -44,7 +46,7 @@ class CompleteBackupViewModelTest {
         coEvery { settings.getLocalRuntimeBackend() } returns LocalRuntimeBackend.DEFAULT
         every { manager.getBackupStatus() } returns BackupStatus()
         coEvery { manager.savedProtection() } returns BackupProtection()
-        every { manager.savedSelection() } returns dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection.ALL
+        every { manager.savedSelection() } returns CompleteBackupSelection.ALL
         viewModel = SettingViewModelV2(settings, manager, dev.chungjungsoo.gptmobile.data.localruntime.FakeLocalRuntime())
     }
 
@@ -65,10 +67,13 @@ class CompleteBackupViewModelTest {
     @Test
     fun unencryptedBackupDoesNotRequireRecoveryKeyAndRestoreUsesSameManager() = runTest(dispatcher) {
         val uri = mockk<Uri>()
+        // ALL includes sensitive sections and must never take the plaintext path.
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.SETTINGS))
         viewModel.clearBackupSections()
-        viewModel.updateBackupSection(dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection.CONVERSATIONS, true)
-        val selected = viewModel.backupUi.value.selection
-        coEvery { manager.backup(uri, selected, null, encrypt = false) } returns BackupRestoreResult(true, "Saved")
+        viewModel.updateBackupSection(CompleteBackupSection.SETTINGS, true)
+        assertEquals(selection, viewModel.backupUi.value.selection)
+        assertFalse(selection.requiresEncryption)
+        coEvery { manager.backup(uri, selection, null, encrypt = false) } returns BackupRestoreResult(true, "Saved")
         coEvery { manager.requiresPassword(uri) } returns false
         coEvery { manager.restore(uri, null) } returns BackupRestoreResult(true, "Restored")
 
@@ -76,7 +81,7 @@ class CompleteBackupViewModelTest {
         viewModel.backupDestinationSelected(uri)
         advanceUntilIdle()
         assertEquals(null, viewModel.backupUi.value.backupUri)
-        coVerify(exactly = 1) { manager.backup(uri, selected, null, encrypt = false) }
+        coVerify(exactly = 1) { manager.backup(uri, selection, null, encrypt = false) }
         assertEquals("Saved", viewModel.backupUi.value.message)
 
         viewModel.selectAllBackupSections()
@@ -91,6 +96,70 @@ class CompleteBackupViewModelTest {
         coVerify(exactly = 1) { manager.restore(uri, null) }
         assertFalse(viewModel.backupUi.value.isBusy)
         assertEquals("Restored", viewModel.backupUi.value.message)
+    }
+
+    @Test
+    fun healthBackupWithoutPasswordWaitsForRecoveryKeyAndUsesEncryption() = runTest(dispatcher) {
+        val uri = mockk<Uri>()
+        val recoveryKey = mockk<Uri>()
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.HEALTH_DATA))
+        viewModel.clearBackupSections()
+        viewModel.updateBackupSection(CompleteBackupSection.HEALTH_DATA, true)
+        assertEquals(selection, viewModel.backupUi.value.selection)
+        assertTrue(selection.requiresEncryption)
+        coEvery { manager.backup(uri, selection, recoveryKeyUri = recoveryKey, encrypt = true) } returns BackupRestoreResult(true, "Health saved")
+
+        assertTrue(viewModel.prepareBackupPicker(restoring = false))
+        viewModel.backupDestinationSelected(uri)
+        advanceUntilIdle()
+        assertEquals(uri, viewModel.backupUi.value.backupUri)
+        assertFalse(viewModel.backupUi.value.isBusy)
+        coVerify(exactly = 0) { manager.backup(any(), any(), any(), any(), any()) }
+
+        viewModel.backupRecoveryKeySelected(recoveryKey)
+        advanceUntilIdle()
+        coVerify(exactly = 1) { manager.backup(uri, selection, recoveryKeyUri = recoveryKey, encrypt = true) }
+        assertEquals(null, viewModel.backupUi.value.backupUri)
+        assertFalse(viewModel.backupUi.value.isBusy)
+        assertEquals("Health saved", viewModel.backupUi.value.message)
+    }
+
+    @Test
+    fun cancellingHealthRecoveryKeyNeverWritesBackupAndUnlocksActions() = runTest(dispatcher) {
+        val uri = mockk<Uri>()
+        viewModel.clearBackupSections()
+        viewModel.updateBackupSection(CompleteBackupSection.HEALTH_DATA, true)
+        assertTrue(viewModel.prepareBackupPicker(restoring = false))
+        viewModel.backupDestinationSelected(uri)
+        advanceUntilIdle()
+        assertEquals(uri, viewModel.backupUi.value.backupUri)
+
+        viewModel.backupRecoveryKeySelected(null)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { manager.backup(any(), any(), any(), any(), any()) }
+        assertEquals(null, viewModel.backupUi.value.backupUri)
+        assertTrue(viewModel.backupUi.value.canBackup)
+        assertFalse(viewModel.backupUi.value.isWorking)
+    }
+
+    @Test
+    fun healthBackupWithPasswordDoesNotRequireRecoveryKey() = runTest(dispatcher) {
+        val uri = mockk<Uri>()
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.HEALTH_DATA))
+        viewModel.clearBackupSections()
+        viewModel.updateBackupSection(CompleteBackupSection.HEALTH_DATA, true)
+        viewModel.updateBackupPasswordProtection(true)
+        viewModel.updateBackupPassword("health-password")
+        advanceUntilIdle()
+        coEvery { manager.backup(uri, selection, "health-password", encrypt = true) } returns BackupRestoreResult(true, "Health saved")
+
+        assertTrue(viewModel.prepareBackupPicker(restoring = false))
+        viewModel.backupDestinationSelected(uri)
+        advanceUntilIdle()
+        coVerify(exactly = 1) { manager.backup(uri, selection, "health-password", encrypt = true) }
+        assertEquals(null, viewModel.backupUi.value.backupUri)
+        assertFalse(viewModel.backupUi.value.isBusy)
+        assertEquals("Health saved", viewModel.backupUi.value.message)
     }
 
     @Test
@@ -134,12 +203,12 @@ class CompleteBackupViewModelTest {
         viewModel.updateBackupPassword("new-password")
         advanceUntilIdle()
         val uri = mockk<Uri>()
-        coEvery { manager.backup(uri, dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection.ALL, "new-password", encrypt = true) } returns BackupRestoreResult(true, "Saved")
+        coEvery { manager.backup(uri, CompleteBackupSelection.ALL, "new-password", encrypt = true) } returns BackupRestoreResult(true, "Saved")
         assertTrue(viewModel.prepareBackupPicker(restoring = false))
         viewModel.backupDestinationSelected(uri)
         advanceUntilIdle()
         coVerify { manager.saveProtection(BackupProtection(true, "new-password")) }
-        coVerify { manager.backup(uri, dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection.ALL, "new-password", encrypt = true) }
+        coVerify { manager.backup(uri, CompleteBackupSelection.ALL, "new-password", encrypt = true) }
         assertFalse(viewModel.backupUi.value.isBusy)
     }
 

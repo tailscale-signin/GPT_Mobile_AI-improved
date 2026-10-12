@@ -1,0 +1,52 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "bevdet",
+  "name": "BEVDet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Construct a bird\u2019s eye view from sensors mounted on a vehicle.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "BEVDet is a machine learning model for generating a birds eye view represenation from the sensors(cameras) mounted on a vehicle.",
+  "use_case": "MODEL_USE_CASE_DRIVER_ASSISTANCE",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Object Detection"
+  ],
+  "related_models": [
+    "simple_bev_cam"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1 x 6 x 3 x 256 x 704"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "bevdet-r50.pth"
+    },
+    {
+      "key": "Model size",
+      "string_value": "171 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "44M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "nuscene"
+  ],
+  "research_paper": "https://arxiv.org/abs/2112.11790",
+  "research_paper_title": "BEVDet: High-Performance Multi-Camera 3D Object Detection in Bird-Eye-View",
+  "source_repo": "https://github.com/HuangJunJie2017/BEVDet/",
+  "license_url": "https://github.com/HuangJunJie2017/BEVDet/blob/dev3.0/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

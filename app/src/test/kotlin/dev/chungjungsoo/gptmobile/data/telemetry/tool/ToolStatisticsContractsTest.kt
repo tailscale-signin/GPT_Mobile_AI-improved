@@ -52,7 +52,7 @@ class ToolStatisticsContractsTest {
     }
 
     @Test fun unsupportedOrOrphanSnapshotsCannotReplaceHistory() {
-        assertTrue(runCatching { ToolStatisticsSnapshot(2, emptyList(), emptyList(), emptyList(), emptyList()).validate() }.isFailure)
+        assertTrue(runCatching { ToolStatisticsSnapshot(3, emptyList(), emptyList(), emptyList(), emptyList()).validate() }.isFailure)
         assertTrue(runCatching { ToolStatisticsSnapshot(subjects = emptyList(), invocations = emptyList(), rollups = listOf(ToolRollup("missing")), attempts = emptyList()).validate() }.isFailure)
     }
 }

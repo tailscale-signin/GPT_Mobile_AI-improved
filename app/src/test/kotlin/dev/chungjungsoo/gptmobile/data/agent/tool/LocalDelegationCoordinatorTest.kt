@@ -20,6 +20,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun completedPlanStepsSurviveCancellationWithoutReplenishingCalls() = runTest {
+        val stepA = dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanStep("a", dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role.DOCUMENT_EXTRACTION)
+        val stepB = stepA.copy(id = "b", dependsOn = listOf("a"))
+        val policy = config.normalized().copy(taskPlan = dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan(steps = listOf(stepA, stepB)), reviewerEnabled = false, maxLocalModelCalls = 3)
+        var saved: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
+        val journal = object : dev.chungjungsoo.gptmobile.data.research.ResearchJournal {
+            override suspend fun load() = saved
+            override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) {
+                saved = snapshot
+            }
+            override fun stopRequested() = false
+        }
+        var calls = 0
+        fun coordinator() = LocalDelegationCoordinator(source, { policy }, { listOf(target) }, { _, _, _ ->
+            calls++
+            if (calls == 2) throw kotlinx.coroutines.CancellationException("process interrupted")
+            "Supported fixture fact [S1]."
+        }, researchJournal = journal)
+        try {
+            coordinator().prepare("Extract the supplied fixture", emptyList(), "first")
+        } catch (_: kotlinx.coroutines.CancellationException) { }
+        assertEquals(dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE, saved?.delegationPlan?.steps?.first()?.status)
+        coordinator().prepare("Extract the supplied fixture", emptyList(), "resumed")
+        assertEquals(3, calls)
+        assertEquals(3, saved?.delegationPlan?.reservedCalls)
+        assertTrue(saved?.delegationPlan?.steps?.all { it.status == dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE } == true)
+    }
+
     @Test fun `unavailable reviewer preserves evidence without a rejected verdict`() = runTest {
         val coordinator = LocalDelegationCoordinator(
             source,

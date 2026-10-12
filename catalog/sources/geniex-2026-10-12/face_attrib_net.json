@@ -1,0 +1,56 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "face_attrib_net",
+  "assets": [
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/face_attrib_net/releases/v0.64.0/face_attrib_net-onnx-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/face_attrib_net/releases/v0.64.0/face_attrib_net-qnn_dlc-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/face_attrib_net/releases/v0.64.0/face_attrib_net-tflite-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/face_attrib_net/releases/v0.64.0/face_attrib_net-onnx-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/face_attrib_net/releases/v0.64.0/face_attrib_net-qnn_dlc-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/face_attrib_net/releases/v0.64.0/face_attrib_net-tflite-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    }
+  ]
+}

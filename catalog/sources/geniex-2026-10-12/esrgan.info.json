@@ -1,0 +1,56 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "esrgan",
+  "name": "ESRGAN",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Upscale images and remove image noise.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "ESRGAN is a machine learning model that upscales an image with minimal loss in quality.",
+  "use_case": "MODEL_USE_CASE_SUPER_RESOLUTION",
+  "applicable_scenarios": [
+    "Virtual Real Estate Tours",
+    "Gaming",
+    "ARVR"
+  ],
+  "related_models": [
+    "real_esrgan_general_x4v3",
+    "real_esrgan_x4plus"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "128x128"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "ESRGAN_x4"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "63.9 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "16.7M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/1809.00219",
+  "research_paper_title": "ESRGAN: Enhanced Super-Resolution Generative Adversarial Networks",
+  "source_repo": "https://github.com/xinntao/ESRGAN/",
+  "license_url": "https://github.com/xinntao/ESRGAN/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "bsd100",
+    "metric_name": "Peak Signal-to-Noise Ratio (PSNR)",
+    "value": 27.85,
+    "unit": "dB",
+    "source": "ESRGAN source repo"
+  }
+}

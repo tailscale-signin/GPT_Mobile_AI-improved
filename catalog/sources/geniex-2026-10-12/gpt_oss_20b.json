@@ -1,0 +1,12 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "gpt_oss_20b",
+  "assets": [
+    {
+      "precision": "PRECISION_MXFP4",
+      "runtime": "RUNTIME_GENIEX_LLAMACPP",
+      "download_url": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-mxfp4.gguf",
+      "tool_versions": {}
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "pi05",
+  "name": "Pi0.5",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "State-of-the-art generalist robotic foundation model trained on vision, language, and action to enable dexterous, zero-shot physical task execution across diverse robot platforms.",
+  "domain": "MODEL_DOMAIN_MULTIMODAL",
+  "description": "Pi0.5 is a vision-language-action model that co-trains on diverse data sources (robot demos, web data, semantic subtasks) to enable open-world generalization for long-horizon robotic manipulation.",
+  "use_case": "MODEL_USE_CASE_ROBOTICS",
+  "tags": [
+    "MODEL_TAG_GENERATIVE_AI",
+    "MODEL_TAG_ROBOTICS"
+  ],
+  "applicable_scenarios": [
+    "Robotics"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_AUTO"
+  ],
+  "technical_details": [
+    {
+      "key": "Action chunk size",
+      "int_value": "50"
+    },
+    {
+      "key": "Number of cameras",
+      "int_value": "3"
+    },
+    {
+      "key": "Quantization",
+      "string_value": "Mixed (w4a16 backbone, w8a16 vision encoder and action expert)"
+    },
+    {
+      "key": "Vision resolution",
+      "string_value": "224x224"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://www.physicalintelligence.company/download/pi05.pdf",
+  "research_paper_title": "Pi0.5: a Vision-Language-Action Model with Open-World Generalization",
+  "source_repo": "https://github.com/Physical-Intelligence/openpi",
+  "license_url": "https://github.com/Physical-Intelligence/openpi/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

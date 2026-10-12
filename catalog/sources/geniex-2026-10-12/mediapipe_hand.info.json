@@ -1,0 +1,57 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "mediapipe_hand",
+  "name": "MediaPipe-Hand-Detection",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time hand detection optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "The MediaPipe Hand Landmark Detector is a machine learning pipeline that predicts bounding boxes and pose skeletons of hands in an image.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Gesture Control",
+    "Virtual Reality",
+    "Gaming"
+  ],
+  "related_models": [
+    "mediapipe_face",
+    "mediapipe_pose",
+    "mediapipe_selfie"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "256x256"
+    },
+    {
+      "key": "Model size (hand_detector) (float)",
+      "string_value": "6.75 MB"
+    },
+    {
+      "key": "Model size (hand_landmark_detector) (float)",
+      "string_value": "7.70 MB"
+    },
+    {
+      "key": "Number of parameters (hand_detector)",
+      "string_value": "1.76M"
+    },
+    {
+      "key": "Number of parameters (hand_landmark_detector)",
+      "string_value": "2.01M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/2006.10214",
+  "research_paper_title": "MediaPipe Hands: On-device Real-time Hand Tracking",
+  "source_repo": "https://github.com/zmurez/MediaPipePyTorch/",
+  "license_url": "https://github.com/zmurez/MediaPipePyTorch/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

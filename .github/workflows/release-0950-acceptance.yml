@@ -1,0 +1,48 @@
+name: v0.9.50 Android acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/release-0950-acceptance.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: acceptance-0950-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - run: sudo chmod 666 /dev/kvm
+      - name: Build device regression APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+      - name: Run compact RTL editor and measure database/catalog operations
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          script: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.presentation.ui.setting.Release0950InstrumentedTest,dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsPerformanceInstrumentedTest --no-daemon
+      - name: Save emulator logs
+        if: always()
+        run: mkdir -p app/build/acceptance-0950 && adb logcat -d -s Release0950Performance > app/build/acceptance-0950/performance.txt || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: acceptance-0950-emulator
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/acceptance-0950/

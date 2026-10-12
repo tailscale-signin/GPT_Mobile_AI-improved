@@ -1,0 +1,58 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "rf_detr",
+  "name": "RF-DETR",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Transformer based object detection model architecture developed by Roboflow.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "DETR is a machine learning model that can detect objects (trained on COCO dataset).",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "applicable_scenarios": [
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "detr_resnet50_dc5",
+    "detr_resnet101_dc5",
+    "detr_resnet101"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "512x512"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "RF-DETR-small"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "109 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "28.5M"
+    },
+    {
+      "key": "Supported variants",
+      "string_value": "nano (384x384), small (512x512), medium (576x576), base (560x560)"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "model_maker_id": "roboflow",
+  "dataset": [
+    "detection-datasets/coco"
+  ],
+  "research_paper": "https://blog.roboflow.com/rf-detr/",
+  "research_paper_title": "RF-DETR A SOTA Real-Time Object Detection Model",
+  "source_repo": "https://github.com/roboflow/rf-detr",
+  "license_url": "https://github.com/roboflow/rf-detr/blob/develop/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true
+}

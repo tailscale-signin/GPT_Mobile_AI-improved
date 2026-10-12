@@ -1,0 +1,41 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "nomic_embed_text",
+  "name": "Nomic-Embed-Text",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Resizable Production Embeddings.",
+  "domain": "MODEL_DOMAIN_MULTIMODAL",
+  "description": "A text encoder that surpasses OpenAI text-embedding-ada-002 and text-embedding-3-small performance on short and long context tasks.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x128 (seqlen can vary)"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "v1.5"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "523 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "137M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://www.nomic.ai/news/nomic-embed-text-v1",
+  "research_paper_title": "Introducing Nomic Embed: A Truly Open Embedding Model",
+  "source_repo": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5",
+  "license_url": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

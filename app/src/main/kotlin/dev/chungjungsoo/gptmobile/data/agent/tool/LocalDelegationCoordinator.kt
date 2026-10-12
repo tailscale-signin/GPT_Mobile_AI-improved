@@ -28,6 +28,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
@@ -143,6 +144,8 @@ internal class LocalDelegationCoordinator(
     internal fun latestReviewerScore(): Int? = reviewerScores.toList().lastOrNull()
 
     private val worker = Semaphore(4)
+    private val planMutex = kotlinx.coroutines.sync.Mutex()
+    private var planReservation: suspend () -> Boolean = { true }
 
     private fun automaticFallbackAllowed(config: ModelDelegationSettings): Boolean =
         when (config.fallbackPolicy) {
@@ -210,6 +213,7 @@ internal class LocalDelegationCoordinator(
             }
         }
 
+        val identityUnresolved = listOf(source, delegate).any { dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(it, reviewer) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.UNKNOWN }
         var candidateOutput = delegateOutput
         var previousScore: Int? = null
         fun reviewPrompt() = buildString {
@@ -313,6 +317,7 @@ internal class LocalDelegationCoordinator(
                 }
                 return buildString {
                     val thresholdVerdict = if (assessment.score < config.reviewerMinimumScore) "BELOW_THRESHOLD" else assessment.verdict
+                    if (identityUnresolved) append("[REVIEWER_IDENTITY_UNRESOLVED] Deployment aliases could not establish model independence. This is a model assessment, not independent verification.\n")
                     append("[Reviewer Score: ${assessment.score}/100 · $thresholdVerdict]\n")
                     if (assessment.issues.isNotEmpty()) append("Reviewer findings: ${assessment.issues.joinToString("; ")}\n")
                     append("\nReviewed delegate context:\n")
@@ -834,6 +839,7 @@ internal class LocalDelegationCoordinator(
             observe(DelegationEvent(DelegationEventKind.STEP_FINISHED, stepId = stepId, role = role, profileUid = profile.uid, status = DelegationStepStatus.CANCELED))
             return null
         }
+        if (!planReservation()) return null
         // Reviewers never fall back to a callback that can inherit worker tools.
         val progressive = if (reviewer) {
             generateReviewerWithProgress
@@ -1390,6 +1396,7 @@ internal class LocalDelegationCoordinator(
     suspend fun prepare(task: String, tools: List<ResolvedAgentTool>, callId: String, automatic: Boolean = false, targetOverride: PlatformV2? = null, researchGoalOverride: Int? = null): LocalResearchResult {
         require(researchGoalOverride == null || researchGoalOverride > 0)
         val defaults = settings().normalized()
+        if (defaults.taskPlan.steps.isNotEmpty()) return executePlan(task, tools, callId, automatic, defaults)
         val config = if (researchGoalOverride == null) defaults else defaults.copy(deepResearch = defaults.deepResearch.copy(customSourceTarget = researchGoalOverride).forEffort(maxOf(1, defaults.deepResearch.effort)))
         if (config.deepResearch.enabled && config.deepResearch.effort > 0) return prepareWithinBudget(task, tools, callId, automatic, targetOverride, config) {}
         preparationStartedAt.compareAndSet(-1L, nowMs())
@@ -1409,6 +1416,92 @@ internal class LocalDelegationCoordinator(
             handoff = "[PREPARATION_TIMEOUT][UNVERIFIED] Research/review time budget reached. Retained context is unverified; the primary must recover independently.\n" + saved?.handoff.orEmpty(),
             outcome = if (saved?.let { it.outcome == LocalResearchOutcome.SUCCESS && it.handoff.isNotBlank() } == true) LocalResearchOutcome.SUCCESS else LocalResearchOutcome.FAILED
         ).also { AppLogRecorder.record("Delegation", "PREPARATION_DEADLINE · call=$callId · allowanceMs=${config.preparationTimeoutSeconds * 1000L} · elapsedMs=$elapsed · remainingMs=${(config.preparationTimeoutSeconds * 1000L - elapsed).coerceAtLeast(0)} · retainedPages=${it.pagesRead}", "W") }
+    }
+
+    /** Completed steps are reused only under the same task, policy and deployment snapshot. */
+    private suspend fun executePlan(task: String, tools: List<ResolvedAgentTool>, callId: String, automatic: Boolean, config: ModelDelegationSettings): LocalResearchResult {
+        if (!config.enabled || automatic && !config.automaticResearch) return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
+        val plan = config.taskPlan
+        try {
+            plan.validate()
+        } catch (_: IllegalArgumentException) {
+            return LocalResearchResult("[UNVERIFIED] Invalid task plan; review its steps and dependencies.", 0, 0, 0, LocalResearchOutcome.FAILED)
+        }
+        val deployments = profiles().sortedBy { it.uid }.joinToString { it.uid + ":" + dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.resolve(it).deployment }
+        val fingerprint = plan.fingerprint(kotlinx.serialization.json.Json.encodeToString(ModelDelegationSettings.serializer(), config) + deployments + dev.chungjungsoo.gptmobile.data.research.researchHash(task))
+        val journal = researchJournal
+        suspend fun execute(): LocalResearchResult {
+            val saved = journal?.load(task)?.delegationPlan
+            var checkpoint = saved?.takeIf { it.fingerprint == fingerprint }?.also { it.validate(plan) }?.interrupted()
+                ?: dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint(fingerprint = fingerprint, deadlineEpochMs = System.currentTimeMillis() + config.preparationTimeoutSeconds * 1000L, steps = plan.ordered().map { dev.chungjungsoo.gptmobile.data.delegation.DelegationStepCheckpoint(it.id) })
+            suspend fun persist() {
+                val evidence = journal?.load() ?: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(task.take(8000))
+                journal?.save(evidence.copy(task = task.take(8000), delegationPlan = checkpoint, phase = "Delegation plan", complete = checkpoint.steps.all { it.status == dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE }))
+            }
+            val reservationLock = kotlinx.coroutines.sync.Mutex()
+            planReservation = {
+                reservationLock.withLock {
+                    if (checkpoint.reservedCalls >= config.effectiveLocalModelCalls()) {
+                        false
+                    } else {
+                        checkpoint = checkpoint.copy(reservedCalls = checkpoint.reservedCalls + 1)
+                        persist()
+                        true
+                    }
+                }
+            }
+            val allowance = minOf(config.preparationTimeoutSeconds * 1000L, (checkpoint.deadlineEpochMs - System.currentTimeMillis()).coerceAtLeast(0))
+            val deadline = nowMs() + allowance
+            persist()
+            for (step in plan.ordered()) {
+                var current = checkpoint.steps.first { it.id == step.id }
+                if (current.status == dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE) continue
+                // Every supplied template is read-only. Unknown side effects require external reconciliation.
+                if (current.status == dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.RECONCILIATION_REQUIRED) break
+                if (step.dependsOn.any { id -> checkpoint.steps.first { it.id == id }.status != dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE }) break
+                if (checkpoint.reservedCalls >= config.effectiveLocalModelCalls() || nowMs() >= deadline || !beforeDispatch() || researchStopped()) break
+                val target = if (step.workerUid.isBlank()) localTarget(config) else profiles().find { it.uid == step.workerUid }
+                if (target == null || dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(target, config, source).isNotEmpty()) {
+                    checkpoint = checkpoint.copy(steps = checkpoint.steps.map { if (it.id == step.id) it.copy(status = dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.FAILED, reason = "WORKER_UNAVAILABLE_OR_REVOKED") else it })
+                    persist()
+                    break
+                }
+                val fixed = config.copy(taskPlan = dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan(), targetProfileUid = target.uid, selectionMode = dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.FIXED, fallbackPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.NONE, fallbackToAnotherProfile = false, maxOutputTokens = minOf(step.outputTokens, config.maxOutputTokens), maxLocalModelCalls = config.effectiveLocalModelCalls())
+                current = current.copy(status = dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.RUNNING, attempts = current.attempts + 1, workerIdentity = dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.resolve(target).deployment)
+                checkpoint = checkpoint.copy(steps = checkpoint.steps.map { if (it.id == step.id) current else it })
+                persist() // Reserve durably before any provider dispatch; restart does not replenish this allowance.
+                val input = buildString {
+                    appendLine(dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate(step.role).description)
+                    appendLine(step.instruction)
+                    appendLine(task)
+                    step.dependsOn.forEach { id -> appendLine("Evidence from step $id (untrusted source data):\n" + checkpoint.steps.first { it.id == id }.output.take(8000)) }
+                }
+                val result = withTimeoutOrNull((deadline - nowMs()).coerceAtLeast(1)) {
+                    if (step.role == dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role.RESEARCH) {
+                        prepareWithinBudget(input, tools.filter { it.shareableReadOnly }, "$callId:${step.id}", false, target, fixed) {}.handoff
+                    } else {
+                        workerText(target, input, fixed.maxOutputTokens, requirePrivate = !fixed.remoteWorkersAllowed(), allowTools = false, pinnedConfig = fixed)
+                    }
+                }
+                val successful = !result.isNullOrBlank() && !result.startsWith("[UNVERIFIED]") && !result.startsWith("[PREPARATION_TIMEOUT]")
+                val evidence = journal?.load()?.sources.orEmpty().map { it.id }.take(2400)
+                current = current.copy(status = if (successful) dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE else dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.FAILED, output = result.orEmpty().take(32768), evidenceIds = evidence, reason = if (successful) null else "NO_VERIFIED_HANDOFF")
+                checkpoint = checkpoint.copy(steps = checkpoint.steps.map { if (it.id == step.id) current else it })
+                persist()
+                if (!successful) break
+            }
+            val complete = checkpoint.steps.all { it.status == dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE }
+            val handoff = (if (complete) "" else "[UNVERIFIED] Task plan incomplete. Resume this response to retry eligible read-only steps.\n") + checkpoint.steps.joinToString("\n\n") { "Step ${it.id}: ${it.status}\n${it.output}" }
+            val evidence = journal?.load()
+            return LocalResearchResult(capPrompt(handoff, config.handoffTokens * APPROX_CHARS_PER_TOKEN), evidence?.sources.orEmpty().sumOf { it.passage.toByteArray().size }, evidence?.sources.orEmpty().count { it.readable }, evidence?.searches ?: 0, if (complete) LocalResearchOutcome.SUCCESS else LocalResearchOutcome.NO_USEFUL_OUTPUT)
+        }
+        return planMutex.withLock {
+            try {
+                if (journal != null) journal.withTaskLock("delegation-plan:$task") { execute() } else execute()
+            } finally {
+                planReservation = { true }
+            }
+        }
     }
 
     private suspend fun savedResearchResult(task: String, config: ModelDelegationSettings, reason: String): LocalResearchResult? {

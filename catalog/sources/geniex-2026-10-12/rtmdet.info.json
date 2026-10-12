@@ -1,0 +1,67 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "rtmdet",
+  "name": "RTMDet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time object detection optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "RTMDet is a highly efficient model for real-time object detection,capable of predicting both the bounding boxes and classes of objects within an image.It is highly optimized for real-time applications, making it reliable for industrial and commercial use",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera",
+    "Security and Surveillance"
+  ],
+  "related_models": [
+    "yolov6",
+    "yolov7",
+    "yolov8_det"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "640x640"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "RTMDet Medium"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "105 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "27.5M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "COCO"
+  ],
+  "research_paper": "https://github.com/open-mmlab/mmdetection/blob/3.x/README.md",
+  "research_paper_title": "RTMDet: An Empirical Study of Designing Real-Time Object Detectors",
+  "source_repo": "https://github.com/open-mmlab/mmdetection/tree/3.x/configs/rtmdet",
+  "license_url": "https://github.com/open-mmlab/mmdetection/blob/3.x/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "restrict_model_sharing": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Mean Average Precision",
+    "value": 49.4,
+    "unit": "mAP",
+    "source": "https://github.com/open-mmlab/mmdetection/tree/3.x/configs/rtmdet"
+  }
+}

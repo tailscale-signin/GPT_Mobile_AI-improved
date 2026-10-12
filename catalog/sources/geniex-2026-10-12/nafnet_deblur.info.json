@@ -1,0 +1,49 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "nafnet_deblur",
+  "name": "NAFNet-DeBlur",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Deblur images in real time.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "NAFNET is designed for lightweight real-time deblurring of images.",
+  "use_case": "MODEL_USE_CASE_IMAGE_EDITING",
+  "applicable_scenarios": [
+    "Virtual Real Estate Tours",
+    "Gaming",
+    "ARVR"
+  ],
+  "related_models": [
+    "nafnet_denoise",
+    "nafssr"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "360x640"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "NAFNet-REDS-width64"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "271.55 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "67.89M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/2204.04676",
+  "research_paper_title": "Simple Baselines for Image Restoration",
+  "source_repo": "https://github.com/megvii-research/NAFNet.git",
+  "license_url": "https://github.com/megvii-research/NAFNet/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true
+}

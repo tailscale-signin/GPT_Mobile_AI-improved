@@ -1,0 +1,24 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "hrnet_w48_ocr",
+  "assets": [
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/hrnet_w48_ocr/releases/v0.64.0/hrnet_w48_ocr-onnx-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A16",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/hrnet_w48_ocr/releases/v0.64.0/hrnet_w48_ocr-onnx-w8a16.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "inception_v3",
+  "name": "Inception-v3",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Imagenet classifier and general purpose backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "InceptionNetV3 is a machine learning model that can classify images from the Imagenet dataset. It can also be used as a backbone in building more complex models for specific use cases.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE"
+  ],
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "mobilenet_v2",
+    "densenet121",
+    "googlenet"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Imagenet"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "90.9 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "23.3 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "23.9M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "dataset": [
+    "imagenet-1k",
+    "imagenet-22k"
+  ],
+  "research_paper": "http://arxiv.org/abs/1512.00567",
+  "research_paper_title": "Rethinking the Inception Architecture for Computer Vision",
+  "source_repo": "https://github.com/pytorch/vision/blob/main/torchvision/models/inception.py",
+  "license_url": "https://github.com/pytorch/vision/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 77.3,
+    "unit": "%",
+    "source": "https://pytorch.org/vision/stable/models.html"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "centernet_pose",
+  "name": "CenterNet-Pose",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Human pose estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "CenterNet-Pose is a machine learning model that detects human pose and returns a location and confidence for each of 17 joints.",
+  "use_case": "MODEL_USE_CASE_POSE_ESTIMATION",
+  "applicable_scenarios": [
+    "Injury prevention training",
+    "Sports performance analysis",
+    "Posture recognition"
+  ],
+  "related_models": [
+    "hrnet_pose",
+    "litehrnet"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1 x 3 x 512 x 512"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "multi_pose_dla_3x.pth"
+    },
+    {
+      "key": "Model size",
+      "string_value": "57.8 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "20.6M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "cocobody"
+  ],
+  "research_paper": "https://arxiv.org/abs/1904.07850",
+  "research_paper_title": "Objects as Points",
+  "source_repo": "https://github.com/xingyizhou/CenterNet",
+  "license_url": "https://github.com/xingyizhou/CenterNet/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "cocobody",
+    "metric_name": "Mean Average Precision",
+    "value": 58.9,
+    "unit": "mAP",
+    "source": "https://github.com/xingyizhou/CenterNet"
+  }
+}

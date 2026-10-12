@@ -1,0 +1,29 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "distil_whisper",
+  "assets": [
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/distil_whisper/releases/v0.64.0/distil_whisper-onnx-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/distil_whisper/releases/v0.64.0/distil_whisper-qnn_dlc-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/distil_whisper/releases/v0.64.0/distil_whisper-tflite-float.zip",
+      "tool_versions": {}
+    }
+  ]
+}

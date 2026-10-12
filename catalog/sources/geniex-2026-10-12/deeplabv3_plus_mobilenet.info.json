@@ -1,0 +1,66 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "deeplabv3_plus_mobilenet",
+  "name": "DeepLabV3-Plus-MobileNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Deep Convolutional Neural Network model for semantic segmentation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "DeepLabV3 is designed for semantic segmentation at multiple scales, trained on the various datasets. It uses MobileNet as a backbone.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "applicable_scenarios": [
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "fcn_resnet50"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "513x513"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "VOC2012"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "22.2 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "6.67 MB"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "21"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "5.80M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "VOC2012"
+  ],
+  "research_paper": "https://arxiv.org/abs/1706.05587",
+  "research_paper_title": "Rethinking Atrous Convolution for Semantic Image Segmentation",
+  "source_repo": "https://github.com/jfzhang95/pytorch-deeplab-xception",
+  "license_url": "https://github.com/jfzhang95/pytorch-deeplab-xception/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "pascal_voc",
+    "metric_name": "Mean Intersection Over Union",
+    "value": 70.8,
+    "unit": "mIOU",
+    "source": "https://github.com/jfzhang95/pytorch-deeplab-xception"
+  }
+}

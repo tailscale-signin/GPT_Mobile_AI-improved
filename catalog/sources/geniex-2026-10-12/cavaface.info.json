@@ -1,0 +1,47 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "cavaface",
+  "name": "CavaFace",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Comprehensive facial analysis by extracting face features.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "A PyTorch-based framework for training face recognition models that generates facial embeddings for verification and identification tasks",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME",
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Incabinet driver monitoring",
+    "phone unlocking",
+    "building access control."
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "112x112"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "IR_SE_100_Combined_Epoch_24.pt"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "249.96MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "65.5M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "source_repo": "https://github.com/cavalleria/cavaface",
+  "license_url": "https://github.com/cavalleria/cavaface/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

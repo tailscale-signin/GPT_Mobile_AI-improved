@@ -34,6 +34,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val readerHealth = ConcurrentHashMap<Pair<Int, String>, ResearchReaderHealth>()
     private val turnBudgets = linkedMapOf<Pair<Int, String>, Pair<Long, ResearchBudget>>()
     private val taskLocks = Array(64) { Mutex() }
+    private val planLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
     private val temporaryBodies = ConcurrentHashMap<String, String>()
     private val deletedChats = ConcurrentHashMap.newKeySet<Int>()
@@ -154,7 +155,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
             val key = "$chatId:$turnId"
-            val taskLock = taskLocks[(key.hashCode() and Int.MAX_VALUE) % taskLocks.size]
+            val locks = if (task.startsWith("delegation-plan:")) planLocks else taskLocks
+            val taskLock = locks[(key.hashCode() and Int.MAX_VALUE) % locks.size]
             return taskLock.withLock { block() }
         }
         override suspend fun retainBody(text: String): List<String> = withContext(Dispatchers.IO) {
@@ -181,6 +183,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats) return@withLock
+                val priorPlan = mutable.value[runId]?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.snapshot?.delegationPlan else null
+                val snapshot = if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot
                 val session = ResearchSession(runId, chatId, snapshot, turnId)
                 if (!persistent) {
                     mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }

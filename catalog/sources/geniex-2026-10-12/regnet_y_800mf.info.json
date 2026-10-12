@@ -1,0 +1,41 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "regnet_y_800mf",
+  "name": "RegNet-Y-800MF",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Lightweight convolutional neural network for image classification.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "RegNet_Y_800MF is part of the RegNet family of models designed for efficient and scalable image classification. It uses a simple yet effective design space to balance performance and computational cost, making it suitable for mobile and edge devices.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "applicable_scenarios": [
+    "image classification"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x3x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "regnet_y_800mf-1b27b58c.pth"
+    },
+    {
+      "key": "Model size",
+      "string_value": "~6.3 MB"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "dataset": [
+    "ImageNet-1K"
+  ],
+  "license_url": "https://github.com/pytorch/vision/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 76.4,
+    "unit": "%",
+    "source": "https://pytorch.org/vision/stable/models.html"
+  }
+}

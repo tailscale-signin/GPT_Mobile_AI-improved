@@ -1,0 +1,65 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "yolov9_det",
+  "name": "YOLOv9-Detection",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time object detection optimized for mobile and edge by Ultralytics.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Ultralytics YOLOv9 is a machine learning model that predicts bounding boxes and classes of objects in an image.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "yolov6",
+    "yolov7",
+    "yolov8_det",
+    "yolov11_det"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "640x640"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "YOLOv9-T"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "8.84 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "3.25 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "3.23 MB"
+    },
+    {
+      "key": "Model size (w8a8_mixed_int16)",
+      "string_value": "3.74 MB"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_AGPL_3_0",
+  "research_paper": "https://docs.ultralytics.com/tasks/detect/",
+  "research_paper_title": "Ultralytics YOLOv9 Docs: Object Detection",
+  "source_repo": "https://github.com/ultralytics/ultralytics/tree/main/ultralytics/models/yolo/detect",
+  "license_url": "https://github.com/ultralytics/ultralytics/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "restrict_model_sharing": true
+}

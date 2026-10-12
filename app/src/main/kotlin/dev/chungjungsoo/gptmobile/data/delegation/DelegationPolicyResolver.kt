@@ -47,9 +47,7 @@ object DelegationPolicyResolver {
         if (config.approvedWorkerUids != null && candidate.uid !in config.approvedWorkerUids && candidate.uid != config.targetProfileUid) add(DelegationBlockReason.NOT_APPROVED)
     }
 
-    fun sameModel(first: PlatformV2?, second: PlatformV2?): Boolean = first != null &&
-        second != null &&
-        (first.uid == second.uid || (first.model.isNotBlank() && first.model.trim().equals(second.model.trim(), true)))
+    fun sameModel(first: PlatformV2?, second: PlatformV2?): Boolean = first != null && second != null && CanonicalModelIdentity.independence(first, second) == ModelIndependence.SAME
 
     fun ranked(profiles: List<PlatformV2>, config: ModelDelegationSettings, primary: PlatformV2? = null, reviewer: PlatformV2? = null): List<PlatformV2> =
         profiles.filter { reasons(it, config, primary, reviewer).isEmpty() }.sortedWith(

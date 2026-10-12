@@ -137,8 +137,8 @@ fun LocalModelsScreen(
             LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 catalogStatus?.let { snapshot ->
                     item {
-                        Text("${snapshot.source} · Revision ${snapshot.revision} · ${snapshot.entries.size} listed", style = MaterialTheme.typography.labelSmall)
-                        snapshot.upstream?.let { Text("Source coverage: ${it.artifactCount} artifacts across ${it.familyCount} families · Retrieved ${it.retrievedAt}", style = MaterialTheme.typography.labelSmall) }
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ddf1cb511, snapshot.source, snapshot.revision, snapshot.entries.size), style = MaterialTheme.typography.labelSmall)
+                        snapshot.upstream?.let { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dd3b98874b, it.artifactCount, it.familyCount, it.retrievedAt), style = MaterialTheme.typography.labelSmall) }
                         snapshot.refreshError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
@@ -169,12 +169,12 @@ fun LocalModelsScreen(
                         TextButton(onClick = {
                             tab = 2
                             viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
-                        }) { Text("Downloads · $active active · Manage") }
+                        }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_002601a45f, active)) }
                     }
                 }
                 if (tab == 2) {
                     item {
-                        Text("Storage used · ${ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)}")
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6e1ee292ad, ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)))
                         Row { listOf(LocalModelFilter.ALL, LocalModelFilter.DOWNLOADING, LocalModelFilter.FAILED).forEach { value -> TextButton(onClick = { viewModel.updateFilter(value) }) { Text(value.title) } } }
                     }
                 }
@@ -248,7 +248,7 @@ fun LocalModelsScreen(
                     items(variants, key = { it.entry.id }) { item ->
                         val decision = support(item)
                         Text("${item.entry.variantLabel.ifBlank { item.entry.displayName }} · ${item.entry.supportedAccelerators.joinToString()} · ${item.entry.precision.ifBlank { "Precision unknown" }}")
-                        Text("Context: ${item.entry.maxContextTokens.takeIf { it > 0 } ?: "Unknown"} · Minimum RAM: ${item.entry.minRamGb.takeIf { it > 0 }?.let { "$it GB" } ?: "Unknown"}")
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2ffd1f3e99, item.entry.maxContextTokens.takeIf { it > 0 } ?: "Unknown", item.entry.minRamGb.takeIf { it > 0 }?.let { "$it GB" } ?: "Unknown"))
                         if (decision.reasons.isNotEmpty()) {
                             decision.reasons.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
                             if (decision.action == dev.chungjungsoo.gptmobile.data.catalog.CatalogAction.VIEW_BUILD) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_the_geniex_apk_is_a_separate_installation_its_dedfc))
@@ -264,7 +264,11 @@ fun LocalModelsScreen(
                                 profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
                             )
                         }
-                        Text("Artifact: ${item.entry.id}\nSource revision: ${item.entry.upstreamRevision.ifBlank { "Not reported" }}\nSHA-256: ${item.entry.sha256.ifBlank { "Not reported" }}", style = MaterialTheme.typography.bodySmall)
+                        if (item.entry.sourceUrl.startsWith("https://")) androidx.compose.foundation.text.BasicText(item.entry.sourceUrl, modifier = Modifier.padding(vertical = 8.dp))
+                        if (item.entry.licenseUrl.isNotBlank()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3e8818e968, item.entry.licenseUrl))
+                        if (item.entry.redistributionRestricted) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6604b1934b))
+                        item.entry.discoveryAssets.forEach { asset -> Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0391683a30, asset.role, asset.path, asset.sizeInBytes, asset.sha256.ifBlank { "Not reported" }), style = MaterialTheme.typography.bodySmall) }
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3133ea6d87, item.entry.id, item.entry.upstreamRevision.ifBlank { "Not reported" }, item.entry.sha256.ifBlank { "Not reported" }), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -274,7 +278,7 @@ fun LocalModelsScreen(
         androidx.compose.material3.AlertDialog(onDismissRequest = { filtersOpen = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_filters_d4bb9)) }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_runtime_10931))
-                Row { listOf("All", "LiteRT-LM", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
+                androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_processor_54aac))
                 Row {
                     listOf("Any", "CPU", "GPU", "NPU").forEach { value ->
@@ -363,7 +367,7 @@ private fun LocalModelsOverviewCard(state: LocalModelsUiState) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_ai_on_your_device_2feb5), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
-                "Open a profile to chat. Find more models in the marketplace.",
+                androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ef1c0588e3),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.padding(top = 4.dp)
@@ -444,7 +448,7 @@ private fun ModelCatalogSearch(
             label = {
                 Text(
                     if (selectedSource == LocalModelSource.HUGGING_FACE) {
-                        "Search Hugging Face LiteRT-LM"
+                        "Search Hugging Face models"
                     } else {
                         "Search compatible models"
                     }
@@ -504,7 +508,7 @@ private fun ModelCatalogSearch(
 
         Text(
             if (selectedSource == LocalModelSource.HUGGING_FACE) {
-                "Searches Hub repositories for LiteRT-LM GPU exports and matching Qualcomm NPU packages within this phone’s RAM budget. Raw checkpoints and ZIP archives are excluded. Runtime compatibility is checked when loading."
+                "Searches LiteRT-LM packages and GGUF inventories, including shards and possible vision projectors. GGUF entries need a validated bundle before installation; projector candidates are not confirmed matches. Runtime compatibility is checked when loading."
             } else {
                 "Curated downloads include selected models and device-specific variants. Capabilities are catalog claims until tested on this device. Import your own files from the Local models Library."
             },
@@ -690,15 +694,15 @@ private fun LocalModelItem(
                     description = "A publisher checksum verifies downloaded bytes against the catalog. Without it, size and container checks identify the file but do not prove publisher authenticity. Installation does not verify model capabilities or runtime compatibility. NPU packages need an exact supported chip and runtime. RAM is an advisory total-memory threshold; available memory and context size also matter. Context includes prompts, tools and output."
                 )
             }
-            Text("Context: ${item.entry.maxContextTokens.takeIf { it > 0 }?.let { "$it tokens" } ?: "not declared"} · Output default: ${item.entry.defaultConfig.maxTokens}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a6af91a3fe, item.entry.maxContextTokens.takeIf { it > 0 }?.let { "$it tokens" } ?: "not declared", item.entry.defaultConfig.maxTokens), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
             if (item.entry.variantLabel.isNotBlank()) {
                 Text(item.entry.variantLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
             if (item.entry.precision.isNotBlank()) {
-                Text("Precision: ${item.entry.precision} · Candidate; device qualification required", style = MaterialTheme.typography.bodySmall)
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_7e1b41296b, item.entry.precision), style = MaterialTheme.typography.bodySmall)
             }
             val blockedReason = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.installedPackageIssue(item.entry.downloadUrl, item.entry.downloadUrl.substringBefore('?'))
-            if (blockedReason != null) Text("Blocked package: $blockedReason", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            if (blockedReason != null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f84ea6b137, blockedReason), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             LocalModelRequirements(item = item)
             LocalModelDownloadStatus(
                 item = item,

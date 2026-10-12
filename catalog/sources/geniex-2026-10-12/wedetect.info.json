@@ -1,0 +1,80 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "wedetect",
+  "name": "WeDetect",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time text-conditioned object detection optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "WeDetect is a text-conditioned object detection model that uses a prompt-then-detect strategy. Text class names are reparameterized into the model weights before export, producing a fixed-vocabulary detector that runs efficiently on-device. The model uses LTRB (Left-Top-Right-Bottom) regression with multi-scale feature maps at strides 8, 16, and 32.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "yolo_world",
+    "yolov8_det"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "640x640"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "wedetect_tiny"
+    },
+    {
+      "key": "Model size (detector) (float)",
+      "string_value": "143 MB"
+    },
+    {
+      "key": "Model size (detector) (mixed_with_float)",
+      "string_value": "35.9 MB"
+    },
+    {
+      "key": "Model size (text_encoder) (float)",
+      "string_value": "592 B"
+    },
+    {
+      "key": "Model size (text_encoder) (mixed_with_float)",
+      "string_value": "13.3 KB"
+    },
+    {
+      "key": "Number of parameters (detector)",
+      "string_value": "37.3M"
+    },
+    {
+      "key": "Number of parameters (text_encoder)",
+      "string_value": "3.00"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_GPL_3_0",
+  "dataset": [
+    "coco"
+  ],
+  "research_paper": "https://arxiv.org/abs/2512.12309",
+  "research_paper_title": "WeDetect: Fast Open-Vocabulary Object Detection as Retrieval",
+  "source_repo": "https://github.com/WeChatCV/WeDetect",
+  "license_url": "https://github.com/WeChatCV/WeDetect/blob/main/README.md",
+  "has_static_banner": true,
+  "imsdk_supported": true,
+  "restrict_model_sharing": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Mean Average Precision",
+    "value": 44.9,
+    "unit": "mAP",
+    "source": "https://github.com/WeChatCV/WeDetect"
+  }
+}

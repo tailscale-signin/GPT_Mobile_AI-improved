@@ -1,0 +1,59 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "bert_base_uncased_hf",
+  "name": "Bert-Base-Uncased-Hf",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Language model for masked language modeling and general-purpose NLP tasks.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "Bert is a lightweight BERT model designed for efficient self-supervised learning of language representations. It can be used for masked language modeling and as a backbone for various NLP tasks.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE"
+  ],
+  "applicable_scenarios": [
+    "Text Classification",
+    "Sentiment Analysis",
+    "Named Entity Recognition"
+  ],
+  "related_models": [
+    "albert_base_v2_hf"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x384"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "google-bert/bert-base-uncased"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "418 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "110M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/1810.04805",
+  "research_paper_title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+  "source_repo": "https://github.com/google-research/bert",
+  "license_url": "https://github.com/google-research/bert/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "bert_wikitext_masked",
+    "metric_name": "Top-1 Accuracy",
+    "value": 60.0,
+    "unit": "%",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

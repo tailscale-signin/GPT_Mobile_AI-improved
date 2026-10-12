@@ -1,0 +1,52 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "movenet",
+  "name": "Movenet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Perform accurate human pose estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Movenet performs pose estimation on human images.",
+  "use_case": "MODEL_USE_CASE_POSE_ESTIMATION",
+  "applicable_scenarios": [
+    "Injury prevention training",
+    "Sports performance analysis",
+    "Posture recognition"
+  ],
+  "related_models": [
+    "litehrnet",
+    "hrnet_pose"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "192x192"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "None"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "8.91 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "2.33M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "coco"
+  ],
+  "research_paper": "https://blog.tensorflow.org/2021/05/next-generation-pose-detection-with-movenet-and-tensorflowjs.html",
+  "research_paper_title": "MoveNet: Ultra fast and accurate pose detection model",
+  "source_repo": "https://github.com/lee-man/movenet-pytorch",
+  "license_url": "http://www.apache.org/licenses/LICENSE-2.0",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

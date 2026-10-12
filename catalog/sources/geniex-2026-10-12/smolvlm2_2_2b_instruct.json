@@ -1,0 +1,12 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "smolvlm2_2_2b_instruct",
+  "assets": [
+    {
+      "precision": "PRECISION_Q8_0",
+      "runtime": "RUNTIME_GENIEX_LLAMACPP",
+      "download_url": "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/SmolVLM2-2.2B-Instruct-Q8_0.gguf",
+      "tool_versions": {}
+    }
+  ]
+}

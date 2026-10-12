@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ModelDelegationSettings(
     val enabled: Boolean = false,
+    val taskPlan: dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan = dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan(),
     val templateRole: dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role? = null,
     val policyVersion: Int = 1,
     val selectionMode: dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode = dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.INHERIT,

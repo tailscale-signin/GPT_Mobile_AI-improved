@@ -127,7 +127,7 @@ internal fun ModelDelegationSettingsContent(
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_delegation_7637c), style = MaterialTheme.typography.headlineSmall)
-                            SettingsHelpIcon("A delegate can research, read pages, and compress tool results so the main model receives a focused answer with evidence.")
+                            SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_79924cacd3))
                         }
                         Text(if (config.enabled) "${100 - config.processingOwnership}% Delegation Amount · ${config.strategy} Research Depth" else "Turn On To Give Tasks To A Delegate", style = MaterialTheme.typography.bodyMedium)
                     }
@@ -185,6 +185,7 @@ internal fun ModelDelegationSettingsContent(
 
         if (settingsTab == 1) {
             DelegationTemplatePanel(config, onChange)
+            DelegationPlanEditor(config, profiles, onChange)
             Card(shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("Delegate Model", "Choose an AI profile to handle delegated work.")
@@ -266,7 +267,7 @@ internal fun ModelDelegationSettingsContent(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reviewer_validation_4a1fc), style = MaterialTheme.typography.labelLarge)
-                        SettingsHelpIcon("The reviewer receives the original delegated task and the delegate's final context, returns a 0–100 Reviewer Score, and can correct unsupported or contradictory details. It cannot be the delegate, primary model, or another profile using the same model.")
+                        SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_25bb8247d7))
                     }
                     if (config.reviewerEnabled) {
                         DelegateModelDropdown(
@@ -281,7 +282,7 @@ internal fun ModelDelegationSettingsContent(
                         val selectedReviewer = reviewerEligible.firstOrNull { it.uid == config.reviewerProfileUid }
                         if (selectedReviewer == null) {
                             Text(
-                                "Choose a reviewer profile that uses a different model from the delegate. At 100% delegation, a reviewer is required before the final handoff. If none is available, the result is marked unverified.",
+                                androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0301d3746e),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -316,7 +317,7 @@ internal fun ModelDelegationSettingsContent(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_correction_policy_a2ae9), style = MaterialTheme.typography.labelLarge)
-                            SettingsHelpIcon("Controls whether accepted reviewer corrections replace the draft. Rejected drafts always require correction or independent primary recovery.")
+                            SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_610b6c5418))
                         }
                     }
                 }
@@ -349,7 +350,7 @@ internal fun ModelDelegationSettingsContent(
                         !busy,
                         "Focused → Broad. Recommended: 70. More coverage reads more sources while keeping each helper request bounded."
                     ) { value -> onChange { it.withStrategy(value) } }
-                    Text("Up to ${config.effectiveLocalModelCalls()} delegate calls · ${config.maxSearchQueries} searches · ${config.maxPages} pages per research pass", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4a07d0e944, config.effectiveLocalModelCalls(), config.maxSearchQueries, config.maxPages), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Card(shape = RoundedCornerShape(20.dp)) {
@@ -361,12 +362,12 @@ internal fun ModelDelegationSettingsContent(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_tools_e46bc), style = MaterialTheme.typography.labelLarge)
                         SettingsHelpIcon(
-                            "Uses the conversation's enabled tools and permissions. Delegated research shares the active AI profile's Maximum Tool Calls limit. " +
+                            androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1fbe51f74c) +
                                 "Multi-engine web search counts each enabled engine and page read as a tool execution. Research sends sources and a compact brief to the main model."
                         )
                     }
                     Text(
-                        "Research shares the active AI profile's Maximum Tool Calls limit. Multi-engine searches can consume several calls per query. " +
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_035579bfee) +
                             "A separate context-derived tool-result byte budget also applies; if it is reached, chat shows the exact byte limit and preserves any completed delegate brief.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -384,7 +385,7 @@ internal fun ModelDelegationSettingsContent(
                         IconButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.testTag("delegation_advanced")) { Icon(if (showAdvanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, "Toggle advanced controls") }
                     }
                     if (!showAdvanced) {
-                        Text("${config.maxOutputTokens} target output tokens per helper call · ${config.maxConcurrentDelegates} concurrent workers. Expand to customize limits.", style = MaterialTheme.typography.bodySmall)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e45badb7be, config.maxOutputTokens, config.maxConcurrentDelegates), style = MaterialTheme.typography.bodySmall)
                     }
                     if (showAdvanced) {
                         DelegationSlider("Maximum Worker Delegation Depth", config.maxDelegationDepth, 1..2, 1, !busy) { value -> onChange { it.copy(maxDelegationDepth = value) } }

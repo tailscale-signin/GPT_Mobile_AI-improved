@@ -1,0 +1,69 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "sequencer2d",
+  "name": "Sequencer2D",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Imagenet classifier and general purpose backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Sequencer2D is a vision transformer model that can classify images from the Imagenet dataset.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "efficientvit_b2_cls",
+    "efficientvit_l2_cls",
+    "squeezenet1_1",
+    "densenet121"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "sequencer2d_s"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "106 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "69.1 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "27.6M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "imagenet-1k"
+  ],
+  "research_paper": "https://arxiv.org/abs/2205.01972",
+  "research_paper_title": "Sequencer: Deep LSTM for Image Classification",
+  "source_repo": "https://github.com/okojoalg/sequencer",
+  "license_url": "https://github.com/okojoalg/sequencer/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 82.3,
+    "unit": "%",
+    "source": "https://huggingface.co/timm/sequencer2d_s.in1k"
+  },
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

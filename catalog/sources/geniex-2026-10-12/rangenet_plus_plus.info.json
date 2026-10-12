@@ -1,0 +1,59 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "rangenet_plus_plus",
+  "name": "RangeNet-Plus-Plus",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time LiDAR point cloud semantic segmentation using range images.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "RangeNet-Plus-Plus (also stylized as RangeNet++) projects a LiDAR point cloud onto a 5-channel range image (depth, x, y, z, intensity) and applies a DarkNet-53 encoder with a decoder head to predict per-point semantic class labels in real time.",
+  "use_case": "MODEL_USE_CASE_DRIVER_ASSISTANCE",
+  "tags": [
+    "MODEL_TAG_REAL_TIME",
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Autonomous Driving",
+    "Robotics",
+    "HD Mapping"
+  ],
+  "related_models": [
+    "pidnet",
+    "ddrnet23_slim"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_AUTO",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Backbone",
+      "string_value": "DarkNet-53"
+    },
+    {
+      "key": "Input channels",
+      "string_value": "5"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "64x2048"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "darknet53_rangenet++"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "20"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "semantickitti"
+  ],
+  "research_paper": "https://ieeexplore.ieee.org/document/8967762",
+  "research_paper_title": "RangeNet++: Fast and Accurate LiDAR Semantic Segmentation",
+  "source_repo": "https://github.com/PRBonn/lidar-bonnetal",
+  "license_url": "https://github.com/PRBonn/lidar-bonnetal/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

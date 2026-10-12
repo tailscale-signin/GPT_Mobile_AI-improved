@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/telemetry/tool/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/delegation/**'
       - 'app/build.gradle.kts'
       - 'app/proguard-rules.pro'
       - 'app/app-native-smoke-rules.pro'

@@ -1,0 +1,65 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "sinet",
+  "name": "SINet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Lightweight portrait segmentation for background removal.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "SINet is a machine learning model that is designed to segment people from close-up portrait images in real time.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "applicable_scenarios": [
+    "Background replacement",
+    "Face removal"
+  ],
+  "related_models": [
+    "fcn_resnet50",
+    "unet_segmentation",
+    "mediapipe_selfie"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "SINet.pth"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "415 KB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "241 KB"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "2 (foreground / background)"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "91.9K"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/1911.09099",
+  "research_paper_title": "SINet: Extreme Lightweight Portrait Segmentation Networks with Spatial Squeeze Modules and Information Blocking Decoder",
+  "source_repo": "https://github.com/clovaai/ext_portrait_segmentation",
+  "license_url": "https://github.com/clovaai/ext_portrait_segmentation/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "eg1800",
+    "metric_name": "Mean Intersection Over Union",
+    "value": 95.2,
+    "unit": "mIOU",
+    "source": "https://github.com/clovaai/ext_portrait_segmentation"
+  }
+}

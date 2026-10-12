@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "revision": 20261012,
   "models": [
     {
       "id": "gemma3-1b-it",
@@ -308,7 +309,7 @@
       "maxContextTokens": 4096,
       "minAppVersion": "0.9.17.0",
       "familyId": "qwen3-0.6b",
-      "variantLabel": "Dynamic INT8 · GPU / CPU",
+      "variantLabel": "Dynamic INT8 \u00b7 GPU / CPU",
       "precision": "dynamic INT8",
       "upstreamRevision": "a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76",
       "sha256": "555579ff2f4fd13379abe69c1c3ab5200f7338bc92471557f1d6614a6e5ab0b4",
@@ -316,7 +317,7 @@
     },
     {
       "id": "qwen3-0.6b-mixed-int4",
-      "displayName": "Qwen3 0.6B · Mixed INT4 · 2K context",
+      "displayName": "Qwen3 0.6B \u00b7 Mixed INT4 \u00b7 2K context",
       "downloadUrl": "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/qwen3_0_6b_mixed_int4.litertlm?download=true",
       "sizeInBytes": 497516544,
       "minRamGb": 6,
@@ -339,7 +340,7 @@
       "maxContextTokens": 2048,
       "minAppVersion": "0.9.17.0",
       "familyId": "qwen3-0.6b",
-      "variantLabel": "Mixed INT4 · 2K context",
+      "variantLabel": "Mixed INT4 \u00b7 2K context",
       "precision": "mixed INT4",
       "upstreamRevision": "a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76",
       "sha256": "7900eb4e7362d88c58782c6f9999bb7a129e03544aa98b8f338ea0cc5d8c22c1",
@@ -347,7 +348,7 @@
     },
     {
       "id": "qwen3-0.6b-dynamic-int4",
-      "displayName": "Qwen3 0.6B · Small download · Dynamic INT4",
+      "displayName": "Qwen3 0.6B \u00b7 Small download \u00b7 Dynamic INT4",
       "downloadUrl": "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm?download=true",
       "sizeInBytes": 344671744,
       "minRamGb": 6,
@@ -370,7 +371,7 @@
       "maxContextTokens": 4096,
       "minAppVersion": "0.9.17.0",
       "familyId": "qwen3-0.6b",
-      "variantLabel": "Small download · Dynamic INT4",
+      "variantLabel": "Small download \u00b7 Dynamic INT4",
       "precision": "INT4 weights / FP32 activations",
       "upstreamRevision": "a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76",
       "sha256": "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856",
@@ -506,6 +507,5 @@
       "sha256": "ccba1e8bfa0bab78345f5d009fdffd20bd8c907cf39b4bc632e391b0a96f3b18",
       "upstreamRevision": "460013246392191f8532e45e518576bb6513eace"
     }
-  ],
-  "revision": 3
+  ]
 }

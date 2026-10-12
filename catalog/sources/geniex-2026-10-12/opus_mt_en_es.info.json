@@ -1,0 +1,85 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "opus_mt_en_es",
+  "name": "OpusMT-En-Es",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "OpusMT English to Spanish neural machine translation model based on MarianMT transformer architecture.",
+  "domain": "MODEL_DOMAIN_MULTIMODAL",
+  "description": "OpusMT English to Spanish translation model is a state-of-the-art neural machine translation system designed for translating English text into Spanish. This model is based on the Marian transformer architecture and has been optimized for edge inference by splitting into encoder and decoder components with modified attention mechanisms. It exhibits robust performance for real-world translation tasks, making it highly reliable for practical applications. The model supports input sequences up to 256 tokens and can generate Spanish translations with high accuracy.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_FOUNDATION"
+  ],
+  "applicable_scenarios": [
+    "Smart Home",
+    "Accessibility"
+  ],
+  "related_models": [
+    "opus_mt_es_en",
+    "opus_mt_en_zh",
+    "opus_mt_zh_en"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Attention heads",
+      "int_value": "8"
+    },
+    {
+      "key": "Hidden dimension",
+      "int_value": "512"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "256 tokens (English text)"
+    },
+    {
+      "key": "Max input sequence length",
+      "string_value": "256 tokens"
+    },
+    {
+      "key": "Max output sequence length",
+      "string_value": "256 tokens"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Helsinki-NLP/opus-mt-en-es"
+    },
+    {
+      "key": "Model size (decoder) (float)",
+      "string_value": "~280 MB"
+    },
+    {
+      "key": "Model size (encoder) (float)",
+      "string_value": "~280 MB"
+    },
+    {
+      "key": "Number of decoder layers",
+      "int_value": "6"
+    },
+    {
+      "key": "Number of encoder layers",
+      "int_value": "6"
+    },
+    {
+      "key": "Number of parameters (decoder)",
+      "string_value": "~74M"
+    },
+    {
+      "key": "Number of parameters (encoder)",
+      "string_value": "~74M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://aclanthology.org/2020.eamt-1.61/",
+  "research_paper_title": "OPUS-MT \u2013 Building open translation services for the World",
+  "source_repo": "https://github.com/Helsinki-NLP/Opus-MT",
+  "license_url": "https://github.com/Helsinki-NLP/Opus-MT/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "voice_ai_sdk": "VOICE_AI_SDK_TRANSLATION"
+}

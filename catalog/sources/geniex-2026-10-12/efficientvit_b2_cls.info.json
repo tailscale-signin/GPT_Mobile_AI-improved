@@ -1,0 +1,70 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "efficientvit_b2_cls",
+  "name": "EfficientViT-b2-cls",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Imagenet classifier and general purpose backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "EfficientViT is a machine learning model that can classify images from the Imagenet dataset. It can also be used as a backbone in building more complex models for specific use cases.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE",
+    "MODEL_TAG_BU_AUTO",
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "squeezenet1_1",
+    "densenet121",
+    "googlenet"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Imagenet"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "92.9 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "24.3M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "dataset": [
+    "imagenet-1k"
+  ],
+  "research_paper": "https://arxiv.org/abs/2205.14756",
+  "research_paper_title": "EfficientViT: Multi-Scale Linear Attention for High-Resolution Dense Prediction",
+  "source_repo": "https://github.com/CVHub520/efficientvit",
+  "license_url": "https://github.com/CVHub520/efficientvit/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 83.1,
+    "unit": "%",
+    "source": "https://huggingface.co/timm/efficientvit_b2.r288_in1k"
+  },
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

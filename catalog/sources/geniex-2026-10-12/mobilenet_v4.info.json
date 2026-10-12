@@ -1,0 +1,70 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "mobilenet_v4",
+  "name": "MobileNet-v4",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Efficient pure-conv ImageNet classifier for mobile devices.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "MobileNetV4 is a machine learning model that can classify images from the Imagenet dataset. It can also be used as a backbone in building more complex models for specific use cases.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE",
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "mobilenet_v2",
+    "mobilenet_v3_large",
+    "mobilenet_v3_small"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Imagenet"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "37.0 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "10.2 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "9.68M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "imagenet-1k",
+    "imagenet-22k"
+  ],
+  "research_paper": "https://arxiv.org/abs/2404.10518",
+  "research_paper_title": "MobileNetV4 -- Universal Models for the Mobile Ecosystem",
+  "source_repo": "https://github.com/jaiwei98/MobileNetV4-pytorch",
+  "license_url": "https://github.com/jaiwei98/MobileNetV4-pytorch/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 79.9,
+    "unit": "%",
+    "source": "https://arxiv.org/abs/2404.10518"
+  }
+}

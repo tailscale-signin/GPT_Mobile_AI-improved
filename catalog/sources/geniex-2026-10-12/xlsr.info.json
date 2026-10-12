@@ -1,0 +1,64 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "xlsr",
+  "name": "XLSR",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Upscale images in real time.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "XLSR is designed for lightweight real-time upscaling of images.",
+  "use_case": "MODEL_USE_CASE_SUPER_RESOLUTION",
+  "applicable_scenarios": [
+    "Virtual Real Estate Tours",
+    "Gaming",
+    "ARVR"
+  ],
+  "related_models": [
+    "esrgan",
+    "real_esrgan_general_x4v3"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "128x128"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "xlsr_3x_checkpoint"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "115 KB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "45.6 KB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "28.0K"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "dataset": [
+    "set14",
+    "bsd300"
+  ],
+  "research_paper": "https://arxiv.org/abs/2105.10288",
+  "research_paper_title": "Extremely Lightweight Quantization Robust Real-Time Single-Image Super Resolution for Mobile Devices",
+  "source_repo": "https://github.com/quic/aimet-model-zoo/tree/develop/aimet_zoo_torch/xlsr",
+  "license_url": "https://github.com/quic/aimet-model-zoo/blob/develop/LICENSE.md",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "set14",
+    "metric_name": "Peak Signal-to-Noise Ratio (PSNR)",
+    "value": 32.57,
+    "unit": "dB",
+    "source": "AIMET Model Zoo"
+  }
+}

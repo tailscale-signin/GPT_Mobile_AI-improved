@@ -1,0 +1,70 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "gpunet",
+  "name": "GPUNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Imagenet classifier and general purpose backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "GPUNet is a machine learning model that can classify images from the Imagenet dataset. It can also be used as a backbone in building more complex models for specific use cases.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE",
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "mobilenet_v2",
+    "densenet121",
+    "googlenet"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Imagenet"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "45.28MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "21.3MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "10.49M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "imagenet-1k",
+    "imagenet-22k"
+  ],
+  "research_paper": "https://arxiv.org/abs/2205.00841",
+  "research_paper_title": "GPUNet: Searching the Deployable Convolution Neural Networks for GPUs",
+  "source_repo": "https://github.com/NVIDIA/DeepLearningExamples/tree/master/PyTorch/Classification/GPUNet",
+  "license_url": "http://www.apache.org/licenses/LICENSE-2.0",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 73.5,
+    "unit": "%",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

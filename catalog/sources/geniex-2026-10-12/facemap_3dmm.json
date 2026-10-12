@@ -1,0 +1,56 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "facemap_3dmm",
+  "assets": [
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/facemap_3dmm/releases/v0.64.0/facemap_3dmm-onnx-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/facemap_3dmm/releases/v0.64.0/facemap_3dmm-qnn_dlc-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/facemap_3dmm/releases/v0.64.0/facemap_3dmm-tflite-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/facemap_3dmm/releases/v0.64.0/facemap_3dmm-onnx-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/facemap_3dmm/releases/v0.64.0/facemap_3dmm-qnn_dlc-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/facemap_3dmm/releases/v0.64.0/facemap_3dmm-tflite-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    }
+  ]
+}

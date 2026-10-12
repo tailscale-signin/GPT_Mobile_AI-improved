@@ -1,0 +1,49 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "aotgan",
+  "name": "AOT-GAN",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "High resolution image in-painting on-device.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "AOT-GAN is a machine learning model that allows to erase and in-paint part of given input image.",
+  "use_case": "MODEL_USE_CASE_IMAGE_EDITING",
+  "applicable_scenarios": [
+    "Image editing"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "512x512"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "CelebAHQ"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "58.0 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "15.2M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/2104.01431",
+  "research_paper_title": "Aggregated Contextual Transformations for High-Resolution Image Inpainting",
+  "source_repo": "https://github.com/researchmm/AOT-GAN-for-Inpainting",
+  "license_url": "https://github.com/taki0112/AttnGAN-Tensorflow/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "celebahq",
+    "metric_name": "Structural Similarity",
+    "value": 0.951,
+    "unit": "SSIM",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

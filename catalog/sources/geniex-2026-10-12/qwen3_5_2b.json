@@ -1,0 +1,12 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "qwen3_5_2b",
+  "assets": [
+    {
+      "precision": "PRECISION_Q4_0",
+      "runtime": "RUNTIME_GENIEX_LLAMACPP",
+      "download_url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_0.gguf",
+      "tool_versions": {}
+    }
+  ]
+}

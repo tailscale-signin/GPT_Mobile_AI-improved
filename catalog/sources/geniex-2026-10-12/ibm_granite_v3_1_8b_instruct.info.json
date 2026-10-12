@@ -1,0 +1,113 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "ibm_granite_v3_1_8b_instruct",
+  "name": "IBM-Granite-v3.1-8B-Instruct",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "State-of-the-art large language model useful on a variety of code understanding and generation tasks.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "Granite-3.1-8B-Instruct is a 8B parameter long-context instruct model finetuned from Granite-3.1-8B-Base using a combination of open source instruction datasets with permissive license and internally collected synthetic datasets tailored for solving long context problems. This model is developed using a diverse set of techniques with a structured chat format, including supervised finetuning, model alignment using reinforcement learning, and model merging.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_GENERATIVE_AI"
+  ],
+  "applicable_scenarios": [
+    "Coding",
+    "Coding assist"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Context length",
+      "string_value": "4096"
+    },
+    {
+      "key": "Information about the model parts",
+      "string_value": "Prompt Processor and Token Generator are split into 5 parts each. Each corresponding Prompt Processor and Token Generator part share weights."
+    },
+    {
+      "key": "Input sequence length for Prompt Processor",
+      "string_value": "128"
+    },
+    {
+      "key": "Minimum QNN SDK version required",
+      "string_value": "2.3"
+    },
+    {
+      "key": "Num of key-value heads",
+      "string_value": "8"
+    },
+    {
+      "key": "Precision",
+      "string_value": "w4a16 + w8a16 (few layers)"
+    },
+    {
+      "key": "Prompt processor input (other parts)",
+      "string_value": "128 tokens + KVCache initialized with pad token"
+    },
+    {
+      "key": "Prompt processor input (part1)",
+      "string_value": "128 tokens"
+    },
+    {
+      "key": "Prompt processor output (other parts)",
+      "string_value": "128 output tokens + KVCache for token generator"
+    },
+    {
+      "key": "Prompt processor output (part1)",
+      "string_value": "Embeddings output"
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "Supported natural languages",
+      "string_value": "English"
+    },
+    {
+      "key": "Supported programming languages",
+      "string_value": "The Granite code foundation models support 116 programming languages including Python, Javascript, Java, C++, Go, and Rust."
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt. The lower bound is for a short prompt (up to 128 tokens, i.e., one iteration of the prompt processor) and the upper bound is for a prompt using the full context length (2048 tokens)."
+    },
+    {
+      "key": "Token generator input (other parts)",
+      "string_value": "1 input token + past KVCache"
+    },
+    {
+      "key": "Token generator input (part1)",
+      "string_value": "1 token"
+    },
+    {
+      "key": "Token generator output (other parts)",
+      "string_value": "1 output token + KVCache for next iteration"
+    },
+    {
+      "key": "Token generator output (part1)",
+      "string_value": "Embeddings output"
+    },
+    {
+      "key": "Use",
+      "string_value": "Initiate conversation with prompt-processor and then token generator for subsequent iterations."
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "model_maker_id": "ibm-watsonx",
+  "research_paper": "https://arxiv.org/abs/2405.04324",
+  "research_paper_title": "Granite Code Models: A Family of Open Foundation Models for Code Intelligence",
+  "source_repo": "https://huggingface.co/ibm-granite/granite-3.1-8b-instruct",
+  "license_url": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+  "has_static_banner": true,
+  "restrict_model_sharing": true,
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_CONTACT_US"
+  }
+}

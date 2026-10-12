@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,16 +26,19 @@ import dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository
 
 @Composable
 internal fun ToolUsageChart(plugin: String, repository: ToolStatisticsRepository, scope: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsScope = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsScope()) {
-    var days by rememberSaveable { mutableStateOf(7) }
+    val nowHour = remember(scope) { System.currentTimeMillis() / 3600000L }
+    val until = if (scope.untilHour == Long.MAX_VALUE) nowHour + 1 else scope.untilHour
+    val since = if (scope.fromHour < 0) until - 90 * 24 else scope.fromHour
+    val days = ((until - since + 23) / 24).toInt().coerceIn(1, 90)
     var table by rememberSaveable { mutableStateOf(false) }
-    val today = remember { System.currentTimeMillis() / 86400000L }
-    val records by remember(plugin, days, scope) { repository.chart(plugin, maxOf((today - days + 1) * 24, scope.fromHour), scope) }.collectAsStateWithLifecycle(emptyList())
-    val values = (today - days + 1..today).map { day -> day to records.filter { it.bucket / 24 == day }.sumOf { it.total } }
+    val today = (until - 1) / 24
+    val records by remember(plugin, days, scope) { repository.chart(plugin, since, scope) }.collectAsStateWithLifecycle(emptyList())
+    val values = (since / 24..today).map { day -> day to records.filter { it.bucket / 24 == day }.sumOf { it.total } }
     val total = values.sumOf { it.second }
     val color = MaterialTheme.colorScheme.primary
     Column {
-        Row { listOf(1, 7, 30).forEach { count -> TextButton(onClick = { days = count }) { Text(if (days == count) "$count days ✓" else "$count days") } } }
-        Text("$total recorded uses · Last $days UTC days")
+        Text(if (scope.fromHour < 0) "Activity chart · retained last 90 days" else "Activity chart · selected start-hour window")
+        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8eeb79c14c, total))
         TextButton(onClick = { table = !table }) { Text(if (table) "Show chart" else "Show data table") }
         if (table) {
             // Independent bounded scroll keeps 30 data rows out of the parent composition.

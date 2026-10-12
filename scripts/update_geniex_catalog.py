@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-REGISTRY = 'https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/latest/manifest.json'
+REGISTRY = 'https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/releases/latest/manifest.json'
 UPSTREAM_SHA = 'a5c8e7fb4a364ddcccefbf187afd1bac52d88de5'
 LIMIT = 8 * 1024 * 1024
 STATES = {'represented', 'unsupported_platform', 'unsupported_app_workflow', 'missing_artifact_metadata', 'withdrawn'}
@@ -48,6 +48,31 @@ def stable_id(model, asset):
     key = '|'.join([model, asset.get('chipset') or 'unknown', asset.get('runtime', ''), asset.get('precision', ''), asset.get('download_url', '')])
     return 'geniex_' + hashlib.sha256(key.encode()).hexdigest()[:24]
 
+def validate_inventory_entry(approved, asset):
+    if approved.get('sourceUrl') != asset.get('download_url'):
+        raise ValueError('Inventory source mismatch')
+    url = urlparse(approved.get('normalizedBundleUrl', ''))
+    if url.scheme != 'https' or not url.hostname or url.username or url.password or not url.path.endswith('.localmodel'):
+        raise ValueError('Inventory requires a published normalized bundle')
+    if not re.fullmatch('[a-f0-9]{64}', approved.get('sha256', '')):
+        raise ValueError('Inventory requires the archive SHA-256')
+    if approved.get('runtimeVersion') != '0.8.0' or approved.get('manifestVersion') != 2:
+        raise ValueError('Inventory runtime or manifest mismatch')
+    files = approved.get('files', [])
+    if not files or len(files) > 256 or len({f['path'] for f in files}) != len(files):
+        raise ValueError('Inventory requires all unique file hashes')
+    for f in files:
+        path = Path(f['path'])
+        if path.is_absolute() or '..' in path.parts or '\\' in str(path) or ':' in str(path):
+            raise ValueError('Unsafe inventory path')
+        if not re.fullmatch('[a-f0-9]{64}', f.get('sha256', '')) or not 0 < f.get('sizeBytes', 0) <= 16_000_000_000:
+            raise ValueError('Unverified inventory asset')
+    if sum(f['sizeBytes'] for f in files) > 32_000_000_000:
+        raise ValueError('Inventory exceeds installation limit')
+    if approved.get('redistributionApproved') is not True:
+        raise ValueError('Bundle redistribution has not been reviewed')
+
+
 def normalize(capture, baseline, inventory, revision):
     capture = Path(capture)
     manifest = load(capture / 'manifest.json')
@@ -59,14 +84,27 @@ def normalize(capture, baseline, inventory, revision):
     coverage, entries, digests = [], list(baseline['models']), {}
     for p in sorted(capture.glob('*.json')):
         digests[p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    missing_release_urls = []
     for model in models:
         name = model['id']
         if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', name):
             raise ValueError('Unsafe source model ID')
-        assets_doc = load(capture / (name + '.json'))
-        if assets_doc['model_id'] != name:
-            raise ValueError('Source identity mismatch')
-        assets = assets_doc['assets']
+        asset_path = capture / (name + '.json')
+        if not asset_path.exists() and not model.get('manifest_urls', {}).get('release_assets'):
+            assets = []
+            missing_release_urls.append(name)
+        else:
+            assets_doc = load(asset_path)
+            if assets_doc['model_id'] != name:
+                raise ValueError('Source identity mismatch')
+            assets = assets_doc['assets']
+        info_path = capture / (name + '.info.json')
+        info = load(info_path) if info_path.exists() else {}
+        if not assets and any(r in {'RUNTIME_GENIEX_QAIRT', 'RUNTIME_GENIE'} for r in model.get('supported_runtimes', [])):
+            entries.append({'id': 'geniex_' + name + '_unresolved', 'familyId': name, 'displayName': model['display_name'],
+                            'runtimeRequirement': 'geniex-0.8.0', 'coverageStatus': 'missing_artifact_metadata',
+                            'manifestVersion': 2, 'minAppVersion': '0.9.50.0', 'sourceUrl': info.get('source_repo', ''),
+                            'licenseUrl': info.get('license_url', ''), 'redistributionRestricted': info.get('restrict_model_sharing', False)})
         if not assets:
             coverage.append({'familyId': name, 'artifactId': name + ':unresolved', 'status': 'missing_artifact_metadata', 'runtime': '', 'chipset': ''})
         seen = set()
@@ -85,6 +123,7 @@ def normalize(capture, baseline, inventory, revision):
             elif not qairt or chipset not in android:
                 state = 'unsupported_platform'
             elif approved:
+                validate_inventory_entry(approved, asset)
                 if approved.get('sourceUrl') != asset['download_url'] or not re.fullmatch('[a-f0-9]{64}', approved.get('sha256', '')):
                     raise ValueError('Approved inventory does not match source artifact')
                 if approved.get('contextTokens', 0) <= 0 or approved.get('sizeBytes', 0) <= 0:
@@ -103,6 +142,8 @@ def normalize(capture, baseline, inventory, revision):
                     'maxContextTokens': approved['contextTokens'] if state == 'represented' else 0,
                     'supportedAccelerators': ['npu'], 'capabilities': {'vision': 'MODEL_TAG_VLM' in model.get('tags', [])},
                     'upstreamRevision': UPSTREAM_SHA,
+                    'sourceUrl': asset.get('download_url', ''), 'licenseUrl': info.get('license_url', ''),
+                    'redistributionRestricted': info.get('restrict_model_sharing', False),
                     'coverageStatus': state, 'sourceChipset': chipset
                 })
     if len({e['id'] for e in entries}) != len(entries):
@@ -111,7 +152,8 @@ def normalize(capture, baseline, inventory, revision):
     result = {'schemaVersion': 2, 'revision': revision, 'models': entries,
               'source': {'upstreamCommit': UPSTREAM_SHA, 'retrievedAt': datetime.now(timezone.utc).isoformat(),
                          'inputDigest': hashlib.sha256(json.dumps(digests, sort_keys=True).encode()).hexdigest(),
-                         'familyCount': len(models), 'artifactCount': len(coverage), 'complete': complete},
+                         'familyCount': len(models), 'artifactCount': len(coverage), 'complete': complete,
+                         'registryVersion': manifest.get('version', ''), 'missingReleaseUrls': missing_release_urls},
               'coverage': coverage}
     if len(json.dumps(result).encode()) > 2_000_000:
         raise ValueError('App metadata limit exceeded; reviewed sharding is required')
@@ -134,7 +176,11 @@ def main():
         for model in source['models']:
             if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', model['id']):
                 raise ValueError('Unsafe model ID')
-            fetch(model['manifest_urls']['release_assets'], args.capture / (model['id'] + '.json'))
+            urls = model.get('manifest_urls', {})
+            if urls.get('release_assets'):
+                fetch(urls['release_assets'], args.capture / (model['id'] + '.json'))
+            if urls.get('info'):
+                fetch(urls['info'], args.capture / (model['id'] + '.info.json'))
     result = normalize(args.capture, load(args.baseline), load(args.inventory) if args.inventory else {}, args.revision)
     args.output.mkdir(parents=True, exist_ok=True)
     # Stage both projections; leave the published endpoints alone until review.

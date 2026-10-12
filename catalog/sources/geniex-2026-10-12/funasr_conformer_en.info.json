@@ -1,0 +1,59 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "funasr_conformer_en",
+  "name": "FunASR-Conformer-EN",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "English speech recognition with Conformer encoder and CTC decoder.",
+  "domain": "MODEL_DOMAIN_AUDIO",
+  "description": "FunASR Conformer-EN is a large-scale English ASR model from Alibaba DAMO Academy, trained on ~50,000 hours of English speech. It uses a 32-block Conformer encoder(512 hidden dim, 16 attention heads) with a CTC head for decoding. The model accepts raw 16kHz audio and outputs transcribed text via CTC greedy decoding.",
+  "use_case": "MODEL_USE_CASE_SPEECH_RECOGNITION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Smart Home",
+    "Accessibility",
+    "Transcription"
+  ],
+  "related_models": [
+    "whisper_small",
+    "distil_whisper",
+    "huggingface_wavlm_base_plus"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x160000 (10s at 16kHz)"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "funasr/conformer-en"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "~840 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "220M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/2005.08100",
+  "research_paper_title": "Conformer: Convolution-augmented Transformer for Speech Recognition",
+  "source_repo": "https://huggingface.co/funasr/conformer-en",
+  "license_url": "https://github.com/modelscope/FunASR?tab=MIT-1-ov-file",
+  "has_static_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "libri_speech",
+    "metric_name": "Word Error Rate",
+    "value": 16.634,
+    "unit": "WER",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

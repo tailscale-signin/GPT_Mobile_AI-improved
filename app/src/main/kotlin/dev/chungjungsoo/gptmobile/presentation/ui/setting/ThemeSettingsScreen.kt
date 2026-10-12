@@ -150,7 +150,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                 val active = if (state.applied.dynamicTheme == DynamicTheme.ON) {
                     "Wallpaper colours"
                 } else {
-                    (state.applied.savedProfiles + ThemePresets.profiles).find { it.palette == state.applied.customPalette && it.mode == state.applied.themeMode }?.name ?: if (state.applied.customPalette == null && state.applied.customPrimaryArgb == null) "Cyan" else "Custom"
+                    (state.applied.savedProfiles + ThemePresets.profiles).find { it.id == state.applied.activeProfileId }?.name ?: if (state.applied.customPalette == null && state.applied.customPrimaryArgb == null) "Cyan" else "Custom"
                 }
                 Text(
                     if (!state.loaded) {
@@ -177,7 +177,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                 item {
                                     state.applied.recoveryWarning?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                                     if (state.conflict) {
-                                        SettingsPanel("Draft conflict") {
+                                        SettingsPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_867ad70f96)) {
                                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_appearance_changed_elsewhere_your_draft_is_pr_80f6f))
                                             Row {
                                                 TextButton(onClick = editor::discard) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reload_bdc09)) }
@@ -199,7 +199,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                     0 -> {
                                         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("All", "Dark", "Light").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label) }) } } }
                                         items(ThemePresets.profiles.filter { filter == "All" || it.mode.name.equals(filter, true) }, key = { it.name }) { profile ->
-                                            ThemeProfileRow(profile, draft.palette == profile.palette && draft.mode == profile.mode, onClick = { select(profile) })
+                                            ThemeProfileRow(profile, draft.activeProfileId == profile.id, onClick = { select(profile) })
                                         }
                                     }
                                     1 -> {
@@ -266,7 +266,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                         if (state.applied.savedProfiles.size > 6) item { OutlinedTextField(savedSearch, { savedSearch = it }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_search_saved_themes_c37c6)) }, modifier = Modifier.fillMaxWidth()) }
                                         items(state.applied.savedProfiles.filter { it.name.contains(savedSearch, true) }, key = { it.id }) { profile ->
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                ThemeProfileRow(profile, profile.palette == draft.palette && profile.mode == draft.mode, Modifier.weight(1f), onClick = { select(profile) })
+                                                ThemeProfileRow(profile, draft.activeProfileId == profile.id, Modifier.weight(1f), onClick = { select(profile) })
                                                 IconButton(onClick = {
                                                     selectedId = profile.id
                                                     profileAction = "menu"
@@ -435,7 +435,7 @@ private fun ThemeColourPicker(role: String, original: Long, onDismiss: () -> Uni
     fun dismiss() {
         if (value != ((original and 0xFFFFFF) or 0xFF000000)) discard = true else onDismiss()
     }
-    AlertDialog(onDismissRequest = ::dismiss, title = { Text("$role colour") }, text = {
+    AlertDialog(onDismissRequest = ::dismiss, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cac1782751, role)) }, text = {
         Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(hex, { hex = it }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_hex_colour_68b4d)) }, isError = value == null, supportingText = { if (value == null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_enter_exactly_six_hexadecimal_digits_for_exam_2236b)) })
             ColorWheelPicker(Color(value ?: original)) { hex = "#%06X".format(it.toArgb() and 0xFFFFFF) }

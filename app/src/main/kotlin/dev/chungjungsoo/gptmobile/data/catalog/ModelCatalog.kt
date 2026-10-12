@@ -41,8 +41,15 @@ data class CatalogEntry(
     val variantLabel: String = "",
     val precision: String = "",
     val coverageStatus: String = "represented",
-    val sourceChipset: String = ""
+    val sourceChipset: String = "",
+    val sourceUrl: String = "",
+    val licenseUrl: String = "",
+    val redistributionRestricted: Boolean = false,
+    val discoveryAssets: List<CatalogDiscoveryAsset> = emptyList()
 )
+
+@Serializable
+data class CatalogDiscoveryAsset(val path: String, val sizeInBytes: Long = 0, val sha256: String = "", val role: String = "model")
 
 @Serializable
 data class CatalogCapabilities(

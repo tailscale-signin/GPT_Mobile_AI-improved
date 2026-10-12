@@ -10,7 +10,8 @@ data class ThemeSetting(
     val customPrimaryArgb: Long? = null,
     val customPalette: CustomThemePalette? = null,
     val savedProfiles: List<SavedThemeProfile> = emptyList(),
-    val recoveryWarning: String? = null
+    val recoveryWarning: String? = null,
+    val activeProfileId: String? = null
 )
 
 @Serializable
@@ -26,7 +27,7 @@ data class SavedThemeProfile(val name: String, val palette: CustomThemePalette, 
 
 /** Stable even before the first write, including duplicate entries in legacy backups. */
 fun ThemeSetting.withStableProfileIds(): ThemeSetting {
-    val used = mutableSetOf<String>()
+    val used = ThemePresets.profiles.map { it.id }.toMutableSet()
     return copy(
         savedProfiles = savedProfiles.mapIndexed { index, profile ->
             val existing = profile.id.takeIf { it.isNotBlank() && it !in used }
@@ -36,11 +37,23 @@ fun ThemeSetting.withStableProfileIds(): ThemeSetting {
             used += id
             profile.copy(id = id)
         }
-    )
+    ).let { value ->
+        val profiles = ThemePresets.profiles + value.savedProfiles
+        val matches = profiles.filter { it.palette == value.customPalette && it.mode == value.themeMode && value.dynamicTheme == DynamicTheme.OFF }
+        val id = value.activeProfileId
+        value.copy(
+            activeProfileId = when {
+                id == "custom" -> id
+                id != null -> id.takeIf { candidate -> matches.any { it.id == candidate } } ?: "custom"
+                matches.size == 1 -> matches.single().id
+                else -> "custom"
+            }
+        )
+    }
 }
 
 object ThemePresets {
-    val defaultProfile = SavedThemeProfile("Cyan", CustomThemePalette(0xFF00FFDE, 0xFFCC00FF, 0xFF001219, 0xFF0B2028))
+    val defaultProfile = SavedThemeProfile("Cyan", CustomThemePalette(0xFF00FFDE, 0xFFCC00FF, 0xFF001219, 0xFF0B2028), id = "builtin:cyan")
     val profiles = listOf(
         defaultProfile,
         SavedThemeProfile("Arctic", CustomThemePalette(0xFF55DFF2, 0xFF9EDCE5, 0xFF001A1F, 0xFF062329)),
@@ -58,5 +71,5 @@ object ThemePresets {
         SavedThemeProfile("Mint", CustomThemePalette(0xFF216B55, 0xFF43685E, 0xFFF1FCF6, 0xFFE0F1E8), ThemeMode.LIGHT),
         SavedThemeProfile("Sky", CustomThemePalette(0xFF245C9E, 0xFF53688F, 0xFFF4F9FF, 0xFFE5EEFA), ThemeMode.LIGHT),
         SavedThemeProfile("Daylight", CustomThemePalette(0xFF006A7A, 0xFF65558F, 0xFFF5FAFC, 0xFFEAF1F5), ThemeMode.LIGHT)
-    )
+    ).map { it.copy(id = "builtin:" + it.name.lowercase(java.util.Locale.ROOT)) }
 }

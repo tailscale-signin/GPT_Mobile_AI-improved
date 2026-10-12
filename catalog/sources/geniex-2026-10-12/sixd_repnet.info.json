@@ -1,0 +1,53 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "sixd_repnet",
+  "name": "SixDRepNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Head pose estimation using 6D rotation representation and RepVGG backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "6DRepNet predicts head pose (pitch, yaw, roll) from a face image using a RepVGG-B1g2 backbone and a continuous 6D rotation representation, achieving robust and accurate head pose estimation.",
+  "use_case": "MODEL_USE_CASE_POSE_ESTIMATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Driver Monitoring",
+    "Augmented Reality",
+    "Attention Tracking"
+  ],
+  "related_models": [
+    "rankpose",
+    "eyegaze",
+    "mediapipe_face"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "58.4 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "15.3M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "300w-lp",
+    "aflw2000"
+  ],
+  "research_paper": "https://arxiv.org/abs/2109.10948",
+  "research_paper_title": "6D Rotation Representation for Unconstrained Head Pose Estimation",
+  "source_repo": "https://github.com/thohemp/6DRepNet",
+  "license_url": "https://github.com/thohemp/6DRepNet/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

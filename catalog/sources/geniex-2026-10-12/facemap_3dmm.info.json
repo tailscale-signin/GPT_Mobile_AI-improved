@@ -1,0 +1,48 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "facemap_3dmm",
+  "name": "Facial-Landmark-Detection",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time 3D facial landmark detection optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Detects facial landmarks (eg, nose, mouth, etc.). This model's architecture was developed by Qualcomm. The model was trained by Qualcomm on a proprietary dataset of faces, but can be used on any image.",
+  "use_case": "MODEL_USE_CASE_POSE_ESTIMATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE"
+  ],
+  "applicable_scenarios": [
+    "Driver Monitor System",
+    "Face Tracking"
+  ],
+  "related_models": [
+    "resnet18"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "128x128"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "20.7 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "5.27 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "5.42M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "license_url": "https://github.com/qualcomm/ai-hub-models/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

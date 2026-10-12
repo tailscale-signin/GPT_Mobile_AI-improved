@@ -344,6 +344,13 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
+        if (statistics != null) {
+            for (index in resolved.indices) {
+                val item = resolved[index]
+                resolved[index] = item.copy(tool = observedChild(item.tool, item.realToolName, item.connectionUid))
+            }
+        }
+
         val academicRemote = resolved.filter { tool -> DeepResearchTool.OPERATIONS.any { operation -> tool.realToolName == "deep_research_$operation" || tool.realToolName == "academic__deep_research_$operation" } }
         resolved.removeAll(academicRemote.toSet())
         if (academicAllowed && academicClient != null) {
@@ -512,9 +519,12 @@ class AgentToolResolver @Inject constructor(
                         (resolved.connectionUid == null || features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(resolved.connectionUid)))
                 })
             }
-            .map { resolved -> resolved.copy(tool = dev.chungjungsoo.gptmobile.data.telemetry.tool.ObservedTool(resolved.tool, dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid))) }
+            .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
             .sortedBy { it.modelToolName }
     }
+
+    private fun observedChild(tool: AgentTool, name: String = tool.definition.name, connection: String? = null): AgentTool =
+        if (statistics == null) tool else dev.chungjungsoo.gptmobile.data.telemetry.tool.ObservedTool(tool, dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(name, connection))
 
     private fun observedUi(tool: AgentTool, profile: String, connection: String? = null): AgentTool =
         dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(
@@ -637,7 +647,7 @@ class AgentToolResolver @Inject constructor(
         requireNotNull(publicAirbnb),
         { pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB) },
         { query ->
-            val tool = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), networkClient)
+            val tool = observedChild(WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), networkClient))
             val arguments = kotlinx.serialization.json.buildJsonObject {
                 put("query", kotlinx.serialization.json.JsonPrimitive(query))
                 put("maxResults", kotlinx.serialization.json.JsonPrimitive(10))
@@ -936,7 +946,7 @@ class AgentToolResolver @Inject constructor(
         connectionName: String?,
         realToolName: String
     ) = ResolvedAgentTool(
-        tool = this,
+        tool = observedChild(this, realToolName, connectionUid),
         connectionUid = connectionUid,
         connectionName = connectionName,
         realToolName = realToolName,

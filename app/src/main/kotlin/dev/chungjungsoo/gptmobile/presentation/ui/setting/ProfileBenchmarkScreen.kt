@@ -91,6 +91,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val retests by viewModel.retests.collectAsStateWithLifecycle()
     val scoreboardRuns by viewModel.scoreboardRuns.collectAsStateWithLifecycle()
     val localEnvironment by viewModel.localEnvironment.collectAsStateWithLifecycle()
+    val pairedComparison by viewModel.pairedComparison.collectAsStateWithLifecycle()
     val delegationSettings by viewModel.delegationSettings.collectAsStateWithLifecycle()
     val snapshot by viewModel.scoreSnapshot.collectAsStateWithLifecycle()
     val health by dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.state.collectAsStateWithLifecycle()
@@ -137,7 +138,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val detail = everyday.firstOrNull { it.key == detailKey }
     Scaffold(topBar = {
         if (!embedded) {
-            TopAppBar(title = { Text("AI profile benchmarks") }, navigationIcon = {
+            TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_5b2189dfc0)) }, navigationIcon = {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
             }, actions = {
                 IconButton(onClick = onUsage) { Icon(Icons.Rounded.BarChart, "Usage") }
@@ -153,19 +154,19 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                         Column(Modifier.padding(16.dp)) {
                             Text(error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer)
-                            TextButton(onClick = viewModel::dismissError) { Text("Dismiss") }
+                            TextButton(onClick = viewModel::dismissError) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a2bd204e93)) }
                         }
                     }
                 }
             }
             progress?.let { current ->
                 item {
-                    BenchmarkPanel("Running · ${current.profileName}") {
+                    BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_73d63d9b5c, current.profileName)) {
                         LinearProgressIndicator(progress = { current.completed.toFloat() / current.total }, modifier = Modifier.fillMaxWidth(), color = tint)
-                        Text("${current.completed} / ${current.total} tests · ${current.testName}")
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ad2d56e844, current.completed, current.total, current.testName))
                         OutlinedButton(onClick = viewModel::cancel) {
                             Icon(Icons.Rounded.Stop, null)
-                            Text("Stop benchmark")
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_440ce82b50))
                         }
                     }
                 }
@@ -184,12 +185,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             } else if (tab == 4 && delegationBoard) {
                 item { BenchmarkScoreboardPanel(dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.DELEGATION, onRun = { delegationBoard = false }) }
             } else if (selected == null) {
-                item { BenchmarkPanel("No AI profiles yet") { Text("Create an AI profile in Settings, choose its model, then return here to measure it.") } }
+                item { BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8a75f92384)) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e992833393)) } }
             } else {
                 if (tab == 1) {
                     item {
                         Column {
-                            Text("Everyday measurement window", style = MaterialTheme.typography.labelMedium)
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6aa7be6fc4), style = MaterialTheme.typography.labelMedium)
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf(7 to "7 days", 30 to "30 days", 0 to "Stored history").forEach { (value, label) ->
                                     FilterChip(days == value, { viewModel.selectRange(value) }, label = { Text(label) })
@@ -201,15 +202,19 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                 when (tab) {
                     4 -> {
                         item {
-                            BenchmarkPanel("Delegation lab") {
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6e4feb616c)) {
                                 BenchmarkPlanPicker(delegationMode, progress == null) { delegationMode = it }
-                                Text("Research on · independent reviewer on", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                                Text("A fixed benchmark preset evaluates evidence, tools, research, handoff and robustness. Full repeats all eight pipeline checks. Research uses controlled source fixtures. Conversation settings are unchanged.", style = MaterialTheme.typography.bodySmall)
-                                Text("Primary: ${selected.name}", fontWeight = FontWeight.SemiBold)
-                                Text("Independent reviewer", style = MaterialTheme.typography.labelLarge)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e530b5e7b1), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_99d46c7b5b), style = MaterialTheme.typography.bodySmall)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(pairedComparison, { viewModel.pairedComparison.value = it }, enabled = progress == null)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f8f62607ba))
+                                }
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e566b8dcfa, selected.name), fontWeight = FontWeight.SemiBold)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1558a85651), style = MaterialTheme.typography.labelLarge)
                                 BenchmarkProfilePicker(benchmarkReviewers, benchmarkReviewer, progress == null, viewModel::selectBenchmarkReviewer)
-                                Text("Choose a reviewer different from the primary and delegate. Its score contributes 20%; objective fixture accuracy caps the result.", style = MaterialTheme.typography.bodySmall)
-                                Text("Delegates to evaluate", style = MaterialTheme.typography.titleSmall)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b68c419c0c), style = MaterialTheme.typography.bodySmall)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e3e1c36cae), style = MaterialTheme.typography.titleSmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     BenchmarkAction("Select all", Icons.Rounded.SelectAll, onClick = viewModel::selectAllDelegates, enabled = progress == null)
                                     BenchmarkAction("Clear", Icons.Rounded.Deselect, onClick = viewModel::clearDelegates, enabled = progress == null)
@@ -223,11 +228,11 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                         }
                                     }
                                 }
-                                if (delegates.isEmpty()) Text("Add an enabled delegate profile with tools, separate from the primary and reviewer.")
-                                Text("${if (delegationMode == BenchmarkMode.QUICK) 5 else 50} tests per delegate · up to 180 seconds per test · primary, worker and reviewer requests may incur provider charges.", style = MaterialTheme.typography.bodySmall)
+                                if (delegates.isEmpty()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_44433acfbb))
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ed08a01807, if (delegationMode == BenchmarkMode.QUICK) 5 else 50), style = MaterialTheme.typography.bodySmall)
                                 Button(onClick = { viewModel.startDelegationBatch(delegationMode) }, enabled = ready && progress == null && !activeRequests && benchmarkReviewer != null && selectedDelegates.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                                     Icon(Icons.Rounded.PlayArrow, null)
-                                    Text("Run ${delegationMode.label} · ${selectedDelegates.size} delegates", Modifier.padding(start = 8.dp))
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2cf971db8e, delegationMode.label, selectedDelegates.size), Modifier.padding(start = 8.dp))
                                 }
                             }
                         }
@@ -243,21 +248,21 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
 
                     0 -> {
                         item {
-                            BenchmarkPanel("Run a benchmark") {
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4b446a5e52)) {
                                 BenchmarkPlanPicker(mode, progress == null) { mode = it }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
-                                        Text("Five categories. One clear result.", style = MaterialTheme.typography.titleSmall)
-                                        Text("Speed · Task accuracy · JSON · Tools · Intelligence", style = MaterialTheme.typography.bodySmall)
+                                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cc97ecc157), style = MaterialTheme.typography.titleSmall)
+                                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c73d7a91dd), style = MaterialTheme.typography.bodySmall)
                                     }
-                                    SettingsHelpIcon("Quick: exactly 5 tests, one per category, including 6 Intelligence questions in one compact test. Full: exactly 50 tests — 18 timing (3 warm-ups), 8 task accuracy, 6 JSON, 12 tool contracts and 6 Intelligence tests covering 36 questions. Tools use a harmless fixture. Unsupported tools are recorded, not failed. A test may include tool round trips or a transport retry. Each test has a 90-second limit. Only Full can establish repeated timing ratings.")
+                                    SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e4dc79b946))
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("${selectedBenchmarks.size} of ${benchmarkCandidates.size} models selected", style = MaterialTheme.typography.labelLarge)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_7de7a0624a, selectedBenchmarks.size, benchmarkCandidates.size), style = MaterialTheme.typography.labelLarge)
                                     Box {
                                         IconButton(onClick = { benchmarkOptionsExpanded = true }, enabled = progress == null) {
                                             Icon(Icons.Rounded.Tune, "Choose benchmark models", tint = MaterialTheme.colorScheme.primary)
@@ -267,12 +272,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                             onDismissRequest = { benchmarkOptionsExpanded = false }
                                         ) {
                                             DropdownMenuItem(
-                                                text = { Text("Select all models") },
+                                                text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3a311ebe92)) },
                                                 leadingIcon = { Icon(Icons.Rounded.SelectAll, null) },
                                                 onClick = { viewModel.selectAllBenchmarks() }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("Clear selection") },
+                                                text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_71f2343818)) },
                                                 leadingIcon = { Icon(Icons.Rounded.Deselect, null) },
                                                 onClick = { viewModel.clearBenchmarks() }
                                             )
@@ -305,24 +310,24 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 ) {
                                     Icon(Icons.Rounded.PlayArrow, null)
                                     Text(
-                                        "Run ${mode.label} · ${selectedBenchmarks.size * benchmarkSuite(mode).size} tests",
+                                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_eb0993963c, mode.label, selectedBenchmarks.size * benchmarkSuite(mode).size),
                                         Modifier.padding(start = 8.dp)
                                     )
                                 }
                                 BenchmarkAction("Run ${selected.name}", Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode) }, enabled = ready && progress == null && !activeRequests, modifier = Modifier.fillMaxWidth())
-                                if (activeRequests && progress == null) Text("Waiting for active model requests to finish.", style = MaterialTheme.typography.labelSmall)
-                                Text("All selected models run sequentially so their provider or local runtime is not contending with another benchmark. Results save after each test.", style = MaterialTheme.typography.labelSmall)
+                                if (activeRequests && progress == null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1d5b120900), style = MaterialTheme.typography.labelSmall)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f0a6512884), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                         if (latestScoreboard != null) item { ScoreboardScores(latestScoreboard, previousScoreboard, "Latest run · retest changes") }
                         item { BenchmarkScoreCard(rating, local, matching.size, mode) }
                         item {
-                            BenchmarkPanel("Intelligence · text capability") {
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_37c194cbad)) {
                                 IntelligenceResults(activeScore?.intelligence, mode == BenchmarkMode.QUICK, previousScore?.intelligence)
                             }
                         }
                         item {
-                            BenchmarkPanel("Progress by category") {
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_daa66a9629)) {
                                 BenchmarkCoverage(profileHistory.firstOrNull { it.mode == mode && it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION }, mode)
                             }
                         }
@@ -348,35 +353,35 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             }
                         }
                         item {
-                            BenchmarkPanel("Timing score breakdown") {
-                                if (previousScore != null) Text("Previous run on the same current cohort scale. Theme: retained points · red: lost · yellow: gained.", style = MaterialTheme.typography.bodySmall)
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_74a5983a25)) {
+                                if (previousScore != null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_13124fb6a2), style = MaterialTheme.typography.bodySmall)
                                 rating.dimensions.forEach { dimension ->
                                     BenchmarkRatingBar(dimension.label, dimension.score, missing = benchmarkMissingScoreLabel(activeScore, dimension.label), previous = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkScoreDimensions(previousScore, local).firstOrNull { it.label == dimension.label }?.score)
-                                    Text("${dimension.weight}% weight · ${dimension.detail}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_40cd6a3958, dimension.weight, dimension.detail), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
                         item {
-                            BenchmarkPanel("Measurement notes") {
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6be7d01034)) {
                                 MetricLine("p95 first response", formatLatency(rating.p95FirstTextMs))
                                 MetricLine("Median request time", formatLatency(rating.medianDurationMs))
-                                Text("Suite ${dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION} · latest 5 complete blocks with this configuration and context tier. Fixed instructions and temperature 0. First response includes model loading and queue time. Throughput uses the shared lexical4 comparison unit; one-chunk responses have no measured decode speed.", style = MaterialTheme.typography.bodySmall)
-                                Text("Quality, reliability, speed, first response and consistency use the same timing policy here and in Compare. The Scoreboard uses absolute capability accuracy. Overall needs every dimension; missing timing is never invented. Quick and Full both include tool fixtures. Quick remains provisional. Local context tiers and remote cohorts are ranked separately.", style = MaterialTheme.typography.bodySmall)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_58e16095e8, dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION), style = MaterialTheme.typography.bodySmall)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e732ed457a), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         item { BenchmarkAction("Runtime diagnostics", Icons.Rounded.Memory, showToolHealth, { showToolHealth = !showToolHealth }, modifier = Modifier.fillMaxWidth()) }
                         if (showToolHealth) {
                             item {
-                                BenchmarkPanel("Local Tool Health") {
+                                BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ac3a6cc1cb)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(health.lastStatus, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                                        SettingsHelpIcon("App-side argument, budget and dispatch outcomes are distinct from model or provider failures. Omitted tools are unavailable in this request. This panel excludes arguments, precise locations and credentials.")
+                                        SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4371adca9b))
                                     }
-                                    Text("Context ${health.contextTokens} · evidence ${health.evidenceBytes} bytes/result", style = MaterialTheme.typography.bodySmall)
-                                    Text("Selected: ${health.selected.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall)
-                                    if (health.omitted.isNotEmpty()) Text("Omitted for context: ${health.omitted.joinToString()}", style = MaterialTheme.typography.bodySmall)
-                                    Text("Payload ${health.retainedBytes} → admitted ${health.admittedBytes} bytes · supporting observations=${health.supportingEvidence}", style = MaterialTheme.typography.bodySmall)
-                                    Text("Last: ${health.lastTool} · ${health.lastError ?: "no structured error"} · dispatched=${health.dispatched} · compacted=${health.compacted}", style = MaterialTheme.typography.bodySmall)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d37369ab2c, health.contextTokens, health.evidenceBytes), style = MaterialTheme.typography.bodySmall)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ebf52ca1cc, health.selected.joinToString().ifBlank { "None" }), style = MaterialTheme.typography.bodySmall)
+                                    if (health.omitted.isNotEmpty()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ae1775c87f, health.omitted.joinToString()), style = MaterialTheme.typography.bodySmall)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_60c722e402, health.retainedBytes, health.admittedBytes, health.supportingEvidence), style = MaterialTheme.typography.bodySmall)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1673713f9a, health.lastTool, health.lastError ?: "no structured error", health.dispatched, health.compacted), style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -385,18 +390,18 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         val rows = everyday.filter { it.profileUid == selected.uid && it.metrics.model == selected.model && it.metrics.provider == selected.compatibleType.name }
                         val toolMetrics = everydayTools.firstOrNull { it.profileUid == selected.uid && it.model == selected.model && it.provider == selected.compatibleType.name }
                         item {
-                            BenchmarkPanel("Everyday performance · $rangeLabel") {
-                                Text("Measured from actual conversations for this profile and model. Prompt lengths, tools and server load vary; these observations do not change the controlled benchmark score.", style = MaterialTheme.typography.bodySmall)
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_73d69870d1, rangeLabel)) {
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fe2c58ddfb), style = MaterialTheme.typography.bodySmall)
                                 MetricLine("Tool success", percent(toolMetrics?.successPercent))
                                 MetricLine("Tool completions / failures", "${toolMetrics?.completed ?: 0} / ${toolMetrics?.failed ?: 0}")
-                                Text("Canceled and pending tools are excluded. Up to 10,000 stored requests, runs and tool events.", style = MaterialTheme.typography.labelSmall)
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3382a238f9), style = MaterialTheme.typography.labelSmall)
                             }
                         }
-                        if (rows.isEmpty()) item { Text("Send a message with this profile to start collecting everyday performance.") }
+                        if (rows.isEmpty()) item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6bc7e7d523)) }
                         items(rows, key = { it.key }) { row -> EverydayPerformanceCard(row, local) { detailKey = row.key } }
                         item {
-                            BenchmarkPanel("Latency × throughput") {
-                                Text("Reported tokens only. Tap a point for request history.", style = MaterialTheme.typography.bodySmall)
+                            BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_316e1aa774)) {
+                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0964400565), style = MaterialTheme.typography.bodySmall)
                                 PerformanceScatter(rows) { detailKey = it }
                             }
                         }
@@ -409,16 +414,16 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         item { BenchmarkAction("Run another model", Icons.Rounded.PlayArrow, onClick = { tab = 0 }, modifier = Modifier.fillMaxWidth()) }
                     }
                     3 -> {
-                        item { Text("Saved runs · ${profileHistory.size}", style = MaterialTheme.typography.titleLarge) }
-                        item { Text("Saved runs are retained on this device until you delete them. Canceled and interrupted runs are retained but excluded from ratings.", style = MaterialTheme.typography.bodySmall) }
-                        if (profileHistory.isEmpty()) item { BenchmarkPanel("Your first result starts here") { Text("Run a quick benchmark from Overview. Every test will include its outcome, timing and response preview.") } }
+                        item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e8466c66e4, profileHistory.size), style = MaterialTheme.typography.titleLarge) }
+                        item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_34e19fef52), style = MaterialTheme.typography.bodySmall) }
+                        if (profileHistory.isEmpty()) item { BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0a995dffa4)) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_133bb74c5a)) } }
                         items(profileHistory, key = { it.id }) { run ->
                             BenchmarkHistoryCard(run, run.configKey == benchmarkConfigKey(selected, localEnvironment), progress == null, { deleteId = run.id })
                         }
                         viewModel.legacyReport?.let { report ->
                             item {
-                                BenchmarkPanel("Archived connection-doctor benchmark") {
-                                    Text("Previous format · excluded from ratings", style = MaterialTheme.typography.labelSmall)
+                                BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3e4530108b)) {
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_79142200ad), style = MaterialTheme.typography.labelSmall)
                                     Text(report, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
@@ -432,15 +437,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     if (deleteId != null) {
         AlertDialog(
             onDismissRequest = { deleteId = null },
-            title = { Text("Delete this benchmark?") },
-            text = { Text("The run will be removed from history and its profile rating will be recalculated.") },
+            title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2fc0a25a06)) },
+            text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_76488c74ee)) },
             confirmButton = {
                 TextButton(onClick = {
                     deleteId?.let(viewModel::delete)
                     deleteId = null
-                }) { Text("Delete") }
+                }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b26de372b4)) }
             },
-            dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { deleteId = null }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c0774c1850)) } }
         )
     }
 }
@@ -491,13 +496,13 @@ private fun BenchmarkScoreCard(rating: BenchmarkRating, local: Boolean, runs: In
                 CircularProgressIndicator(progress = { (rating.score ?: 0) / 100f }, modifier = Modifier.fillMaxSize(), color = tint, strokeWidth = 7.dp, trackColor = tint.copy(alpha = .15f))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(rating.score?.toString() ?: "—", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = tint)
-                    Text("APP SCORE", style = MaterialTheme.typography.labelSmall)
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3dbf43865a), style = MaterialTheme.typography.labelSmall)
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 BenchmarkTypeBadge(local)
                 Text(rating.grade, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text("${mode.label} · $runs runs · ${rating.measuredWeight}% coverage", style = MaterialTheme.typography.bodySmall)
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ee0073c2e, mode.label, runs, rating.measuredWeight), style = MaterialTheme.typography.bodySmall)
                 Text(
                     if (rating.score == null) {
                         "Run Full to measure repeated timing and all rating dimensions"
@@ -535,7 +540,7 @@ private fun EverydayPerformanceCard(row: ProfilePerformance, local: Boolean, onC
             MetricLine("First text", formatLatency(row.metrics.medianFirstTokenMs))
             MetricLine("Reported output / request second", row.metrics.outputTokensPerSecond?.let { "%.1f tok/s".format(it) } ?: "Not reported")
             MetricLine("Completion success", percent(row.successPercent))
-            Text("${row.metrics.requests} requests · tap for charts and history", style = MaterialTheme.typography.labelSmall, color = benchmarkTint(local))
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_657bdeb07c, row.metrics.requests), style = MaterialTheme.typography.labelSmall, color = benchmarkTint(local))
         }
     }
 }
@@ -565,9 +570,9 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                 )
             }
             Text("${run.mode.label}${run.delegationPlan?.let { " · ${it.label}" }.orEmpty()} · ${benchmarkDate(run.startedAt)}", style = MaterialTheme.typography.titleSmall)
-            if (portable != null) Text("Capability score · complete single run", style = MaterialTheme.typography.labelSmall)
+            if (portable != null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_bba707bfe8), style = MaterialTheme.typography.labelSmall)
             Text(run.model, style = MaterialTheme.typography.bodySmall)
-            Text("${run.samples.count { it.outcome == BenchmarkOutcome.PASSED }} passed · ${run.samples.size} / ${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuiteForRun(run).size} tests · ${if (current) "current configuration" else "previous configuration"}", style = MaterialTheme.typography.labelSmall)
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_be0ee8da37, run.samples.count { it.outcome == BenchmarkOutcome.PASSED }, run.samples.size, dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuiteForRun(run).size, if (current) "current configuration" else "previous configuration"), style = MaterialTheme.typography.labelSmall)
             run.stoppedReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             Text(if (expanded) "Hide test details" else "Show test details", style = MaterialTheme.typography.labelLarge, color = benchmarkTint(run.local))
             if (expanded) {
@@ -579,7 +584,7 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                 MetricLine("Peak sampled client memory", run.peakClientPssKb?.let { "${it / 1024} MiB PSS" } ?: "Not sampled")
                 MetricLine("Thermal before / after", "${thermalLabel(run.thermalBefore)} / ${thermalLabel(run.thermalAfter)}")
                 MetricLine("Battery before / after", "${run.batteryBefore?.let { "$it%" } ?: "—"} / ${run.batteryAfter?.let { "$it%" } ?: "—"}")
-                Text("Memory is sampled after each test for this Android app, including remote runs; it is not server memory or a continuous peak. Thermal and battery readings are context, not efficiency scores.", style = MaterialTheme.typography.labelSmall)
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_305682051e), style = MaterialTheme.typography.labelSmall)
                 run.samples.forEach { sample ->
                     HorizontalDivider()
                     Text(sample.label, fontWeight = FontWeight.SemiBold)
@@ -588,15 +593,21 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                     if (sample.reconnectAttempts > 0) MetricLine("Connection retries", sample.reconnectAttempts.toString())
                     MetricLine("Output tokens", "${if (sample.estimatedTokens) "≈ " else ""}${sample.outputTokens}")
                     MetricLine("Longest text pause", formatLatency(sample.longestGapMs))
+                    sample.pairedComparison?.let { pair ->
+                        MetricLine("Supported fixture facts · primary / delegated", "${pair.primaryOnlyFacts}/${pair.requiredFacts} · ${pair.delegatedFacts}/${pair.requiredFacts}")
+                        MetricLine("Wall time · primary / delegated", "${pair.primaryOnlyMillis} / ${pair.delegatedMillis} ms")
+                        MetricLine("All accounted tokens · primary / delegated", "${pair.primaryOnlyTokens} / ${pair.delegatedTokens} · ${pair.tokenProvenance}")
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_015b1ee190, pair.taskClass, pair.rubricVersion, pair.order, pair.warmState, pair.cost))
+                    }
                     sample.nativeMetrics?.takeIf { it.isValid }?.let { native ->
                         MetricLine("Native decode / prefill tok/s", String.format(java.util.Locale.US, "%.1f / %.1f", native.decodeTokensPerSecond, native.prefillTokensPerSecond))
-                        Text("Last native segment: ${native.decodeTokens} decoded / ${native.prefillTokens} prefilled tokens. The app score uses observed text delivery.", style = MaterialTheme.typography.bodySmall)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0aa4f852ac, native.decodeTokens, native.prefillTokens), style = MaterialTheme.typography.bodySmall)
                     }
                     if (sample.category == "tools") MetricLine("Successful fixture calls", "${sample.successfulToolCalls} / ${sample.toolCalls}")
                     sample.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (sample.preview.isNotEmpty()) Text(sample.preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TextButton(onClick = onDelete, enabled = canDelete) { Text("Delete run", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = onDelete, enabled = canDelete) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4733f5d14b), color = MaterialTheme.colorScheme.error) }
             }
         }
     }

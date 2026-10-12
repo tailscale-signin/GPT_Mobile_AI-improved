@@ -69,4 +69,24 @@ class ToolStatisticsDatabaseTest {
             db.close()
         }
     }
+
+    @Test fun legacyMigrationPreservesUnattributedTotalsAndReplayIdentities() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val name = "migration-statistics-test.db"
+        context.deleteDatabase(name)
+        val old = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(name).apply { parentFile?.mkdirs() }, null)
+        val sql = requireNotNull(javaClass.classLoader?.getResourceAsStream("tool-statistics-v1.sql")).bufferedReader().use { it.readText() }
+        sql.lines().filterNot { it.startsWith("--") }.joinToString("\n").split(';').filter { it.isNotBlank() }.forEach(old::execSQL)
+        old.execSQL("INSERT INTO tool_rollup VALUES ('tool', -1, 1, 1, 0, 0, 0, 0, 0, 0, 100, 0, 0, '0,0,0,0,0,0,0,0')")
+        old.version = 1
+        old.close()
+        val migrated = Room.databaseBuilder(context, ToolStatisticsDatabase::class.java, name).addMigrations(ToolStatisticsDatabase.MIGRATION_1_2).allowMainThreadQueries().build()
+        try {
+            assertEquals(1L, migrated.statistics().rollup("tool", -1, "")?.success)
+            assertNull(migrated.statistics().rollup("tool", -1, "new-profile"))
+        } finally {
+            migrated.close()
+            context.deleteDatabase(name)
+        }
+    }
 }

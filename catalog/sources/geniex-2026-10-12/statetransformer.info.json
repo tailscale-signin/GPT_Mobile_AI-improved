@@ -1,0 +1,48 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "statetransformer",
+  "name": "StateTransformer",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Multi-agent trajectory prediction model for autonomous driving.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "StateTransformer is a transformer-based model designed for trajectory prediction in self-driving scenarios. It integrates rasterized map data, agent context, and temporal dynamics to generate accurate future trajectories.",
+  "use_case": "MODEL_USE_CASE_DRIVER_ASSISTANCE",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Self driving cars"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_AUTO"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x224x224x58, 1x224x224x58, 1x4x7"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "pretrained-mixtral-small"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "348 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "90.7M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "nuPlan",
+    "Waymo"
+  ],
+  "license_url": "https://github.com/Tsinghua-MARS-Lab/StateTransformer/blob/main/setup.py",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

@@ -39,6 +39,8 @@ jobs:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Compile and test isolated preview
         run: ./gradlew -PgeniexRuntime=true :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Validate release shrinker for the GenieX runtime
+        run: ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=2
       - name: Audit resolved Maven AAR
         run: python3 scripts/audit_geniex_aar.py --output app/build/reports/geniex-maven-artifact.json
       - name: Audit packaged native stack

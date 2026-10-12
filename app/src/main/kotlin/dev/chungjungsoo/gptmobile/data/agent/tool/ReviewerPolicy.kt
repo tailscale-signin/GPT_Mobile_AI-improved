@@ -28,8 +28,7 @@ internal fun reviewerEligible(candidate: PlatformV2, config: ModelDelegationSett
         (config.remoteWorkersAllowed() || candidate.isPrivateDestination()) &&
         !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM)
 
-internal fun sameDelegationModel(candidate: PlatformV2, reserved: PlatformV2?): Boolean = reserved != null &&
-    (candidate.uid == reserved.uid || candidate.model.isNotBlank() && candidate.model.trim().equals(reserved.model.trim(), ignoreCase = true))
+internal fun sameDelegationModel(candidate: PlatformV2, reserved: PlatformV2?): Boolean = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(candidate, reserved)
 
 internal data class ReviewerAssessment(val score: Int, val verdict: String, val issues: List<String>, val corrections: String?)
 

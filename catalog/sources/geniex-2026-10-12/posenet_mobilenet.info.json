@@ -1,0 +1,63 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "posenet_mobilenet",
+  "name": "Posenet-Mobilenet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Perform accurate human pose estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Posenet performs pose estimation on human images.",
+  "use_case": "MODEL_USE_CASE_POSE_ESTIMATION",
+  "applicable_scenarios": [
+    "Injury prevention training",
+    "Sports performance analysis",
+    "Posture recognition"
+  ],
+  "related_models": [
+    "litehrnet",
+    "hrnet_pose"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "513x257"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "mobilenet_v1_101"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "12.7 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "12.7 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "3.31M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "coco"
+  ],
+  "research_paper": "https://arxiv.org/abs/1803.08225",
+  "research_paper_title": "PersonLab: Person Pose Estimation and Instance Segmentation with a Bottom-Up, Part-Based, Geometric Embedding Model",
+  "source_repo": "https://github.com/rwightman/posenet-pytorch",
+  "license_url": "https://github.com/rwightman/posenet-pytorch/blob/master/LICENSE.txt",
+  "has_static_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "cocobody",
+    "metric_name": "Mean Average Precision",
+    "value": 47.8,
+    "unit": "mAP",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

@@ -39,4 +39,16 @@ class AppearanceContractsTest {
         assertTrue(runCatching { validName("😀".repeat(41)) }.isFailure)
         assertTrue(runCatching { validName("   ") }.isFailure)
     }
+
+    @Test fun explicitIdentityDisambiguatesEqualPalettesAndDeletionPreservesColours() {
+        val a = ThemePresets.defaultProfile.copy(id = "saved:a", name = "A")
+        val b = a.copy(id = "saved:b", name = "B")
+        val theme = ThemeSetting(customPalette = a.palette, savedProfiles = listOf(a, b), activeProfileId = b.id)
+        assertEquals(b.id, theme.withStableProfileIds().activeProfileId)
+        assertEquals(b.id, theme.copy(savedProfiles = listOf(a, b.copy(name = "Renamed"))).withStableProfileIds().activeProfileId)
+        val removed = theme.copy(savedProfiles = listOf(a)).withStableProfileIds()
+        assertEquals("custom", removed.activeProfileId)
+        assertEquals(a.palette, removed.customPalette)
+        assertEquals("custom", theme.copy(activeProfileId = null).withStableProfileIds().activeProfileId)
+    }
 }

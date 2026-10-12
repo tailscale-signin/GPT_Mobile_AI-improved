@@ -1,0 +1,49 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "yamnet",
+  "name": "YamNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Audio Event classification Model.",
+  "domain": "MODEL_DOMAIN_AUDIO",
+  "description": "An audio event classifier trained on the AudioSet dataset to predict audio events from the AudioSet ontology employing the Mobilenet_v1 depthwise-separable convolution architecture.",
+  "use_case": "MODEL_USE_CASE_AUDIO_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Audio Recognition"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x1x96x64"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "yamnet.pth"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "14.2 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "3.73M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "AudioSet-YouTube corpus"
+  ],
+  "research_paper": "https://arxiv.org/abs/1704.04861",
+  "research_paper_title": "MobileNets Efficient Convolutional Neural Networks for Mobile Vision Applications",
+  "source_repo": "https://github.com/w-hc/torch_audioset",
+  "license_url": "https://github.com/w-hc/torch_audioset/blob/master/LICENSE",
+  "has_static_banner": true,
+  "imsdk_supported": true
+}

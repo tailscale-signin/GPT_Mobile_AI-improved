@@ -1,0 +1,60 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "maskrcnn",
+  "name": "MaskRCNN",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Instance segmentation for object detection and masking.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Mask R-CNN is a machine learning model that extends Faster R-CNN to perform instance segmentation by detecting objects in an image while simultaneously generating a high-quality segmentation mask for each instance. It adds a branch for predicting segmentation masks in parallel with the existing branch for bounding box recognition.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "unet_segmentation",
+    "fastsam_x",
+    "mediapipe_selfie",
+    "yolov8_seg",
+    "ddrnet23_slim"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "800x800"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Mask R-CNN ResNet-50 FPN V2"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "177 MB"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "91"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "46.4M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "dataset": [
+    "COCO"
+  ],
+  "research_paper": "https://arxiv.org/abs/1703.06870",
+  "research_paper_title": "Mask R-CNN",
+  "source_repo": "https://github.com/pytorch/vision",
+  "license_url": "https://github.com/pytorch/vision/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

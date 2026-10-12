@@ -1,0 +1,147 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "qwen3_4b_instruct_2507",
+  "assets": [
+    {
+      "precision": "PRECISION_Q4_0",
+      "runtime": "RUNTIME_GENIEX_LLAMACPP",
+      "download_url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_0.gguf",
+      "tool_versions": {}
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-qcs8275",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_qcs8275.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "chipset": "qualcomm-qcs8275",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-geniex_qairt-w4a16-qualcomm_qcs8275.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-qcs9075",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_qcs9075.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "chipset": "qualcomm-qcs9075",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-geniex_qairt-w4a16-qualcomm_qcs9075.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-sa8775p",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_sa8775p.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-snapdragon-8-elite-for-galaxy",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_snapdragon_8_elite_for_galaxy.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "chipset": "qualcomm-snapdragon-8-elite-for-galaxy",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-geniex_qairt-w4a16-qualcomm_snapdragon_8_elite_for_galaxy.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-snapdragon-8-elite-gen5-for-galaxy",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_snapdragon_8_elite_gen5_for_galaxy.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "chipset": "qualcomm-snapdragon-8-elite-gen5-for-galaxy",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-geniex_qairt-w4a16-qualcomm_snapdragon_8_elite_gen5_for_galaxy.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-snapdragon-x-elite",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_snapdragon_x_elite.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "chipset": "qualcomm-snapdragon-x-elite",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-geniex_qairt-w4a16-qualcomm_snapdragon_x_elite.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-snapdragon-x2-elite",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_snapdragon_x2_elite.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "chipset": "qualcomm-snapdragon-x2-elite",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-geniex_qairt-w4a16-qualcomm_snapdragon_x2_elite.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIE",
+      "chipset": "qualcomm-snapdragon-x-plus-8-core",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-genie-w4a16-qualcomm_snapdragon_x_elite.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    },
+    {
+      "precision": "PRECISION_W4A16",
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "chipset": "qualcomm-snapdragon-x-plus-8-core",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/qwen3_4b_instruct_2507/releases/v0.64.0/qwen3_4b_instruct_2507-geniex_qairt-w4a16-qualcomm_snapdragon_x_elite.zip",
+      "tool_versions": {
+        "qairt": "2.45.0.260326154327"
+      }
+    }
+  ]
+}

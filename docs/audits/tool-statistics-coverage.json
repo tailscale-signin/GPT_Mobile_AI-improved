@@ -1,285 +1,285 @@
 {
   "schema": 1,
-  "releaseGate": "Release remains blocked on end-to-end native/MCP/gateway coverage, IPC delivery receipts and physical retry accounting. Remote task reconciliation is implemented but requires Android tests. The legacy McpToolRegistry has no production constructor/execution callers in this snapshot; cancellation propagation is preserved. A producer mapping does not prove all call sites are observed.",
+  "releaseGate": "Producer mappings now include inherited child observation, HTTP send attempts and acknowledged IPC delivery. Release still requires the complete on-device native/MCP/gateway acceptance matrix; no gateway-internal retry counts are inferred.",
   "producers": [
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbMcpResultTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonCombinedTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonJanNaftaTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonLocalTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonMcpResultTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonSearchTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ConfiguredPluginTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/LocalDelegationCoordinator.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/LocalMemoryGraphTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/LocalMemoryTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MeasuredAgentTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MultiEngineSearchTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NativeMarketplaceTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SharedToolCallBroker.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebSearchTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceCatalog.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
-      "capture": "ToolExecutionBudget.bind after authorization and semaphore admission; nested wrappers must not add another recorder",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
       "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "MCP SDK/modern wrapper only; native HTTP producers do not yet report physical attempts"
+      "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     }
   ]
 }

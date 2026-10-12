@@ -1,0 +1,70 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "yolov6",
+  "name": "Yolo-v6",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time object detection optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "YoloV6 is a machine learning model that predicts bounding boxes and classes of objects in an image.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "yolov7",
+    "yolov8_det",
+    "yolov11_det"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "640x640"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "YoloV6-N"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "17.9 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "5.03 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "4.68 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "4.68M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_GPL_3_0",
+  "research_paper": "https://arxiv.org/abs/2209.02976",
+  "research_paper_title": "YOLOv6: A Single-Stage Object Detection Framework for Industrial Applications",
+  "source_repo": "https://github.com/meituan/YOLOv6/",
+  "license_url": "https://github.com/meituan/YOLOv6/blob/47625514e7480706a46ff3c0cd0252907ac12f22/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "restrict_model_sharing": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Mean Average Precision",
+    "value": 37.5,
+    "unit": "mAP",
+    "source": "https://github.com/meituan/YOLOv6"
+  }
+}

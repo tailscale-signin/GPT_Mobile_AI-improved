@@ -4,7 +4,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 class ResearchBudget(
     totalLogicalCalls: Int,
     private val reservations: Reservations = Reservations(),
-    private val persist: ((Snapshot) -> Unit)? = null
+    private val persist: ((Snapshot) -> Unit)? = null,
+    private val downloadLimitBytes: Int = 512 * 1024 * 1024
 ) {
     enum class Phase { DISCOVERY, VERIFICATION, RECOVERY, FINALIZATION }
 
@@ -25,7 +26,10 @@ class ResearchBudget(
         val usedLogical: Int,
         val physicalRequests: Int,
         val remaining: Int,
-        val remainingByPhase: Map<Phase, Int>
+        val remainingByPhase: Map<Phase, Int>,
+        val downloadedBytes: Int = 0,
+        val downloadLimitBytes: Int = 512 * 1024 * 1024,
+        val accountingVersion: Int = 1
     )
 
     private val total = totalLogicalCalls.coerceAtLeast(1)
@@ -55,13 +59,15 @@ class ResearchBudget(
     }
     private val used = Phase.entries.associateWith { 0 }.toMutableMap()
     private var physicalRequests = 0
+    private var downloadedBytes = 0
+    private var accountingVersion = 1
 
     @Synchronized
     fun tryCharge(phase: Phase, physicalRequest: Boolean, cost: Int = 1): Boolean {
         require(cost > 0)
         val phaseUsed = used.getValue(phase)
         // Subtract before comparing so a large batch cannot wrap the counters.
-        if (cost > limits.getValue(phase) - phaseUsed || cost > total - used.values.sum()) return false
+        if (cost > limits.getValue(phase) - phaseUsed || cost > total - used.values.sum() || (physicalRequest && cost > total - physicalRequests)) return false
         used[phase] = phaseUsed + cost
         if (physicalRequest) physicalRequests += cost
         try {
@@ -74,11 +80,44 @@ class ResearchBudget(
         return true
     }
 
+    /** Native HTTP attempts debit this counter rather than another logical phase slot. */
+    @Synchronized
+    fun tryChargeRequests(cost: Int): Boolean {
+        require(cost > 0)
+        if (physicalRequests.toLong() + cost > total || downloadedBytes >= downloadLimitBytes) return false
+        val previousAccountingVersion = accountingVersion
+        accountingVersion = 2
+        physicalRequests += cost
+        try {
+            persist?.invoke(snapshot())
+        } catch (failure: Exception) {
+            accountingVersion = previousAccountingVersion
+            physicalRequests -= cost
+            throw failure
+        }
+        return true
+    }
+
+    @Synchronized
+    fun tryChargeDownloadedBytes(count: Int): Boolean {
+        require(count >= 0)
+        if (downloadedBytes.toLong() + count > downloadLimitBytes) return false
+        downloadedBytes += count
+        try {
+            persist?.invoke(snapshot())
+        } catch (failure: Exception) {
+            downloadedBytes -= count
+            throw failure
+        }
+        return true
+    }
+
     @Synchronized
     fun restore(snapshot: Snapshot) {
         require(snapshot.total == total && snapshot.usedLogical in 0..total)
         require(snapshot.remaining == total - snapshot.usedLogical)
-        require(snapshot.physicalRequests in 0..snapshot.usedLogical)
+        require(snapshot.accountingVersion in 1..2)
+        require(snapshot.physicalRequests in 0..if (snapshot.accountingVersion == 1) snapshot.usedLogical else total)
         require(snapshot.remainingByPhase.keys == limits.keys)
         // Validate the entire checkpoint before changing live counters. Never silently
         // clamp corrupt phase data into a fresh allowance after an app restart.
@@ -88,8 +127,11 @@ class ResearchBudget(
             limits.getValue(phase) - remaining
         }
         require(restoredUsed.values.sum() == snapshot.usedLogical)
+        require(snapshot.downloadLimitBytes == downloadLimitBytes && snapshot.downloadedBytes in 0..downloadLimitBytes)
         used.putAll(restoredUsed)
         physicalRequests = snapshot.physicalRequests
+        downloadedBytes = snapshot.downloadedBytes
+        accountingVersion = snapshot.accountingVersion
     }
 
     @Synchronized
@@ -100,7 +142,10 @@ class ResearchBudget(
             usedLogical = usedTotal,
             physicalRequests = physicalRequests,
             remaining = (total - usedTotal).coerceAtLeast(0),
-            remainingByPhase = Phase.entries.associateWith { (limits.getValue(it) - used.getValue(it)).coerceAtLeast(0) }
+            remainingByPhase = Phase.entries.associateWith { (limits.getValue(it) - used.getValue(it)).coerceAtLeast(0) },
+            downloadedBytes = downloadedBytes,
+            downloadLimitBytes = downloadLimitBytes,
+            accountingVersion = accountingVersion
         )
     }
 }

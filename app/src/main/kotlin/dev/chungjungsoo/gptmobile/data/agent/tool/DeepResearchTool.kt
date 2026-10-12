@@ -183,7 +183,7 @@ internal class DeepResearchTool(
             ).jsonObject
             "get_paper", "read_paper" -> {
                 val paper = client.getPaper(str("identifier"), permitted, policy) ?: return buildJsonObject { put("status", "not_found") }
-                require(researchDomainAllowed(paper.canonicalUrl, researchDomains(options.includeDomains), researchDomains(options.excludeDomains))) { "Paper domain is excluded" }
+                require(researchDomainAllowed(paper.openAccessUrl?.takeIf(String::isNotBlank) ?: paper.canonicalUrl, researchDomains(options.includeDomains), researchDomains(options.excludeDomains))) { "Paper domain is excluded" }
                 if (operation == "get_paper") {
                     json.encodeToJsonElement(paper).jsonObject
                 } else {
@@ -194,7 +194,7 @@ internal class DeepResearchTool(
             "citations" -> client.citations(str("identifier"), str("direction").ifBlank { "references" }, permitted, policy)
             else -> {
                 val evidence = client.evidence(str("paperId"), str("versionId"))
-                if (evidence != null) require(researchDomainAllowed(evidence.sourceUrl, researchDomains(options.includeDomains), researchDomains(options.excludeDomains))) { "Evidence domain is excluded" }
+                if (evidence != null) require(researchDomainAllowed(evidence.canonicalUrl, researchDomains(options.includeDomains), researchDomains(options.excludeDomains))) { "Evidence domain is excluded" }
                 buildJsonObject {
                     put("verdict", evidence?.verify(str("quote"), str("versionId")) ?: "not_read")
                     put("paperId", str("paperId"))
@@ -240,12 +240,13 @@ internal class AcademicRunBudget(private val limit: Int = 30, private val maxRea
             reads++
         }
         if (operation != "status") {
-            if (cost > 0) check(shared?.tryCharge(dev.chungjungsoo.gptmobile.data.agent.ResearchBudget.Phase.DISCOVERY, physicalRequest = true, cost = cost) != false) { "Shared research request budget exhausted" }
+            if (cost > 0) check(shared?.tryChargeRequests(cost) != false) { "Shared research request budget exhausted" }
             calls += cost
         }
     }
     suspend fun chargeBytes(count: Int) = mutex.withLock {
         bytes += count
+        check(shared?.tryChargeDownloadedBytes(count) != false) { "Shared research download budget exhausted" }
         check(bytes <= maxBytes) { "Academic output budget exhausted" }
     }
     fun remaining() = (limit - calls).coerceAtLeast(0)

@@ -189,7 +189,15 @@ class McpClientManager internal constructor(
         return try {
             val result = modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId) }
                 ?: withSession(config, retryStale = false, recordFailures = false) { it.client.callTool(toolName, arguments) }
-            if (result.isError == true) recordQuota(result.toString())
+            if (result.isError == true) {
+                val failure = result.toString()
+                if (isMcpCredentialFailure(failure)) {
+                    providerCooldowns[config.connectionUid] = key to Long.MAX_VALUE
+                    recordFailure(config.connectionUid, McpAuthenticationRequiredException())
+                } else {
+                    recordQuota(failure)
+                }
+            }
             mediaStore?.materialize(result) ?: result
         } catch (cancelled: CancellationException) {
             throw cancelled

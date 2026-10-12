@@ -53,4 +53,12 @@ class DeepResearchOverhaulTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun arxivVersionsRetainBothSnapshotsButShareOneWorkSlot() {
+        val first = ResearchSource("S1", "https://arxiv.org/abs/2401.00001v1", "Version one", status = "Read", passage = "First captured text", paperId = "arxiv:2401.00001v1")
+        val second = first.copy(id = "S2", url = "https://arxiv.org/abs/2401.00001v2", paperId = "arxiv:2401.00001v2", passage = "Second captured text")
+        assertEquals(2, listOf(first, second).count { it.readable })
+        assertEquals(1, listOf(first, second).readableWorkCount())
+    }
 }

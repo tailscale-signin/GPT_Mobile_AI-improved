@@ -10,3 +10,8 @@ internal fun isMcpQuotaFailure(message: String): Boolean = listOf(
     "too many requests",
     "HTTP 429"
 ).any { message.contains(it, ignoreCase = true) }
+
+internal fun isMcpCredentialFailure(message: String): Boolean {
+    if (Regex("\"errorOrigin\"\\s*:\\s*\"(?:upstream_source|source_host|target_site)\"", RegexOption.IGNORE_CASE).containsMatchIn(message)) return false
+    return Regex("\\bHTTP[ _]*401\\b|\\bunauthorized\\b|\\binvalid (?:api )?key\\b|\\bauthentication required\\b", RegexOption.IGNORE_CASE).containsMatchIn(message)
+}

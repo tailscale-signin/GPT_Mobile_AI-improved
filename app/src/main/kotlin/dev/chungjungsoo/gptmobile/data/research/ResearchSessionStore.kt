@@ -44,7 +44,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
     fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId): ResearchJournal = object : ResearchJournal {
         override fun readerHealth(): ResearchReaderHealth = readerHealth.computeIfAbsent(chatId to turnId) { ResearchReaderHealth() }
-        override fun budget(totalLogicalCalls: Int): ResearchBudget = synchronized(turnBudgets) {
+        override fun budget(totalLogicalCalls: Int, downloadLimitBytes: Int): ResearchBudget = synchronized(turnBudgets) {
             val now = System.currentTimeMillis()
             // A turn cannot acquire a new allowance by changing task or profile.
             turnBudgets.entries.removeAll { entry ->
@@ -64,6 +64,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 check(!persistent || !budgetFile.isFile || saved != null) { "Research budget checkpoint is corrupt; start a new turn" }
                 check(saved == null || saved.number("total") in 1..2400) { "Invalid research budget checkpoint" }
                 val total = saved?.number("total") ?: totalLogicalCalls
+                val byteLimit = saved?.number("downloadLimit")?.takeIf { it in 1..512 * 1024 * 1024 } ?: downloadLimitBytes
                 val persist: ((ResearchBudget.Snapshot) -> Unit)? = if (!persistent) {
                     null
                 } else {
@@ -74,6 +75,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             put("total", snapshot.total)
                             put("used", snapshot.usedLogical)
                             put("physical", snapshot.physicalRequests)
+                            put("downloaded", snapshot.downloadedBytes)
+                            put("downloadLimit", snapshot.downloadLimitBytes)
+                            put("accounting", snapshot.accountingVersion)
                             put("phases", buildJsonObject { snapshot.remainingByPhase.forEach { (phase, remaining) -> put(phase.name, remaining) } })
                         }.toString().toByteArray()
                         val atomic = AtomicFile(budgetFile)
@@ -87,8 +91,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         }
                     }
                 }
-                ResearchBudget(total, persist = persist).also { budget ->
-                    if (saved != null) budget.restore(ResearchBudget.Snapshot(total, saved.number("used"), saved.number("physical"), total - saved.number("used"), ResearchBudget.Phase.entries.associateWith { saved["phases"]!!.jsonObject.number(it.name) }))
+                ResearchBudget(total, persist = persist, downloadLimitBytes = byteLimit).also { budget ->
+                    if (saved != null) budget.restore(ResearchBudget.Snapshot(total, saved.number("used"), saved.number("physical"), total - saved.number("used"), ResearchBudget.Phase.entries.associateWith { saved["phases"]!!.jsonObject.number(it.name) }, saved.number("downloaded"), byteLimit, saved.number("accounting").takeIf { it in 1..2 } ?: 1))
                     turnBudgets[key] = now to budget
                 }
             }

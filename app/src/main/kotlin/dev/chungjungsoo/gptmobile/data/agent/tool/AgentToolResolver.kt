@@ -358,7 +358,7 @@ class AgentToolResolver @Inject constructor(
             val persistentAcademicEvidence = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == false } == true
             val academicOptions = researchSelection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch
             val sharedTurnBudget = userMessage?.let { message ->
-                researchSessions?.journal("academic:${message.chatId}:${message.id}", message.chatId, persistentAcademicEvidence, "${message.chatId}:${message.id}")?.budget(academicOptions.requestCeiling)
+                researchSessions?.journal("academic:${message.chatId}:${message.id}", message.chatId, persistentAcademicEvidence, "${message.chatId}:${message.id}")?.budget(academicOptions.requestCeiling, academicOptions.downloadLimitMiB * 1024 * 1024)
             }
             val academicBudget = AcademicRunBudget(limit = academicOptions.requestCeiling, maxReads = academicOptions.maxPages * 3, maxBytes = academicOptions.downloadLimitMiB * 1024 * 1024, shared = sharedTurnBudget)
             DeepResearchTool.OPERATIONS.forEach { operation ->

@@ -78,6 +78,10 @@ internal fun MultiSearchResearchPanel(
                     Text("Allow native fallback if gateway fails", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     Switch(selection.allowNativeFallback, { onChange(selection.copy(allowNativeFallback = it)) })
                 }
+                Row {
+                    TextButton(onClick = { onChange(selection.copy(enabledProviders = emptySet())) }) { Text("All eligible") }
+                    TextButton(onClick = { onChange(selection.copy(enabledProviders = setOf("none"))) }) { Text("None") }
+                }
                 dev.chungjungsoo.gptmobile.data.research.engine.ResearchEngineRegistry.entries.filter { it.ready && it.id != "pmc_oa" }.forEach { manifest ->
                     val id = manifest.id
                     val enabled = selection.enabledProviders.isEmpty() || id in selection.enabledProviders

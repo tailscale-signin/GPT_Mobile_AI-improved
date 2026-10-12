@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.research.researchDomains
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -106,7 +107,9 @@ internal class DeepResearchTool(
             val providerCalls = ((arguments["maxProviderCalls"] as? JsonPrimitive)?.intOrNull ?: if (selection.depth == 100) AcademicNativeClient.CORE.size else 3).coerceIn(1, AcademicNativeClient.CORE.size)
             budget.reserve(
                 operation,
-                if (operation == "search_papers") {
+                if (remote == null) {
+                    0
+                } else if (operation == "search_papers") {
                     providerCalls
                 } else if (operation == "read_paper") {
                     2
@@ -137,22 +140,16 @@ internal class DeepResearchTool(
                 if (!result.isError || !selection.allowNativeFallback || operation == "verify_evidence") return result
                 budget.reserve(
                     operation,
-                    if (operation == "search_papers") {
-                        providerCalls
-                    } else if (operation == "read_paper") {
-                        2
-                    } else {
-                        1
-                    }
+                    0
                 )
                 // Completed remote results return above. Only a failed read-only operation
                 // may fall back to the explicitly consented native owner.
             } else if (selection.gatewayConnectionUid != null && !selection.allowNativeFallback) {
                 return failure(callId, "gateway_unavailable", "Reconnect the selected academic gateway or explicitly allow native fallback.")
             }
-            val payload = native(arguments)
+            val payload = withContext(AcademicRequestBudgetContext(budget)) { native(arguments) }
             check(permitted()) { "permission_denied" }
-            budget.chargeBytes(payload.toString().toByteArray().size)
+            // Native downloaded bytes are charged in the bounded response stream.
             return AgentToolResult(callId, ToolResultContent.Json(if (selection.gatewayConnectionUid != null) JsonObject(payload + mapOf("fallbackOwner" to JsonPrimitive("native"), "coveragePartial" to JsonPrimitive(true))) else payload), false)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -230,23 +227,30 @@ internal class DeepResearchTool(
     }
 }
 
-internal class AcademicRunBudget(private val limit: Int = 30, private val maxReads: Int = 12, private val maxBytes: Int = 256 * 1024) {
+internal class AcademicRunBudget(private val limit: Int = 30, private val maxReads: Int = 12, private val maxBytes: Int = 256 * 1024, private val shared: dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null) {
     private val mutex = Mutex()
     private var calls = 0
     private var bytes = 0
     private var reads = 0
     suspend fun reserve(operation: String, cost: Int = 1) = mutex.withLock {
         if (operation in setOf("status", "verify_evidence")) return@withLock
-        check(cost in 1..64 && calls + cost <= limit && bytes < maxBytes) { "Academic budget exhausted; synthesize the retained evidence" }
+        check(cost in 0..64 && calls + cost <= limit && bytes < maxBytes) { "Academic budget exhausted; synthesize the retained evidence" }
         if (operation == "read_paper") {
             check(reads < maxReads) { "Academic reading budget exhausted" }
             reads++
         }
-        if (operation != "status") calls += cost
+        if (operation != "status") {
+            if (cost > 0) check(shared?.tryCharge(dev.chungjungsoo.gptmobile.data.agent.ResearchBudget.Phase.DISCOVERY, physicalRequest = true, cost = cost) != false) { "Shared research request budget exhausted" }
+            calls += cost
+        }
     }
     suspend fun chargeBytes(count: Int) = mutex.withLock {
         bytes += count
         check(bytes <= maxBytes) { "Academic output budget exhausted" }
     }
     fun remaining() = (limit - calls).coerceAtLeast(0)
+}
+
+internal class AcademicRequestBudgetContext(val budget: AcademicRunBudget) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<AcademicRequestBudgetContext>
 }

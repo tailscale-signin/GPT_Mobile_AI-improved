@@ -153,9 +153,17 @@ internal class AndroidResearchWorkflow(
         state = saved ?: ResearchSnapshot(task.take(8000), notes = listOf("Policy:$policy"))
         readAttempts.set(state.attempts.coerceIn(0, maxAttempts))
         var noResearchNeeded = saved?.phase == "Not needed"
-        state.sources.filter { researchDomainAllowed(it.url, included, excluded) }.forEach {
+        state.sources.filter {
+            researchDomainAllowed(it.url, included, excluded) &&
+                when (options.contentScope) {
+                    dev.chungjungsoo.gptmobile.data.model.ResearchContentScope.WEB_ONLY -> it.paperId.isBlank()
+                    dev.chungjungsoo.gptmobile.data.model.ResearchContentScope.PAPERS_ONLY -> it.paperId.isNotBlank()
+                    else -> true
+                }
+        }.forEach {
             sources[it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }] = it
         }
+        state = state.copy(claims = state.claims.filter { claim -> sources.values.any { it.id == claim.sourceId && it.readable } })
         queries += state.queries
         val evidenceGain = EvidenceGainPolicy(sources.keys.toSet(), supportedClaimIdentities())
         try {
@@ -173,11 +181,12 @@ internal class AndroidResearchWorkflow(
                 }
                 state = state.copy(questions = state.questions.ifEmpty { plan?.strings("questions").orEmpty().map { it.take(350) }.take(5) })
                 researchLinks(task).take(10).forEach { add(it, it) }
-                var nextQueries = plan?.strings("queries").orEmpty().take(3).ifEmpty { listOf(task.take(500)) }
+                var nextQueries = plan?.strings("queries").orEmpty().take(3)
                 if (saved == null && plan?.get("queries") is JsonArray && nextQueries.isEmpty() && state.questions.isEmpty() && sources.isEmpty()) {
                     noResearchNeeded = true
                     return@withTimeoutOrNull true
                 }
+                if (plan == null && saved == null && nextQueries.isEmpty()) nextQueries = listOf(task.take(500))
                 if (saved != null && !saved.complete) {
                     // Resume extraction from saved discoveries first; never repeat completed queries.
                     nextQueries = emptyList()

@@ -23,17 +23,18 @@ data class DeepResearchSettings(
     val includeDomains: String = "",
     val excludeDomains: String = "",
     val recencyDays: Int = 0,
-    val schemaVersion: Int = 2,
+    val schemaVersion: Int = 1,
     val effort: Int = 50,
     val sourceSafetyCap: Int? = null,
     val strictNoSignup: Boolean = true,
     val requestCeiling: Int = 2400,
     val activeRunSeconds: Int = 3600,
     val downloadLimitMiB: Int = 512,
-    val corpusLimitMiB: Int = 128
+    val corpusLimitMiB: Int = 128,
+    val migrationNotice: String = ""
 ) {
     fun normalized() = copy(
-        maxPages = maxPages.coerceIn(0, 300),
+        maxPages = minOf(maxPages.coerceIn(0, 300), sourceSafetyCap?.coerceIn(0, 300) ?: 300),
         effort = effort.coerceIn(0, 100),
         sourceSafetyCap = sourceSafetyCap?.coerceIn(0, 300),
         requestCeiling = requestCeiling.coerceIn(1, 2400),
@@ -63,8 +64,15 @@ data class DeepResearchSettings(
             depth < 75 -> ResearchIntensity.RESEARCH
             else -> ResearchIntensity.EXHAUSTIVE
         }
+        val legacyCap = sourceSafetyCap ?: maxPages.takeIf { schemaVersion < 2 && it in 1..30 && it !in setOf(12, 24) }
         val base = preset(tier)
-        return base.copy(effort = depth, maxPages = minOf(targetForEffort(depth), sourceSafetyCap ?: 300)).normalized()
+        return base.copy(
+            effort = depth,
+            schemaVersion = 2,
+            sourceSafetyCap = legacyCap,
+            maxPages = minOf(targetForEffort(depth), legacyCap ?: 300),
+            migrationNotice = if (schemaVersion < 2) "Research effort now sets the source target. Legacy 12/24-page defaults no longer impose a hidden cap; other smaller legacy caps are preserved." else migrationNotice
+        ).normalized()
     }
 
     companion object {

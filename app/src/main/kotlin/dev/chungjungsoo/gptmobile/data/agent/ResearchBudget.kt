@@ -57,16 +57,17 @@ class ResearchBudget(
     private var physicalRequests = 0
 
     @Synchronized
-    fun tryCharge(phase: Phase, physicalRequest: Boolean): Boolean {
+    fun tryCharge(phase: Phase, physicalRequest: Boolean, cost: Int = 1): Boolean {
+        require(cost > 0)
         val phaseUsed = used.getValue(phase)
-        if (phaseUsed >= limits.getValue(phase) || used.values.sum() >= total) return false
-        used[phase] = phaseUsed + 1
-        if (physicalRequest) physicalRequests++
+        if (phaseUsed + cost > limits.getValue(phase) || used.values.sum() + cost > total) return false
+        used[phase] = phaseUsed + cost
+        if (physicalRequest) physicalRequests += cost
         try {
             persist?.invoke(snapshot())
         } catch (failure: Exception) {
             used[phase] = phaseUsed
-            if (physicalRequest) physicalRequests--
+            if (physicalRequest) physicalRequests -= cost
             throw failure
         }
         return true

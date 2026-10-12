@@ -379,6 +379,8 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             currentCoroutineContext().ensureActive()
             val uri = URI(target)
             require(uri.scheme == "https" && uri.host != null && (sourceDocument || uri.host in HOSTS) && uri.userInfo == null && uri.port in setOf(-1, 443) && (!sourceDocument || researchDomainAllowed(target, included, excluded))) { "Academic host is not permitted" }
+            val boundBudget = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext]?.budget
+            boundBudget?.reserve("http_request")
             var redirect: String? = null
             val started = System.nanoTime()
             val eventId = UUID.randomUUID().toString()
@@ -411,6 +413,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                         val read = stream.readAvailable(buffer)
                         if (read < 0) break
                         require(output.size() + read <= 2 * 1024 * 1024) { "Academic response exceeds 2 MiB" }
+                        boundBudget?.chargeBytes(read)
                         output.write(buffer, 0, read)
                     }
                     successful = true

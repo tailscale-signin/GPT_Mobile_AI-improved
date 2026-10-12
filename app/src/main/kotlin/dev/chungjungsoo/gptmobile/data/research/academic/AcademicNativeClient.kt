@@ -257,7 +257,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         if (body.second.contains("pdf", true) || body.first.startsWith("%PDF")) return@withContext AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway")
         val document = Jsoup.parse(body.first, "", if (pmc.isNotBlank()) Parser.xmlParser() else Parser.htmlParser())
         document.select("script,style,nav,form,header,footer").remove()
-        val fullText = (if (pmc.isNotBlank()) document.selectFirst("body")?.text() else (document.selectFirst("article") ?: document.selectFirst("main"))?.text()).orEmpty()
+        val fullText = (if (pmc.isNotBlank()) document.selectFirst("body")?.text() else (document.selectFirst("article") ?: document.selectFirst("main") ?: document.selectFirst(".ltx_document"))?.text()).orEmpty()
         val challenge = Regex("(?i)verify you are human|enable javascript and cookies|access denied|captcha").containsMatchIn(fullText.take(1000))
         val text = fullText.take(24000)
         val evidence = AcademicEvidence(

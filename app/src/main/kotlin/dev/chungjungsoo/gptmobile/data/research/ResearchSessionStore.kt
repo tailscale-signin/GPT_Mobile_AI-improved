@@ -162,8 +162,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         throw e
                     }
                     mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
-                    // Active and resumable corpora are pinned. Retention must never drop
-                    // sources merely because the old cache held 128 files.
+                    // Never evict active or resumable runs to satisfy historical retention.
+                    directory.listFiles().orEmpty().filter { it.extension == "json" && read(it)?.snapshot?.complete == true }
+                        .sortedByDescending { it.lastModified() }.drop(48).forEach { AtomicFile(it).delete() }
                 } catch (_: Exception) {
                     mutable.update { it + (runId to session.copy(snapshot = snapshot.copy(notes = snapshot.notes + "Research history could not be saved."))) }
                 }

@@ -13,7 +13,9 @@ data class ResearchCorpus(
 ) {
     fun json() = buildJsonObject {
         put("snapshotVersion", snapshotVersion)
-        put("sources", JsonArray(sources.take(MAX_SOURCES).map { it.json() }))
+        put("corpusSourceCount", sources.size)
+        put("evidenceDelivery", "Bounded excerpts; full corpus retained in research history")
+        put("sources", JsonArray(sources.filter { it.readable }.sortedByDescending { source -> claims.any { it.sourceId == source.id } }.take(8).map { it.copy(passage = it.passage.take(1500)).json() }))
         put("claims", JsonArray(claims.take(MAX_CLAIMS).map { it.json() }))
         put("toolEvents", JsonArray(toolEvents.takeLast(MAX_EVENTS).map { it.json() }))
     }

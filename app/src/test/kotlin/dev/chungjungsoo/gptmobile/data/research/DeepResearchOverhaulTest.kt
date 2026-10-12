@@ -14,9 +14,9 @@ import org.junit.Test
 class DeepResearchOverhaulTest {
     @Test
     fun effortIsMonotonicAndMaximumDoesNotInheritLegacyTwelvePageCap() {
-        val targets = (0..100).map(DeepResearchSettings::targetForEffort)
+        val targets = (0..100).map { DeepResearchSettings.targetForEffort(it) }
         assertTrue(targets.zipWithNext().all { it.first <= it.second })
-        assertEquals(listOf(0, 30, 90, 180, 300), listOf(0, 25, 50, 75, 100).map(DeepResearchSettings::targetForEffort))
+        assertEquals(listOf(0, 30, 90, 180, 300), listOf(0, 25, 50, 75, 100).map { DeepResearchSettings.targetForEffort(it) })
         assertEquals(300, MultiSearchResearchSelection(true, 100).applyTo(ModelDelegationSettings()).deepResearch.maxPages)
         assertEquals(150, DeepResearchSettings(sourceSafetyCap = 150).forEffort(100).maxPages)
     }

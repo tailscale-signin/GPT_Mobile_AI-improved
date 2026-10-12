@@ -90,7 +90,7 @@ class ResearchSessionStoreTest {
 
     @Test fun historyHasADiskAndMemoryCeiling() = runBlocking {
         val store = ResearchSessionStore(context)
-        repeat(50) { store.journal("run$it", 1, true).save(ResearchSnapshot("task", updatedAt = it.toLong())) }
+        repeat(50) { store.journal("run$it", 1, true).save(ResearchSnapshot("task", updatedAt = it.toLong(), complete = true)) }
         assertEquals(48, directory.listFiles().orEmpty().count { it.extension == "json" })
         assertEquals(24, store.sessions.value.size)
     }

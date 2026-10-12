@@ -51,6 +51,11 @@ class Release0950InstrumentedTest {
         compose.onNodeWithText("Edit steps and dependencies").performScrollTo().performClick()
         compose.onNodeWithText("Add step").performScrollTo().performClick()
         compose.onNodeWithText("Task instruction").performScrollTo().assertIsDisplayed()
+        compose.waitForIdle()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        java.io.File(instrumentation.targetContext.filesDir, "acceptance-0950-plan-dialog.png").outputStream().use { output ->
+            check(requireNotNull(instrumentation.uiAutomation.takeScreenshot()).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
+        }
         compose.onNodeWithText("Apply plan").performClick()
         assertEquals(1, result.taskPlan.steps.size)
         compose.onNodeWithText("Edit steps and dependencies").assertIsDisplayed()

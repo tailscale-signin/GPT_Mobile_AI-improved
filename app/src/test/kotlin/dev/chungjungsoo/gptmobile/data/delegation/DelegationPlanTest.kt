@@ -31,10 +31,11 @@ class DelegationPlanTest {
     }
 
     @Test fun providerAliasesCollapseButPrivateAliasesRemainUnresolved() {
-        val direct = PlatformV2(uid = "a", model = "gpt-4o-2024-08-06", apiUrl = "https://api.openai.com/v1", compatibleType = ClientType.OPENAI)
+        val direct = PlatformV2(uid = "a", name = "Direct", model = "gpt-4o-2024-08-06", apiUrl = "https://api.openai.com/v1", compatibleType = ClientType.OPENAI)
         val router = direct.copy(uid = "b", model = "openai/gpt-4o", apiUrl = "https://openrouter.ai/api/v1")
         assertEquals(ModelIndependence.SAME, CanonicalModelIdentity.independence(direct, router))
         assertNotEquals(CanonicalModelIdentity.resolve(direct).deployment, CanonicalModelIdentity.resolve(router).deployment)
         assertEquals(ModelIndependence.UNKNOWN, CanonicalModelIdentity.independence(direct, router.copy(apiUrl = "http://private:8080", model = "alias")))
+        assertEquals(ModelIndependence.UNKNOWN, CanonicalModelIdentity.independence(direct, direct.copy(uid = "alias", model = "custom-alias")))
     }
 }

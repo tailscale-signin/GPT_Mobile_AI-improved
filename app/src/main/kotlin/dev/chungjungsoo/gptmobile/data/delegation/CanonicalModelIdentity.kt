@@ -34,9 +34,22 @@ data class CanonicalModelIdentity(val canonical: String?, val deployment: String
                 provider != null && provider != "router" -> "$provider/${raw.removePrefix("$provider/")}"
                 else -> null
             }
-            val family = canonical?.replace(Regex("-(?:20[0-9]{2}-[0-9]{2}-[0-9]{2}|20[0-9]{6})$"), "")?.removeSuffix("-latest")
+            val known = canonical?.takeIf { id ->
+                val model = id.substringAfter('/')
+                when (id.substringBefore('/')) {
+                    "openai" -> model.matches(Regex("(?:gpt-[0-9].*|gpt-oss-.*|chatgpt-[0-9].*|o[1-9](?:-.*)?)"))
+                    "anthropic" -> model.startsWith("claude-")
+                    "google" -> model.startsWith("gemini-") || model.startsWith("gemma-")
+                    "meta-llama" -> model.startsWith("llama-", true)
+                    "qwen" -> model.startsWith("qwen", true)
+                    "deepseek" -> model.startsWith("deepseek", true)
+                    "mistralai" -> model.startsWith("mistral", true) || model.startsWith("mixtral", true)
+                    else -> false
+                }
+            }?.let { if (it.startsWith("anthropic/")) it.replace('.', '-') else it }
+            val family = known?.replace(Regex("-(?:20[0-9]{2}-[0-9]{2}-[0-9]{2}|20[0-9]{6})$"), "")?.removeSuffix("-latest")
             val deployment = dev.chungjungsoo.gptmobile.data.research.researchHash("${profile.compatibleType}|${profile.apiUrl}|${profile.model}|${profile.accelerator}|${profile.providerConnectionUid}|${profile.secretRef}")
-            return CanonicalModelIdentity(family, deployment, if (family == null) "Unresolved deployment alias" else "Provider model identifier; family aliases collapsed")
+            return CanonicalModelIdentity(family, deployment, if (family == null) "Unresolved deployment alias" else "Configured official-provider identifier; known family aliases normalized")
         }
         fun independence(a: PlatformV2, b: PlatformV2): ModelIndependence {
             if (a.uid == b.uid || a.model.isNotBlank() && a.model.trim().equals(b.model.trim(), true)) return ModelIndependence.SAME
@@ -55,7 +68,9 @@ data class CanonicalModelIdentity(val canonical: String?, val deployment: String
 
 enum class ModelIndependence { SAME, DIFFERENT, UNKNOWN }
 
-data class DelegationReadiness(val profileUid: String, val identity: CanonicalModelIdentity, val checks: List<Pair<String, Boolean?>>, val blockers: List<DelegationBlockReason>)
+enum class ReadinessCheck { PROFILE_ENABLED, MODEL_SELECTED, LOCAL_ARTIFACT, CREDENTIALS, PROVIDER_REACHABILITY, BACKEND_QUALIFICATION }
+
+data class DelegationReadiness(val profileUid: String, val identity: CanonicalModelIdentity, val checks: List<Pair<ReadinessCheck, Boolean?>>, val blockers: List<DelegationBlockReason>)
 
 object DelegationReadinessInspector {
     fun inspect(profile: PlatformV2, config: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, primary: PlatformV2? = null): DelegationReadiness {
@@ -64,12 +79,12 @@ object DelegationReadinessInspector {
             profile.uid,
             CanonicalModelIdentity.resolve(profile),
             listOf(
-                "Profile enabled" to profile.enabled,
-                "Model selected" to profile.model.isNotBlank(),
-                "Local artifact installed" to if (local && java.io.File(profile.model).isAbsolute) java.io.File(profile.model).isFile else null,
-                "Credentials configured" to if (local || profile.compatibleType == ClientType.OLLAMA) null else (!profile.token.isNullOrBlank() || !profile.secretRef.isNullOrBlank()),
-                "Provider reachability (explicit test required)" to null,
-                "Backend execution qualification (device test required)" to null
+                ReadinessCheck.PROFILE_ENABLED to profile.enabled,
+                ReadinessCheck.MODEL_SELECTED to profile.model.isNotBlank(),
+                ReadinessCheck.LOCAL_ARTIFACT to if (local && java.io.File(profile.model).isAbsolute) java.io.File(profile.model).isFile else null,
+                ReadinessCheck.CREDENTIALS to if (local || profile.compatibleType == ClientType.OLLAMA) null else (!profile.token.isNullOrBlank() || !profile.secretRef.isNullOrBlank()),
+                ReadinessCheck.PROVIDER_REACHABILITY to null,
+                ReadinessCheck.BACKEND_QUALIFICATION to null
             ),
             DelegationPolicyResolver.reasons(profile, config, primary)
         )

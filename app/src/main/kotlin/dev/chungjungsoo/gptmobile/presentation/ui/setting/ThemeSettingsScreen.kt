@@ -140,7 +140,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     Surface(tonalElevation = 3.dp) {
                         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = editor::discard, enabled = !state.busy) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_discard_eb1a7)) }
-                            Button(onClick = { if (checks.any { !it.passes }) confirm = "contrast" else editor.apply() }, enabled = !state.busy && !state.conflict) { Text(if (state.busy) "Applying…" else "Apply theme") }
+                            Button(onClick = { if (checks.any { !it.passes }) confirm = "contrast" else editor.apply() }, enabled = !state.busy && !state.conflict) { Text(if (state.busy) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_090bd276d9) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2265b1a2ad)) }
                         }
                     }
                 }
@@ -154,11 +154,11 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                 }
                 Text(
                     if (!state.loaded) {
-                        "Loading appearance…"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_24351c73d1)
                     } else if (state.dirty) {
-                        "Previewing changes · Active: $active"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6180617e84, (active).toString())
                     } else {
-                        "Active: $active · ${state.applied.themeMode.name.lowercase()}"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e120420698, (active).toString(), (state.applied.themeMode.name.lowercase()).toString())
                     },
                     Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodyMedium
@@ -215,14 +215,14 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                                         Surface(color = Color(values[role]), modifier = Modifier.size(48.dp), shape = MaterialTheme.shapes.medium) {}
                                                         Column {
-                                                            Text(listOf("Accent", "Secondary", "Background", "Cards")[role])
+                                                            Text(listOf(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_808c2df826), androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fab1b919a1), androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_7d67b6c9f3), androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_966d9aaf31))[role])
                                                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_06x_a01e6).format(values[role] and 0xFFFFFF), style = MaterialTheme.typography.bodySmall)
                                                         }
                                                     }
                                                 }
                                             }
                                             item {
-                                                TextButton(onClick = { readability = !readability }) { Text(if (checks.all { it.passes }) "Readability · Checks passed" else "Readability · ${checks.count { !it.passes }} checks need attention") }
+                                                TextButton(onClick = { readability = !readability }) { Text(if (checks.all { it.passes }) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a659977d52) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3fc7b61ec2, (checks.count { !it.passes }).toString())) }
                                                 if (readability) checks.forEach { Text("${it.role}: %.2f / %.1f".format(it.ratio, it.minimum)) }
                                                 if (checks.any { !it.passes }) {
                                                     TextButton(onClick = {
@@ -304,7 +304,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     profileAction = ""
                 }
             },
-            title = { Text(if (save) "Save theme" else "$profileAction theme") },
+            title = { Text(if (save) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3bc197b2e5) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_db7baa203a, (profileAction).toString())) },
             text = {
                 Column {
                     OutlinedTextField(name, { name = it }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_name_up_to_40_characters_89572)) })
@@ -351,23 +351,23 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
         AlertDialog(onDismissRequest = { confirm = "" }, title = {
             Text(
                 when (confirm) {
-                    "defaults" -> "Restore default appearance?"
-                    "delete" -> "Delete saved theme?"
-                    "overwrite" -> "Replace existing theme?"
-                    "contrast" -> "Readability needs attention"
-                    "replace" -> "Replace edited draft?"
-                    else -> "Unsaved appearance changes"
+                    "defaults" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6ebca908e8)
+                    "delete" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_5f60009001)
+                    "overwrite" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0c36dc42c4)
+                    "contrast" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_aa427990d7)
+                    "replace" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_7b969bfbbb)
+                    else -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0ea437b746)
                 }
             )
         }, text = {
             Text(
                 when (confirm) {
-                    "defaults" -> "Restore Cyan. Your saved themes will remain."
-                    "delete" -> "Applied colours remain unchanged. Undo is available."
-                    "overwrite" -> "Replace the selected saved theme with this draft. This does not apply it."
-                    "contrast" -> "Some text combinations have low contrast. You can edit the colours or use them anyway."
-                    "replace" -> "Your current colour edits will be discarded."
-                    else -> "Apply or discard your draft before leaving."
+                    "defaults" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8b4e0958bb)
+                    "delete" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_bed083004e)
+                    "overwrite" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_29a41ea4bb)
+                    "contrast" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dd9a1d362c)
+                    "replace" -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e35bb2f885)
+                    else -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6758710081)
                 }
             )
         }, confirmButton = {
@@ -385,11 +385,11 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
             }) {
                 Text(
                     if (confirm == "contrast") {
-                        "Use anyway"
-                    } else if (confirm in listOf("leave", "backup")) {
-                        "Apply"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4a4c808f00)
+                    } else if (confirm in listOf(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_bae71d6eaf), androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b5c415fee8))) {
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_417cf9c08b)
                     } else {
-                        "Confirm"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f66dc4fe25)
                     }
                 )
             }

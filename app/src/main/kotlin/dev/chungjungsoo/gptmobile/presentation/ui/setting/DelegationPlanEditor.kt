@@ -44,7 +44,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
     var inspectedUid by rememberSaveable { mutableStateOf(config.targetProfileUid) }
     var inspect by remember { mutableStateOf<PlatformV2?>(null) }
     SettingsPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d56cca8f80)) {
-        Text(if (config.taskPlan.steps.isEmpty()) "Use the automatic research workflow" else "${config.taskPlan.steps.size} steps · Completed read-only steps can be reused when resuming this response")
+        Text(if (config.taskPlan.steps.isEmpty()) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fd062b0f76) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_911fc5be64, (config.taskPlan.steps.size).toString()))
         TextButton(onClick = {
             raw = Json.encodeToString(config.taskPlan)
             base = raw
@@ -60,16 +60,27 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
         val readiness = remember(profile, config) { DelegationReadinessInspector.inspect(profile, config) }
         AlertDialog(onDismissRequest = { inspect = null }, title = { Text(profile.name) }, text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(readiness.identity.canonical ?: "Canonical model unresolved")
+                Text(readiness.identity.canonical ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6a87db4e77))
                 Text(readiness.identity.provenance)
-                readiness.checks.forEach { (label, value) ->
-                    Text(
-                        "$label: ${when (value) {
-                            true -> "Ready"
-                            false -> "Needs attention"
-                            null -> "Not verified"
-                        }}"
+                readiness.checks.forEach { (check, value) ->
+                    val label = androidx.compose.ui.res.stringResource(
+                        when (check) {
+                            dev.chungjungsoo.gptmobile.data.delegation.ReadinessCheck.PROFILE_ENABLED -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_profile
+                            dev.chungjungsoo.gptmobile.data.delegation.ReadinessCheck.MODEL_SELECTED -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_model
+                            dev.chungjungsoo.gptmobile.data.delegation.ReadinessCheck.LOCAL_ARTIFACT -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_artifact
+                            dev.chungjungsoo.gptmobile.data.delegation.ReadinessCheck.CREDENTIALS -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_credentials
+                            dev.chungjungsoo.gptmobile.data.delegation.ReadinessCheck.PROVIDER_REACHABILITY -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_provider
+                            dev.chungjungsoo.gptmobile.data.delegation.ReadinessCheck.BACKEND_QUALIFICATION -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_backend
+                        }
                     )
+                    val status = androidx.compose.ui.res.stringResource(
+                        when (value) {
+                            true -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_yes
+                            false -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_no
+                            null -> dev.chungjungsoo.gptmobile.R.string.v0950_ready_unknown
+                        }
+                    )
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_ready_result, label, status))
                 }
                 readiness.blockers.forEach { Text(it.name.replace('_', ' '), color = MaterialTheme.colorScheme.error) }
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dcba27a1e4))

@@ -174,14 +174,14 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             if (tab == 4) {
                 item {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        BenchmarkAction("Run delegates", Icons.Rounded.PlayArrow, !delegationBoard, { delegationBoard = false })
-                        BenchmarkAction("Scoreboard", Icons.Rounded.BarChart, delegationBoard, { delegationBoard = true })
+                        BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_261dd55b4b), Icons.Rounded.PlayArrow, !delegationBoard, { delegationBoard = false })
+                        BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e4891d078f), Icons.Rounded.BarChart, delegationBoard, { delegationBoard = true })
                     }
                 }
             }
             if (tab == 2) {
                 item { BenchmarkScoreboardPanel(dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.MODEL, onRun = { tab = 0 }) }
-                item { BenchmarkAction("Everyday statistics", Icons.Rounded.BarChart, onClick = { tab = 1 }) }
+                item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fee0cd4cdb), Icons.Rounded.BarChart, onClick = { tab = 1 }) }
             } else if (tab == 4 && delegationBoard) {
                 item { BenchmarkScoreboardPanel(dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.DELEGATION, onRun = { delegationBoard = false }) }
             } else if (selected == null) {
@@ -216,8 +216,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b68c419c0c), style = MaterialTheme.typography.bodySmall)
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e3e1c36cae), style = MaterialTheme.typography.titleSmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    BenchmarkAction("Select all", Icons.Rounded.SelectAll, onClick = viewModel::selectAllDelegates, enabled = progress == null)
-                                    BenchmarkAction("Clear", Icons.Rounded.Deselect, onClick = viewModel::clearDelegates, enabled = progress == null)
+                                    BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e909b897a8), Icons.Rounded.SelectAll, onClick = viewModel::selectAllDelegates, enabled = progress == null)
+                                    BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d0f86d2093), Icons.Rounded.Deselect, onClick = viewModel::clearDelegates, enabled = progress == null)
                                 }
                                 delegates.forEach { helper ->
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -243,7 +243,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 ScoreboardScores(entry, previousScoreboardEntry(data, scoreboardRuns), "Latest retest · ${data.model}")
                             }
                         }
-                        item { BenchmarkAction("Open delegation scoreboard", Icons.Rounded.BarChart, onClick = { delegationBoard = true }, modifier = Modifier.fillMaxWidth()) }
+                        item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dfd7a4833e), Icons.Rounded.BarChart, onClick = { delegationBoard = true }, modifier = Modifier.fillMaxWidth()) }
                     }
 
                     0 -> {
@@ -314,7 +314,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                         Modifier.padding(start = 8.dp)
                                     )
                                 }
-                                BenchmarkAction("Run ${selected.name}", Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode) }, enabled = ready && progress == null && !activeRequests, modifier = Modifier.fillMaxWidth())
+                                BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c8624a55ae, (selected.name).toString()), Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode) }, enabled = ready && progress == null && !activeRequests, modifier = Modifier.fillMaxWidth())
                                 if (activeRequests && progress == null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1d5b120900), style = MaterialTheme.typography.labelSmall)
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f0a6512884), style = MaterialTheme.typography.labelSmall)
                             }
@@ -369,7 +369,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e732ed457a), style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                        item { BenchmarkAction("Runtime diagnostics", Icons.Rounded.Memory, showToolHealth, { showToolHealth = !showToolHealth }, modifier = Modifier.fillMaxWidth()) }
+                        item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_11e7db4864), Icons.Rounded.Memory, showToolHealth, { showToolHealth = !showToolHealth }, modifier = Modifier.fillMaxWidth()) }
                         if (showToolHealth) {
                             item {
                                 BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ac3a6cc1cb)) {
@@ -378,10 +378,10 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                         SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4371adca9b))
                                     }
                                     Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d37369ab2c, health.contextTokens, health.evidenceBytes), style = MaterialTheme.typography.bodySmall)
-                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ebf52ca1cc, health.selected.joinToString().ifBlank { "None" }), style = MaterialTheme.typography.bodySmall)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ebf52ca1cc, health.selected.joinToString().ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f2953d2931) }), style = MaterialTheme.typography.bodySmall)
                                     if (health.omitted.isNotEmpty()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ae1775c87f, health.omitted.joinToString()), style = MaterialTheme.typography.bodySmall)
                                     Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_60c722e402, health.retainedBytes, health.admittedBytes, health.supportingEvidence), style = MaterialTheme.typography.bodySmall)
-                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1673713f9a, health.lastTool, health.lastError ?: "no structured error", health.dispatched, health.compacted), style = MaterialTheme.typography.bodySmall)
+                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1673713f9a, health.lastTool, health.lastError ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_768ac4641b), health.dispatched, health.compacted), style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -411,7 +411,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         item {
                             BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }.map { row -> retests.firstOrNull { it.current.profileUid == row.profileUid && it.current.revision == row.revision && it.current.cohort == row.cohort }?.current ?: row }, profiles, retests)
                         }
-                        item { BenchmarkAction("Run another model", Icons.Rounded.PlayArrow, onClick = { tab = 0 }, modifier = Modifier.fillMaxWidth()) }
+                        item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_08d721ca13), Icons.Rounded.PlayArrow, onClick = { tab = 0 }, modifier = Modifier.fillMaxWidth()) }
                     }
                     3 -> {
                         item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e8466c66e4, profileHistory.size), style = MaterialTheme.typography.titleLarge) }
@@ -459,9 +459,9 @@ private fun BenchmarkProfilePicker(profiles: List<PlatformV2>, selected: Platfor
                 val local = selected?.compatibleType == ClientType.LITERT_LM
                 Icon(if (local) Icons.Rounded.Memory else Icons.Rounded.Cloud, null, tint = benchmarkTint(local), modifier = Modifier.size(28.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(selected?.name ?: "Select an AI profile", style = MaterialTheme.typography.titleMedium)
+                    Text(selected?.name ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cbd1b31ddb), style = MaterialTheme.typography.titleMedium)
                     Text(selected?.model.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                    if (selected != null) Text(if (local) "LOCAL · ${selected.accelerator?.uppercase() ?: "AUTO"}" else "REMOTE · ${selected.compatibleType.name}", style = MaterialTheme.typography.labelSmall, color = benchmarkTint(local))
+                    if (selected != null) Text(if (local) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_60b2d0e1b3, (selected.accelerator?.uppercase() ?: "AUTO").toString()) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_64c4d479f0, (selected.compatibleType.name).toString()), style = MaterialTheme.typography.labelSmall, color = benchmarkTint(local))
                 }
                 Icon(Icons.Rounded.ExpandMore, "Choose AI profile")
             }
@@ -505,11 +505,11 @@ private fun BenchmarkScoreCard(rating: BenchmarkRating, local: Boolean, runs: In
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ee0073c2e, mode.label, runs, rating.measuredWeight), style = MaterialTheme.typography.bodySmall)
                 Text(
                     if (rating.score == null) {
-                        "Run Full to measure repeated timing and all rating dimensions"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_5be5ffe1ef)
                     } else if (runs < 3) {
-                        "Early result · repeat for confidence"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8cc532c4e8)
                     } else {
-                        "Based on ${rating.sampleCount} tests"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ba6b18fb94, (rating.sampleCount).toString())
                     },
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -557,13 +557,13 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                 BenchmarkTypeBadge(run.local)
                 Text(
                     if (run.canceled) {
-                        "Canceled"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ad27889799)
                     } else if (run.stoppedReason != null) {
-                        "Stopped"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f4a4aa0438)
                     } else if (!run.finished) {
-                        "Interrupted"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ec8913fc87)
                     } else {
-                        score?.let { "$it / 100" } ?: "Not rated"
+                        score?.let { "$it / 100" } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_635663cefb)
                     },
                     color = benchmarkTint(run.local),
                     fontWeight = FontWeight.SemiBold
@@ -572,9 +572,9 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
             Text("${run.mode.label}${run.delegationPlan?.let { " · ${it.label}" }.orEmpty()} · ${benchmarkDate(run.startedAt)}", style = MaterialTheme.typography.titleSmall)
             if (portable != null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_bba707bfe8), style = MaterialTheme.typography.labelSmall)
             Text(run.model, style = MaterialTheme.typography.bodySmall)
-            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_be0ee8da37, run.samples.count { it.outcome == BenchmarkOutcome.PASSED }, run.samples.size, dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuiteForRun(run).size, if (current) "current configuration" else "previous configuration"), style = MaterialTheme.typography.labelSmall)
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_be0ee8da37, run.samples.count { it.outcome == BenchmarkOutcome.PASSED }, run.samples.size, dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuiteForRun(run).size, if (current) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c328dc1cfc) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_41e72c8d79)), style = MaterialTheme.typography.labelSmall)
             run.stoppedReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            Text(if (expanded) "Hide test details" else "Show test details", style = MaterialTheme.typography.labelLarge, color = benchmarkTint(run.local))
+            Text(if (expanded) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_5bb12f0764) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2994ed039e), style = MaterialTheme.typography.labelLarge, color = benchmarkTint(run.local))
             if (expanded) {
                 MetricLine("Device", run.device)
                 if (run.local) {
@@ -629,7 +629,7 @@ private fun BenchmarkTypeBadge(local: Boolean) {
     Surface(color = tint.copy(alpha = .12f), shape = RoundedCornerShape(10.dp)) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(if (local) Icons.Rounded.Memory else Icons.Rounded.Cloud, null, tint = tint, modifier = Modifier.size(16.dp))
-            Text(if (local) "Local" else "Remote", color = tint, style = MaterialTheme.typography.labelMedium)
+            Text(if (local) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e4f82851f6) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_aa956cb103), color = tint, style = MaterialTheme.typography.labelMedium)
         }
     }
 }

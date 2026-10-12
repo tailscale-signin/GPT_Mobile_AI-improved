@@ -80,7 +80,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_561982a3ff), style = MaterialTheme.typography.titleMedium)
             Box {
                 OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(selectedProfile?.name ?: if (current == null) "Default" else "Custom palette", modifier = Modifier.weight(1f))
+                    Text(selectedProfile?.name ?: if (current == null) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ca0e0e732) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_031bde43ee), modifier = Modifier.weight(1f))
                     Text("▾")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -125,7 +125,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
             selectedProfile?.takeIf { it in saved.savedProfiles }?.let { profile ->
                 TextButton(onClick = { theme.deleteProfile(profile.name) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4d6933ca1c, profile.name)) }
             }
-            TextButton(onClick = { customizing = !customizing }) { Text(if (customizing) "Hide custom colours" else "Create a theme") }
+            TextButton(onClick = { customizing = !customizing }) { Text(if (customizing) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_99c604ae83) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fd29cb0d21)) }
         }
         if (customizing) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -237,7 +237,7 @@ internal fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
             var numeric by rememberSaveable(index, displayed) { mutableStateOf(displayed.toString()) }
             val parsed = numeric.toFloatOrNull()?.takeIf { it in 0f..(if (index == 0) 360f else 100f) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(numeric, { numeric = it }, label = { Text(if (index == 0) "$label degrees" else "$label percent") }, isError = parsed == null, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(numeric, { numeric = it }, label = { Text(if (index == 0) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8855dc288a, (label).toString()) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_298e671db2, (label).toString())) }, isError = parsed == null, singleLine = true, modifier = Modifier.weight(1f))
                 TextButton(enabled = parsed != null, onClick = {
                     val updated = hsv.copyOf().apply { set(index, if (index == 0) parsed!! else parsed!! / 100f) }
                     rememberedHue = updated[0]

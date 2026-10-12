@@ -62,10 +62,13 @@ data class DelegationPlanCheckpoint(
     val fingerprint: String,
     val steps: List<DelegationStepCheckpoint>,
     val reservedCalls: Int = 0,
-    val deadlineEpochMs: Long = 0
+    val deadlineEpochMs: Long = 0,
+    val failedTokens: Long = 0,
+    val canceledTokens: Long = 0
 ) {
     fun validate(plan: DelegationTaskPlan) {
         require(version == 1 && fingerprint.matches(Regex("[a-f0-9]{64}")) && reservedCalls in 0..48)
+        require(failedTokens >= 0 && canceledTokens >= 0)
         require(steps.map { it.id } == plan.ordered().map { it.id })
         require(steps.all { it.attempts in 0..48 && it.output.length <= 32768 && it.evidenceIds.size <= 2400 })
     }

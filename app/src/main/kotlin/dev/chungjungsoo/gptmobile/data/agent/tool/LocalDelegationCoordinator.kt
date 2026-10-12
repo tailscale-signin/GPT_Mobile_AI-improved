@@ -1434,7 +1434,10 @@ internal class LocalDelegationCoordinator(
             val saved = journal?.load(task)?.delegationPlan
             var checkpoint = saved?.takeIf { it.fingerprint == fingerprint }?.also { it.validate(plan) }?.interrupted()
                 ?: dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint(fingerprint = fingerprint, deadlineEpochMs = System.currentTimeMillis() + config.preparationTimeoutSeconds * 1000L, steps = plan.ordered().map { dev.chungjungsoo.gptmobile.data.delegation.DelegationStepCheckpoint(it.id) })
+            failedLocalTokens.updateAndGet { maxOf(it, checkpoint.failedTokens) }
+            canceledLocalTokens.updateAndGet { maxOf(it, checkpoint.canceledTokens) }
             suspend fun persist() {
+                checkpoint = checkpoint.copy(failedTokens = failedLocalTokens.get(), canceledTokens = canceledLocalTokens.get())
                 val evidence = journal?.load() ?: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(task.take(8000))
                 journal?.save(evidence.copy(task = task.take(8000), delegationPlan = checkpoint, phase = "Delegation plan", complete = checkpoint.steps.all { it.status == dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE }))
             }
@@ -1480,7 +1483,7 @@ internal class LocalDelegationCoordinator(
                     if (step.role == dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role.RESEARCH) {
                         prepareWithinBudget(input, tools.filter { it.shareableReadOnly }, "$callId:${step.id}", false, target, fixed) {}.handoff
                     } else {
-                        workerText(target, input, fixed.maxOutputTokens, requirePrivate = !fixed.remoteWorkersAllowed(), allowTools = false, pinnedConfig = fixed)
+                        workerText(target, input, fixed.maxOutputTokens, requirePrivate = !fixed.remoteWorkersAllowed(), allowTools = step.role in setOf(dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role.REPOSITORY_ANALYSIS, dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role.DOCUMENT_EXTRACTION), pinnedConfig = fixed)
                     }
                 }
                 val successful = !result.isNullOrBlank() && !result.startsWith("[UNVERIFIED]") && !result.startsWith("[PREPARATION_TIMEOUT]")

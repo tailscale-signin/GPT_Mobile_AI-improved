@@ -95,7 +95,7 @@ fun ToolStatisticsPanel(plugin: String, name: String, enabled: Boolean = true, v
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
             if (summaryResult.value == null) {
-                Text(if (summaryResult.unavailable) "Statistics unavailable" else "Loading statistics…")
+                Text(if (summaryResult.unavailable) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_9340c38d7c) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3b355f349f))
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Metric("Total", summary.sumOf { it.total })
@@ -107,13 +107,13 @@ fun ToolStatisticsPanel(plugin: String, name: String, enabled: Boolean = true, v
             Text(
                 (
                     if (profileUid != null) {
-                        "This profile · Retained lifetime"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4f6a0e98b8)
                     } else if (preferences.includesImportedHistory) {
-                        "Retained lifetime · Includes imported history · All profiles"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ce27219fbb)
                     } else {
                         androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_lifetime_this_device_all_profiles_a16ac)
                     }
-                    ) + (since?.let { " · Since ${timestamp(it)}" } ?: ""),
+                    ) + (since?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a5b1e40722, (timestamp(it)).toString()) } ?: ""),
                 style = MaterialTheme.typography.labelSmall
             )
             if (gap) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_statistics_may_be_incomplete_b6fb3), color = MaterialTheme.colorScheme.error)
@@ -143,7 +143,12 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
     var child by remember { mutableStateOf<Pair<String, String>?>(null) }
     var profile by rememberSaveable(plugin) { mutableStateOf(initialProfile) }
     var days by rememberSaveable(plugin) { mutableStateOf(initialDays) }
-    val nowHour = remember(days) { System.currentTimeMillis() / 3600000L }
+    val nowHour by androidx.compose.runtime.produceState(System.currentTimeMillis() / 3600000L) {
+        while (true) {
+            kotlinx.coroutines.delay(60000)
+            value = System.currentTimeMillis() / 3600000L
+        }
+    }
     val queryScope = remember(profile, days, nowHour) { dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsScope(profile, if (days == 0) -1 else nowHour - days * 24 + 1, if (days == 0) Long.MAX_VALUE else nowHour + 1) }
     val profiles by remember(model) { model.settings.observePlatformV2s() }.collectAsStateWithLifecycle(emptyList())
     val recordedProfiles by remember { model.repository.profiles() }.collectAsStateWithLifecycle(emptyList())
@@ -187,12 +192,12 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
             Column(Modifier.fillMaxSize().padding(insets)) {
                 ScrollableTabRow(tab, edgePadding = 8.dp) { listOf("Overview", "Activity", "Diagnostics", "Configuration").forEachIndexed { i, title -> Tab(tab == i, { tab = i }, text = { Text(title) }) } }
                 androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { chooseProfile = true }) { Text(profile?.let { uid -> profiles.find { it.uid == uid }?.name ?: "Removed profile" } ?: "All profiles") }
+                    TextButton(onClick = { chooseProfile = true }) { Text(profile?.let { uid -> profiles.find { it.uid == uid }?.name ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0bdacad91f) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_444d6a90ce)) }
                     listOf(0, 1, 7, 30, 90).forEach { count ->
                         FilterChip(days == count, {
                             days = count
                             limit = 50
-                        }, label = { Text(if (count == 0) "All time" else "$count days") })
+                        }, label = { Text(if (count == 0) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_173d65061c) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_bba61c6fb0, (count).toString())) })
                     }
                 }
                 LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -201,17 +206,18 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
                         item { ToolUsageChart(plugin, model.repository, queryScope) }
                         item {
                             if (totalsResult.value == null) {
-                                Text(if (totalsResult.unavailable) "Statistics unavailable" else "Loading statistics…")
+                                Text(if (totalsResult.unavailable) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_9340c38d7c) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3b355f349f))
                             } else {
+                                if (totals.any { it.profile.isEmpty() }) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_legacy_profile_statistics))
                                 val determinate = totals.sumOf { it.determinate }
-                                Text(if (days == 0) "Retained lifetime outcomes" else "Outcomes in selected UTC start-hour window", style = MaterialTheme.typography.titleLarge)
-                                Text(if (determinate == 0L) "Success rate — · No determinate executions" else "Success rate %.1f%% · %d determinate executions".format(totals.sumOf { it.success } * 100.0 / determinate, determinate))
+                                Text(if (days == 0) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_5858360357) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b9297b4237), style = MaterialTheme.typography.titleLarge)
+                                Text(if (determinate == 0L) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_81b3ef4a47) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fad2548b57).format(totals.sumOf { it.success } * 100.0 / determinate, determinate))
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_9c1b8dd284, totals.sumOf { it.partial }, totals.sumOf { it.canceled }, totals.sumOf { it.unknown }, totals.sumOf { it.inProgress }))
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4e2727af3e, totals.sumOf { it.shared }))
                                 val samples = totals.sumOf { it.liveSamples }
                                 if (samples > 0) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8f4e0fb9a7, totals.sumOf { it.liveDurationMs } / samples, samples))
                                 val p95 = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolRollup.p95UpperBound(totals)
-                                Text(p95?.let { "p95 successful live response ≤ $it ms · Histogram estimate" } ?: "p95 — · No latency samples")
+                                Text(p95?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6453f33162, (it).toString()) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_acc3c4e31e))
                                 if (samples in 1..19) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_low_sample_10261))
                             }
                         }
@@ -307,7 +313,7 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
                         profile = uid
                         limit = 50
                         chooseProfile = false
-                    }) { Text(profiles.find { it.uid == uid }?.name ?: "Removed profile · ${uid.take(8)}") }
+                    }) { Text(profiles.find { it.uid == uid }?.name ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_31a62e8f58, (uid.take(8)).toString())) }
                 }
             }
         }, confirmButton = { TextButton(onClick = { chooseProfile = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d7cf5045c0)) } })

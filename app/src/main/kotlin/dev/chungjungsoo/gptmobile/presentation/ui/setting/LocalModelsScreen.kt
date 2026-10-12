@@ -198,17 +198,17 @@ fun LocalModelsScreen(
                             Text(item.entry.displayName, style = MaterialTheme.typography.titleLarge)
                             Text(
                                 if (item.entry.capabilities.vision) {
-                                    "Image and text candidate"
+                                    androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_9b98c5a243)
                                 } else if (item.entry.capabilities.thinking) {
-                                    "Reasoning candidate"
+                                    androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d7cb5ae9a2)
                                 } else {
-                                    "Local text assistant"
+                                    androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_17e90fc73d)
                                 },
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text("${if (isGenieX(item)) "GenieX" else "LiteRT-LM"} · ${item.entry.variantLabel.ifBlank { item.entry.precision }} · ${if (item.downloadSizeBytes > 0) ModelCatalogParser.formatDownloadSize(item.downloadSizeBytes) else "Size unknown"}", style = MaterialTheme.typography.labelMedium)
-                            Text(support(item).reasons.firstOrNull() ?: if (item.status == LocalModelItemStatus.READY) "Installed · Runtime verification remains separate" else "Not yet tested on this device", style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { family = key }) { Text(if (variants.size > 1) "Compare ${variants.size} variants" else "View details") }
+                            Text(support(item).reasons.firstOrNull() ?: if (item.status == LocalModelItemStatus.READY) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dd89b29224) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f1321c7b23), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { family = key }) { Text(if (variants.size > 1) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_38fb1198d8, (variants.size).toString()) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cd3cd14621)) }
                         }
                     }
                 }
@@ -248,7 +248,7 @@ fun LocalModelsScreen(
                     items(variants, key = { it.entry.id }) { item ->
                         val decision = support(item)
                         Text("${item.entry.variantLabel.ifBlank { item.entry.displayName }} · ${item.entry.supportedAccelerators.joinToString()} · ${item.entry.precision.ifBlank { "Precision unknown" }}")
-                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2ffd1f3e99, item.entry.maxContextTokens.takeIf { it > 0 } ?: "Unknown", item.entry.minRamGb.takeIf { it > 0 }?.let { "$it GB" } ?: "Unknown"))
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2ffd1f3e99, item.entry.maxContextTokens.takeIf { it > 0 } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_14c4849191), item.entry.minRamGb.takeIf { it > 0 }?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e5f04740a4, (it).toString()) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_14c4849191)))
                         if (decision.reasons.isNotEmpty()) {
                             decision.reasons.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
                             if (decision.action == dev.chungjungsoo.gptmobile.data.catalog.CatalogAction.VIEW_BUILD) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_the_geniex_apk_is_a_separate_installation_its_dedfc))
@@ -267,8 +267,8 @@ fun LocalModelsScreen(
                         if (item.entry.sourceUrl.startsWith("https://")) androidx.compose.foundation.text.BasicText(item.entry.sourceUrl, modifier = Modifier.padding(vertical = 8.dp))
                         if (item.entry.licenseUrl.isNotBlank()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3e8818e968, item.entry.licenseUrl))
                         if (item.entry.redistributionRestricted) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6604b1934b))
-                        item.entry.discoveryAssets.forEach { asset -> Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0391683a30, asset.role, asset.path, asset.sizeInBytes, asset.sha256.ifBlank { "Not reported" }), style = MaterialTheme.typography.bodySmall) }
-                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3133ea6d87, item.entry.id, item.entry.upstreamRevision.ifBlank { "Not reported" }, item.entry.sha256.ifBlank { "Not reported" }), style = MaterialTheme.typography.bodySmall)
+                        item.entry.discoveryAssets.forEach { asset -> Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0391683a30, asset.role, asset.path, asset.sizeInBytes, asset.sha256.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }), style = MaterialTheme.typography.bodySmall) }
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3133ea6d87, item.entry.id, item.entry.upstreamRevision.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }, item.entry.sha256.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -427,9 +427,9 @@ private fun ModelCatalogSearch(
                     label = {
                         Text(
                             if (source == LocalModelSource.HUGGING_FACE) {
-                                "Hugging Face Hub"
+                                androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f58e641ce2)
                             } else {
-                                "Curated catalog"
+                                androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_da4893b1ee)
                             }
                         )
                     }
@@ -448,18 +448,18 @@ private fun ModelCatalogSearch(
             label = {
                 Text(
                     if (selectedSource == LocalModelSource.HUGGING_FACE) {
-                        "Search Hugging Face models"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6fd281e2ee)
                     } else {
-                        "Search compatible models"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8c4a300a01)
                     }
                 )
             },
             placeholder = {
                 Text(
                     if (selectedSource == LocalModelSource.HUGGING_FACE) {
-                        "Gemma, Qwen, Llama, litert-community…"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3544ca9546)
                     } else {
-                        "Model, Hugging Face ID, accelerator…"
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0ba072a838)
                     }
                 )
             },
@@ -508,9 +508,9 @@ private fun ModelCatalogSearch(
 
         Text(
             if (selectedSource == LocalModelSource.HUGGING_FACE) {
-                "Searches LiteRT-LM packages and GGUF inventories, including shards and possible vision projectors. GGUF entries need a validated bundle before installation; projector candidates are not confirmed matches. Runtime compatibility is checked when loading."
+                androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_5f9fd04d6f)
             } else {
-                "Curated downloads include selected models and device-specific variants. Capabilities are catalog claims until tested on this device. Import your own files from the Local models Library."
+                androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c08d94e2d8)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -621,11 +621,11 @@ private fun LocalModelItem(
             val hasLiteRt = item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
             Text(
                 if (hasNpu) {
-                    if (hasLiteRt) "QNN candidate · LiteRT fallback" else "QNN candidate"
+                    if (hasLiteRt) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1ef31aa2db) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_df3029a26b)
                 } else if (hasLiteRt) {
-                    "LiteRT · CPU / GPU package"
+                    androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d7f0218cc1)
                 } else {
-                    "Imported model · check compatibility"
+                    androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_160f06f214)
                 },
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelSmall,
@@ -684,17 +684,17 @@ private fun LocalModelItem(
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (item.entry.sha256.isNotBlank()) "Publisher checksum available" else "Publisher checksum unavailable",
+                    if (item.entry.sha256.isNotBlank()) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_eafb6716b4) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6a3f83e347),
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon(
-                    title = "Model requirements & verification",
+                    title = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2bee9e37c6),
                     description = "A publisher checksum verifies downloaded bytes against the catalog. Without it, size and container checks identify the file but do not prove publisher authenticity. Installation does not verify model capabilities or runtime compatibility. NPU packages need an exact supported chip and runtime. RAM is an advisory total-memory threshold; available memory and context size also matter. Context includes prompts, tools and output."
                 )
             }
-            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a6af91a3fe, item.entry.maxContextTokens.takeIf { it > 0 }?.let { "$it tokens" } ?: "not declared", item.entry.defaultConfig.maxTokens), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a6af91a3fe, item.entry.maxContextTokens.takeIf { it > 0 }?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c9d27ffc37, (it).toString()) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0af6b1cbae), item.entry.defaultConfig.maxTokens), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
             if (item.entry.variantLabel.isNotBlank()) {
                 Text(item.entry.variantLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
@@ -712,7 +712,7 @@ private fun LocalModelItem(
                 onDelete = onDelete
             )
             if (item.status == LocalModelItemStatus.READY) {
-                Button(onClick = onCreateProfile, enabled = blockedReason == null, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text(if (hasProfile) "Profile" else "Create AI profile") }
+                Button(onClick = onCreateProfile, enabled = blockedReason == null, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text(if (hasProfile) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_96ad4bd0f7) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cc7f657498)) }
             }
         }
     }

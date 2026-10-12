@@ -37,9 +37,9 @@ internal fun ToolUsageChart(plugin: String, repository: ToolStatisticsRepository
     val total = values.sumOf { it.second }
     val color = MaterialTheme.colorScheme.primary
     Column {
-        Text(if (scope.fromHour < 0) "Activity chart · retained last 90 days" else "Activity chart · selected start-hour window")
+        Text(if (scope.fromHour < 0) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_5cd2e3edb3) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a8ff4ad4e1))
         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8eeb79c14c, total))
-        TextButton(onClick = { table = !table }) { Text(if (table) "Show chart" else "Show data table") }
+        TextButton(onClick = { table = !table }) { Text(if (table) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a58524835e) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8132a5f6d5)) }
         if (table) {
             // Independent bounded scroll keeps 30 data rows out of the parent composition.
             LazyColumn(Modifier.height(180.dp)) { values.forEach { (day, count) -> item { Text("${java.time.LocalDate.ofEpochDay(day)}: $count", Modifier.padding(4.dp)) } } }

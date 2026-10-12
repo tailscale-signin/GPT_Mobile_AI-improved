@@ -105,11 +105,12 @@ class ToolExecutionBudget(
                 var producer: String? = null
                 suspend fun invokeObserved(): AgentToolResult {
                     // Admission and semaphore waiting do not count as uses.
-                    statisticsId = statistics?.begin(statisticsIdentity, statisticsProfile, statisticsRoot, executionOwner.name, callId)
+                    val attributedProfile = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsProfile]?.uid ?: statisticsProfile
+                    statisticsId = statistics?.begin(statisticsIdentity, attributedProfile, statisticsRoot, executionOwner.name, callId)
                     startedNanos = System.nanoTime()
                     val recorder = statistics
                     val recordedId = statisticsId
-                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, statisticsProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
+                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
                     return result.also { raw ->
                         if (!raw.dispatched) {
                             statistics?.rejectedBeforeDispatch(statisticsId)

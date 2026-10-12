@@ -352,4 +352,24 @@
     <string name="v0950_ready_unknown">Not verified</string>
     <string name="v0950_ready_result">%1$s: %2$s</string>
     <string name="v0950_legacy_profile_statistics">Legacy totals lack profile attribution and appear only in All profiles.</string>
+    <string name="v0950_picker_automatic">Automatic</string>
+    <string name="v0950_picker_delegate">Delegate model</string>
+    <string name="v0950_picker_unavailable">Selected model unavailable</string>
+    <string name="v0950_picker_score">Score %1$d/100</string>
+    <string name="v0950_picker_choose">Choose %1$s</string>
+    <string name="v0950_picker_search">Search profiles or models</string>
+    <string name="v0950_picker_on_device">On device</string>
+    <string name="v0950_picker_private">Private</string>
+    <string name="v0950_picker_cloud">Cloud</string>
+    <string name="v0950_picker_disabled">Profile disabled</string>
+    <string name="v0950_picker_recorded_score">Recorded score %1$d/100</string>
+    <string name="v0950_picker_private_model">Local or private model</string>
+    <string name="v0950_picker_cloud_model">Cloud model</string>
+    <string name="v0950_picker_no_matches">No matching profiles</string>
+    <string name="v0950_picker_add_profile">Add an enabled AI profile in Settings to choose a helper.</string>
+    <string name="v0950_picker_cloud_notice">This online model receives the tasks and tool results you delegate to it.</string>
+    <string name="v0950_picker_inspect">Choose a profile to inspect</string>
+    <string name="v0950_picker_readiness">Readiness</string>
+    <string name="v0950_picker_approved">Approved automatic selection</string>
+    <string name="v0950_picker_worker">Worker</string>
 </resources>

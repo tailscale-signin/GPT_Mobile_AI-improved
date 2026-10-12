@@ -54,7 +54,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
         DelegateModelDropdown(profiles = profiles, selectedProfileUid = inspectedUid, enabled = true, onSelected = { selected ->
             inspectedUid = selected?.uid.orEmpty()
             inspect = selected
-        }, automaticLabel = "Choose a profile to inspect", roleLabel = "Readiness")
+        }, automaticLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_inspect), roleLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_readiness), testTag = "readiness_profile_dropdown")
     }
     inspect?.let { profile ->
         val readiness = remember(profile, config) { DelegationReadinessInspector.inspect(profile, config) }
@@ -103,7 +103,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_25c1878e0d, index + 1), style = MaterialTheme.typography.titleMedium)
                         OutlinedTextField(step.instruction, { text -> edit(step.id) { it.copy(instruction = text.take(1000)) } }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f27d6fd145)) })
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { DelegationTemplate.Role.entries.forEach { role -> FilterChip(step.role == role, { edit(step.id) { it.copy(role = role) } }, label = { Text(role.name.lowercase().replace('_', ' ')) }) } }
-                        DelegateModelDropdown(profiles = profiles, blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config, reviewer = profiles.find { it.uid == config.reviewerProfileUid }).takeIf { it.isNotEmpty() }?.joinToString { it.name.replace('_', ' ') } }, selectedProfileUid = step.workerUid, enabled = true, onSelected = { selected -> edit(step.id) { it.copy(workerUid = selected?.uid.orEmpty()) } }, automaticLabel = "Approved automatic selection", roleLabel = "Worker")
+                        DelegateModelDropdown(profiles = profiles, blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config, reviewer = profiles.find { it.uid == config.reviewerProfileUid }).takeIf { it.isNotEmpty() }?.joinToString { it.name.replace('_', ' ') } }, selectedProfileUid = step.workerUid, enabled = true, onSelected = { selected -> edit(step.id) { it.copy(workerUid = selected?.uid.orEmpty()) } }, automaticLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_approved), roleLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_worker), testTag = "plan_worker_${step.id}")
                         var tokenText by rememberSaveable(step.id) { mutableStateOf(step.outputTokens.toString()) }
                         OutlinedTextField(tokenText, { text ->
                             tokenText = text

@@ -2,7 +2,7 @@ name: v0.9.50 Android acceptance
 on:
   pull_request:
     branches: [main]
-    paths: ['app/**', '.github/workflows/release-0950-acceptance.yml']
+    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,10 +34,7 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
-          script: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.presentation.ui.setting.Release0950InstrumentedTest,dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsPerformanceInstrumentedTest --no-daemon
-      - name: Save emulator logs
-        if: always()
-        run: mkdir -p app/build/acceptance-0950 && adb logcat -d -s Release0950Performance > app/build/acceptance-0950/performance.txt || true
+          script: bash scripts/run_release0950_acceptance.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

@@ -27,9 +27,10 @@ class StatisticsPerformanceInstrumentedTest {
                 repository.complete(id, ToolOutcome.SUCCESS, ToolDelivery.DELIVERED, null, 1, false)
                 writes += System.nanoTime() - started
                 val query = System.nanoTime()
-                repository.summaries(identity.key, ToolStatisticsScope("fixture")).first()
+                check(repository.summaries(identity.key, ToolStatisticsScope("fixture")).first().value != null)
                 queries += System.nanoTime() - query
             }
+            assertEquals(100L, repository.dao.rollup(identity.key, -1, "fixture")?.success)
             val raw = context.assets.open("model_catalog.json").bufferedReader().use { it.readText() }
             val parses = List(20) {
                 val started = System.nanoTime()
@@ -38,6 +39,21 @@ class StatisticsPerformanceInstrumentedTest {
                 System.nanoTime() - started
             }
             fun p95(values: List<Long>) = values.sorted()[(values.size * 0.95).toInt().coerceAtMost(values.lastIndex)] / 1_000_000.0
+            val report = org.json.JSONObject().apply {
+                put("schema", 1)
+                put("appCommit", dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT)
+                put("deviceFingerprint", android.os.Build.FINGERPRINT)
+                put("hardware", android.os.Build.HARDWARE)
+                put("representativeDevice", false)
+                put("samples", writes.size)
+                put("writeP95Ms", p95(writes))
+                put("summaryP95Ms", p95(queries))
+                put("catalogParseP95Ms", p95(parses))
+                put("writeNanos", org.json.JSONArray(writes))
+                put("queryNanos", org.json.JSONArray(queries))
+                put("catalogParseNanos", org.json.JSONArray(parses))
+            }
+            java.io.File(context.filesDir, "acceptance-0950-performance.json").writeText(report.toString(2))
             Log.i("Release0950Performance", "environment=android-emulator samples=100 write_p95_ms=${p95(writes)} summary_p95_ms=${p95(queries)} catalog_parse_p95_ms=${p95(parses)} representative_device=false")
         }
         repository.clear(identity.key)

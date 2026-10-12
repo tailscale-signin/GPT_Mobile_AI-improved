@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.test.assertIsDisplayed
@@ -49,11 +50,14 @@ class Release0950InstrumentedTest {
         }
         compose.onNodeWithText("Edit steps and dependencies").performScrollTo().performClick()
         compose.onNodeWithText("Add step").performScrollTo().performClick()
-        compose.onNodeWithText("Task instruction").assertIsDisplayed()
+        compose.onNodeWithText("Task instruction").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Apply plan").performClick()
         assertEquals(1, result.taskPlan.steps.size)
         compose.onNodeWithText("Edit steps and dependencies").assertIsDisplayed()
         // Force a real frame capture; rendering failures must fail the device test.
-        compose.onRoot().captureToImage()
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        java.io.File(context.filesDir, "acceptance-0950-editor.png").outputStream().use { output ->
+            check(compose.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
+        }
     }
 }

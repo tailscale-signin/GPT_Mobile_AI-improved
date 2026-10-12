@@ -40,7 +40,10 @@ jobs:
       - name: Compile and test isolated preview
         run: ./gradlew -PgeniexRuntime=true :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - name: Validate release shrinker for the GenieX runtime
-        run: ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=2
+        run: |
+          ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=2
+          python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk
+          python3 scripts/check_no_telemetry.py app/build/outputs/apk/nativeSmoke/*.apk
       - name: Audit resolved Maven AAR
         run: python3 scripts/audit_geniex_aar.py --output app/build/reports/geniex-maven-artifact.json
       - name: Audit packaged native stack
@@ -52,5 +55,6 @@ jobs:
           name: geniex-preview-debug
           path: |
             app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/nativeSmoke/*.apk
             app/build/reports/geniex-maven-artifact.json
           if-no-files-found: error

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +41,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
     var raw by rememberSaveable { mutableStateOf(Json.encodeToString(config.taskPlan)) }
     var base by rememberSaveable { mutableStateOf(Json.encodeToString(config.taskPlan)) }
     var error by remember { mutableStateOf<String?>(null) }
+    var inspectedUid by rememberSaveable { mutableStateOf(config.targetProfileUid) }
     var inspect by remember { mutableStateOf<PlatformV2?>(null) }
     SettingsPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_d56cca8f80)) {
         Text(if (config.taskPlan.steps.isEmpty()) "Use the automatic research workflow" else "${config.taskPlan.steps.size} steps · Completed read-only steps can be reused when resuming this response")
@@ -48,12 +51,15 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
             error = null
             open = true
         }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fe1eeafc33)) }
-        profiles.forEach { profile -> TextButton(onClick = { inspect = profile }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_53963cd862, profile.name)) } }
+        DelegateModelDropdown(profiles = profiles, selectedProfileUid = inspectedUid, enabled = true, onSelected = { selected ->
+            inspectedUid = selected?.uid.orEmpty()
+            inspect = selected
+        }, automaticLabel = "Choose a profile to inspect", roleLabel = "Readiness")
     }
     inspect?.let { profile ->
         val readiness = remember(profile, config) { DelegationReadinessInspector.inspect(profile, config) }
         AlertDialog(onDismissRequest = { inspect = null }, title = { Text(profile.name) }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(readiness.identity.canonical ?: "Canonical model unresolved")
                 Text(readiness.identity.provenance)
                 readiness.checks.forEach { (label, value) ->
@@ -86,7 +92,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_25c1878e0d, index + 1), style = MaterialTheme.typography.titleMedium)
                         OutlinedTextField(step.instruction, { text -> edit(step.id) { it.copy(instruction = text.take(1000)) } }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f27d6fd145)) })
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { DelegationTemplate.Role.entries.forEach { role -> FilterChip(step.role == role, { edit(step.id) { it.copy(role = role) } }, label = { Text(role.name.lowercase().replace('_', ' ')) }) } }
-                        DelegateModelDropdown(profiles = profiles, selectedProfileUid = step.workerUid, enabled = true, onSelected = { selected -> edit(step.id) { it.copy(workerUid = selected?.uid.orEmpty()) } }, automaticLabel = "Approved automatic selection", roleLabel = "Worker")
+                        DelegateModelDropdown(profiles = profiles, blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config, reviewer = profiles.find { it.uid == config.reviewerProfileUid }).takeIf { it.isNotEmpty() }?.joinToString { it.name.replace('_', ' ') } }, selectedProfileUid = step.workerUid, enabled = true, onSelected = { selected -> edit(step.id) { it.copy(workerUid = selected?.uid.orEmpty()) } }, automaticLabel = "Approved automatic selection", roleLabel = "Worker")
                         var tokenText by rememberSaveable(step.id) { mutableStateOf(step.outputTokens.toString()) }
                         OutlinedTextField(tokenText, { text ->
                             tokenText = text

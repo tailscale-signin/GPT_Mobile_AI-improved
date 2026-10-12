@@ -171,7 +171,7 @@ data class ToolStatisticsSnapshot(val schema: Int = 2, val subjects: List<ToolSu
         require(attempts.map { it.id }.distinct().size == attempts.size)
         require(attempts.all { identifier(it.id) && it.invocation in invocationIds && it.outcome in ToolOutcome.entries.map { outcome -> outcome.name } && it.kind in setOf("UPSTREAM", "MCP_CALL", "HTTP", "LOCAL", "CACHE", "COALESCED") && it.observedAt >= 0 })
         val keys = subjects.map { it.key }.toSet()
-        require(rollups.all { it.subject in keys && it.valid() })
+        require(rollups.all { it.subject in keys && it.valid() && (it.profile.isEmpty() || identifier(it.profile)) })
         rollups.filter { it.bucket == -1L }.fold(0L) { total, row -> Math.addExact(total, row.total) }
         rollups.filter { it.bucket == -1L }.fold(0L) { total, row -> Math.addExact(total, row.liveDurationMs) }
         val epochs = subjects.associate { it.key to it.epoch }

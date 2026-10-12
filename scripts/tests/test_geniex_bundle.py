@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import struct
 import unittest
 
 spec = importlib.util.spec_from_file_location('normalize_bundle', Path(__file__).parents[1] / 'normalize_geniex_bundle.py')
@@ -32,3 +33,21 @@ class GenieXBundleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp); (path/'metadata.json').write_text('{}')
             with self.assertRaisesRegex(ValueError,'metadata-only'): module.normalize(path, 'artifact', 'family', 'SM8750', '0.8.0')
+
+    def test_gguf_metadata_pins_context_and_requires_all_shards(self):
+        def write(path, number):
+            def text(value):
+                data=value.encode(); return struct.pack('<Q',len(data))+data
+            values={'general.architecture':'llama','llama.context_length':4096,'split.count':2,'split.no':number}
+            raw=b'GGUF'+struct.pack('<IQQ',3,1,len(values))
+            for key,value in values.items():
+                raw+=text(key)+struct.pack('<I',8 if isinstance(value,str) else 4)+(text(value) if isinstance(value,str) else struct.pack('<I',value))
+            path.write_bytes(raw)
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp); write(path/'model-00001-of-00002.gguf',0)
+            with self.assertRaises(ValueError): module.normalize_gguf(path,'id','family','model-00001-of-00002.gguf','0.8.0')
+            write(path/'model-00002-of-00002.gguf',1)
+            result=module.normalize_gguf(path,'id','family','model-00001-of-00002.gguf','0.8.0')
+            self.assertEqual(4096,result['contextTokens']); self.assertEqual(['cpu','gpu'],result['supportedBackends'])
+            self.assertEqual(2,len(result['files'])); self.assertFalse(result['vision'])
+            with self.assertRaises(ValueError): module.normalize_gguf(path,'id','family','model-00002-of-00002.gguf','0.8.0')

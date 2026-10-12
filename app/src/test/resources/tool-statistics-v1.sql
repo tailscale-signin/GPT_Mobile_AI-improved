@@ -4,3 +4,6 @@ CREATE TABLE IF NOT EXISTS `tool_invocation` (`id` TEXT NOT NULL, `subject` TEXT
 CREATE TABLE IF NOT EXISTS `tool_rollup` (`subject` TEXT NOT NULL, `bucket` INTEGER NOT NULL, `total` INTEGER NOT NULL, `success` INTEGER NOT NULL, `failure` INTEGER NOT NULL, `partial` INTEGER NOT NULL, `canceled` INTEGER NOT NULL, `unknown` INTEGER NOT NULL, `inProgress` INTEGER NOT NULL, `shared` INTEGER NOT NULL, `lastUsed` INTEGER NOT NULL, `liveDurationMs` INTEGER NOT NULL, `liveSamples` INTEGER NOT NULL, `latencyBuckets` TEXT NOT NULL, PRIMARY KEY(`subject`, `bucket`));
 CREATE TABLE IF NOT EXISTS `tool_attempt` (`id` TEXT NOT NULL, `invocation` TEXT NOT NULL, `outcome` TEXT NOT NULL, `kind` TEXT NOT NULL, `observedAt` INTEGER NOT NULL, PRIMARY KEY(`id`));
 CREATE TABLE IF NOT EXISTS `tool_health` (`connection` TEXT NOT NULL, `state` TEXT NOT NULL, `source` TEXT NOT NULL, `observedAt` INTEGER NOT NULL, `expiresAt` INTEGER NOT NULL, PRIMARY KEY(`connection`));
+CREATE INDEX IF NOT EXISTS `index_tool_invocation_subject_startedAt` ON `tool_invocation` (`subject`, `startedAt`);
+CREATE INDEX IF NOT EXISTS `index_tool_invocation_root` ON `tool_invocation` (`root`);
+CREATE INDEX IF NOT EXISTS `index_tool_attempt_invocation` ON `tool_attempt` (`invocation`);

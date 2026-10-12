@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.QueryStats
@@ -261,18 +262,18 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
                     if (tab == 3) {
                         item {
                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_statistics_preferences_704a6), style = MaterialTheme.typography.titleLarge)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().toggleable(value = prefs.collect, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = { checked -> operation { model.repository.preferences { it.copy(collect = checked) } } }), verticalAlignment = Alignment.CenterVertically) {
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_collect_local_statistics_87b1b), Modifier.weight(1f))
-                                Switch(prefs.collect, { checked -> operation { model.repository.preferences { it.copy(collect = checked) } } })
+                                Switch(prefs.collect, onCheckedChange = null)
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().toggleable(value = prefs.history, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = { checked -> operation { model.repository.preferences { it.copy(history = checked) } } }), verticalAlignment = Alignment.CenterVertically) {
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_keep_activity_history_13f69), Modifier.weight(1f))
-                                Switch(prefs.history, { checked -> operation { model.repository.preferences { it.copy(history = checked) } } })
+                                Switch(prefs.history, onCheckedChange = null)
                             }
                             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(7, 30, 90).forEach { days -> FilterChip(prefs.retentionDays == days, { operation { model.repository.preferences { it.copy(retentionDays = days) } } }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3283824fdf, days)) }) } }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().toggleable(value = prefs.includeInBackup, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = { checked -> operation { model.repository.preferences { it.copy(includeInBackup = checked) } } }), verticalAlignment = Alignment.CenterVertically) {
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_include_in_statistics_backups_82caf), Modifier.weight(1f))
-                                Switch(prefs.includeInBackup, { checked -> operation { model.repository.preferences { it.copy(includeInBackup = checked) } } })
+                                Switch(prefs.includeInBackup, onCheckedChange = null)
                             }
                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_these_preferences_apply_to_all_tools_on_this__d85d3))
                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_no_prompts_tool_arguments_result_content_cred_c2925))

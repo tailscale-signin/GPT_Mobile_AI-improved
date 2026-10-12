@@ -95,7 +95,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     private val selectedDelegateUids = MutableStateFlow<Set<String>?>(null)
     private val reviewerUid = MutableStateFlow<String?>(null)
     val benchmarkReviewers = combine(profiles, selected) { list, primary ->
-        list.filter { it.enabled && it.uid != primary?.uid && !it.excludesMemory() && it.model.isNotBlank() }
+        list.filter { it.enabled && !dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(it, primary) && !it.excludesMemory() && it.model.isNotBlank() }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val pairedComparison = kotlinx.coroutines.flow.MutableStateFlow(false)
     val benchmarkReviewer = combine(benchmarkReviewers, reviewerUid, delegationSettings) { list, uid, config ->
@@ -108,9 +108,9 @@ class ProfileBenchmarkViewModel @Inject constructor(
         list.filter {
             it.enabled &&
                 it.model.isNotBlank() &&
-                it.uid != primary?.uid &&
+                !dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(it, primary) &&
                 it.uid != reviewer?.uid &&
-                (reviewer == null || !it.model.trim().equals(reviewer.model.trim(), ignoreCase = true)) &&
+                !dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(it, reviewer) &&
                 !it.excludesMemory() &&
                 !(primary?.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
         }
@@ -499,7 +499,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 check(!profile.disableAllTools && !profile.disableLocalTools && !profile.excludesMemory()) { "Enable tools on the primary profile before testing delegation." }
                 if (baseConfig.reviewerEnabled) {
                     val selectedReviewer = checkNotNull(reviewer) { "Choose a Reviewer model before running delegation benchmarks." }
-                    check(selectedReviewer.uid != profile.uid) { "Reviewer must be different from the primary model." }
+                    check(!dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(selectedReviewer, profile)) { "Reviewer must be different from the primary model." }
                     chats.validateBenchmarkProfile(selectedReviewer)
                 }
             } catch (error: Exception) {
@@ -529,7 +529,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         check(!helper.disableAllTools && chats.supportsBenchmarkTools(helper)) { "The delegate needs tool calling enabled and a model that supports tools." }
                         reviewer?.let { selectedReviewer ->
                             check(selectedReviewer.uid != helper.uid) { "Reviewer must be a different profile from the delegate." }
-                            check(!selectedReviewer.model.trim().equals(helper.model.trim(), ignoreCase = true)) { "Reviewer must use a different model from the delegate." }
+                            check(!dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(selectedReviewer, helper)) { "Reviewer must use a different model from the delegate." }
                         }
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("DelegationBenchmark", "BATCH_WORKER_START · worker=${helper.uid} model=${helper.model} index=${helperIndex + 1}/${helpers.size}")
                         store.save(run)

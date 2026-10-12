@@ -62,7 +62,7 @@ internal fun DelegationActivityPanel(model: DelegationActivityViewModel = hiltVi
         active.values.filter { it.runId in controls }.forEach { run ->
             val mode = controls[run.runId]
             SettingsPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_91cf893d6d, run.chatId)) {
-                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_210f8b5366, mode?.name?.lowercase()?.replace('_', ' ')))
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_210f8b5366, mode?.name?.lowercase()?.replace('_', ' ').orEmpty()))
                 if (mode != dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PRIMARY_ONLY) {
                     TextButton(onClick = { if (mode == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PAUSED) dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.resume(run.runId) else dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.pause(run.runId) }) { Text(if (mode == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PAUSED) "Resume helper" else "Pause at next request") }
                     TextButton(onClick = { dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.primaryOnly(run.runId) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_continue_with_primary_e867e)) }
@@ -105,7 +105,7 @@ internal fun DelegationActivityPanel(model: DelegationActivityViewModel = hiltVi
                     val reported = roleSteps.filter { it.usageProvenance == "provider-reported" }
                     Text(if (reported.isEmpty()) "Token usage unavailable" else "Provider-reported: ${reported.mapNotNull { it.inputTokens }.sum()} input · ${reported.mapNotNull { it.outputTokens }.sum()} output · ${reported.size}/${roleSteps.size} requests with usage")
                 }
-                run.events.lastOrNull { it.kind == dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind.REVIEW_FINISHED }?.let { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0972b1c463, it.reviewVerdict, it.reviewScore)) }
+                run.events.lastOrNull { it.kind == dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind.REVIEW_FINISHED }?.let { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0972b1c463, it.reviewVerdict.orEmpty(), it.reviewScore?.toString().orEmpty())) }
                 if (run.omittedEvents > 0) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1647aa77e5, run.omittedEvents))
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_delegation_output_not_verified))
             }

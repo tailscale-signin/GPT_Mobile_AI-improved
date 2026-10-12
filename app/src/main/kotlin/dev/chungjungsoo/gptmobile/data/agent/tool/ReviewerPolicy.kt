@@ -22,7 +22,7 @@ internal fun reservedReviewer(config: ModelDelegationSettings, profiles: List<Pl
 
 internal fun reviewerEligible(candidate: PlatformV2, config: ModelDelegationSettings, source: PlatformV2): Boolean =
     candidate.enabled &&
-        candidate.uid != source.uid &&
+        !sameDelegationModel(candidate, source) &&
         candidate.model.isNotBlank() &&
         !candidate.excludesMemory() &&
         (config.remoteWorkersAllowed() || candidate.isPrivateDestination()) &&

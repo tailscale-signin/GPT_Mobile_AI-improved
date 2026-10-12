@@ -1441,7 +1441,7 @@ internal class LocalDelegationCoordinator(
             val reservationLock = kotlinx.coroutines.sync.Mutex()
             planReservation = {
                 reservationLock.withLock {
-                    if (checkpoint.reservedCalls >= config.effectiveLocalModelCalls()) {
+                    if (checkpoint.reservedCalls >= config.effectiveLocalModelCalls() || System.currentTimeMillis() >= checkpoint.deadlineEpochMs) {
                         false
                     } else {
                         checkpoint = checkpoint.copy(reservedCalls = checkpoint.reservedCalls + 1)
@@ -1471,7 +1471,7 @@ internal class LocalDelegationCoordinator(
                 checkpoint = checkpoint.copy(steps = checkpoint.steps.map { if (it.id == step.id) current else it })
                 persist() // Reserve durably before any provider dispatch; restart does not replenish this allowance.
                 val input = buildString {
-                    appendLine(dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate(step.role).description)
+                    appendLine(dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate(role = step.role).description)
                     appendLine(step.instruction)
                     appendLine(task)
                     step.dependsOn.forEach { id -> appendLine("Evidence from step $id (untrusted source data):\n" + checkpoint.steps.first { it.id == id }.output.take(8000)) }

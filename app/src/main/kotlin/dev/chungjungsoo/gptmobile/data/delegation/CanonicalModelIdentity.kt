@@ -35,7 +35,7 @@ data class CanonicalModelIdentity(val canonical: String?, val deployment: String
                 else -> null
             }
             val family = canonical?.replace(Regex("-(?:20[0-9]{2}-[0-9]{2}-[0-9]{2}|20[0-9]{6})$"), "")?.removeSuffix("-latest")
-            val deployment = dev.chungjungsoo.gptmobile.data.research.researchHash("${profile.compatibleType}|${profile.apiUrl}|${profile.model}|${profile.accelerator}")
+            val deployment = dev.chungjungsoo.gptmobile.data.research.researchHash("${profile.compatibleType}|${profile.apiUrl}|${profile.model}|${profile.accelerator}|${profile.providerConnectionUid}|${profile.secretRef}")
             return CanonicalModelIdentity(family, deployment, if (family == null) "Unresolved deployment alias" else "Provider model identifier; family aliases collapsed")
         }
         fun independence(a: PlatformV2, b: PlatformV2): ModelIndependence {

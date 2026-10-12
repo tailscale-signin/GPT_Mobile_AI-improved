@@ -140,6 +140,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         put("turnId", turnId)
                         val sourceRefs = snapshot.sources.map { source ->
                             val bytes = source.json().toString().toByteArray()
+                            require(bytes.size <= 64 * 1024) { "Research source snapshot is too large" }
                             val name = researchHash(bytes.decodeToString()) + ".source"
                             val destination = File(directory, name)
                             if (!destination.isFile) {

@@ -1333,6 +1333,7 @@ class ChatRepositoryImpl(
                 }
             )
             val unavailableConnections = mutableListOf<String>()
+            val synthesisRun = runId.startsWith("combined-synthesis:")
             val sourceAcquisitionRequested = chatToolConfig?.research?.let { selection ->
                 selection.researchToggle &&
                     selection.depth > 0 &&
@@ -1386,7 +1387,6 @@ class ChatRepositoryImpl(
             val resolvedTools = resolveAuthorizedTools()
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = effectiveUserMessages.lastOrNull()
-            val synthesisRun = runId.startsWith("combined-synthesis:")
             val routingTask = dev.chungjungsoo.gptmobile.data.agent.tool.repositoryRoutingTask(
                 latestUser?.content.orEmpty(),
                 effectiveUserMessages.dropLast(1).map { it.content }

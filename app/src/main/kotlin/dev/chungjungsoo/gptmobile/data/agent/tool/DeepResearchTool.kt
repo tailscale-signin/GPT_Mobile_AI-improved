@@ -194,7 +194,11 @@ internal class DeepResearchTool(
             "citations" -> client.citations(str("identifier"), str("direction").ifBlank { "references" }, permitted, policy)
             else -> {
                 val evidence = client.evidence(str("paperId"), str("versionId"))
-                if (evidence != null) require(researchDomainAllowed(evidence.canonicalUrl, researchDomains(options.includeDomains), researchDomains(options.excludeDomains))) { "Evidence domain is excluded" }
+                if (evidence != null) {
+                    val connectorXml = runCatching { java.net.URI(evidence.sourceUrl).let { it.host == "www.ebi.ac.uk" && it.path.endsWith("fullTextXML") } }.getOrDefault(false)
+                    val documentUrl = if (connectorXml) evidence.canonicalUrl else evidence.sourceUrl
+                    require(researchDomainAllowed(documentUrl, researchDomains(options.includeDomains), researchDomains(options.excludeDomains))) { "Evidence domain is excluded" }
+                }
                 buildJsonObject {
                     put("verdict", evidence?.verify(str("quote"), str("versionId")) ?: "not_read")
                     put("paperId", str("paperId"))

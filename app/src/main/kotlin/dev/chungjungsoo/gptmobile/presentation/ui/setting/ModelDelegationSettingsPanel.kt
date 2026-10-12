@@ -96,6 +96,8 @@ internal fun ModelDelegationSettingsContent(
     cloudRecallBusy: Boolean = false,
     onCloudRecallChange: (Boolean) -> Unit = {}
 ) {
+    var previewPlan by rememberSaveable { mutableStateOf(false) }
+    var resetConfirm by rememberSaveable { mutableStateOf(false) }
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var settingsTab by rememberSaveable { mutableIntStateOf(0) }
     val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (it.isPrivateDestination() || config.remoteWorkersAllowed()) }
@@ -124,7 +126,7 @@ internal fun ModelDelegationSettingsContent(
                     }
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Model Delegation", style = MaterialTheme.typography.headlineSmall)
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_delegation_7637c), style = MaterialTheme.typography.headlineSmall)
                             SettingsHelpIcon("A delegate can research, read pages, and compress tool results so the main model receives a focused answer with evidence.")
                         }
                         Text(if (config.enabled) "${100 - config.processingOwnership}% Delegation Amount · ${config.strategy} Research Depth" else "Turn On To Give Tasks To A Delegate", style = MaterialTheme.typography.bodyMedium)
@@ -155,18 +157,34 @@ internal fun ModelDelegationSettingsContent(
             Tab(
                 selected = settingsTab == 0,
                 onClick = { settingsTab = 0 },
-                text = { Text("Delegation") },
+                text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_overview_d4b1e)) },
                 icon = { Icon(Icons.Rounded.Bolt, null) }
             )
             Tab(
                 selected = settingsTab == 1,
                 onClick = { settingsTab = 1 },
-                text = { Text("Reviewer") },
+                text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_workers_7a1ec)) },
                 icon = { Icon(Icons.Rounded.AutoAwesome, null) }
             )
+            Tab(selected = settingsTab == 2, onClick = { settingsTab = 2 }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_activity_38da1)) })
+        }
+        if (settingsTab == 0) {
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_global_defaults_ordinary_changes_apply_to_the_389ee), style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { previewPlan = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preview_plan_11340)) }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Primary-led" to 25, "Shared" to 50, "Delegate-led" to 100).forEach { (label, amount) ->
+                    FilterChip(selected = 100 - config.processingOwnership == amount, onClick = { onChange { it.withDelegationAmount(amount) } }, label = { Text(label) })
+                }
+            }
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preparation_preference_is_not_a_measured_perc_c2449), style = MaterialTheme.typography.bodySmall)
+        }
+        if (settingsTab == 2) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.MODEL_DELEGATION, "Model Delegation", config.enabled)
+            DelegationActivityPanel()
         }
 
-        if (settingsTab == 0) {
+        if (settingsTab == 1) {
+            DelegationTemplatePanel(config, onChange)
             Card(shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("Delegate Model", "Choose an AI profile to handle delegated work.")
@@ -178,21 +196,57 @@ internal fun ModelDelegationSettingsContent(
                     ) { value -> onChange { it.withRemoteWorkersAllowed(value) } }
                     cloudRecallEnabled?.let { enabled ->
                         LocalToolToggle(
-                            "Allow Recall In Cloud Requests",
+                            "Memory policy · Allow Recall In Cloud Requests",
                             enabled,
                             !busy && !cloudRecallBusy,
                             "When enabled, relevant saved local memories can be included as reference context in cloud AI requests."
                         ) { onCloudRecallChange(it) }
                     }
                     DelegateModelDropdown(
-                        profiles = helperEligible,
+                        profiles = profiles,
+                        blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config.copy(approvedWorkerUids = null), reviewer = configuredReviewer.takeIf { config.reviewerEnabled }).takeIf { it.isNotEmpty() }?.joinToString { it.name.lowercase().replace('_', ' ') } },
                         selectedProfileUid = config.targetProfileUid,
                         enabled = !busy,
-                        onSelected = { profile -> onChange { it.copy(targetProfileUid = profile?.uid.orEmpty()) } },
+                        onSelected = { profile -> onChange { it.copy(targetProfileUid = profile?.uid.orEmpty(), selectionMode = if (profile == null) dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.AUTOMATIC else dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.FIXED) } },
                         scores = modelScores
                     )
                     if (selectedDelegate == null) {
-                        Text("Select an enabled profile with a working model and connection in AI profiles. If it becomes unavailable, another eligible delegate may be used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_the_assigned_helper_may_be_missing_or_unavail_a75af), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_fallback_325e8), style = MaterialTheme.typography.titleMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.entries.forEach { policy ->
+                            FilterChip(selected = config.fallbackPolicy == policy, onClick = { onChange { it.copy(fallbackPolicy = policy, fallbackToAnotherProfile = policy == dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.APPROVED_ORDER) } }, label = { Text(policy.name.lowercase().replace('_', ' ')) })
+                        }
+                    }
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_approved_worker_pool_693e9), style = MaterialTheme.typography.titleMedium)
+                    if (config.approvedWorkerUids == null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_legacy_automatic_pool_retained_select_profile_922be), style = MaterialTheme.typography.bodySmall)
+                    profiles.sortedBy { it.uid }.forEach { candidate ->
+                        val reasons = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config.copy(approvedWorkerUids = null), reviewer = configuredReviewer)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(candidate.name)
+                                Text(reasons.joinToString { it.name.lowercase().replace('_', ' ') }.ifBlank { "Metadata eligible · readiness not probed" }, style = MaterialTheme.typography.bodySmall)
+                            }
+                            androidx.compose.material3.Checkbox(checked = candidate.uid in config.approvedWorkerUids.orEmpty(), onCheckedChange = { checked -> onChange { current -> current.copy(approvedWorkerUids = if (checked) current.approvedWorkerUids.orEmpty() + candidate.uid else current.approvedWorkerUids.orEmpty() - candidate.uid) } }, enabled = reasons.isEmpty())
+                        }
+                    }
+                    config.approvedWorkerUids.orEmpty().forEachIndexed { index, uid ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(profiles.find { it.uid == uid }?.name ?: "Missing profile", Modifier.weight(1f))
+                            TextButton(enabled = index > 0, onClick = {
+                                onChange { current ->
+                                    current.copy(
+                                        approvedWorkerUids = current.approvedWorkerUids.orEmpty().toMutableList().apply {
+                                            if (index in indices && index > 0) {
+                                                removeAt(index)
+                                                add(index - 1, uid)
+                                            }
+                                        }
+                                    )
+                                }
+                            }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_move_up_c66fe)) }
+                        }
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
@@ -211,12 +265,13 @@ internal fun ModelDelegationSettingsContent(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Reviewer Validation", style = MaterialTheme.typography.labelLarge)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reviewer_validation_4a1fc), style = MaterialTheme.typography.labelLarge)
                         SettingsHelpIcon("The reviewer receives the original delegated task and the delegate's final context, returns a 0–100 Reviewer Score, and can correct unsupported or contradictory details. It cannot be the delegate, primary model, or another profile using the same model.")
                     }
                     if (config.reviewerEnabled) {
                         DelegateModelDropdown(
-                            profiles = reviewerEligible,
+                            profiles = profiles,
+                            blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config.copy(approvedWorkerUids = null), primary = selectedDelegate).takeIf { it.isNotEmpty() }?.joinToString { it.name.lowercase().replace('_', ' ') } },
                             selectedProfileUid = config.reviewerProfileUid,
                             enabled = !busy,
                             onSelected = { profile -> onChange { it.copy(reviewerProfileUid = profile?.uid.orEmpty()) } },
@@ -260,7 +315,7 @@ internal fun ModelDelegationSettingsContent(
                             onChange { it.copy(reviewerAutoCorrect = value) }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Correction Policy", style = MaterialTheme.typography.labelLarge)
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_correction_policy_a2ae9), style = MaterialTheme.typography.labelLarge)
                             SettingsHelpIcon("Controls whether accepted reviewer corrections replace the draft. Rejected drafts always require correction or independent primary recovery.")
                         }
                     }
@@ -274,10 +329,10 @@ internal fun ModelDelegationSettingsContent(
                     SectionHeading("Workload", "Adjust how much the delegate does and how widely it researches.")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DelegationWorkloadPreset.entries.forEach { preset ->
-                            FilterChip(selected = config.strategy == preset.depth, enabled = !busy, onClick = { onChange { it.withWorkloadPreset(preset) } }, label = { Text(preset.name.lowercase().replaceFirstChar { it.titlecase() }) })
+                            FilterChip(selected = config.withWorkloadPreset(preset) == config, enabled = !busy, onClick = { onChange { it.withWorkloadPreset(preset) } }, label = { Text(preset.name.lowercase().replaceFirstChar { it.titlecase() }) })
                         }
                     }
-                    Text("Presets change research breadth. Your profile choices, reviewer settings and permission controls are preserved.", style = MaterialTheme.typography.bodySmall)
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_presets_change_research_breadth_your_profile__1164a), style = MaterialTheme.typography.bodySmall)
                     DelegationSlider(
                         "Delegation Amount",
                         100 - config.processingOwnership,
@@ -304,7 +359,7 @@ internal fun ModelDelegationSettingsContent(
                     LocalToolToggle("Research Before Answering", config.automaticResearch, !busy && config.researchEnabled) { value -> onChange { it.copy(automaticResearch = value) } }
                     LocalToolToggle("Compress Large Tool Results", config.compactToolResults, !busy) { value -> onChange { it.copy(compactToolResults = value) } }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Research Tools", style = MaterialTheme.typography.labelLarge)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_tools_e46bc), style = MaterialTheme.typography.labelLarge)
                         SettingsHelpIcon(
                             "Uses the conversation's enabled tools and permissions. Delegated research shares the active AI profile's Maximum Tool Calls limit. " +
                                 "Multi-engine web search counts each enabled engine and page read as a tool execution. Research sends sources and a compact brief to the main model."
@@ -316,9 +371,9 @@ internal fun ModelDelegationSettingsContent(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TextButton(onClick = { onReset() }, enabled = !busy) {
+                    TextButton(onClick = { resetConfirm = true }, enabled = !busy) {
                         Icon(Icons.Rounded.RestartAlt, null)
-                        Text("Restore Recommended Defaults", Modifier.padding(start = 8.dp))
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_restore_recommended_defaults_985dd), Modifier.padding(start = 8.dp))
                     }
                 }
             }
@@ -333,20 +388,20 @@ internal fun ModelDelegationSettingsContent(
                     }
                     if (showAdvanced) {
                         DelegationSlider("Maximum Worker Delegation Depth", config.maxDelegationDepth, 1..2, 1, !busy) { value -> onChange { it.copy(maxDelegationDepth = value) } }
-                        Text("Research Limits", style = MaterialTheme.typography.titleMedium)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_limits_c5660), style = MaterialTheme.typography.titleMedium)
                         DelegationSlider("Search Queries", config.maxSearchQueries, 1..20, 1, !busy) { value -> onChange { it.copy(maxSearchQueries = value) } }
                         DelegationSlider("Results Per Search Engine", config.searchResultsPerEngine, 1..10, 1, !busy) { value -> onChange { it.copy(searchResultsPerEngine = value) } }
                         DelegationSlider("Pages To Read", config.maxPages, 0..32, 1, !busy) { value -> onChange { it.copy(maxPages = value) } }
                         DelegationSlider("Crawl Depth", config.crawlDepth, 0..8, 1, !busy) { value -> onChange { it.copy(crawlDepth = value) } }
                         DelegationSlider("Parallel Page Requests", config.pageFetchConcurrency, 1..16, 1, !busy) { value -> onChange { it.copy(pageFetchConcurrency = value) } }
                         DelegationSlider("Page Characters To Process", config.maxPageCharacters, 1000..96000, 1000, !busy) { value -> onChange { it.copy(maxPageCharacters = value) } }
-                        Text("Handoff And Helper Workload", style = MaterialTheme.typography.titleMedium)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_handoff_and_helper_workload_ebb1c), style = MaterialTheme.typography.titleMedium)
                         DelegationSlider("Remote Brief Token Budget", config.handoffTokens, 128..8192, 128, !busy, "A byte-based estimate. Lower values reduce remote context; sources and limitations remain attached.") { value -> onChange { it.copy(handoffTokens = value) } }
                         DelegationSlider("Delegate Input Characters Per Step", config.maxInputCharacters, 1000..64000, 500, !busy) { value -> onChange { it.copy(maxInputCharacters = value) } }
                         DelegationSlider("Max Input Tokens Per Delegate", config.maxInputTokensPerDelegate, 1000..12000, 500, !busy, "Hard preflight cap including the worker prompt and retained tool schemas. Oversized tasks are chunked before inference.") { value -> onChange { it.copy(maxInputTokensPerDelegate = value) } }
                         DelegationSlider("Chunk Size", config.chunkSizeTokens, 1000..12000, 500, !busy, "Large delegated payloads are split near this token size instead of truncating one giant request.") { value -> onChange { it.copy(chunkSizeTokens = value) } }
                         DelegationSlider("Retry Chunk Size", config.retryChunkSizeTokens, 500..6000, 250, !busy, "A failed chunk is retried only as smaller pieces; the original oversized payload is never replayed.") { value -> onChange { it.copy(retryChunkSizeTokens = value) } }
-                        DelegationSlider("Delegate Output Tokens Per Step", config.maxOutputTokens, 64..4096, 64, !busy, "Reasoning models reserve at least 2,048 tokens; a repair may use up to 8,192. The model profile limit remains the hard ceiling.") { value -> onChange { it.copy(maxOutputTokens = value) } }
+                        DelegationSlider("Delegate Output Tokens Per Step", config.maxOutputTokens, 64..4096, 64, !busy, "Output requests and bounded reasoning-only repairs use this cap, further limited by the helper profile/provider. The primary answer has its own output budget.") { value -> onChange { it.copy(maxOutputTokens = value) } }
                         DelegationSlider("Delegate Model Calls Per Turn", config.maxLocalModelCalls, 1..48, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> onChange { it.copy(maxLocalModelCalls = value) } }
                         DelegationSlider("Maximum Concurrent Delegates", config.maxConcurrentDelegates, 1..4, 1, !busy, "One is safest for on-device inference. Increase only when the selected backend can run independent workers safely.") { value -> onChange { it.copy(maxConcurrentDelegates = value) } }
                         DelegationSlider("Research Timeout In Seconds", config.timeoutSeconds, 5..300, 5, !busy, "Legacy ceiling. Per-worker adaptive deadlines are also limited by the maximum delegate runtime below.") { value -> onChange { it.copy(timeoutSeconds = value) } }
@@ -354,21 +409,30 @@ internal fun ModelDelegationSettingsContent(
                         DelegationSlider("Idle-Token Timeout", config.idleTokenTimeoutSeconds, 5..90, 5, !busy, "Cancels a worker that started but stops making output/tool progress.") { value -> onChange { it.copy(idleTokenTimeoutSeconds = value) } }
                         DelegationSlider("Maximum Delegate Runtime", config.maxDelegateRuntimeSeconds, 30..120, 5, !busy, "Absolute hard ceiling; adaptive small and medium jobs finish earlier.") { value -> onChange { it.copy(maxDelegateRuntimeSeconds = value) } }
                         DelegationSlider("Delegations Per Turn", config.maxCallsPerTurn, 1..16, 1, !busy) { value -> onChange { it.copy(maxCallsPerTurn = value) } }
-                        DelegationSlider("Preparation Time Budget", config.preparationTimeoutSeconds, 30..300, 30, !busy, "Whole-turn research and review deadline, including retries.") { value -> onChange { it.copy(preparationTimeoutSeconds = value) } }
+                        DelegationSlider("Preparation Time Budget", config.preparationTimeoutSeconds, 30..3600, 30, !busy, "Whole-turn research and review deadline, including retries.") { value -> onChange { it.copy(preparationTimeoutSeconds = value) } }
                         DelegationSlider("Maximum Wasted Local Tokens Per Turn", config.maxWastedLocalTokensPerTurn, 1000..64000, 1000, !busy, "Stops new workers after failed or canceled work consumes this estimated token budget.") { value -> onChange { it.copy(maxWastedLocalTokensPerTurn = value) } }
                         DelegationSlider("Stop When Evidence Sufficient", config.evidenceSufficiencyPercent, 50..100, 5, !busy, "Higher values gather more evidence before stopping; lower values reduce marginal delegate work.") { value -> onChange { it.copy(evidenceSufficiencyPercent = value) } }
                         DelegationSlider("Process Tool Results Above Characters", config.compactionThresholdCharacters, 256..48000, 256, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> onChange { it.copy(compactionThresholdCharacters = value) } }
-                        Text("These controls apply to delegation. The main model's output limit is unchanged. When the local budget runs out, the brief identifies omitted evidence.", style = MaterialTheme.typography.bodySmall)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_these_controls_apply_to_delegation_the_main_m_2a70c), style = MaterialTheme.typography.bodySmall)
                         DelegationSlider("Maximum Same-Delegate Retries", config.localRetryLimit, 0..10, 1, !busy, "Retries are bounded by failure type and the shared deadline. Repeated identical failures, authentication errors and output limits stop early.") { value -> onChange { it.copy(localRetryLimit = value) } }
                         DelegationSlider("Pause Threshold For Low Battery", config.lowBatteryThresholdPercent, 0..50, 1, !busy) { value -> onChange { it.copy(lowBatteryThresholdPercent = value) } }
-                        Text("Requests for missing or unauthorized models stop immediately. Final answers use the main profile's output limit.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_requests_for_missing_or_unauthorized_models_s_8f716), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            FilterChip(selected = false, onClick = { onReset() }, label = { Text("Reset Recommended Defaults") }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) }, enabled = !busy)
+                            FilterChip(selected = false, onClick = { resetConfirm = true }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reset_recommended_defaults_f334a)) }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) }, enabled = !busy)
                         }
                     }
                 }
             }
         }
+    }
+    if (previewPlan) androidx.compose.material3.AlertDialog(onDismissRequest = { previewPlan = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preview_plan_11340)) }, text = { Text(dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.preview(config, profiles)) }, confirmButton = { TextButton(onClick = { previewPlan = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_close_7d9eb)) } })
+    if (resetConfirm) {
+        androidx.compose.material3.AlertDialog(onDismissRequest = { resetConfirm = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_restore_tuning_defaults_36a10)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_and_budget_tuning_will_return_to_rec_c3851)) }, confirmButton = {
+            TextButton(onClick = {
+                onReset()
+                resetConfirm = false
+            }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reset_tuning_e6ee5)) }
+        }, dismissButton = { TextButton(onClick = { resetConfirm = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_cancel_19766)) } })
     }
 }
 
@@ -400,6 +464,11 @@ private fun DelegationSlider(label: String, value: Int, range: IntRange, step: I
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("$label: ${draft.roundToInt()}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             hint?.let { SettingsHelpIcon(it) }
+        }
+        var exact by remember(value) { mutableStateOf(value.toString()) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.OutlinedTextField(exact, { exact = it }, label = { Text("${range.first}–${range.last}") }, isError = exact.toIntOrNull()?.let { it !in range } != false, enabled = enabled, singleLine = true, modifier = Modifier.weight(1f))
+            TextButton(enabled = enabled && exact.toIntOrNull()?.let { it in range && it != value } == true, onClick = { exact.toIntOrNull()?.takeIf { it in range }?.let(save) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_set_b6f6f)) }
         }
         Slider(
             value = draft,

@@ -38,8 +38,7 @@ class ConnectionDoctorViewModel @Inject constructor(
     val detectedContext = MutableStateFlow<Pair<String, Int>?>(null)
     fun applyDetectedContext() = action {
         val detected = detectedContext.value ?: return@action
-        val current = settings.getFeatureSettings()
-        settings.updateFeatureSettings(current.copy(tokenBudget = current.tokenBudget.copy(profileContextCeilings = current.tokenBudget.profileContextCeilings + detected)))
+        settings.mutateFeatureSettings { current -> current.copy(tokenBudget = current.tokenBudget.copy(profileContextCeilings = current.tokenBudget.profileContextCeilings + detected)) }
         detectedContext.value = null
         finish("Context ceiling saved for this profile. Your global context budget still applies.")
     }

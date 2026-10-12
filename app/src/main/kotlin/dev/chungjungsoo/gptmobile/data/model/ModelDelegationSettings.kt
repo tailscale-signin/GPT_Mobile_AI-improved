@@ -5,6 +5,12 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ModelDelegationSettings(
     val enabled: Boolean = false,
+    val templateRole: dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role? = null,
+    val policyVersion: Int = 1,
+    val selectionMode: dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode = dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.INHERIT,
+    val cloudPermission: dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission = dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.INHERIT,
+    val approvedWorkerUids: List<String>? = null,
+    val fallbackPolicy: dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback? = null,
     /** Research depth: 0 = focused, 50 = standard, 100 = broad coverage. */
     val strategy: Int = 70,
     /** 0 = local-first, 50 = shared concurrent-capable, 100 = remote-first. */
@@ -81,10 +87,14 @@ data class ModelDelegationSettings(
      * Effective cloud-worker consent. localPlatformsOnly predates allowRemoteWorkers;
      * a saved false value is an explicit legacy opt-in to non-local helpers.
      */
-    fun remoteWorkersAllowed(): Boolean = allowRemoteWorkers || !localPlatformsOnly
+    fun remoteWorkersAllowed(): Boolean = when (cloudPermission) {
+        dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY -> false
+        dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.ALLOW -> allowRemoteWorkers && !localPlatformsOnly
+        dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.INHERIT -> allowRemoteWorkers || !localPlatformsOnly
+    }
 
     fun withRemoteWorkersAllowed(enabled: Boolean): ModelDelegationSettings =
-        copy(allowRemoteWorkers = enabled, localPlatformsOnly = !enabled)
+        copy(allowRemoteWorkers = enabled, localPlatformsOnly = !enabled, cloudPermission = if (enabled) dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.ALLOW else dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY)
 
     /** Research depth changes breadth without disabling compaction or rewriting worker limits. */
     fun withStrategy(value: Int): ModelDelegationSettings {
@@ -108,9 +118,7 @@ data class ModelDelegationSettings(
             processingOwnership = 100 - amount,
             automaticResearch = if (amount == 100) true else automaticResearch,
             researchEnabled = if (amount == 100) true else researchEnabled,
-            reviewerEnabled = if (amount == 100) true else reviewerEnabled,
-            maxLocalModelCalls = 4 + 16 * amount / 100,
-            maxCallsPerTurn = 2 + 8 * amount / 100
+            reviewerEnabled = if (amount == 100) true else reviewerEnabled
         )
     }
 
@@ -128,6 +136,7 @@ data class ModelDelegationSettings(
      * processingOwnership=0, causing the remote primary to take over most of the turn.
      */
     fun effectiveLocalModelCalls(): Int {
+        if (policyVersion >= 2) return maxLocalModelCalls.coerceIn(1, 48)
         val ownershipFloor = when {
             processingOwnership <= 10 -> 16
             processingOwnership <= 25 -> 12
@@ -145,6 +154,7 @@ data class ModelDelegationSettings(
      * efficiency preset configured maxCallsPerTurn=1.
      */
     fun effectiveResearchCalls(): Int {
+        if (policyVersion >= 2) return maxCallsPerTurn.coerceIn(1, 16)
         val ownershipFloor = when {
             processingOwnership <= 10 -> 4
             processingOwnership <= 25 -> 3
@@ -158,6 +168,7 @@ data class ModelDelegationSettings(
      * Keep the emergency ceiling in the coordinator, but do not let a low-efficiency
      * preset make a private worker unusable because provider overhead alone exceeds 3k. */
     fun effectiveLocalInputTokens(): Int {
+        if (policyVersion >= 2) return maxInputTokensPerDelegate.coerceIn(1_000, 12_000)
         val ownershipFloor = when {
             processingOwnership <= 10 -> 8_000
             processingOwnership <= 25 -> 6_000
@@ -171,6 +182,19 @@ data class ModelDelegationSettings(
     fun effectiveWastedLocalTokens(): Int = maxWastedLocalTokensPerTurn.coerceIn(1_000, 64_000)
 
     fun normalized(): ModelDelegationSettings {
+        if (policyVersion < 2) {
+            return copy(
+                policyVersion = 2,
+                allowRemoteWorkers = remoteWorkersAllowed(),
+                localPlatformsOnly = !remoteWorkersAllowed(),
+                maxLocalModelCalls = effectiveLocalModelCalls(),
+                maxCallsPerTurn = effectiveResearchCalls(),
+                maxInputTokensPerDelegate = effectiveLocalInputTokens(),
+                cloudPermission = if (remoteWorkersAllowed()) dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.ALLOW else dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY
+            ).normalized()
+        }
+        if (policyVersion > 2) return copy(enabled = false, allowRemoteWorkers = false, localPlatformsOnly = true, cloudPermission = dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY)
+
         val normalizedInputCap = maxInputTokensPerDelegate.coerceIn(1000, 12000)
         val normalizedChunk = chunkSizeTokens.coerceIn(1000, normalizedInputCap)
         val normalizedRetryChunk = retryChunkSizeTokens.coerceIn(500, normalizedChunk)

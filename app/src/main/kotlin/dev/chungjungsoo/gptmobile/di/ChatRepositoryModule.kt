@@ -80,6 +80,8 @@ object ChatRepositoryModule {
         workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository,
         amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache,
         researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore,
+        toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository,
+        delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore,
         openRouterModelRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
@@ -113,6 +115,8 @@ object ChatRepositoryModule {
         workspace = workspace,
         amazonMedia = amazonMedia,
         researchSessions = researchSessions,
-        openRouterModelRepository = openRouterModelRepository
+        openRouterModelRepository = openRouterModelRepository,
+        toolStatistics = toolStatistics,
+        delegationActivity = delegationActivity
     )
 }

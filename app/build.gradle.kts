@@ -127,14 +127,15 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("boolean", "LOCAL_INFERENCE_PROCESS", (providers.gradleProperty("localInferenceProcess").orNull != "false").toString())
         applicationId = if (geniexRuntime) "dev.melo.gptmobile.improved.geniex" else "dev.melo.gptmobile.improved"
         buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())
+        buildConfigField("String", "GENIEX_VERSION", "\"${libs.versions.geniex.get()}\"")
         // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.
         buildConfigField("boolean", "COMBINED_SECTION_RECOVERY", providers.gradleProperty("combinedSectionRecovery").map { (it != "false").toString() }.getOrElse("true"))
         buildConfigField("boolean", "MCP_ROUTE_RECOVERY", providers.gradleProperty("mcpRouteRecovery").map { (it != "false").toString() }.getOrElse("true"))
         buildConfigField("boolean", "TOOL_STORM_FINALIZATION", providers.gradleProperty("toolStormFinalization").map { (it != "false").toString() }.getOrElse("true"))
         minSdk = 31
         targetSdk = 37
-        versionCode = 112
-        versionName = "0.9.43.0"
+        versionCode = 119
+        versionName = "0.9.50.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -149,7 +150,7 @@ extensions.configure<ApplicationExtension> {
         manifestPlaceholders["appAuthRedirectScheme"] = hfRedirect.substringBefore(":").ifEmpty { "gptmobile-hf-unconfigured" }
         buildConfigField("String", "APP_COMMIT", "\"${providers.environmentVariable("GITHUB_SHA").orElse(providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText.map { it.trim() }).getOrElse("unknown")}\"")
         buildConfigField("String", "LITERT_LM_VERSION", "\"${libs.versions.litertlm.get()}\"")
-        buildConfigField("String", "QAIRT_VERSION", "\"${if (geniexRuntime) "bundled-geniex-0.8.0" else libs.versions.qnn.get()}\"")
+        buildConfigField("String", "QAIRT_VERSION", "\"${if (geniexRuntime) "bundled-geniex-${libs.versions.geniex.get()}" else libs.versions.qnn.get()}\"")
         buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"$hfClientId\"")
         buildConfigField("String", "HF_OAUTH_REDIRECT_URI", "\"$hfRedirect\"")
         // App owner confirmed LLM7 integration approval on 2026-09-26.
@@ -460,7 +461,7 @@ dependencies {
 
     // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.
     if (geniexRuntime) {
-        implementation("com.qualcomm.qti:geniex-android:0.8.0")
+        implementation(libs.geniex.android)
     } else {
         implementation(libs.qnn.runtime)
     }

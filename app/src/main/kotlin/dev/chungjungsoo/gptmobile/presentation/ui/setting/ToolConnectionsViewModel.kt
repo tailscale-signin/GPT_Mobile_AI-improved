@@ -100,8 +100,7 @@ class ToolConnectionsViewModel @Inject constructor(
             pluginMutex.lock()
             try {
                 dev.chungjungsoo.gptmobile.data.workspace.PluginConfiguration.validate(config)
-                val current = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(current.copy(pluginExecution = current.pluginExecution + (id to config.normalized())))
+                settingRepository.mutateFeatureSettings { current -> current.copy(pluginExecution = current.pluginExecution + (id to config.normalized())) }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -115,8 +114,7 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             pluginMutex.lock()
             try {
-                val current = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(current.withFeature(feature, enabled))
+                settingRepository.mutateFeatureSettings { current -> current.withFeature(feature, enabled) }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -170,9 +168,7 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             pluginMutex.lock()
             try {
-                val latest = settingRepository.getFeatureSettings()
-                val updated = pluginIds.fold(latest) { settings, id -> settings.withToolPluginEnabled(id, enabled) }
-                settingRepository.updateFeatureSettings(updated)
+                val updated = settingRepository.mutateFeatureSettings { latest -> pluginIds.fold(latest) { settings, id -> settings.withToolPluginEnabled(id, enabled) } }
                 _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -188,8 +184,7 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             pluginMutex.lock()
             try {
-                val latest = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(latest.withFeature(AppFeature.REMOTE_MCP, enabled))
+                settingRepository.mutateFeatureSettings { latest -> latest.withFeature(AppFeature.REMOTE_MCP, enabled) }
                 _uiState.update { it.copy(remoteMcpEnabled = enabled) }
                 if (enabled) {
                     probeConnections()
@@ -295,9 +290,7 @@ class ToolConnectionsViewModel @Inject constructor(
                         clearCredential = (shouldClear || shouldClearCredential) && credentialBytes == null
                     )
                     if (existing == null && normalizedAlias in setOf("searxng_mcp", "youtube_transcripts", "free_search_mcp", "gitmcp_docs")) {
-                        val latest = settingRepository.getFeatureSettings()
-                        val updated = latest.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
-                        settingRepository.updateFeatureSettings(updated)
+                        val updated = settingRepository.mutateFeatureSettings { it.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false) }
                         _uiState.update { it.copy(pluginStates = updated.toolPluginStates) }
                     }
                 }

@@ -120,6 +120,7 @@ internal fun ProfileToolsPanel(
                     required = service.requiredFields(installations),
                     toggleEnabled = toolsAllowed && active && mcpAllowed && (localAllowed || onlineAllowed)
                 ) {
+                    dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(service.id, service.definition.name, active)
                     if (service.id == ToolPluginId.WEB_SEARCH) {
                         OutlinedButton(onClick = viewModel::openSearchBackendDialog, enabled = toolsAllowed) {
                             Icon(Icons.Rounded.Language, null, Modifier.size(18.dp))
@@ -134,6 +135,7 @@ internal fun ProfileToolsPanel(
                     }
                     service.packages.forEach { entry ->
                         dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).forEach { definition ->
+                            dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsLink(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(definition.name).key, definition.name)
                             val operation = definition.name.substringAfterLast("__")
                             val toolId = ToolPluginId.nativeOperation(entry.id, operation)
                             val operationAllowed = operation !in installations[entry.id]?.disabledOperations.orEmpty()

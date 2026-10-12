@@ -184,13 +184,13 @@ class HealthConnectViewModel @Inject constructor(
 
     fun setEnabled(enabled: Boolean) = mutate {
         MarketplaceMutations.mutex.withLock {
-            settings.updateFeatureSettings(settings.getFeatureSettings().withToolPluginEnabled(ToolPluginId.HEALTH_CONNECT, enabled))
+            settings.mutateFeatureSettings { it.withToolPluginEnabled(ToolPluginId.HEALTH_CONNECT, enabled) }
         }
     }
 
     fun setProfileEnabled(uid: String, enabled: Boolean) = mutate {
         MarketplaceMutations.mutex.withLock {
-            settings.updateFeatureSettings(settings.getFeatureSettings().withProfileToolPluginEnabled(uid, ToolPluginId.HEALTH_CONNECT, enabled))
+            settings.mutateFeatureSettings { it.withProfileToolPluginEnabled(uid, ToolPluginId.HEALTH_CONNECT, enabled) }
         }
     }
 
@@ -200,7 +200,7 @@ class HealthConnectViewModel @Inject constructor(
         consent.setAllowed(false)
         localImportStore.clear()
         MarketplaceMutations.mutex.withLock {
-            settings.updateFeatureSettings(settings.getFeatureSettings().withToolPluginEnabled(ToolPluginId.HEALTH_CONNECT, false))
+            settings.mutateFeatureSettings { it.withToolPluginEnabled(ToolPluginId.HEALTH_CONNECT, false) }
         }
         reader.revokePermissions()
         mutable.update { it.copy(permissions = emptySet(), localImport = null) }

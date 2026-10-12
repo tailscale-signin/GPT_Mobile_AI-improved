@@ -26,6 +26,8 @@ class ModelCatalogRepositoryImpl(
     private val readInstalledEntries: () -> List<CatalogEntry> = { emptyList() }
 ) : ModelCatalogRepository {
 
+    private val refreshMutex = kotlinx.coroutines.sync.Mutex()
+
     // Fast in-memory cache to avoid redundant JSON parsing across screen navigations
     private val inMemoryCatalogCache = AtomicReference<ModelCatalog?>(null)
 
@@ -65,6 +67,30 @@ class ModelCatalogRepositoryImpl(
         deviceSocModel = android.os.Build.SOC_MODEL.orEmpty(),
         readInstalledEntries = { dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.read(context) }
     )
+
+    override suspend fun getSnapshot(refresh: Boolean): dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot = withContext(Dispatchers.IO) {
+        if (refresh) refreshMutex.lock()
+        try {
+            val remote = if (refresh) fetchParsableCatalog({ fetchRemoteJson() }, writeCacheJson) else null
+            val cached = inMemoryCatalogCache.get() ?: fetchParsableCatalog({ readCacheJson() })
+            val bundled = fetchParsableCatalog({ readBundledJson() })
+            val selected = listOfNotNull(remote, cached, bundled).maxByOrNull { it.revision }
+            if (selected != null) inMemoryCatalogCache.set(selected)
+            val entries = selected?.models.orEmpty()
+            // Installed artifacts win collisions. A catalog refresh cannot redefine their identity.
+            val merged = (entries + readInstalledEntries()).associateBy { it.id }.values.toList()
+            dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot(
+                merged,
+                selected?.revision ?: 0,
+                if (selected === remote && remote != null) "Hosted catalog" else "Bundled / cached catalog",
+                if (refresh && remote == null) "Refresh unavailable. The last valid catalog is retained." else null,
+                selected != null,
+                selected?.source
+            )
+        } finally {
+            if (refresh) refreshMutex.unlock()
+        }
+    }
 
     override suspend fun getVisibleEntries(): List<CatalogEntry> = withContext(Dispatchers.IO) {
         visibleEntries(
@@ -107,7 +133,7 @@ class ModelCatalogRepositoryImpl(
         inMemoryCatalogCache.set(catalog)
         val entries = ModelCatalogParser.visibleEntries(catalog, appVersionName)
         val deviceEntries = if (deviceSocModel.isBlank()) entries else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.forDevice(entries, deviceSocModel)
-        return (readInstalledEntries() + deviceEntries).associateBy { it.id }.values.toList()
+        return (deviceEntries + readInstalledEntries()).associateBy { it.id }.values.toList()
     }
 
     private suspend fun fetchParsableCatalog(
@@ -119,7 +145,7 @@ class ModelCatalogRepositoryImpl(
             require(rawJson.length <= 2_000_000) { "Model catalog exceeds its size limit." }
             val catalog = ModelCatalogParser.parse(rawJson)
             require(catalog.models.map { it.id }.distinct().size == catalog.models.size) { "Duplicate model identities in catalog." }
-            if (catalog.schemaVersion != ModelCatalogParser.SUPPORTED_SCHEMA_VERSION) {
+            if (!ModelCatalogParser.supported(catalog.schemaVersion)) {
                 // An unsupported schema is not a usable source: fall through to the next
                 // fallback instead of surfacing an empty catalog, and never cache it.
                 return null

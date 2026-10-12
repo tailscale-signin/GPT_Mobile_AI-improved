@@ -14,6 +14,9 @@ import kotlinx.serialization.json.JsonObject
 class ToolExecutionBudget(
     private val limits: AgentRunLimits,
     private val evidenceBytesPerResult: Int? = null,
+    private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
+    private val statisticsProfile: String = "",
+    private val statisticsRoot: String = "",
     private val failureMessage: (Exception) -> String = { "Tool execution failed. Check the connection diagnostics before repeating an action." }
 ) {
     private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -32,6 +35,7 @@ class ToolExecutionBudget(
     fun bind(
         tool: AgentTool,
         onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
+        statisticsIdentity: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(tool.definition.name),
         authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
     ): AgentTool = object : PreparableAgentTool, OwnedAgentTool {
         override val definition = tool.definition
@@ -92,20 +96,48 @@ class ToolExecutionBudget(
             return execution@{
                 if (!dispatched.compareAndSet(false, true)) return@execution withBudgetState(failure("This prepared tool call was already dispatched."))
                 var success = false
+                var statisticsId: String? = null
+                var startedNanos = 0L
+                var executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
+                var deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.FAILED
+                var reason: String? = null
+                var shared = false
+                suspend fun invokeObserved(): AgentToolResult {
+                    // Admission and semaphore waiting do not count as uses.
+                    statisticsId = statistics?.begin(statisticsIdentity, statisticsProfile, statisticsRoot, executionOwner.name)
+                    startedNanos = System.nanoTime()
+                    val recorder = statistics
+                    val recordedId = statisticsId
+                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
+                    return result.also { raw ->
+                        if (!raw.dispatched) {
+                            statistics?.rejectedBeforeDispatch(statisticsId)
+                            statisticsId = null
+                        }
+                        shared = raw.sharedResult
+                        executionOutcome = when {
+                            raw.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
+                            raw.isError -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
+                            else -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
+                        }
+                        reason = if (raw.isError) raw.errorCode ?: "TOOL_ERROR" else null
+                    }
+                }
                 try {
                     val result = if (tool.managesExecutionBudget) {
                         // Orchestrators own their deadline; their children use this same budget.
                         // Holding a permit here would deadlock nested calls at concurrency = 1.
-                        tool.execute(callId, arguments)
+                        invokeObserved()
                     } else {
                         permits.withPermit {
                             if (!canExecute() && remainingBytes.get() <= 0) return@withPermit failure(outputBudgetMessage())
                             withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
-                                withTimeoutOrNull(limits.toolTimeoutMillis) { tool.execute(callId, arguments) }
+                                withTimeoutOrNull(limits.toolTimeoutMillis) { invokeObserved() }
                             }
                                 ?: ToolResultEnvelope.error(callId, "TIMEOUT_OUTCOME_UNKNOWN", "Tool timed out after dispatch. Reconcile the outcome before repeating an action.", dispatched = true)
                         }
                     }
+                    if (result.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) reason = result.errorCode
                     val boundedResult = bounded(
                         result,
                         preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME,
@@ -127,6 +159,7 @@ class ToolExecutionBudget(
                     }
                     if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
+                    deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
@@ -138,13 +171,25 @@ class ToolExecutionBudget(
                     )
                     throw cancellation
                 } catch (error: Exception) {
+                    reason = "DISPATCH_OUTCOME_UNKNOWN"
+                    deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     unknownOutcomes += signature
                     val boundedResult = bounded(ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true))
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {
-                    withContext(NonCancellable) { onFinished(callId, success) }
+                    withContext(NonCancellable) {
+                        statistics?.complete(
+                            statisticsId,
+                            executionOutcome,
+                            deliveryOutcome,
+                            reason,
+                            startedNanos.takeIf { it > 0 }?.let { (System.nanoTime() - it) / 1_000_000 },
+                            shared
+                        )
+                        onFinished(callId, success)
+                    }
                 }
             }
         }

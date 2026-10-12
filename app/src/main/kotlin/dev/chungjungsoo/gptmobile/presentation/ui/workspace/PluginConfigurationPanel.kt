@@ -55,8 +55,7 @@ class PluginConfigurationViewModel @Inject constructor(private val settings: Set
     }
     fun apply() = launch {
         val config = requireNotNull(preview.value)
-        val current = settings.getFeatureSettings()
-        settings.updateFeatureSettings(current.copy(pluginExecution = current.pluginExecution + config.plugins))
+        settings.mutateFeatureSettings { current -> current.copy(pluginExecution = current.pluginExecution + config.plugins) }
         // Connection metadata is a setup checklist, never an automatically trusted active connection.
         notice.value = "${config.plugins.size} plugin configurations applied. Set up ${config.connections.size} listed connections in Plugins & remote MCP; re-enter endpoints and credentials there."
         preview.value = null

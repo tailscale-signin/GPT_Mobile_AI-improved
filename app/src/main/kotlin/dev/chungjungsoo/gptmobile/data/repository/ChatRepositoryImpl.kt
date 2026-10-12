@@ -107,6 +107,7 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 
 private const val MIN_DELEGATED_USEFUL_CHARS = 1
@@ -213,7 +214,9 @@ class ChatRepositoryImpl(
     private val workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
     private val amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache? = null,
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
-    private val openRouterModelRepository: OpenRouterModelRepository? = null
+    private val openRouterModelRepository: OpenRouterModelRepository? = null,
+    private val toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
+    private val delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore? = null
 ) : ChatRepository {
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
@@ -1177,6 +1180,9 @@ class ChatRepositoryImpl(
                 if (summary != null && activity.get() == current) send(ApiState.ActivitySummary(summary, modelAuthored = false))
             }
         }
+        var admittedTemplate: dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate? = null
+        var delegationControlJob: kotlinx.coroutines.Job? = null
+        var delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.INTERRUPTED
         suspend fun generateDelegate(
             target: PlatformV2,
             task: String,
@@ -1193,7 +1199,7 @@ class ChatRepositoryImpl(
             val delegateText = StringBuilder()
             var lastDelegateSnapshot = 0L
             try {
-                return delegateToProfile(target, task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${it.id}" } ?: runId, inputCap, { event ->
+                return delegateToProfile(target, admittedTemplate?.takeIf { requestRole != "reviewer" }?.let { it.description + "\n\n" + task } ?: task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${it.id}" } ?: runId, inputCap, { event ->
                     progress(event)
                     if (event.kind == DelegateProgressKind.TOOL_ACTIVITY) activity.set("Using helper tools")
                     event.textDelta?.let {
@@ -1205,7 +1211,7 @@ class ChatRepositoryImpl(
                             trySend(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
                         }
                     }
-                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools else emptyList(), requestRole = requestRole)
+                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools.filter { admittedTemplate == null || it.shareableReadOnly } else emptyList(), requestRole = requestRole)
             } finally {
                 // A final suspending snapshot recovers any intermediate UI update
                 // skipped while the channel was busy. It is never the primary answer.
@@ -1298,18 +1304,34 @@ class ChatRepositoryImpl(
                 profileBudget
             }
             val turnKey = effectiveUserMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
+            dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.register(runId)
+            val admittedProfiles = settingRepository.fetchPlatformV2s()
+            val admittedFeatures = settingRepository.getFeatureSettings()
+            val scoped = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.resolve(admittedFeatures, platform.uid, chatToolConfig?.delegation)
+            val admittedPolicy = chatToolConfig?.research?.applyTo(scoped) ?: scoped
+            admittedTemplate = admittedPolicy.templateRole?.let { dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.from(admittedPolicy) }
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
-                val defaults = settingRepository.getFeatureSettings().delegationFor(platform.uid)
-                val resolved = chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
+                // Ordinary policy is immutable for this turn; revocations can only restrict it.
+                val live = settingRepository.getFeatureSettings().delegationFor(platform.uid).normalized()
+                val resolved = admittedPolicy.copy(enabled = admittedPolicy.enabled && live.enabled)
+                    .withRemoteWorkersAllowed(admittedPolicy.remoteWorkersAllowed() && live.remoteWorkersAllowed())
                 return if (taskRecovery?.primaryOnly == true) resolved.copy(enabled = false, automaticResearch = false, researchEnabled = false, reviewerEnabled = false, processingOwnership = 100) else resolved
             }
             val researchChatId = effectiveUserMessages.lastOrNull()?.chatId ?: -1
             val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
+            delegationActivity?.start(runId, researchChatId, dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(kotlinx.serialization.json.Json.encodeToString(admittedPolicy)), platform.uid, researchPersistent)
             val localDelegation = LocalDelegationCoordinator(
                 platform,
+                onEvent = { event -> delegationActivity?.record(runId, event) },
                 researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey),
+                beforeDispatch = { dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.awaitDispatch(runId) && effectiveDelegationSettings().enabled },
                 settings = { effectiveDelegationSettings() },
-                profiles = { settingRepository.fetchPlatformV2s() },
+                profiles = {
+                    val live = settingRepository.fetchPlatformV2s().associateBy { it.uid }
+                    // A changed endpoint/model/credential is a revocation for this response,
+                    // never permission to send an admitted task to a different destination.
+                    admittedProfiles.filter { pinned -> live[pinned.uid] == pinned && pinned.enabled }
+                },
                 generate = { target, task, cap -> generateDelegate(target, task, cap) },
                 generateWithProgress = { target, task, cap, inputCap, progress ->
                     generateDelegate(target, task, cap, inputCap, progress)
@@ -1332,6 +1354,18 @@ class ChatRepositoryImpl(
                     }
                 }
             )
+            delegationControlJob = launch {
+                while (isActive) {
+                    val control = dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.modes.value[runId]
+                    if (control == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PRIMARY_ONLY || !effectiveDelegationSettings().enabled || admittedPolicy.remoteWorkersAllowed() && !effectiveDelegationSettings().remoteWorkersAllowed()) {
+                        dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.primaryOnly(runId)
+                        localDelegation.cancelDelegation()
+                        break
+                    }
+                    delay(250L)
+                }
+            }
+
             val unavailableConnections = mutableListOf<String>()
             val synthesisRun = runId.startsWith("combined-synthesis:")
             val sourceAcquisitionRequested = chatToolConfig?.research?.let { selection ->
@@ -1569,7 +1603,7 @@ class ChatRepositoryImpl(
                     "reservedCalls=${toolBudgetLimits.finalResponseToolCallReserve} · " +
                     "resultBytes=${toolBudgetLimits.maxToolOutputBytes} · localResearch=$localResearch"
             )
-            val toolBudget = ToolExecutionBudget(toolBudgetLimits)
+            val toolBudget = ToolExecutionBudget(toolBudgetLimits, statistics = toolStatistics.takeIf { researchPersistent }, statisticsProfile = platform.uid, statisticsRoot = runId)
             val explicitResearchSelection = chatToolConfig?.research
             val explicitResearch = explicitResearchSelection?.let { selection ->
                 selection.researchToggle &&
@@ -1582,7 +1616,7 @@ class ChatRepositoryImpl(
                     !synthesisRun
             } == true
             val acquisitionBudget = if (explicitResearch || (localResearch && initialDelegationSettings.deepResearch.schemaVersion >= 2)) {
-                ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.researchAcquisitionLimits(toolBudgetLimits, initialDelegationSettings.deepResearch))
+                ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.researchAcquisitionLimits(toolBudgetLimits, initialDelegationSettings.deepResearch), statistics = toolStatistics.takeIf { researchPersistent }, statisticsProfile = platform.uid, statisticsRoot = runId)
             } else {
                 toolBudget
             }
@@ -1603,7 +1637,7 @@ class ChatRepositoryImpl(
                     resolved.realToolName in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "free_search__fetch", "free_search__read_doc")
                 val boundBudget = if (acquisitionTool) acquisitionBudget else toolBudget
                 resolved.copy(
-                    tool = boundBudget.bind(resolved.tool.withRunContext(runId), onFinished = { callId, success ->
+                    tool = boundBudget.bind(resolved.tool.withRunContext(runId), statisticsIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid), onFinished = { callId, success ->
                         toolApprovals?.finish(runId, callId, success)
                     }) { callId, arguments ->
                         resolved.connectionUid?.let { uid ->
@@ -1809,6 +1843,7 @@ class ChatRepositoryImpl(
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }
                 .map { if (taskRoutedTools.any { tool -> tool.realToolName == "delegate_to_model" }) localDelegation.processToolResults(it, latestUser?.content.orEmpty()) else it }
             val delegationSettings = effectiveDelegationSettings()
+            delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.NO_OUTPUT
             emitAll(
                 streamPrimaryAnswer(
                     platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
@@ -1821,11 +1856,24 @@ class ChatRepositoryImpl(
                     } else {
                         0
                     }
-                )
+                ).map { state ->
+                    if (state is ApiState.Error) delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.FAILED
+                    if (state is ApiState.Success && state.textChunk.isNotBlank() && delegationTerminal != dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.FAILED) delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.RETURNED_OUTPUT
+                    state
+                }
             )
+        } catch (cancelled: CancellationException) {
+            delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.CANCELED
+            throw cancelled
+        } catch (error: Exception) {
+            delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.FAILED
+            throw error
         } finally {
             withContext(NonCancellable) {
                 followUps?.close()
+                delegationActivity?.record(runId, dev.chungjungsoo.gptmobile.data.delegation.DelegationEvent(dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind.RUN_TERMINAL, role = dev.chungjungsoo.gptmobile.data.delegation.DelegationRole.PRIMARY, profileUid = platform.uid, status = delegationTerminal))
+                delegationControlJob?.cancelAndJoin()
+                dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.remove(runId)
                 statusJob.cancelAndJoin()
                 toolEventRecorder.cancelRun(runId, currentEpochSeconds())
             }
@@ -2646,13 +2694,12 @@ class ChatRepositoryImpl(
     override suspend fun branchChat(chatRoom: ChatRoomV2, editedUser: MessageV2): ChatRoomV2 {
         val branch = agentPersistenceDao.duplicateChatWithHistory(chatRoom.id, "${chatRoom.title} · branch".take(70), System.currentTimeMillis() / 1000, editedUser)
         knowledge?.dao?.projectForChat(chatRoom.id)?.let { knowledge.dao.attachChat(dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProjectChat(branch.id, it.id)) }
-        val features = settingRepository.getFeatureSettings()
-        settingRepository.updateFeatureSettings(
+        settingRepository.mutateFeatureSettings { features ->
             features.copy(
                 conversationReasoning = features.conversationReasoning + listOfNotNull(features.conversationReasoning[chatRoom.id]?.let { branch.id to it }).toMap(),
                 conversationDelegation = features.conversationDelegation + listOfNotNull(features.conversationDelegation[chatRoom.id]?.let { branch.id to it }).toMap()
             )
-        )
+        }
         return branch
     }
 

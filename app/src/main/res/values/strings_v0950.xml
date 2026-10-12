@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string formatted="false" name="v0950_06x_a01e6">#%06X</string>
+    <string formatted="false" name="v0950_a_clear_answer_with_a_useful_source_6a0f2">A clear answer with a useful source.</string>
+    <string formatted="false" name="v0950_active_responses_30e51">Active responses</string>
+    <string formatted="false" name="v0950_activity_38da1">Activity</string>
+    <string formatted="false" name="v0950_ai_on_your_device_2feb5">AI on your device</string>
+    <string formatted="false" name="v0950_all_models_0f589">All models</string>
+    <string formatted="false" name="v0950_appearance_3907f">Appearance</string>
+    <string formatted="false" name="v0950_appearance_changed_elsewhere_your_draft_is_pr_80f6f">Appearance changed elsewhere. Your draft is preserved.</string>
+    <string formatted="false" name="v0950_appearance_mode_3a6b5">Appearance mode</string>
+    <string formatted="false" name="v0950_apply_31e39">Apply</string>
+    <string formatted="false" name="v0950_apply_template_tuning_11b26">Apply template tuning?</string>
+    <string formatted="false" name="v0950_approved_worker_pool_693e9">Approved worker pool</string>
+    <string formatted="false" name="v0950_backup_restore_00769">Backup &amp; restore</string>
+    <string formatted="false" name="v0950_cancel_19766">Cancel</string>
+    <string formatted="false" name="v0950_capabilities_advertised_not_execution_proof_6761c">Capabilities · advertised, not execution proof</string>
+    <string formatted="false" name="v0950_clear_83b12">Clear</string>
+    <string formatted="false" name="v0950_clear_statistics_for_this_item_dbc10">Clear statistics for this item</string>
+    <string formatted="false" name="v0950_close_7d9eb">Close</string>
+    <string formatted="false" name="v0950_collect_local_statistics_87b1b">Collect local statistics</string>
+    <string formatted="false" name="v0950_continue_with_primary_e867e">Continue with primary</string>
+    <string formatted="false" name="v0950_copy_this_json_or_paste_a_template_to_preview_d61d5">Copy this JSON or paste a template to preview. No credentials, endpoints, profile identities or permissions are included.</string>
+    <string formatted="false" name="v0950_correction_policy_a2ae9">Correction Policy</string>
+    <string formatted="false" name="v0950_create_a_palette_and_save_it_to_keep_it_here_719f0">Create a palette and save it to keep it here.</string>
+    <string formatted="false" name="v0950_create_a_theme_85173">Create a theme</string>
+    <string formatted="false" name="v0950_curated_candidates_for_this_device_75abc">Curated candidates for this device</string>
+    <string formatted="false" name="v0950_custom_colours_stay_fixed_across_display_mode_5a2a4">Custom colours stay fixed across display modes.</string>
+    <string formatted="false" name="v0950_discard_colour_changes_3d86a">Discard colour changes?</string>
+    <string formatted="false" name="v0950_discard_eb1a7">Discard</string>
+    <string formatted="false" name="v0950_done_11a67">Done</string>
+    <string formatted="false" name="v0950_download_size_is_separate_from_working_memory_f3202">Download size is separate from working memory. Loading rechecks current memory and backend compatibility. A verified download is not proof of successful execution.</string>
+    <string formatted="false" name="v0950_enter_exactly_six_hexadecimal_digits_for_exam_2236b">Enter exactly six hexadecimal digits, for example #00FFDE.</string>
+    <string formatted="false" name="v0950_export_all_local_statistics_a5d58">Export all local statistics</string>
+    <string formatted="false" name="v0950_export_import_template_json_71174">Export / import template JSON</string>
+    <string formatted="false" name="v0950_fallback_325e8">Fallback</string>
+    <string formatted="false" name="v0950_filters_546eb">Filters</string>
+    <string formatted="false" name="v0950_global_defaults_ordinary_changes_apply_to_the_389ee">Global defaults · Ordinary changes apply to the next response</string>
+    <string formatted="false" name="v0950_handoff_and_helper_workload_ebb1c">Handoff And Helper Workload</string>
+    <string formatted="false" name="v0950_help_me_explore_an_idea_a6c6e">Help me explore an idea.</string>
+    <string formatted="false" name="v0950_hex_colour_68b4d">HEX colour</string>
+    <string formatted="false" name="v0950_include_in_statistics_backups_82caf">Include in Statistics backups</string>
+    <string formatted="false" name="v0950_keep_activity_history_13f69">Keep activity history</string>
+    <string formatted="false" name="v0950_keep_editing_e76fd">Keep editing</string>
+    <string formatted="false" name="v0950_legacy_automatic_pool_retained_select_profile_922be">Legacy automatic pool retained. Select profiles below to replace it with an explicit approved list.</string>
+    <string formatted="false" name="v0950_lifetime_outcome_summary_80f1d">Lifetime outcome summary</string>
+    <string formatted="false" name="v0950_lifetime_this_device_all_profiles_a16ac">Lifetime · This device · All profiles</string>
+    <string formatted="false" name="v0950_load_more_ac899">Load more</string>
+    <string formatted="false" name="v0950_local_models_8e4bf">Local models</string>
+    <string formatted="false" name="v0950_local_runtime_settings_7fbc0">Local runtime settings</string>
+    <string formatted="false" name="v0950_local_statistics_preferences_704a6">Local statistics preferences</string>
+    <string formatted="false" name="v0950_logical_uses_are_recorded_after_admission_pri_6db0e">Logical uses are recorded after admission. Private and temporary chats are excluded. Unknown outcomes are not failures.</string>
+    <string formatted="false" name="v0950_low_sample_10261">Low sample</string>
+    <string formatted="false" name="v0950_mcp_upstream_attempts_are_correlated_when_obs_759db">MCP upstream attempts are correlated when observed; other producers may not report them. Discovery and connection checks are not tool uses. A server response does not verify every operation.</string>
+    <string formatted="false" name="v0950_measurement_coverage_53769">Measurement coverage</string>
+    <string formatted="false" name="v0950_model_delegation_7637c">Model Delegation</string>
+    <string formatted="false" name="v0950_model_details_5ddbc">Model details</string>
+    <string formatted="false" name="v0950_model_filters_d4bb9">Model filters</string>
+    <string formatted="false" name="v0950_move_up_c66fe">Move up</string>
+    <string formatted="false" name="v0950_name_up_to_40_characters_89572">Name · up to 40 characters</string>
+    <string formatted="false" name="v0950_no_executions_recorded_opening_settings_never_d5617">No executions recorded. Opening settings never counts as a use.</string>
+    <string formatted="false" name="v0950_no_models_match_these_filters_c5178">No models match these filters.</string>
+    <string formatted="false" name="v0950_no_prompts_tool_arguments_result_content_cred_c2925">No prompts, tool arguments, result content, credentials or raw errors are stored.</string>
+    <string formatted="false" name="v0950_no_runs_in_this_session_open_a_conversation_t_2b7be">No runs in this session. Open a conversation to inspect its retained research history.</string>
+    <string formatted="false" name="v0950_no_saved_themes_yet_2794e">No saved themes yet</string>
+    <string formatted="false" name="v0950_no_uses_recorded_in_this_period_collection_ga_b5ff3">No uses recorded in this period. Collection gaps may be present.</string>
+    <string formatted="false" name="v0950_overview_d4b1e">Overview</string>
+    <string formatted="false" name="v0950_portable_template_56ab1">Portable template</string>
+    <string formatted="false" name="v0950_preparation_preference_is_not_a_measured_perc_c2449">Preparation preference is not a measured percentage of work, tokens or cost.</string>
+    <string formatted="false" name="v0950_presets_change_research_breadth_your_profile__1164a">Presets change research breadth. Your profile choices, reviewer settings and permission controls are preserved.</string>
+    <string formatted="false" name="v0950_preview_324b1">Preview</string>
+    <string formatted="false" name="v0950_preview_plan_11340">Preview plan</string>
+    <string formatted="false" name="v0950_preview_suggested_correction_b117a">Preview suggested correction</string>
+    <string formatted="false" name="v0950_processor_54aac">Processor</string>
+    <string formatted="false" name="v0950_reload_bdc09">Reload</string>
+    <string formatted="false" name="v0950_requests_for_missing_or_unauthorized_models_s_8f716">Requests for missing or unauthorized models stop immediately. Final answers use the main profile\'s output limit.</string>
+    <string formatted="false" name="v0950_research_activity_current_session_662fa">Research activity · Current session</string>
+    <string formatted="false" name="v0950_research_and_budget_tuning_will_return_to_rec_c3851">Research and budget tuning will return to recommended values. Enabled state, helper, reviewer, preparation preference, approved pool and cloud consent are preserved.</string>
+    <string formatted="false" name="v0950_research_limits_c5660">Research Limits</string>
+    <string formatted="false" name="v0950_research_tools_e46bc">Research Tools</string>
+    <string formatted="false" name="v0950_reset_filters_10afa">Reset filters</string>
+    <string formatted="false" name="v0950_reset_recommended_defaults_f334a">Reset Recommended Defaults</string>
+    <string formatted="false" name="v0950_reset_tuning_e6ee5">Reset tuning</string>
+    <string formatted="false" name="v0950_restore_defaults_602f8">Restore defaults</string>
+    <string formatted="false" name="v0950_restore_recommended_defaults_985dd">Restore Recommended Defaults</string>
+    <string formatted="false" name="v0950_restore_tuning_defaults_36a10">Restore tuning defaults?</string>
+    <string formatted="false" name="v0950_retry_94208">Retry</string>
+    <string formatted="false" name="v0950_reviewer_validation_4a1fc">Reviewer Validation</string>
+    <string formatted="false" name="v0950_runtime_10931">Runtime</string>
+    <string formatted="false" name="v0950_save_1509f">Save</string>
+    <string formatted="false" name="v0950_save_theme_a8dd5">Save theme</string>
+    <string formatted="false" name="v0950_schema_v1_json_ca14d">Schema v1 JSON</string>
+    <string formatted="false" name="v0950_search_models_10421">Search models</string>
+    <string formatted="false" name="v0950_search_saved_themes_c37c6">Search saved themes</string>
+    <string formatted="false" name="v0950_set_b6f6f">Set</string>
+    <string formatted="false" name="v0950_show_every_listed_model_355b0">Show every listed model</string>
+    <string formatted="false" name="v0950_show_the_full_catalog_46ecc">Show the full catalog</string>
+    <string formatted="false" name="v0950_source_coverage_is_not_a_guarantee_of_accurac_a5c80">Source coverage is not a guarantee of accuracy. Reviewer results remain attached to the response.</string>
+    <string formatted="false" name="v0950_source_example_send_6eca0">Source  ·  `example`  ·  Send →</string>
+    <string formatted="false" name="v0950_statistics_may_be_incomplete_b6fb3">Statistics may be incomplete</string>
+    <string formatted="false" name="v0950_stop_acquisition_keep_completed_evidence_0eca3">Stop acquisition; keep completed evidence</string>
+    <string formatted="false" name="v0950_stop_entire_response_57b35">Stop entire response</string>
+    <string formatted="false" name="v0950_templates_change_tuning_and_requested_review__a57aa">Templates change tuning and requested review. Roles, enabled state, tool grants and cloud permission remain yours to choose.</string>
+    <string formatted="false" name="v0950_the_assigned_helper_may_be_missing_or_unavail_a75af">The assigned helper may be missing or unavailable. Select a profile or choose Automatic explicitly. Cloud selection never grants consent.</string>
+    <string formatted="false" name="v0950_the_geniex_apk_is_a_separate_installation_its_dedfc">The GenieX APK is a separate installation. Its data and native libraries are isolated from the standard app.</string>
+    <string formatted="false" name="v0950_these_are_curated_evaluation_candidates_with__5dd8b">These are curated evaluation candidates with resolvable packages for this build and chipset. Families appear once, with smaller eligible variants preferred. This is not a benchmark ranking. Runtime verification, memory headroom, licensing and workflow support are checked separately. All models keeps the complete accepted catalog.</string>
+    <string formatted="false" name="v0950_these_controls_apply_to_delegation_the_main_m_2a70c">These controls apply to delegation. The main model\'s output limit is unchanged. When the local budget runs out, the brief identifies omitted evidence.</string>
+    <string formatted="false" name="v0950_these_preferences_apply_to_all_tools_on_this__d85d3">These preferences apply to all tools on this device. Backup restore replaces these statistics; it never adds totals twice.</string>
+    <string formatted="false" name="v0950_undo_a8283">Undo</string>
+    <string formatted="false" name="v0950_undo_correction_89f4c">Undo correction</string>
+    <string formatted="false" name="v0950_usage_availability_6f403">Usage &amp; availability</string>
+    <string formatted="false" name="v0950_usage_history_and_totals_will_be_removed_conf_e93f7">Usage history and totals will be removed. Configuration, permissions, quotas and cooldowns remain unchanged.</string>
+    <string formatted="false" name="v0950_use_colour_ac738">Use colour</string>
+    <string formatted="false" name="v0950_use_custom_colours_99620">Use custom colours</string>
+    <string formatted="false" name="v0950_validate_and_preview_921b2">Validate and preview</string>
+    <string formatted="false" name="v0950_variants_63d26">Variants</string>
+    <string formatted="false" name="v0950_view_statistics_2f47c">View statistics</string>
+    <string formatted="false" name="v0950_view_this_tool_s_activity_47aac">View this tool’s activity</string>
+    <string formatted="false" name="v0950_wallpaper_colours_85997">Wallpaper colours</string>
+    <string formatted="false" name="v0950_wallpaper_colours_replace_the_custom_palette__b625f">Wallpaper colours replace the custom palette while this is on.</string>
+    <string formatted="false" name="v0950_why_these_models_6954d">Why these models?</string>
+    <string formatted="false" name="v0950_wi_fi_only_downloads_497e4">Wi-Fi only downloads</string>
+    <string formatted="false" name="v0950_workers_7a1ec">Workers</string>
+    <string name="v0950_profile_private_helpers">Private helpers only</string>
+    <string name="v0950_profile_private_helpers_description">Restrict this profile to on-device and private-server helpers. Turning this off inherits the global cloud permission.</string>
+    <string name="v0950_delegation_history">Keep delegation activity</string>
+    <string name="v0950_delegation_history_description">Retain up to 200 responses for 30 days. Only timing, role, policy revision and reported usage are recorded. Temporary conversations stay in memory.</string>
+    <string name="v0950_delegation_history_unavailable">Some activity could not be saved. Displayed history may be incomplete.</string>
+    <string name="v0950_export_delegation_history">Export activity</string>
+    <string name="v0950_clear_delegation_history">Clear delegation activity</string>
+    <string name="v0950_clear_delegation_description">Remove saved activity records from this device. Conversations and current settings are retained.</string>
+    <string name="v0950_delegation_output_not_verified">Returned output is not a completeness or quality guarantee. Run history never triggers another request.</string>
+</resources>

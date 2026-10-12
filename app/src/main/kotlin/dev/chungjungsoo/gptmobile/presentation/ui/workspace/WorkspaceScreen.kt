@@ -410,10 +410,11 @@ private fun BudgetPanel(model: WorkspaceViewModel) {
                 OutlinedTextField(daily, { daily = it }, label = { Text("Per UTC day · 0 disables") })
                 Button(onClick = {
                     model.action {
-                        val current = model.settings.getFeatureSettings()
-                        val budget = current.spendBudget.copy(currency = currency, perTurnMicros = micros(turn), perDayMicros = micros(daily), prices = if (currency == current.spendBudget.currency) current.spendBudget.prices else emptyMap())
-                        budget.validate()
-                        model.settings.updateFeatureSettings(current.copy(spendBudget = budget))
+                        model.settings.mutateFeatureSettings { current ->
+                            val budget = current.spendBudget.copy(currency = currency, perTurnMicros = micros(turn), perDayMicros = micros(daily), prices = if (currency == current.spendBudget.currency) current.spendBudget.prices else emptyMap())
+                            budget.validate()
+                            current.copy(spendBudget = budget)
+                        }
                         model.notice.value = "Allowances saved. A finite output cap is required for remote spending reservations."
                     }
                 }) { Text("Save allowances") }
@@ -449,12 +450,13 @@ private fun BudgetPanel(model: WorkspaceViewModel) {
                 OutlinedTextField(source, { source = it }, label = { Text("Price source URL or contract reference") })
                 Button(onClick = {
                     model.action {
-                        val current = model.settings.getFeatureSettings()
-                        val profile = profiles.first { it.uid == uid }
-                        val price = ModelPrice(profile.model, micros(input), micros(output), source, System.currentTimeMillis())
-                        val budget = current.spendBudget.copy(prices = current.spendBudget.prices + (uid to price))
-                        budget.validate()
-                        model.settings.updateFeatureSettings(current.copy(spendBudget = budget))
+                        model.settings.mutateFeatureSettings { current ->
+                            val profile = profiles.first { it.uid == uid }
+                            val price = ModelPrice(profile.model, micros(input), micros(output), source, System.currentTimeMillis())
+                            val budget = current.spendBudget.copy(prices = current.spendBudget.prices + (uid to price))
+                            budget.validate()
+                            current.copy(spendBudget = budget)
+                        }
                         model.notice.value = "Price saved for ${profile.model}. Estimates exclude cache discounts and tool charges."
                     }
                 }) { Text("Confirm price") }

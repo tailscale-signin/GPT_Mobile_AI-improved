@@ -278,6 +278,30 @@ class LocalModelDownloadWorker @AssistedInject constructor(
 
         withCurrent(catalogEntryId) {
             setProgress(Data.Builder().putLong(KEY_RECEIVED_BYTES, outputTmpFile.length()).putLong(KEY_TOTAL_BYTES, expectedTotalBytes).putBoolean(KEY_VERIFYING, true).build())
+            if (fileName.endsWith(".localmodel", true)) {
+                check(dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) { "This artifact requires the GenieX build" }
+                val digest = inputData.getString(KEY_SHA256).orEmpty()
+                require(digest.matches(Regex("[a-fA-F0-9]{64}"))) { "A publisher SHA-256 is required for a catalog bundle" }
+                try {
+                    dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.verify(outputTmpFile, digest)
+                } catch (error: IOException) {
+                    outputTmpFile.delete()
+                    throw error
+                }
+                val execution = currentCoroutineContext()
+                val installed = dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(outputTmpFile.inputStream(), transferRoot(), catalogEntryId) {
+                    execution.ensureActive()
+                    if (isStopped) throw CancellationException("Bundle installation cancelled")
+                }
+                check(installed is dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult.Success) { "Bundle installation failed; review the package manifest and assets" }
+                val destination = File(installed.absoluteFilePath).parentFile!!
+                val metadata = File(outputDir, ".catalog.json")
+                if (metadata.isFile) metadata.copyTo(File(destination, ".catalog.json"), overwrite = true)
+                val row = checkNotNull(localModelDao.getById(catalogEntryId))
+                localModelDao.upsert(row.copy(commitHash = installed.record.commitHash, fileName = "manifest.json", relativeDirectory = installed.record.relativeDirectory, totalBytes = File(installed.absoluteFilePath).length()))
+                outputTmpFile.delete()
+                return@withCurrent
+            }
             val validation = dev.chungjungsoo.gptmobile.data.localruntime.LocalModelValidator.validate(outputTmpFile.absolutePath)
             if (validation is dev.chungjungsoo.gptmobile.data.localruntime.ModelValidationResult.Invalid) {
                 outputTmpFile.delete()

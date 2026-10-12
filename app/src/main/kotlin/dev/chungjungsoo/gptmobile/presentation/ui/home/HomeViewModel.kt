@@ -420,8 +420,7 @@ class HomeViewModel @Inject constructor(
     fun rememberChatSelection(uids: List<String>, mode: String) {
         val valid = platformState.value.filter { it.enabled && it.uid in uids }.map { it.uid }
         viewModelScope.launch {
-            val current = settingRepository.getFeatureSettings()
-            settingRepository.updateFeatureSettings(current.copy(lastChatProfileUids = valid, lastChatMode = mode))
+            settingRepository.mutateFeatureSettings { current -> current.copy(lastChatProfileUids = valid, lastChatMode = mode) }
         }
     }
 

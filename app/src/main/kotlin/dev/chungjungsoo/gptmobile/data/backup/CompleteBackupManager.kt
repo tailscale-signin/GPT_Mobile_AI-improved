@@ -49,6 +49,7 @@ class CompleteBackupManager @Inject constructor(
     private val legacy: AppBackupManager,
     private val nativePlugins: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
     private val benchmarkStore: BenchmarkStore,
+    private val toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository(context),
     private val healthImportStore: dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore =
         dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context)
 ) {
@@ -266,6 +267,9 @@ class CompleteBackupManager @Inject constructor(
                     writeText(benchmarkStore.exportJson())
                 }
                 sources["internal/benchmark-results/benchmark-results.json"] = benchmarkFile
+                if (toolStatistics.preferences.value.includeInBackup) {
+                    sources["tool-statistics.json"] = File(work, "tool-statistics.json").apply { writeText(toolStatistics.export()) }
+                }
             }
             if (selected.includes(CompleteBackupSection.TOOLS)) {
                 val pluginSnapshotDirectory = File(work, "plugin-snapshot").apply { check(mkdirs() || isDirectory) }
@@ -427,6 +431,17 @@ class CompleteBackupManager @Inject constructor(
             return@operation BackupRestoreResult(true, "None of the selected sections exist in this backup.")
         }
 
+        var statisticsNotice = ""
+        val statisticsSnapshot = if (CompleteBackupSection.STATISTICS in effective.sections && "tool-statistics.json" in manifest.files) {
+            runCatching {
+                val snapshotFile = File(staging, "tool-statistics.json")
+                require(snapshotFile.length() <= 25L * 1024 * 1024) { "Statistics snapshot exceeds the import limit." }
+                snapshotFile.readText().also { toolStatistics.validateSnapshot(it) }
+            }
+                .onFailure { statisticsNotice = " Tool statistics were skipped: invalid or unsupported snapshot. Current statistics were preserved." }.getOrNull()
+        } else {
+            null
+        }
         val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
         val restorePreferences = restoreSettings || CompleteBackupSection.TOOLS in effective.sections
         val restoreSecrets = effective.requiresEncryption
@@ -446,7 +461,7 @@ class CompleteBackupManager @Inject constructor(
         val storage = files()
         val selectedPaths = manifest.files.keys
             .asSequence()
-            .filterNot { it == "database.sqlite" }
+            .filterNot { it == "database.sqlite" || it == "tool-statistics.json" }
             .filter { path ->
                 if (path.startsWith("internal/research-history/")) {
                     effective.includes(CompleteBackupSection.CONVERSATIONS)
@@ -569,11 +584,20 @@ class CompleteBackupManager @Inject constructor(
             snapshot?.close()
         }
 
+        if (statisticsSnapshot != null) {
+            try {
+                toolStatistics.restore(statisticsSnapshot)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                statisticsNotice = " Tool statistics could not be restored. Current statistics were preserved."
+            }
+        }
         BackupRestoreResult(
             true,
             (if (convertedLegacy) "Legacy backup converted to the current format. " else "") + "Restored: " + effective.sections
                 .sortedBy { it.ordinal }
-                .joinToString { section -> section.displayName() } + "."
+                .joinToString { section -> section.displayName() } + "." + statisticsNotice
         )
     }
 

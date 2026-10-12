@@ -22,9 +22,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
-import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun DelegateModelDropdown(
     profiles: List<PlatformV2>,
@@ -33,9 +33,12 @@ fun DelegateModelDropdown(
     onSelected: (PlatformV2?) -> Unit,
     automaticLabel: String = "Automatic",
     roleLabel: String = "Delegate model",
-    scores: Map<String, Int> = emptyMap()
+    scores: Map<String, Int> = emptyMap(),
+    blockedReason: (PlatformV2) -> String? = { if (it.enabled) null else "Profile disabled" }
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var destination by remember { mutableStateOf("All") }
     val selected = profiles.firstOrNull { it.uid == selectedProfileUid }
     Column {
         Text(roleLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -59,40 +62,60 @@ fun DelegateModelDropdown(
                 }
                 Icon(Icons.Rounded.ArrowDropDown, "Choose $roleLabel")
             }
-            DropdownMenu(
-                expanded = expanded && enabled,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.heightIn(max = 360.dp)
-            ) {
-                DropdownMenuItem(
-                    text = { Text(automaticLabel) },
-                    onClick = {
-                        expanded = false
-                        onSelected(null)
-                    }
-                )
-                profiles.forEach { profile ->
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(profile.name)
-                                Text(
-                                    buildString {
-                                        append(profile.model)
-                                        scores[profile.uid]?.let { score -> append(" · Score $score/100") }
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+            if (expanded && enabled) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { expanded = false },
+                    title = { Text("Choose $roleLabel") },
+                    text = {
+                        Column {
+                            androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search profiles or models") }, singleLine = true)
+                            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+                                listOf("All", "On device", "Private", "Cloud").forEach { label ->
+                                    androidx.compose.material3.FilterChip(destination == label, { destination = label }, label = { Text(label) })
+                                }
                             }
-                        },
-                        leadingIcon = { Icon(if (profile.isPrivateDestination()) Icons.Rounded.Memory else Icons.Rounded.Cloud, if (profile.isPrivateDestination()) "Local or private model" else "Online model") },
-                        onClick = {
-                            expanded = false
-                            onSelected(profile)
+                            androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                                item {
+                                    DropdownMenuItem(text = { Text(automaticLabel) }, onClick = {
+                                        expanded = false
+                                        onSelected(null)
+                                    })
+                                }
+                                val candidates = profiles.filter { profile ->
+                                    (query.isBlank() || "${profile.name} ${profile.model}".contains(query.trim(), true)) &&
+                                        when (destination) {
+                                            "On device" -> profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM
+                                            "Private" -> profile.isPrivateDestination() && profile.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM
+                                            "Cloud" -> !profile.isPrivateDestination()
+                                            else -> true
+                                        }
+                                }
+                                items(candidates.size, key = { candidates[it].uid }) { index ->
+                                    val profile = candidates[index]
+                                    val reason = blockedReason(profile)
+                                    DropdownMenuItem(
+                                        enabled = reason == null,
+                                        text = {
+                                            Column {
+                                                Text(profile.name)
+                                                Text(profile.model, style = MaterialTheme.typography.bodySmall)
+                                                if (reason != null) Text(reason, style = MaterialTheme.typography.bodySmall)
+                                                scores[profile.uid]?.let { Text("Recorded score $it/100", style = MaterialTheme.typography.bodySmall) }
+                                            }
+                                        },
+                                        leadingIcon = { Icon(if (profile.isPrivateDestination()) Icons.Rounded.Memory else Icons.Rounded.Cloud, if (profile.isPrivateDestination()) "Local or private model" else "Cloud model") },
+                                        onClick = {
+                                            expanded = false
+                                            onSelected(profile)
+                                        }
+                                    )
+                                }
+                                if (candidates.isEmpty()) item { Text("No matching profiles") }
+                            }
                         }
-                    )
-                }
+                    },
+                    confirmButton = { androidx.compose.material3.TextButton(onClick = { expanded = false }) { Text("Close") } }
+                )
             }
         }
         if (profiles.isEmpty()) {

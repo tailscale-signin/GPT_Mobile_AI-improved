@@ -63,6 +63,8 @@ class McpToolRegistry(
             val executor = toolExecutors[toolName] ?: return@withContext McpToolResult.failure("Tool not found: $toolName")
             try {
                 executor(params)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 McpToolResult.failure(e.message ?: "Execution failed")
             }

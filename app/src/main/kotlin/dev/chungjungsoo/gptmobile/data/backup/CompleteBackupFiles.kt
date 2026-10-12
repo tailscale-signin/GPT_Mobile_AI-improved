@@ -30,7 +30,7 @@ internal class CompleteBackupFiles(
         roots.entries.distinctBy { it.value }.forEach { (name, root) ->
             root.walkTopDown().onEnter { it == root || (it.name !in excluded && !it.name.startsWith(".full-restore-")) }
                 .onFail { _, error -> throw error }
-                .filter { it.isFile && it.extension != "gptbackup" }
+                .filter { it.isFile && it.extension != "gptbackup" && !it.name.startsWith("tool-statistics-") }
                 .forEach { file ->
                     require(file.canonicalFile == file.absoluteFile) { "Cannot back up a symbolic link." }
                     val path = "$name/${file.relativeTo(root).invariantSeparatorsPath}"

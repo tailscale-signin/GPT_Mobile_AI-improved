@@ -183,10 +183,20 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
 }
 
 @Composable
-private fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
-    val hsv = remember(color) { FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) } }
+internal fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
+    var rememberedHue by rememberSaveable { mutableStateOf(0f) }
+    val hsv = remember(color, rememberedHue) {
+        FloatArray(3).also {
+            android.graphics.Color.colorToHSV(color.toArgb(), it)
+            if (it[1] == 0f || it[2] == 0f) it[0] = rememberedHue
+        }
+    }
     val currentHsv by rememberUpdatedState(hsv)
-    val change by rememberUpdatedState(onColorChange)
+    val change by rememberUpdatedState<(Color) -> Unit>({ next ->
+        val values = FloatArray(3).also { android.graphics.Color.colorToHSV(next.toArgb(), it) }
+        if (values[1] > 0f && values[2] > 0f) rememberedHue = values[0]
+        onColorChange(next)
+    })
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Canvas(
             Modifier.size(176.dp).semantics { contentDescription = "Colour wheel. Hue, saturation and brightness can also be adjusted with the sliders below." }
@@ -217,10 +227,22 @@ private fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
             drawCircle(Color.White, 7.dp.toPx(), point, style = Stroke(1.5.dp.toPx()))
         }
         listOf("Hue", "Saturation", "Brightness").forEachIndexed { index, label ->
+            val displayed = if (index == 0) hsv[index].toInt() else (hsv[index] * 100).toInt()
+            var numeric by rememberSaveable(index, displayed) { mutableStateOf(displayed.toString()) }
+            val parsed = numeric.toFloatOrNull()?.takeIf { it in 0f..(if (index == 0) 360f else 100f) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(numeric, { numeric = it }, label = { Text(if (index == 0) "$label degrees" else "$label percent") }, isError = parsed == null, singleLine = true, modifier = Modifier.weight(1f))
+                TextButton(enabled = parsed != null, onClick = {
+                    val updated = hsv.copyOf().apply { set(index, if (index == 0) parsed!! else parsed!! / 100f) }
+                    rememberedHue = updated[0]
+                    onColorChange(Color.hsv(updated[0], updated[1], updated[2]))
+                }) { Text("Set") }
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(label, modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelMedium)
                 Slider(value = hsv[index], onValueChange = { value ->
                     val updated = hsv.copyOf().apply { set(index, value) }
+                    rememberedHue = updated[0]
                     onColorChange(Color.hsv(updated[0], updated[1], updated[2]))
                 }, valueRange = 0f..(if (index == 0) 360f else 1f), modifier = Modifier.weight(1f).semantics { contentDescription = label })
             }

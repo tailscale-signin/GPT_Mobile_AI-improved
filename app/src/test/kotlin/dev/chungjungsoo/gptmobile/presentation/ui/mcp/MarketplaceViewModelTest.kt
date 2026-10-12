@@ -193,19 +193,20 @@ class MarketplaceViewModelTest {
     fun bothEnableEntryPointsUseTheRegistryAndFeatureGates() = runTest(dispatcher) {
         val settings = mockk<dev.chungjungsoo.gptmobile.data.repository.SettingRepository>(relaxed = true)
         coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+        var persisted = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+        coEvery { settings.mutateFeatureSettings(any()) } coAnswers {
+            persisted = firstArg<(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings) -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings>()(persisted)
+            persisted
+        }
         val model = MarketplaceViewModel(store, registry, connections, settings = settings)
         viewModels.put("marketplace", model)
         model.setEnabled(entry, true)
         runCurrent()
         coVerify { registry.configuration(entry, false) }
         coVerify { registry.setEnabled(entry, true) }
-        coVerify {
-            settings.updateFeatureSettings(
-                match {
-                    it.isToolPluginEnabled(entry.id) && it.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forPackage(entry).id)
-                }
-            )
-        }
+        assertTrue(persisted.isToolPluginEnabled(entry.id))
+        assertTrue(persisted.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forPackage(entry).id))
+        coVerify(exactly = 1) { settings.mutateFeatureSettings(any()) }
     }
 
     @Test
@@ -216,7 +217,7 @@ class MarketplaceViewModelTest {
         viewModels.put("marketplace", model)
         model.setEnabled(entry, true)
         runCurrent()
-        coVerify(exactly = 0) { settings.updateFeatureSettings(any()) }
+        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
         assertTrue(model.uiState.value.changingIds.isEmpty())
     }
 

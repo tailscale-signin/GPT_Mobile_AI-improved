@@ -15,12 +15,12 @@ internal object RuntimeEvidenceIdentity {
         val cache = File(context.noBackupFilesDir, "model-identity-cache")
         val artifact = PackageDigest.validateInstalledCached(File(spec.modelPath), cache)
         val dispatch = context.applicationInfo.nativeLibraryDir?.let(::File)?.listFiles().orEmpty()
-            .filter { it.name.contains("Dispatch", true) || it.name.startsWith("libQnn") || it.name.contains("litertlm", true) }
+            .filter { it.name.contains("Dispatch", true) || it.name.startsWith("libQnn") || it.name.contains("litertlm", true) || it.name.contains("geniex", true) || it.name.contains("llama", true) || it.name.contains("mtmd", true) }
             .sortedBy { it.name }.joinToString("|") { it.name + ":" + PackageDigest.journalIdentity(it, cache) }
         RuntimeQualificationKey(
             deviceIdentity = hash("${Build.MANUFACTURER}|${Build.MODEL}|${Build.SOC_MODEL}|${android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)}"),
             firmwareDigest = hash(Build.FINGERPRINT),
-            runtimeIdentity = "${BuildConfig.LITERT_LM_VERSION}|${BuildConfig.QAIRT_VERSION}|${BuildConfig.GENIEX_ENABLED}",
+            runtimeIdentity = "${BuildConfig.LITERT_LM_VERSION}|${BuildConfig.QAIRT_VERSION}|${BuildConfig.GENIEX_ENABLED}|${BuildConfig.GENIEX_VERSION}",
             dispatchDigest = hash(dispatch),
             artifactDigest = artifact,
             backend = spec.accelerator,

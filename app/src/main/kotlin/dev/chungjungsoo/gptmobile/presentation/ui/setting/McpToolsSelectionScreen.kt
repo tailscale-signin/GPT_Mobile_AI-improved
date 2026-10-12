@@ -129,6 +129,7 @@ fun McpToolsSelectionScreen(
                                         ToolBindingSelection(option.connectionUid, option.toolName) in bindings.pendingMcpTools,
                                         serviceEnabled && features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid))
                                     ) { viewModel.toggleMcpTool(option.connectionUid, option.toolName) }
+                                    dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsLink(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(option.toolName, option.connectionUid).key, option.toolName)
                                 }
                             }
                         }

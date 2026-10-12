@@ -181,13 +181,12 @@ class MarketplaceViewModel @Inject constructor(
                     if (enabled) {
                         settings?.let { repository ->
                             val previous = repository.getFeatureSettings()
-                            val updated = previous.withToolPluginEnabled(entry.id, true)
-                                .withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forPackage(entry).id, true)
-                            repository.updateFeatureSettings(updated)
+                            val ids = setOf(entry.id, dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forPackage(entry).id)
+                            repository.mutateFeatureSettings { latest -> ids.fold(latest) { value, id -> value.withToolPluginEnabled(id, true) } }
                             try {
                                 registry.setEnabled(entry, true)
                             } catch (error: Exception) {
-                                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { repository.updateFeatureSettings(previous) }
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { repository.mutateFeatureSettings { latest -> latest.copy(toolPluginStates = latest.toolPluginStates - ids + previous.toolPluginStates.filterKeys { it in ids }) } }
                                 throw error
                             }
                         } ?: registry.setEnabled(entry, true)

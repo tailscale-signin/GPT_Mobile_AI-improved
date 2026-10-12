@@ -112,7 +112,7 @@ class ModelDelegationSettingsTest {
         assertEquals(defaults.maxInputCharacters, high.maxInputCharacters)
         assertEquals(defaults.maxOutputTokens, high.maxOutputTokens)
         assertEquals(80, low.processingOwnership)
-        assertEquals(7, low.maxLocalModelCalls)
+        assertEquals(defaults.maxLocalModelCalls, low.maxLocalModelCalls)
         assertEquals(defaults.maxConcurrentDelegates, high.maxConcurrentDelegates)
     }
 

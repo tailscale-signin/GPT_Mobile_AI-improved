@@ -639,6 +639,7 @@ private fun CollapsibleToolConnectionCard(
             if (connection.type == ToolConnectionType.MCP || health != null) ConnectionHealthLine(health)
             AnimatedVisibility(expanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(ToolPluginId.connection(connection.connectionUid), connection.name, enabled ?: true)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = onEditClick) {
                             Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp))

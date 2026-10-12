@@ -26,11 +26,21 @@ interface SettingRepository {
     fun observeDebugMode(): Flow<Boolean>
     suspend fun getFeatureSettings(): AppFeatureSettings = AppFeatureSettings()
     suspend fun updateFeatureSettings(settings: AppFeatureSettings) = Unit
+    suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings {
+        val updated = transform(getFeatureSettings())
+        updateFeatureSettings(updated)
+        return updated
+    }
     fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
     suspend fun migrateToPlatformV2()
     suspend fun migrateSecrets(): List<SecretMigrationError>
     suspend fun updatePlatforms(platforms: List<Platform>)
     suspend fun updateThemes(themeSetting: ThemeSetting)
+    suspend fun mutateThemes(transform: (ThemeSetting) -> ThemeSetting): ThemeSetting {
+        val updated = transform(fetchThemes())
+        updateThemes(updated)
+        return updated
+    }
 
     // Favorite Groups & Message Groups persistence
     suspend fun getFavoriteGroups(): List<String>

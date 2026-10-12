@@ -391,7 +391,19 @@ fun PlatformSettingScreen(
                             icon = Icons.Rounded.Build,
                             enabled = platformData.enabled,
                             isChecked = behavior.delegationEnabled,
-                            onCheckedChange = { settingViewModel.updateProfileBehavior(behavior.copy(delegationEnabled = it)) }
+                            onCheckedChange = { enabled -> settingViewModel.updateProfileBehavior { it.copy(delegationEnabled = enabled) } }
+                        )
+                        PreferenceListSwitch(
+                            title = stringResource(R.string.v0950_profile_private_helpers),
+                            description = stringResource(R.string.v0950_profile_private_helpers_description),
+                            icon = Icons.Rounded.Build,
+                            enabled = platformData.enabled,
+                            isChecked = behavior.delegationCloudPermission == dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY,
+                            onCheckedChange = { privateOnly ->
+                                settingViewModel.updateProfileBehavior {
+                                    it.copy(delegationCloudPermission = if (privateOnly) dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY else dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.INHERIT)
+                                }
+                            }
                         )
                     }
                     if (profileTab == 2) {
@@ -941,7 +953,7 @@ private fun SearchBackendDialog(
             onDismissRequest = settingViewModel::closeSearchBackendDialog,
             confirmButton = {
                 TextButton(onClick = {
-                    settingViewModel.updateProfileBehavior(behavior.copy(crawlersEnabled = crawlerEnabled, crawlerToolIds = crawlerIds, maxCrawlPages = crawlPages.toInt()))
+                    settingViewModel.updateProfileBehavior { it.copy(crawlersEnabled = crawlerEnabled, crawlerToolIds = crawlerIds, maxCrawlPages = crawlPages.toInt()) }
                     if (":read_url" in crawlerIds && crawlerEnabled) settingViewModel.toggleReadUrl(true)
                     settingViewModel.selectSearchBackends(selected, selectedTools)
                 }) { Text(stringResource(R.string.ui_v2_save_engines)) }

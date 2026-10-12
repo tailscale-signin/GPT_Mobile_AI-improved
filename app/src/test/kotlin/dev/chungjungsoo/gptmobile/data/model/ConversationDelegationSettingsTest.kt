@@ -5,7 +5,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationDelegationSettingsTest {
@@ -14,8 +13,8 @@ class ConversationDelegationSettingsTest {
         val defaults = ModelDelegationSettings(enabled = false, targetProfileUid = "default", maxOutputTokens = 1024, handoffTokens = 512)
         val chat = ChatMcpToolConfig(delegation = ConversationDelegationSettings(true, "online-helper", true))
         val effective = chat.effectiveDelegation(defaults)
-        assertTrue(effective.enabled)
-        assertTrue(effective.allowRemoteWorkers)
+        assertFalse(effective.enabled)
+        assertFalse(effective.allowRemoteWorkers)
         assertEquals("online-helper", effective.targetProfileUid)
         assertEquals(1024, effective.maxOutputTokens)
         assertEquals(512, effective.handoffTokens)

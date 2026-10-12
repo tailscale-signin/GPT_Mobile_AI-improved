@@ -45,6 +45,8 @@ data class ModelArtifactManifest(
     val runtimeVersion: String = "",
     val soc: String? = null,
     val tokenizerFile: String? = null,
+    val projectorFile: String? = null,
+    val architecture: String? = null,
     val templateId: String? = null,
     val weightPrecision: String? = null,
     val activationPrecision: String? = null,
@@ -56,7 +58,7 @@ data class ModelArtifactManifest(
     val validations: List<ArtifactValidation> = emptyList()
 ) {
     fun validate(root: File, backend: String? = null, deviceSoc: String? = null) {
-        require(schemaVersion == 1) { "Unsupported artifact manifest version $schemaVersion" }
+        require(schemaVersion in 1..2) { "Unsupported artifact manifest version $schemaVersion" }
         require(familyId.isNotBlank() && artifactId.isNotBlank() && contextTokens > 0)
         require(files.isNotEmpty() && files.size <= 256)
         require(files.map { it.path.lowercase() }.distinct().size == files.size) { "Duplicate package paths" }
@@ -64,12 +66,17 @@ data class ModelArtifactManifest(
         require(runtime != ArtifactRuntime.GENIEX_LLAMA_CPP || (format == "gguf" && entryFile.endsWith(".gguf"))) { "GGUF runtime requires a GGUF artifact" }
         require(runtime != ArtifactRuntime.LITERT_LM || (format == "litertlm" && entryFile.endsWith(".litertlm"))) { "LiteRT runtime requires a LiteRT artifact" }
         require(supportedBackends.isNotEmpty() && supportedBackends.all { it in setOf("cpu", "gpu", "npu") })
-        require(runtime != ArtifactRuntime.GENIEX_LLAMA_CPP || supportedBackends.all { it in setOf("cpu", "gpu") }) { "The GGUF preview supports CPU/GPU, not QAIRT NPU execution" }
+        require(projectorFile == null || schemaVersion == 2 && files.any { it.path == projectorFile }) { "Missing versioned projector asset" }
+        if (runtime == ArtifactRuntime.GENIEX_LLAMA_CPP && "npu" in supportedBackends) {
+            require(schemaVersion == 2 && runtimeVersion == dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_VERSION && weightPrecision.equals("Q4_0", true) && !architecture.isNullOrBlank()) { "GGUF Hexagon requires a v2 manifest, the pinned runtime, explicit architecture and Q4_0 precision" }
+            if (backend == "npu") require(canonicalSoc(deviceSoc.orEmpty()) in setOf("SM8750", "SM8850")) { "This chipset is outside the initial GGUF Hexagon qualification corpus. Choose an explicit CPU/GPU alternative." }
+        }
+        if (vision && runtime == ArtifactRuntime.GENIEX_LLAMA_CPP) require(schemaVersion == 2 && projectorFile != null) { "GGUF image input requires its exact hashed projector" }
         require(backend == null || backend in supportedBackends) { "Requested backend is unsupported by this artifact" }
         if (runtime in setOf(ArtifactRuntime.GENIE_LEGACY, ArtifactRuntime.GENIEX_QAIRT)) {
             require(supportedBackends == setOf("npu") && !soc.isNullOrBlank() && tokenizerFile != null) { "Compiled Qualcomm bundles require exact SoC, tokenizer and NPU-only execution" }
         }
-        if (backend == "npu" && deviceSoc != null) {
+        if (backend == "npu" && deviceSoc != null && runtime != ArtifactRuntime.GENIEX_LLAMA_CPP) {
             require(!soc.isNullOrBlank() && canonicalSoc(soc) == canonicalSoc(deviceSoc)) { "Package SoC does not match this device" }
         }
         require(evidence !in setOf(ArtifactEvidence.INCOMPATIBLE, ArtifactEvidence.QUARANTINED)) { "Artifact is quarantined or incompatible" }

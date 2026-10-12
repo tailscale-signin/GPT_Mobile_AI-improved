@@ -56,7 +56,7 @@ internal fun PluginConfigurationDialog(
         title = { Text(name) },
         text = {
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                SettingsHero("Plugin controls", name, "")
+                dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(id, name, features.isToolPluginEnabled(id))
                 if (id.startsWith("connection:")) {
                     TextButton(onClick = onConnection) { Text("Manage connection") }
                 }

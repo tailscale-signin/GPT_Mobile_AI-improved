@@ -78,12 +78,14 @@ class McpClientManager internal constructor(
     private val sessionConnectTimeoutMs: Long = 15_000,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val modern: ModernMcpTransport? = null,
-    private val trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null
+    private val trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
+    private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null
 ) {
     @Inject
-    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust)
+    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust, statistics = statistics)
 
     private val mutex = Mutex()
+    private val healthOrder = McpHealthObservationOrder()
 
     // ponytail: one global lock serializes session setup only; use per-connection locks if startup contention becomes measurable.
     private val providerCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
@@ -113,27 +115,31 @@ class McpClientManager internal constructor(
         return transport.takeIf { it.supports(config, refresh) }
     }
 
-    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> = try {
-        listToolsUnchecked(config, forceRefresh)
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Exception) {
-        if (error is McpBackoffException) throw error
-        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
-        if (error.isMcpUnauthorized()) providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
-        recordFailure(config.connectionUid, error)
-        throw error
+    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
+        val observation = healthOrder.begin(config.connectionUid, config.validatedKey())
+        return try {
+            listToolsUnchecked(config, forceRefresh, observation)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (error is McpBackoffException) throw error
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
+            if (error.isMcpUnauthorized()) providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
+            recordFailure(config.connectionUid, error, observation = observation)
+            throw error
+        }
     }
 
-    private suspend fun listToolsUnchecked(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
+    private suspend fun listToolsUnchecked(config: McpConnectionConfig, forceRefresh: Boolean, observation: McpHealthObservationOrder.Token): List<Tool> {
         modernTransport(config, forceRefresh)?.let { transport ->
             return transport.listTools(config).also {
                 dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
-                recordSuccess(config.connectionUid, availableToolCount = it.size)
+                recordSuccess(config.connectionUid, availableToolCount = it.size, observation = observation)
                 recordCatalog(config, it)
             }
         }
-        val result = withSession(config, bypassBackoff = forceRefresh, recordFailures = false) { session ->
+        var observedNetwork = false
+        val result = withSession(config, bypassBackoff = forceRefresh, recordFailures = false, recordResponses = false, observation = observation) { session ->
             session.toolCatalogMutex.withLock {
                 val now = nowMs()
                 session.toolCatalog?.takeIf { !forceRefresh && now - it.loadedAtMs < TOOL_CATALOG_TTL_MS }?.tools ?: run {
@@ -151,12 +157,15 @@ class McpClientManager internal constructor(
                         cursor = page.nextCursor
                         check(cursor == null || seenCursors.add(cursor)) { "MCP server returned a repeated tools cursor." }
                     } while (cursor != null)
-                    tools.toList().also { session.toolCatalog = ToolCatalog(it, nowMs()) }
+                    tools.toList().also {
+                        observedNetwork = true
+                        session.toolCatalog = ToolCatalog(it, nowMs())
+                    }
                 }
             }
         }
-        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
-        recordSuccess(config.connectionUid, availableToolCount = result.size)
+        if (observedNetwork) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
+        if (observedNetwork) recordSuccess(config.connectionUid, availableToolCount = result.size, observation = observation)
         recordCatalog(config, result)
         return result
     }
@@ -174,6 +183,7 @@ class McpClientManager internal constructor(
         callId: String? = null
     ): CallToolResult {
         val key = config.validatedKey()
+        val observation = healthOrder.begin(config.connectionUid, key)
         providerCooldowns[config.connectionUid]?.let { (blockedKey, until) ->
             if (blockedKey == key && until == Long.MAX_VALUE) throw McpAuthenticationRequiredException()
             if (blockedKey == key && until > nowMs()) throw McpBackoffException(config.connectionUid, until)
@@ -183,17 +193,22 @@ class McpClientManager internal constructor(
         fun recordQuota(message: String) {
             if (isMcpQuotaFailure(message)) {
                 providerCooldowns[config.connectionUid] = key to (nowMs() + 5 * 60_000L)
-                recordFailure(config.connectionUid, IllegalStateException("Provider quota exhausted. Try later or configure its required credentials."), nowMs() + 5 * 60_000L)
+                recordFailure(config.connectionUid, IllegalStateException("Provider quota exhausted. Try later or configure its required credentials."), nowMs() + 5 * 60_000L, observation = observation)
             }
         }
+        val statisticsContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext]
+        val attemptId = java.util.UUID.randomUUID().toString()
+        var outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
         return try {
             val result = modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId) }
-                ?: withSession(config, retryStale = false, recordFailures = false) { it.client.callTool(toolName, arguments) }
+                ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) { it.client.callTool(toolName, arguments) }
+            recordSuccess(config.connectionUid, observation = observation)
+            outcome = if (result.isError == true) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
             if (result.isError == true) {
                 val failure = result.toString()
                 if (isMcpCredentialFailure(failure)) {
                     providerCooldowns[config.connectionUid] = key to Long.MAX_VALUE
-                    recordFailure(config.connectionUid, McpAuthenticationRequiredException())
+                    recordFailure(config.connectionUid, McpAuthenticationRequiredException(), observation = observation)
                 } else {
                     recordQuota(failure)
                 }
@@ -206,13 +221,15 @@ class McpClientManager internal constructor(
             if (error.isMcpUnauthorized()) {
                 val message = "MCP authentication or access failed. Open Manage connection for this provider and update its credentials."
                 providerCooldowns[config.connectionUid] = key to Long.MAX_VALUE
-                recordFailure(config.connectionUid, IllegalStateException(message, error))
+                recordFailure(config.connectionUid, IllegalStateException(message, error), observation = observation)
                 throw IllegalStateException(message, error)
             }
             dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
-            recordFailure(config.connectionUid, error)
+            recordFailure(config.connectionUid, error, observation = observation)
             recordQuota(error.message.orEmpty())
             throw error
+        } finally {
+            if (statisticsContext != null) withContext(NonCancellable) { statisticsContext.repository.attempt(statisticsContext.invocationId, attemptId, outcome) }
         }
     }
 
@@ -288,9 +305,11 @@ class McpClientManager internal constructor(
     private fun recordSuccess(
         connectionUid: String,
         latencyMs: Long? = null,
-        availableToolCount: Int? = null
-    ) {
+        availableToolCount: Int? = null,
+        observation: McpHealthObservationOrder.Token
+    ) = healthOrder.publish(observation) {
         val now = nowMs()
+        statistics?.observeHealth(connectionUid, "CONNECTED", "SERVER_RESPONSE", now)
         var previousState = McpConnectionHealthState.RECOVERING
         var catalogChanged = false
         _health.update { current ->
@@ -319,7 +338,7 @@ class McpClientManager internal constructor(
         }
     }
 
-    private fun recordFailure(connectionUid: String, error: Throwable, retryAtMs: Long? = null) {
+    private fun recordFailure(connectionUid: String, error: Throwable, retryAtMs: Long? = null, observation: McpHealthObservationOrder.Token) = healthOrder.publish(observation) {
         val now = nowMs()
         var updated = McpConnectionHealth()
         _health.update { current ->
@@ -341,6 +360,7 @@ class McpClientManager internal constructor(
             )
             current + (connectionUid to updated)
         }
+        statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
         AppLogRecorder.record(
             "MCP",
             "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · error=${updated.lastError.orEmpty()}",
@@ -363,12 +383,19 @@ class McpClientManager internal constructor(
     }
 
     suspend fun close(connectionUid: String) {
+        healthOrder.invalidate(connectionUid)
+        resetHealth(connectionUid)
+        statistics?.observeHealth(connectionUid, "NOT_CHECKED", "CONFIG_CHANGED", nowMs())
         modern?.close(connectionUid)
         val session = takeSession(connectionUid) ?: return
         runCatching { session.client.close() }
     }
 
     suspend fun closeAll() {
+        healthOrder.invalidateAll().forEach { uid ->
+            resetHealth(uid)
+            statistics?.observeHealth(uid, "NOT_CHECKED", "CONFIG_CHANGED", nowMs())
+        }
         modern?.closeAll()
         mutex.lock()
         val active = try {
@@ -384,15 +411,17 @@ class McpClientManager internal constructor(
         bypassBackoff: Boolean = false,
         retryStale: Boolean = true,
         recordFailures: Boolean = true,
+        recordResponses: Boolean = true,
+        observation: McpHealthObservationOrder.Token = healthOrder.begin(config.connectionUid, config.validatedKey()),
         block: suspend (Session) -> T
     ): T {
         var staleSessionRetries = 0
         while (true) {
-            val session = session(config, bypassBackoff || staleSessionRetries > 0, recordFailures)
+            val session = session(config, bypassBackoff || staleSessionRetries > 0, recordFailures, observation)
             val startedAtMs = nowMs()
             try {
                 return block(session).also {
-                    recordSuccess(config.connectionUid, latencyMs = nowMs() - startedAtMs)
+                    if (recordResponses) recordSuccess(config.connectionUid, latencyMs = nowMs() - startedAtMs, observation = observation)
                 }
             } catch (error: CancellationException) {
                 withContext(NonCancellable) { invalidate(config.connectionUid, session) }
@@ -402,7 +431,7 @@ class McpClientManager internal constructor(
                 val interruptedRead = error.isMcpInterruptedRead()
                 invalidate(config.connectionUid, session)
                 if (retryStale && (staleSession || interruptedRead) && staleSessionRetries++ < MAX_STALE_SESSION_RETRIES) {
-                    markRecovering(config.connectionUid)
+                    healthOrder.publish(observation) { markRecovering(config.connectionUid) }
                     AppLogRecorder.record(
                         "MCP",
                         "Read session interrupted · connection=${config.connectionUid} · stale=$staleSession · retry=$staleSessionRetries/$MAX_STALE_SESSION_RETRIES · reconnecting without provider backoff",
@@ -410,13 +439,13 @@ class McpClientManager internal constructor(
                     )
                     continue
                 }
-                if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error)
+                if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error, observation = observation)
                 throw error
             }
         }
     }
 
-    private suspend fun session(config: McpConnectionConfig, bypassBackoff: Boolean = false, recordFailures: Boolean = true): Session {
+    private suspend fun session(config: McpConnectionConfig, bypassBackoff: Boolean, recordFailures: Boolean, observation: McpHealthObservationOrder.Token): Session {
         val key = config.validatedKey()
         while (true) {
             val created = CompletableDeferred<Session>()
@@ -438,7 +467,7 @@ class McpClientManager internal constructor(
                         )
                         throw McpBackoffException(config.connectionUid, retryAt)
                     }
-                    if ((health?.consecutiveFailures ?: 0) > 0) markRecovering(config.connectionUid)
+                    if ((health?.consecutiveFailures ?: 0) > 0) healthOrder.publish(observation) { markRecovering(config.connectionUid) }
                     stale = sessions.remove(config.connectionUid)
                     inFlight[config.connectionUid] = InFlight(key, created)
                 }
@@ -502,8 +531,8 @@ class McpClientManager internal constructor(
                 result.fold(created::complete, created::completeExceptionally)
             }
             result.fold(
-                onSuccess = { recordSuccess(config.connectionUid, latencyMs = nowMs() - connectStartedAtMs) },
-                onFailure = { error -> if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error) }
+                onSuccess = { recordSuccess(config.connectionUid, latencyMs = nowMs() - connectStartedAtMs, observation = observation) },
+                onFailure = { error -> if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error, observation = observation) }
             )
             return result.getOrThrow()
         }

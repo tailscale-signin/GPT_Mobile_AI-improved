@@ -62,7 +62,7 @@ class ResearchEvidenceTest {
         assertEquals(0, restored.attempts)
     }
 
-    @Test fun versionOneSnapshotsMigrateToVersionTwoWithoutLosingReadableEvidence() {
+    @Test fun versionOneSnapshotsMigrateToVersionThreeWithoutLosingReadableEvidence() {
         val passage = "A stable passage retained from the old snapshot format."
         val legacy = buildJsonObject {
             put("version", 1)
@@ -88,6 +88,38 @@ class ResearchEvidenceTest {
         assertTrue(restored.sources.single().readable)
         assertEquals("example.org", restored.sources.single().host)
         assertEquals("https://example.org/page", restored.sources.single().canonicalUrl)
-        assertEquals(2, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(passage, restored.sources.single().passage)
+        assertEquals(0, restored.targetSources)
+        assertEquals(3, restored.json()["version"]?.jsonPrimitive?.int)
+    }
+
+    @Test fun versionTwoSnapshotsMigrateToVersionThreeWithoutLosingEvidence() {
+        val source = ResearchSource("S1", "https://example.org/page", "Version two page", "Read", "A readable passage from the version two snapshot.")
+        val original = ResearchSnapshot("Version two task", sources = listOf(source), updatedAt = 1234)
+        val legacy = buildJsonObject {
+            original.json().forEach { (key, value) ->
+                if (key != "targetSources") put(key, value)
+            }
+            put("version", 2)
+        }
+
+        val restored = ResearchSnapshot.parse(legacy)!!
+
+        assertEquals(original, restored)
+        assertTrue(restored.sources.single().readable)
+        assertEquals(0, restored.targetSources)
+        assertEquals(3, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(restored, ResearchSnapshot.parse(restored.json()))
+    }
+
+    @Test fun versionThreeSnapshotsPreserveMaximumResearchTarget() {
+        val source = ResearchSource("S1", "https://example.org/page", "Current page", "Read", "A readable passage from the current snapshot.")
+        val original = ResearchSnapshot("Maximum research", sources = listOf(source), updatedAt = 1234, targetSources = 300)
+
+        val restored = ResearchSnapshot.parse(original.json())!!
+
+        assertEquals(original, restored)
+        assertEquals(300, restored.targetSources)
+        assertEquals(3, restored.json()["version"]?.jsonPrimitive?.int)
     }
 }

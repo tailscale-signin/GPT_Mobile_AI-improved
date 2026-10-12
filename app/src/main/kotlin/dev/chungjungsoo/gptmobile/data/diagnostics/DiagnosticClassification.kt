@@ -16,8 +16,10 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)
         "feedback manager requires a model with a single signature" in text -> DiagnosticClassification("optional_model_feature", "info", false)
         text.startsWith("enrichment_waiting_") -> DiagnosticClassification("deferred_work", "info", false, "waiting")
-        text.startsWith("search_index_ready") || text.startsWith("refresh_ok") ||
-            text.startsWith("enrichment_success") || text.startsWith("connected") ->
+        text.startsWith("search_index_ready") ||
+            text.startsWith("refresh_ok") ||
+            text.startsWith("enrichment_success") ||
+            text.startsWith("connected") ->
             DiagnosticClassification("recovery", "info", false, "reported_success")
         "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
         level == "E" -> DiagnosticClassification("error", "error", true)

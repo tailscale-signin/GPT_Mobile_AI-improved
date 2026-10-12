@@ -69,6 +69,17 @@ fun LocalToolsSettingsPanel(
                     if (budget.outputTokens > 0) DelegationNumber("Output token limit (recommended: 32768)", budget.outputTokens, 1..Int.MAX_VALUE, true) { value -> viewModel.updateBudget { it.copy(outputTokens = value) } }
                     LocalToolToggle("No app total-token limit", budget.totalRunTokens == Int.MAX_VALUE, true) { enabled -> viewModel.updateBudget { it.copy(totalRunTokens = if (enabled) Int.MAX_VALUE else 65536) } }
                     if (budget.totalRunTokens != Int.MAX_VALUE) DelegationNumber("Total run tokens including delegates", budget.totalRunTokens, 4096..2097152, true) { value -> viewModel.updateBudget { it.copy(totalRunTokens = value) } }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Generation Safeguards", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        SettingsHelpIcon("Separate from model token limits. A stopped response keeps its partial text and completed evidence; it is not silently retried. Increase or disable these limits for deliberately long runs. Character counting includes reasoning; repetition checks apply only to visible text.")
+                    }
+                    LocalToolToggle("Generation time safeguard", budget.generationTimeoutMinutes > 0, true) { enabled -> viewModel.updateBudget { it.copy(generationTimeoutMinutes = if (enabled) 30 else 0) } }
+                    if (budget.generationTimeoutMinutes > 0) DelegationNumber("Maximum generation minutes", budget.generationTimeoutMinutes, 1..1440, true) { value -> viewModel.updateBudget { it.copy(generationTimeoutMinutes = value) } }
+                    LocalToolToggle("Large-response safeguard", budget.responseCharacterLimit > 0, true) { enabled -> viewModel.updateBudget { it.copy(responseCharacterLimit = if (enabled) 1_048_576 else 0) } }
+                    if (budget.responseCharacterLimit > 0) DelegationNumber("Maximum generated characters", budget.responseCharacterLimit, 4096..16_777_216, true) { value -> viewModel.updateBudget { it.copy(responseCharacterLimit = value) } }
+                    LocalToolToggle("Adaptive tool catalog", budget.adaptiveToolCatalog, true) { enabled -> viewModel.updateBudget { it.copy(adaptiveToolCatalog = enabled) } }
+                    Text("Start with task-relevant tools; the AI can discover the rest. Turn off to advertise every authorized tool. Discovery never changes permissions.", style = MaterialTheme.typography.bodySmall)
+                    LocalToolToggle("Stop sustained exact repetition", budget.repetitionGuardEnabled, true) { enabled -> viewModel.updateBudget { it.copy(repetitionGuardEnabled = enabled) } }
                 }
             }
         }

@@ -18,7 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** Phone-owned tools. Never execute on a gateway, cache, or share raw results between profiles. */
+/** Phone-owned tools. No persistent cache, gateway execution, or cross-profile raw-result sharing. */
 class HealthConnectTool(
     private val operation: String,
     private val reader: HealthDataReader,
@@ -85,20 +85,23 @@ class HealthConnectTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        fun failure(code: String, message: String, retryable: Boolean = false) = AgentToolResult(
-            callId,
-            ToolResultContent.Json(
-                buildJsonObject {
-                    put("status", code)
-                    put("message", message)
-                    put("retryable", retryable)
-                    put("operation", operation)
-                }
-            ),
-            true,
-            traceContent = ToolResultContent.Text("Health Connect: $code"),
-            errorCode = code
-        )
+        suspend fun failure(code: String, message: String, retryable: Boolean = false): AgentToolResult {
+            (reader as? dev.chungjungsoo.gptmobile.data.health.RunScopedHealthReader)?.invalidate()
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("status", code)
+                        put("message", message)
+                        put("retryable", retryable)
+                        put("operation", operation)
+                    }
+                ),
+                true,
+                traceContent = ToolResultContent.Text("Health Connect: $code"),
+                errorCode = code
+            )
+        }
         try {
             if (!accessAllowed()) return failure("plugin_disabled", "Enable Smartwatch Health Connect globally and for this AI profile. Local tools must be enabled.")
             if (operation != "status" && !aiConsent()) return failure("ai_consent_required", "Open Smartwatch Health Connect settings and explicitly allow health results in AI conversations.")

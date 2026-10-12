@@ -5,8 +5,8 @@ import kotlinx.serialization.Serializable
 
 /** Zero outputTokens means no app-imposed output limit; prompt reservation is independent. */
 @Serializable
-data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outputTokens: Int = 0, val totalRunTokens: Int = Int.MAX_VALUE, val profileContextCeilings: Map<String, Int> = emptyMap()) {
-    fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceAtLeast(0), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152))
+data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outputTokens: Int = 0, val totalRunTokens: Int = Int.MAX_VALUE, val profileContextCeilings: Map<String, Int> = emptyMap(), val generationTimeoutMinutes: Int = 30, val responseCharacterLimit: Int = 1_048_576, val repetitionGuardEnabled: Boolean = true, val adaptiveToolCatalog: Boolean = true) {
+    fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceAtLeast(0), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152), generationTimeoutMinutes = generationTimeoutMinutes.coerceIn(0, 1440), responseCharacterLimit = if (responseCharacterLimit == 0) 0 else responseCharacterLimit.coerceIn(4096, 16_777_216))
 }
 
 data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int?, val notice: String, val promptTokens: Int = 0)

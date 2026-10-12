@@ -94,6 +94,10 @@ class MemoryEnrichmentQueue @Inject constructor(
     }
 
     fun cancelChat(chatId: Int) {
+        val completed = completedStore(context)
+        val cleanup = completed.edit()
+        completed.all.filterValues { (it as? String)?.startsWith("$chatId:") == true }.keys.forEach(cleanup::remove)
+        cleanup.apply()
         WorkManager.getInstance(context).cancelAllWorkByTag("memory-chat-$chatId")
         val store = waitingStore(context)
         val editor = store.edit()

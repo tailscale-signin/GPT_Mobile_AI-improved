@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.Manifest
-import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -103,8 +102,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -242,7 +239,6 @@ fun ChatScreen(
     androidx.compose.runtime.DisposableEffect(focusManager) {
         onDispose { focusManager.clearFocus(force = true) }
     }
-    val clipboard = LocalClipboard.current
     val systemChatMargin = 16.dp
     val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
@@ -692,7 +688,7 @@ fun ChatScreen(
                         onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                         onCopyText = { copiedText ->
                             scope.launch {
-                                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(copiedText, copiedText)))
+                                dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(context, copiedText)
                             }
                         },
                         onPlatformClick = { turn, platform ->

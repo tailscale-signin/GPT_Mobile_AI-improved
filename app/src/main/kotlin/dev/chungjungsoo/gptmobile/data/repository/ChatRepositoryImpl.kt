@@ -40,6 +40,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.synthesisSafeTools
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
 import dev.chungjungsoo.gptmobile.data.agent.withRunContext
+import dev.chungjungsoo.gptmobile.data.agent.withToolCatalog
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
@@ -211,7 +212,8 @@ class ChatRepositoryImpl(
     private val conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion? = null,
     private val workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
     private val amazonMedia: dev.chungjungsoo.gptmobile.data.amazon.AmazonProductMediaCache? = null,
-    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
+    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
+    private val openRouterModelRepository: OpenRouterModelRepository? = null
 ) : ChatRepository {
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
@@ -1282,7 +1284,13 @@ class ChatRepositoryImpl(
             )
             val behavior = runFeatures.profileBehavior[platform.uid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
             val budgetSettings = runFeatures.tokenBudget.normalized()
-            val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
+            if (platform.compatibleType == ClientType.OPENROUTER && dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.officialEndpoint(platform.apiUrl)) {
+                // Public metadata only. A failed refresh never blocks chat or changes the selected endpoint.
+                openRouterModelRepository?.fetchModels()
+            }
+            val advertisedLimits = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)
+            val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE, advertisedLimits?.context ?: Int.MAX_VALUE))
+            if (advertisedLimits != null) AppLogRecorder.record("Context", "MODEL_CATALOG_LIMITS · context=${advertisedLimits.context ?: "unknown"} · output=${advertisedLimits.output ?: "unknown"} · source=public_catalog · serverConfirmed=false")
             val limits = if (platform.compatibleType == ClientType.FREE && FreeAiProvider.requireFor(platform) == FreeAiProvider.POLLINATIONS) {
                 // The legacy GET endpoint accepts a small prompt in its URL.
                 profileBudget.copy(contextTokens = minOf(profileBudget.contextTokens, 1536), outputTokens = minOf(profileBudget.outputTokens.takeIf { it > 0 } ?: 256, 256))
@@ -1928,16 +1936,28 @@ class ChatRepositoryImpl(
             effectiveTools.map { it.tool }
         }
 
+        val catalog = if (budgetSettings.adaptiveToolCatalog && !groundedSession.handlesToolsInternally) {
+            dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty())
+        } else {
+            null
+        }
+        val advertisedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
+        val executableTools = if (catalog != null) runnerTools + catalog else runnerTools
+        if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
+
         val agentEvents = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(
             customRunner.limits.copy(
                 contextTokens = limits.contextTokens,
+                runTimeoutMillis = minOf(customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
+                maxGeneratedCharacters = budgetSettings.responseCharacterLimit,
+                detectRepetition = budgetSettings.repetitionGuardEnabled,
                 initialContextTokens = contextPlan.promptTokens,
                 finalResponseReserveTokens = minOf(contextPlan.outputTokens ?: 32768, limits.contextTokens / 4),
                 finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls),
                 maxReplayTokens = delegationSettings.primaryReplayTokens,
                 maxReplayResultTokens = delegationSettings.primaryReplayResultTokens
             )
-        ).run(groundedSession, runnerTools)
+        ).run(advertisedSession, executableTools)
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace).collect { send(it) }
     }
 

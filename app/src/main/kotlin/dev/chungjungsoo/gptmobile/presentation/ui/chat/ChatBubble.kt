@@ -89,7 +89,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -100,7 +99,6 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -1005,7 +1003,8 @@ internal fun ChatDebugDiagnosticsCard(
     settings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
     modifier: Modifier = Modifier
 ) {
-    val clipboard = LocalClipboardManager.current
+    val copyContext = androidx.compose.ui.platform.LocalContext.current
+    val copyScope = androidx.compose.runtime.rememberCoroutineScope()
     val running = agentRun?.status in setOf("RUNNING", "QUEUED")
     val now = dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveClock(running)
     val hardware = if (settings.debugShowHardware) dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveHardware("Device diagnostics", "See Local Model settings", running) else null
@@ -1025,7 +1024,7 @@ internal fun ChatDebugDiagnosticsCard(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (running) "Live diagnostics" else "Response diagnostics", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
-                TextButton(onClick = { clipboard.setText(AnnotatedString(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(report))) }) { Text("Copy") }
+                TextButton(onClick = { copyScope.launch { dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(copyContext, dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(report), "Response diagnostics") } }) { Text("Copy") }
             }
             val requests = invocations.distinctBy { it.id }
             if (settings.debugShowTokenComparison && requests.isNotEmpty()) {

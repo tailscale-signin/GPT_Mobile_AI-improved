@@ -83,7 +83,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                     if (loaded) {
                         val current = mutableSnapshot.value
                         val recalculated = withContext(Dispatchers.Default) { DynamicScoreEngine.snapshot(mutableHistory.value, (current?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions) }
-                        if (recalculated.rows != current?.rows) publish(mutableHistory.value)
+                        if (recalculated.rows != current?.rows) publish(mutableHistory.value, recalculated)
                     }
                 }
             }
@@ -171,9 +171,11 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         }
     }
 
-    private suspend fun publish(runs: List<BenchmarkRun>) {
+    private suspend fun publish(runs: List<BenchmarkRun>, prepared: BenchmarkScoreSnapshot? = null) {
         val previous = dao.current()?.generation ?: 0L
-        val next = DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis(), activeRevisions)
+        val next = prepared?.copy(generation = previous + 1) ?: withContext(Dispatchers.Default) {
+            DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis(), activeRevisions)
+        }
         dao.publish(runs.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) }, BenchmarkSnapshotRecord(next.generation, next.createdAt, json.encodeToString(next)))
         mutableSnapshot.value = next
     }

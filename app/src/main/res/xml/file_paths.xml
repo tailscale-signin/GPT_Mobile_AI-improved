@@ -6,4 +6,5 @@
     <cache-path name="diagnostic_exports" path="diagnostics/" />
     <files-path name="restored_attachments" path="attachments/" />
     <cache-path name="attachment_previews" path="attachment-previews/" />
+    <cache-path name="clipboard_exports" path="clipboard-exports/" />
 </paths>

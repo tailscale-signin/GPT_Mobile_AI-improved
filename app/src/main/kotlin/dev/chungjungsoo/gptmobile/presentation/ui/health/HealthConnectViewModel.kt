@@ -4,11 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
+import dev.chungjungsoo.gptmobile.data.health.HEALTH_HISTORY_PERMISSION
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImport
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore
 import dev.chungjungsoo.gptmobile.data.health.HealthDataReader
-import dev.chungjungsoo.gptmobile.data.health.HEALTH_HISTORY_PERMISSION
 import dev.chungjungsoo.gptmobile.data.health.HealthQuery
 import dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -58,6 +58,7 @@ class HealthConnectViewModel @Inject constructor(
     private val mutable = MutableStateFlow(HealthConnectScreenState())
     val state = mutable.asStateFlow()
     val aiAllowed = consent.allowed
+    val externalStorageAllowed = consent.externalStorageAllowed
     val features = settings.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.Eagerly, AppFeatureSettings())
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val theme = settings.observeThemes().stateIn(viewModelScope, SharingStarted.Eagerly, ThemeSetting())
@@ -179,6 +180,8 @@ class HealthConnectViewModel @Inject constructor(
         consent.setAllowed(allowed)
     }
 
+    fun setExternalStorageAllowed(allowed: Boolean) = mutate { consent.setExternalStorageAllowed(allowed) }
+
     fun setEnabled(enabled: Boolean) = mutate {
         MarketplaceMutations.mutex.withLock {
             settings.updateFeatureSettings(settings.getFeatureSettings().withToolPluginEnabled(ToolPluginId.HEALTH_CONNECT, enabled))
@@ -224,4 +227,3 @@ class HealthConnectViewModel @Inject constructor(
         }
     }
 }
-

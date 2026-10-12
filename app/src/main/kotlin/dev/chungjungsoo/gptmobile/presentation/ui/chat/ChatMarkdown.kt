@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.content.ClipData
 import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -40,8 +39,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -113,7 +110,7 @@ fun ChatMarkdown(
     modifier: Modifier = Modifier
 ) {
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val clipboard = LocalClipboard.current
+    val clipboardContext = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var parsed by remember(contentIdentity) { mutableStateOf(ParsedChatMarkdown(emptyList(), emptyList())) }
     LaunchedEffect(contentIdentity, content, streaming) {
@@ -264,10 +261,10 @@ fun ChatMarkdown(
             }
         }
     }
-    val copyCodeToClipboard: (String) -> Unit = remember(clipboard, scope) {
+    val copyCodeToClipboard: (String) -> Unit = remember(clipboardContext, scope) {
         { code ->
             scope.launch {
-                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(CLIPBOARD_LABEL_CODE, code)))
+                dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(clipboardContext, code, CLIPBOARD_LABEL_CODE)
             }
         }
     }

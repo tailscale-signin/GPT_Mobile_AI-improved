@@ -65,7 +65,10 @@ class CompleteBackupViewModelTest {
     @Test
     fun unencryptedBackupDoesNotRequireRecoveryKeyAndRestoreUsesSameManager() = runTest(dispatcher) {
         val uri = mockk<Uri>()
-        coEvery { manager.backup(uri, dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection.ALL, null, encrypt = false) } returns BackupRestoreResult(true, "Saved")
+        viewModel.clearBackupSections()
+        viewModel.updateBackupSection(dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection.CONVERSATIONS, true)
+        val selected = viewModel.backupUi.value.selection
+        coEvery { manager.backup(uri, selected, null, encrypt = false) } returns BackupRestoreResult(true, "Saved")
         coEvery { manager.requiresPassword(uri) } returns false
         coEvery { manager.restore(uri, null) } returns BackupRestoreResult(true, "Restored")
 
@@ -73,7 +76,7 @@ class CompleteBackupViewModelTest {
         viewModel.backupDestinationSelected(uri)
         advanceUntilIdle()
         assertEquals(null, viewModel.backupUi.value.backupUri)
-        coVerify(exactly = 1) { manager.backup(uri, dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection.ALL, null, encrypt = false) }
+        coVerify(exactly = 1) { manager.backup(uri, selected, null, encrypt = false) }
         assertEquals("Saved", viewModel.backupUi.value.message)
 
         viewModel.selectAllBackupSections()
@@ -88,6 +91,19 @@ class CompleteBackupViewModelTest {
         coVerify(exactly = 1) { manager.restore(uri, null) }
         assertFalse(viewModel.backupUi.value.isBusy)
         assertEquals("Restored", viewModel.backupUi.value.message)
+    }
+
+    @Test
+    fun sensitiveSectionsNeverFallBackToUnencryptedBackup() = runTest(dispatcher) {
+        val destination = mockk<Uri>()
+        viewModel.selectAllBackupSections()
+        assertTrue(viewModel.prepareBackupPicker(restoring = false))
+        viewModel.backupDestinationSelected(destination)
+        advanceUntilIdle()
+        assertEquals(destination, viewModel.backupUi.value.backupUri)
+        coVerify(exactly = 0) { manager.backup(any(), any(), any(), encrypt = false) }
+        viewModel.backupRecoveryKeySelected(null)
+        assertEquals(null, viewModel.backupUi.value.backupUri)
     }
 
     @Test

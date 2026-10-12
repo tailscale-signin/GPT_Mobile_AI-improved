@@ -144,11 +144,13 @@ class AndroidHealthConnectReader private constructor(
                     } catch (failure: Exception) {
                         // Category and retryability are safe; exception messages may contain health records.
                         val classified = HealthReadFailure.classify(failure)
-                        JsonObject(state(metric, classified.code) + mapOf(
-                            "error_code" to JsonPrimitive(classified.code),
-                            "retryable" to JsonPrimitive(classified.retryable),
-                            "action" to JsonPrimitive(classified.action)
-                        ))
+                        JsonObject(
+                            state(metric, classified.code) + mapOf(
+                                "error_code" to JsonPrimitive(classified.code),
+                                "retryable" to JsonPrimitive(classified.retryable),
+                                "action" to JsonPrimitive(classified.action)
+                            )
+                        )
                     }
                 }
                 metric.id to result

@@ -152,27 +152,23 @@ fun GPTMobileTheme(
         ThemeMode.LIGHT -> false
     }
     val context = LocalContext.current
-    val customPrimary = customPrimaryArgb?.let(::Color)
-    val baseScheme = when {
-        dynamicTheme == DynamicTheme.ON -> if (useDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        useDarkTheme -> darkScheme
-        else -> lightScheme
-    }
-    fun foreground(color: Color): Color = if (androidx.core.graphics.ColorUtils.calculateLuminance(color.toArgb()) > 0.179) Color.Black else Color.White
-    val colorScheme = when {
-        dynamicTheme == DynamicTheme.ON -> baseScheme
-        customPalette != null -> {
-            customPaletteColorScheme(baseScheme, customPalette)
+    val colorScheme = resolveThemeColorScheme(
+        dynamicTheme,
+        useDarkTheme,
+        customPrimaryArgb,
+        customPalette,
+        if (dynamicTheme == DynamicTheme.ON) {
+            if (useDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        } else {
+            null
         }
-        customPrimary != null -> baseScheme.copy(primary = customPrimary, onPrimary = foreground(customPrimary), secondary = customPrimary, tertiary = customPrimary)
-        else -> baseScheme
-    }
+    )
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = foreground(colorScheme.background) == Color.Black
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = androidx.core.graphics.ColorUtils.calculateLuminance(colorScheme.background.toArgb()) > 0.179
         }
     }
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
@@ -207,4 +203,29 @@ internal fun customPaletteColorScheme(
         surfaceDim = background, surfaceBright = surface,
         outline = surfaceText.copy(alpha = 0.6f), outlineVariant = surfaceText.copy(alpha = 0.3f)
     )
+}
+
+/** Pure resolution shared by the app host and isolated previews. */
+internal fun resolveThemeColorScheme(
+    dynamicTheme: DynamicTheme,
+    useDarkTheme: Boolean,
+    customPrimaryArgb: Long?,
+    customPalette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette?,
+    dynamicScheme: androidx.compose.material3.ColorScheme? = null
+): androidx.compose.material3.ColorScheme {
+    val customPrimary = customPrimaryArgb?.let(::Color)
+    val baseScheme = when {
+        dynamicTheme == DynamicTheme.ON -> dynamicScheme ?: if (useDarkTheme) darkScheme else lightScheme
+        useDarkTheme -> darkScheme
+        else -> lightScheme
+    }
+    fun foreground(color: Color): Color = if (androidx.core.graphics.ColorUtils.calculateLuminance(color.toArgb()) > 0.179) Color.Black else Color.White
+    return when {
+        dynamicTheme == DynamicTheme.ON -> baseScheme
+        customPalette != null -> {
+            customPaletteColorScheme(baseScheme, customPalette)
+        }
+        customPrimary != null -> baseScheme.copy(primary = customPrimary, onPrimary = foreground(customPrimary), secondary = customPrimary, tertiary = customPrimary)
+        else -> baseScheme
+    }
 }

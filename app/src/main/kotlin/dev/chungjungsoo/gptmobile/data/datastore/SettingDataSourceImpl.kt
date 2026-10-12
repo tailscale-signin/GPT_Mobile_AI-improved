@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import dev.chungjungsoo.gptmobile.data.dto.withStableProfileIds
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
@@ -84,6 +85,61 @@ class SettingDataSourceImpl @Inject constructor(
     val favoriteMessageGroupsKey = stringPreferencesKey("favorite_message_groups_json")
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    private fun readTheme(pref: Preferences): dev.chungjungsoo.gptmobile.data.dto.ThemeSetting {
+        var malformed = false
+        val palette = pref[customPaletteKey]?.let { raw ->
+            runCatching { json.decodeFromString<dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette>(raw) }.onFailure { malformed = true }.getOrNull()
+        }
+        val profiles = pref[savedThemeProfilesKey]?.let { raw ->
+            runCatching {
+                val rows = json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonArray
+                rows.mapNotNull { row -> runCatching { json.decodeFromString<dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile>(row.toString()) }.onFailure { malformed = true }.getOrNull() }
+            }.onFailure { malformed = true }.getOrDefault(emptyList())
+        }.orEmpty()
+        return dev.chungjungsoo.gptmobile.data.dto.ThemeSetting(
+            dynamicTheme = pref[dynamicThemeKey]?.let { DynamicTheme.entries.getOrNull(it) } ?: DynamicTheme.OFF,
+            themeMode = pref[themeModeKey]?.let { ThemeMode.entries.getOrNull(it) } ?: ThemeMode.DARK,
+            customPrimaryArgb = pref[customPrimaryArgbKey],
+            customPalette = palette,
+            savedProfiles = profiles,
+            recoveryWarning = if (malformed) "Some saved appearance data could not be read. Valid themes remain available; the original data is preserved on the next edit." else null
+        ).withStableProfileIds()
+    }
+
+    override fun observeThemes() = dataStore.data.map(::readTheme)
+    override suspend fun getThemes() = readTheme(dataStore.data.first())
+
+    override suspend fun mutateThemes(transform: (dev.chungjungsoo.gptmobile.data.dto.ThemeSetting) -> dev.chungjungsoo.gptmobile.data.dto.ThemeSetting): dev.chungjungsoo.gptmobile.data.dto.ThemeSetting {
+        var result: dev.chungjungsoo.gptmobile.data.dto.ThemeSetting? = null
+        dataStore.edit { pref ->
+            val previous = readTheme(pref)
+            if (previous.recoveryWarning != null) {
+                pref[savedThemeProfilesKey]?.let { pref[stringPreferencesKey("saved_theme_profiles_recovery")] = it }
+                pref[customPaletteKey]?.let { pref[stringPreferencesKey("custom_theme_palette_recovery")] = it }
+            }
+            val next = transform(previous).copy(recoveryWarning = null).withStableProfileIds()
+            pref[dynamicThemeKey] = next.dynamicTheme.ordinal
+            pref[themeModeKey] = next.themeMode.ordinal
+            next.customPrimaryArgb?.let { pref[customPrimaryArgbKey] = it } ?: pref.remove(customPrimaryArgbKey)
+            next.customPalette?.let { pref[customPaletteKey] = json.encodeToString(it) } ?: pref.remove(customPaletteKey)
+            pref[savedThemeProfilesKey] = json.encodeToString(next.savedProfiles)
+            result = next
+        }
+        return checkNotNull(result)
+    }
+
+    override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings {
+        var result: AppFeatureSettings? = null
+        dataStore.edit { pref ->
+            // Do not overwrite malformed/future configuration with defaults on an edit.
+            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(it) } ?: AppFeatureSettings()
+            val next = transform(current)
+            pref[featureSettingsKey] = json.encodeToString(next)
+            result = next
+        }
+        return checkNotNull(result)
+    }
 
     override fun observePreferences(): Flow<Preferences> = dataStore.data
 

@@ -221,9 +221,14 @@ class ModelCatalogRepositoryTest {
             writeCacheJson = {},
             readBundledJson = { remoteCatalog("model", "0.1.0") },
             appVersionName = "1.0.0",
-            readInstalledEntries = { listOf(dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry(id = "model", displayName = "stale installed description")) }
+            readInstalledEntries = { listOf(dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry(id = "model", displayName = "stale installed description", downloadUrl = "https://installed.example/artifact", sha256 = "installed-digest", upstreamRevision = "installed-revision")) }
         )
-        assertTrue(repository.getVisibleEntries().single().displayName != "stale installed description")
+        val refreshed = repository.getVisibleEntries().single()
+        assertEquals("model", refreshed.displayName)
+        assertEquals("https://installed.example/artifact", refreshed.downloadUrl)
+        assertEquals("installed-digest", refreshed.sha256)
+        assertEquals("installed-revision", refreshed.upstreamRevision)
+        assertEquals(refreshed, repository.getSnapshot(refresh = true).entries.single())
     }
 
     @Test(expected = kotlinx.coroutines.CancellationException::class)

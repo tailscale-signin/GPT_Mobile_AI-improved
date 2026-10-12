@@ -53,6 +53,19 @@ class LocalModelsViewModel @Inject constructor(
         deviceSocModel = deviceSocModel
     )
 
+    private val catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
+    private val mutableCatalogStatus = MutableStateFlow<dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot?>(null)
+    val catalogStatus: StateFlow<dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot?> = mutableCatalogStatus
+    private var refreshJob: Job? = null
+    fun refreshCatalog() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
+            val snapshot = modelCatalogRepository.getSnapshot(refresh = true)
+            mutableCatalogStatus.value = snapshot
+            if (snapshot.complete) catalogEntries.value = snapshot.entries
+        }
+    }
+
     private val localListState = MutableStateFlow(LocalModelsListState())
     private val customDialogState = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
     private val hasHuggingFaceToken = MutableStateFlow(false)
@@ -114,6 +127,7 @@ class LocalModelsViewModel @Inject constructor(
 
         val catalogItems = list.items.filter { item ->
             val matchesQuery = normalized.isBlank() ||
+                (item.entry.familyId + " " + item.entry.variantLabel + " " + item.entry.runtimeRequirement + " " + item.entry.precision).lowercase().contains(normalized) ||
                 item.entry.displayName.lowercase().contains(normalized) ||
                 item.entry.id.lowercase().contains(normalized) ||
                 item.entry.downloadUrl.lowercase().contains(normalized) ||
@@ -155,12 +169,14 @@ class LocalModelsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             runCatching { localModelRepository.reconcile() }
-            val catalogEntries = runCatching { modelCatalogRepository.getVisibleEntries() }
-                .getOrDefault(emptyList())
+            val snapshot = modelCatalogRepository.getSnapshot()
+            mutableCatalogStatus.value = snapshot
+            catalogEntries.value = snapshot.entries
             combine(
+                catalogEntries,
                 localModelRepository.observeAll(),
                 localModelRepository.observeWorkInfos()
-            ) { localModels, workInfos ->
+            ) { catalogEntries, localModels, workInfos ->
                 val items = catalogLocalModelItems(
                     catalogEntries,
                     localModels,
@@ -227,14 +243,7 @@ class LocalModelsViewModel @Inject constructor(
             runCatching { if (npuOnly) client.searchNpuOutcome(query, deviceSocModel) else client.searchOutcome(query) }
                 .onSuccess { outcome ->
                     val installed = localListState.value.items.filter { it.status == LocalModelItemStatus.READY }.map { it.entry }
-                    huggingFaceEntries.value = outcome.results.map { dev.chungjungsoo.gptmobile.data.huggingface.preserveInstalledHubIdentity(it.toCatalogEntry(), installed) }.filter { entry ->
-                        !downloadGuards.belowRamRequirement(entry) &&
-                            if (entry.supportedAccelerators.any { it.equals("npu", true) }) {
-                                dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(entry.supportedAccelerators, entry.socToModelFiles, deviceSocModel)
-                            } else {
-                                !npuOnly && entry.supportedAccelerators.any { it.equals("gpu", true) }
-                            }
-                    }
+                    huggingFaceEntries.value = outcome.results.map { dev.chungjungsoo.gptmobile.data.huggingface.preserveInstalledHubIdentity(it.toCatalogEntry(), installed) }
                     huggingFaceSearchState.value = HuggingFaceSearchState(notice = outcome.notice)
                 }
                 .onFailure { error ->

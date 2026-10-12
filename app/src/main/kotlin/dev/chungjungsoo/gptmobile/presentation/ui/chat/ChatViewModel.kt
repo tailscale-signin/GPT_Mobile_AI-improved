@@ -741,8 +741,7 @@ class ChatViewModel @Inject constructor(
         if (id <= 0) return
         viewModelScope.launch {
             conversationDelegationMutex.withLock {
-                val latest = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(latest.copy(conversationResearch = latest.conversationResearch + (id to value.normalized())))
+                settingRepository.mutateFeatureSettings { latest -> latest.copy(conversationResearch = latest.conversationResearch + (id to value.normalized())) }
             }
         }
     }
@@ -750,11 +749,12 @@ class ChatViewModel @Inject constructor(
     fun grantAcademicResearch(profileUid: String) {
         viewModelScope.launch {
             conversationDelegationMutex.withLock {
-                val latest = settingRepository.getFeatureSettings()
-                val granted = latest.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
-                    .withProfileToolPluginEnabled(profileUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
-                val behavior = granted.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-                settingRepository.updateFeatureSettings(granted.copy(profileBehavior = granted.profileBehavior + (profileUid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true))))
+                settingRepository.mutateFeatureSettings { latest ->
+                    val granted = latest.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
+                        .withProfileToolPluginEnabled(profileUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
+                    val behavior = granted.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+                    granted.copy(profileBehavior = granted.profileBehavior + (profileUid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true)))
+                }
             }
         }
     }
@@ -762,9 +762,10 @@ class ChatViewModel @Inject constructor(
     fun saveResearchDepthDefault(profileUid: String, depth: Int) {
         viewModelScope.launch {
             conversationDelegationMutex.withLock {
-                val latest = settingRepository.getFeatureSettings()
-                val behavior = latest.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-                settingRepository.updateFeatureSettings(latest.copy(profileBehavior = latest.profileBehavior + (profileUid to behavior.copy(researchDepthOverride = depth.coerceIn(0, 100)))))
+                settingRepository.mutateFeatureSettings { latest ->
+                    val behavior = latest.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+                    latest.copy(profileBehavior = latest.profileBehavior + (profileUid to behavior.copy(researchDepthOverride = depth.coerceIn(0, 100))))
+                }
             }
         }
     }
@@ -776,8 +777,7 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch {
                 try {
                     conversationDelegationMutex.withLock {
-                        val latest = settingRepository.getFeatureSettings()
-                        settingRepository.updateFeatureSettings(latest.copy(conversationReasoning = latest.conversationReasoning + (chatId to enabled)))
+                        settingRepository.mutateFeatureSettings { latest -> latest.copy(conversationReasoning = latest.conversationReasoning + (chatId to enabled)) }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -792,8 +792,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 conversationDelegationMutex.withLock {
-                    val latest = settingRepository.getFeatureSettings()
-                    settingRepository.updateFeatureSettings(latest.copy(localAssist = enabled))
+                    settingRepository.mutateFeatureSettings { latest -> latest.copy(localAssist = enabled) }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -820,9 +819,10 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun persistConversationDelegation(chatId: Int, value: ConversationDelegationSettings?) {
         conversationDelegationMutex.withLock {
-            val latest = settingRepository.getFeatureSettings()
-            val overrides = if (value == null) latest.conversationDelegation - chatId else latest.conversationDelegation + (chatId to value)
-            settingRepository.updateFeatureSettings(latest.copy(conversationDelegation = overrides))
+            settingRepository.mutateFeatureSettings { latest ->
+                val overrides = if (value == null) latest.conversationDelegation - chatId else latest.conversationDelegation + (chatId to value)
+                latest.copy(conversationDelegation = overrides)
+            }
         }
     }
 

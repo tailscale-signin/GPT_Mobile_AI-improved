@@ -80,12 +80,14 @@ class PlatformSettingViewModel @Inject constructor(
     val pluginInstallations: StateFlow<Map<String, dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation>> = nativeMarketplaceRegistry?.state ?: MutableStateFlow(emptyMap())
     private val behaviorMutex = kotlinx.coroutines.sync.Mutex()
 
-    fun updateProfileBehavior(value: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings) {
+    fun updateProfileBehavior(transform: (dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings) -> dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings) {
         viewModelScope.launch {
             behaviorMutex.lock()
             try {
-                val current = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(current.copy(profileBehavior = current.profileBehavior + (platformUid to value.normalized())))
+                settingRepository.mutateFeatureSettings { current ->
+                    val value = transform(current.profileBehavior[platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()).normalized()
+                    current.copy(profileBehavior = current.profileBehavior + (platformUid to value))
+                }
             } finally {
                 behaviorMutex.unlock()
             }
@@ -125,8 +127,7 @@ class PlatformSettingViewModel @Inject constructor(
                     _toolBindingState.update { it.copy(selectedSearchConnectionUids = selected) }
                 }
                 // Read fresh after discovery so asynchronous settings changes are retained.
-                val current = settingRepository.getFeatureSettings()
-                settingRepository.updateFeatureSettings(current.withProfileToolPluginEnabled(platformUid, serviceId, enabled))
+                settingRepository.mutateFeatureSettings { current -> current.withProfileToolPluginEnabled(platformUid, serviceId, enabled) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -177,11 +178,15 @@ class PlatformSettingViewModel @Inject constructor(
         val entry = catalog.firstOrNull { it.id == platform?.model }?.let { entry ->
             records.firstOrNull { it.catalogEntryId == entry.id }?.let { dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.forInstalledFile(entry, it.fileName) } ?: entry
         }
-        LocalAccelerators.choices(
-            supported = entry?.supportedAccelerators ?: listOf(LocalAccelerators.CPU, LocalAccelerators.GPU),
-            socToModelFiles = entry?.socToModelFiles.orEmpty(),
-            deviceSocModel = deviceSocModel
-        )
+        if (entry != null) {
+            LocalAccelerators.choices(entry, deviceSocModel)
+        } else {
+            LocalAccelerators.choices(
+                supported = entry?.supportedAccelerators ?: listOf(LocalAccelerators.CPU, LocalAccelerators.GPU),
+                socToModelFiles = entry?.socToModelFiles.orEmpty(),
+                deviceSocModel = deviceSocModel
+            )
+        }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _dialogState = MutableStateFlow(DialogState())
@@ -921,7 +926,6 @@ class PlatformSettingViewModel @Inject constructor(
                 toolConnectionRepository.replaceMcpToolBindings(platformUid, selections.toList())
                 behaviorMutex.lock()
                 try {
-                    val latest = settingRepository.getFeatureSettings()
                     val connections = toolConnectionRepository.listConnections().associateBy { it.connectionUid }
                     val identities = selections.flatMap { selection ->
                         listOfNotNull(
@@ -929,7 +933,7 @@ class PlatformSettingViewModel @Inject constructor(
                             dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(selection.connectionUid)
                         )
                     }.toSet()
-                    settingRepository.updateFeatureSettings(identities.fold(latest) { settings, id -> settings.withProfileToolPluginEnabled(platformUid, id, true) })
+                    settingRepository.mutateFeatureSettings { latest -> identities.fold(latest) { settings, id -> settings.withProfileToolPluginEnabled(platformUid, id, true) } }
                 } finally {
                     behaviorMutex.unlock()
                 }

@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ProfileBehaviorSettings(
     val delegationEnabled: Boolean = false,
+    val delegationCloudPermission: dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission = dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.INHERIT,
     val crawlersEnabled: Boolean = false,
     val crawlerToolIds: Set<String> = emptySet(),
     val maxCrawlPages: Int = 5,
@@ -20,6 +21,7 @@ data class ProfileBehaviorSettings(
 fun AppFeatureSettings.delegationFor(profileUid: String): ModelDelegationSettings =
     delegation.copy(
         enabled = delegation.enabled && profileBehavior[profileUid]?.delegationEnabled == true,
+        cloudPermission = if (profileBehavior[profileUid]?.delegationCloudPermission == dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY) dev.chungjungsoo.gptmobile.data.delegation.ScopedPermission.DENY else delegation.cloudPermission,
         deepResearch = delegation.deepResearch.copy(
             enabled = profileBehavior[profileUid]?.researchEnabledOverride ?: delegation.deepResearch.enabled,
             academicSources = profileBehavior[profileUid]?.academicSourcesAllowed ?: delegation.deepResearch.academicSources

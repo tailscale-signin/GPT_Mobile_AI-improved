@@ -1,11 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -51,7 +48,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -61,14 +57,12 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
-import dev.chungjungsoo.gptmobile.data.catalog.hasMtp
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceUrls
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelRequirements
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
-import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,305 +75,235 @@ fun LocalModelsScreen(
     onOpenProfile: (String) -> Unit = {},
     onNavigationClick: () -> Unit
 ) {
-    val scrollState = rememberLazyListState()
-    val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
-        canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
-    )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
-    val context = LocalContext.current
-    val downloadPreferences = remember { context.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE) }
-    var wifiOnly by remember { mutableStateOf(downloadPreferences.getBoolean("wifiOnly", false)) }
-    var marketplace by rememberSaveable { mutableStateOf(startInMarketplace) }
-    var marketplaceTab by rememberSaveable { mutableIntStateOf(0) }
-    var architecture by rememberSaveable { mutableStateOf("") }
-    var selectedTab by rememberSaveable { mutableStateOf(if (startInDelegation) 1 else 0) }
-    val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
+    val catalogStatus by viewModel.catalogStatus.collectAsStateWithLifecycle()
+    val profiles by runtimeViewModel.profiles.collectAsStateWithLifecycle()
     val runtimeSettings by runtimeViewModel.settings.collectAsStateWithLifecycle()
     val runtimeBusy by runtimeViewModel.busy.collectAsStateWithLifecycle()
-    val profiles by runtimeViewModel.profiles.collectAsStateWithLifecycle()
-    val qnnAvailable by runtimeViewModel.qnnAvailable.collectAsStateWithLifecycle()
-    val backend by runtimeViewModel.backend.collectAsStateWithLifecycle()
-    val selectedArchitecture = architecture.ifBlank { if (backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN && qnnAvailable) "QNN" else "LiteRT" }
-    androidx.compose.runtime.LaunchedEffect(selectedArchitecture) { viewModel.setNpuOnly(selectedArchitecture == "QNN") }
-    val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
-    val backFromModels: () -> Unit = {
-        if (marketplace) backFade.fade { marketplace = false } else onNavigationClick()
-    }
-    BackHandler(marketplace, onBack = backFromModels)
-
-    val openDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            viewModel.importCustomModel(context.contentResolver, uri)
+    val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
+    val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
+    val context = LocalContext.current
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var settingsOpen by rememberSaveable { mutableStateOf(startInDelegation) }
+    var filtersOpen by rememberSaveable { mutableStateOf(false) }
+    var runtime by rememberSaveable { mutableStateOf("All") }
+    var processor by rememberSaveable { mutableStateOf("Any") }
+    var capability by rememberSaveable { mutableStateOf("Any") }
+    var everyModel by rememberSaveable { mutableStateOf(false) }
+    var family by rememberSaveable { mutableStateOf<String?>(null) }
+    var why by rememberSaveable { mutableStateOf(false) }
+    val geniex = dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED
+    fun support(item: LocalModelListItem) = dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogCompatibilityResolver.resolve(item.entry, geniex, runtimeViewModel.soc, item.status == LocalModelItemStatus.READY)
+    fun isGenieX(item: LocalModelListItem) = item.entry.variantLabel.startsWith("GENIEX_") || item.entry.runtimeRequirement.contains("geniex", true) || item.entry.downloadUrl.substringBefore('?').endsWith(".gguf", true)
+    val recommended = remember(uiState.allItems, geniex) { dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogRecommendationPolicy.recommend(uiState.allItems.map { it.entry }, geniex, runtimeViewModel.soc, runtimeViewModel.ramGb).map { it.id }.toSet() }
+    val visible = uiState.items.filter { item ->
+        val selectedTab = when (tab) {
+            0 -> item.entry.id in recommended
+            2 -> item.status != LocalModelItemStatus.NOT_DOWNLOADED
+            else -> everyModel || support(item).reasons.isEmpty()
         }
+        selectedTab &&
+            (runtime == "All" || (runtime == "GenieX") == isGenieX(item)) &&
+            (processor == "Any" || item.entry.supportedAccelerators.any { it.equals(processor, true) }) &&
+            when (capability) {
+                "Images" -> item.entry.capabilities.vision
+                "Tools" -> item.entry.capabilities.tools
+                "Thinking" -> item.entry.capabilities.thinking
+                "MTP" -> item.entry.supportsMtp
+                else -> true
+            }
     }
-
-    Scaffold(
-        modifier = modifier.then(backFade.modifier).nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LocalModelsTopBar(
-                scrollBehavior = scrollBehavior,
-                onNavigationClick = backFromModels,
-                marketplace = marketplace,
-                onMarketplace = { marketplace = true }
-            )
-        }
-    ) { innerPadding ->
-        when {
-            uiState.isLoading -> {
-                Box(
-                    modifier = Modifier
-                        .padding(innerPadding)
-                        .fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
+    val families = visible.groupBy { it.entry.familyId.ifBlank { it.entry.id } }
+    val downloadPreferences = remember { context.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE) }
+    var wifiOnly by remember { mutableStateOf(downloadPreferences.getBoolean("wifiOnly", false)) }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.importCustomModel(context.contentResolver, uri) }
+    Scaffold(modifier = modifier, topBar = {
+        androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_models_8e4bf)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
+            IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Rounded.Memory, "Local runtime settings") }
+            IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.Add, "Import a local model") }
+            IconButton(onClick = viewModel::refreshCatalog) { Icon(Icons.Rounded.Refresh, "Refresh catalog") }
+        })
+    }) { insets ->
+        Column(Modifier.fillMaxSize().padding(insets)) {
+            OutlinedTextField(uiState.searchQuery, viewModel::updateSearchQuery, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_search_models_10421)) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), singleLine = true, trailingIcon = { TextButton(onClick = { filtersOpen = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_filters_546eb)) } })
+            androidx.compose.material3.ScrollableTabRow(tab, edgePadding = 8.dp) {
+                listOf("Recommended", "All models", "Installed").forEachIndexed { index, title ->
+                    androidx.compose.material3.Tab(tab == index, {
+                        tab = index
+                        viewModel.updateFilter(LocalModelFilter.ALL)
+                    }, text = { Text(title) })
                 }
             }
-
-            else -> {
-                LazyColumn(Modifier.padding(innerPadding), state = scrollState) {
-                    if (!marketplace) {
-                        item {
-                            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = selectedTab) {
-                                androidx.compose.material3.Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Library") })
-                                androidx.compose.material3.Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Settings") })
-                            }
+            LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                catalogStatus?.let { snapshot ->
+                    item {
+                        Text("${snapshot.source} · Revision ${snapshot.revision} · ${snapshot.entries.size} listed", style = MaterialTheme.typography.labelSmall)
+                        snapshot.upstream?.let { Text("Source coverage: ${it.artifactCount} artifacts across ${it.familyCount} families · Retrieved ${it.retrievedAt}", style = MaterialTheme.typography.labelSmall) }
+                        snapshot.refreshError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+                if (tab == 0) {
+                    item {
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_curated_candidates_for_this_device_75abc), style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { why = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_why_these_models_6954d)) }
+                    }
+                }
+                if (tab == 1) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_show_every_listed_model_355b0), Modifier.weight(1f))
+                            androidx.compose.material3.Switch(everyModel, { everyModel = it })
                         }
                     }
-                    if (!marketplace && selectedTab == 1) {
-                        item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
-                    } else if (!marketplace) {
-                        item(key = "overview") { LocalModelsOverviewCard(uiState) }
-                        item(key = "local-assist") {
-                            LocalAssistToggle(runtimeSettings.localAssist, { runtimeViewModel.updateTuning(assist = it) }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), enabled = !runtimeBusy)
+                    item { Row { LocalModelSource.entries.forEach { source -> FilterChip(uiState.source == source, { viewModel.updateModelSource(source) }, label = { Text(source.title) }) } } }
+                    if (uiState.source == LocalModelSource.HUGGING_FACE) {
+                        item {
+                            HuggingFaceAccountSection(hasToken = uiState.hasHuggingFaceToken, onAddToken = viewModel::openAccessTokenDialog, onRemoveToken = viewModel::removeHuggingFaceAccessToken)
+                            uiState.huggingFaceSearchError?.let { Text(it) }
                         }
-                        item(key = "download-policy") {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Wi-Fi only downloads", style = MaterialTheme.typography.titleSmall)
-                                    Text("Applies to new downloads and retries. Storage includes partial files.", style = MaterialTheme.typography.bodySmall)
-                                }
-                                androidx.compose.material3.Switch(checked = wifiOnly, onCheckedChange = {
-                                    wifiOnly = it
-                                    downloadPreferences.edit().putBoolean("wifiOnly", it).apply()
-                                })
-                            }
+                    }
+                }
+                val active = uiState.allItems.count { it.status == LocalModelItemStatus.DOWNLOADING }
+                if (active > 0) {
+                    item {
+                        TextButton(onClick = {
+                            tab = 2
+                            viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
+                        }) { Text("Downloads · $active active · Manage") }
+                    }
+                }
+                if (tab == 2) {
+                    item {
+                        Text("Storage used · ${ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)}")
+                        Row { listOf(LocalModelFilter.ALL, LocalModelFilter.DOWNLOADING, LocalModelFilter.FAILED).forEach { value -> TextButton(onClick = { viewModel.updateFilter(value) }) { Text(value.title) } } }
+                    }
+                }
+                if (uiState.isLoading) item { CircularProgressIndicator() }
+                if (!uiState.isLoading && families.isEmpty()) {
+                    item {
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_no_models_match_these_filters_c5178))
+                        TextButton(onClick = {
+                            tab = 1
+                            everyModel = true
+                            runtime = "All"
+                            processor = "Any"
+                            capability = "Any"
+                        }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_show_the_full_catalog_46ecc)) }
+                    }
+                }
+                items(families.entries.toList(), key = { it.key }) { (key, variants) ->
+                    val item = variants.first()
+                    Card(onClick = { family = key }, modifier = Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(item.entry.displayName, style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                if (item.entry.capabilities.vision) {
+                                    "Image and text candidate"
+                                } else if (item.entry.capabilities.thinking) {
+                                    "Reasoning candidate"
+                                } else {
+                                    "Local text assistant"
+                                },
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text("${if (isGenieX(item)) "GenieX" else "LiteRT-LM"} · ${item.entry.variantLabel.ifBlank { item.entry.precision }} · ${if (item.downloadSizeBytes > 0) ModelCatalogParser.formatDownloadSize(item.downloadSizeBytes) else "Size unknown"}", style = MaterialTheme.typography.labelMedium)
+                            Text(support(item).reasons.firstOrNull() ?: if (item.status == LocalModelItemStatus.READY) "Installed · Runtime verification remains separate" else "Not yet tested on this device", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { family = key }) { Text(if (variants.size > 1) "Compare ${variants.size} variants" else "View details") }
                         }
-                        item(key = "import-main") {
-                            CustomModelImportSection(
-                                onImportClick = { openDocumentLauncher.launch(arrayOf("*/*")) }
+                    }
+                }
+            }
+        }
+    }
+    if (settingsOpen) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { settingsOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Scaffold(topBar = { androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_runtime_settings_7fbc0)) }, navigationIcon = { IconButton(onClick = { settingsOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
+                LazyColumn(Modifier.padding(insets)) {
+                    item { LocalRuntimeSettingsCard(runtimeViewModel) }
+                    item { LocalAssistToggle(runtimeSettings.localAssist, { runtimeViewModel.updateTuning(assist = it) }, Modifier.padding(16.dp), enabled = !runtimeBusy) }
+                    item {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_wi_fi_only_downloads_497e4), Modifier.weight(1f))
+                            androidx.compose.material3.Switch(wifiOnly, {
+                                wifiOnly = it
+                                downloadPreferences.edit().putBoolean("wifiOnly", it).apply()
+                            })
+                        }
+                    }
+                    item { HuggingFaceAccountSection(hasToken = uiState.hasHuggingFaceToken, onAddToken = viewModel::openAccessTokenDialog, onRemoveToken = viewModel::removeHuggingFaceAccessToken) }
+                }
+            }
+        }
+    }
+    family?.let { selectedFamily ->
+        val variants = (uiState.allItems + uiState.huggingFaceItems).distinctBy { it.entry.id }.filter { it.entry.familyId.ifBlank { it.entry.id } == selectedFamily }
+        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { family = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Scaffold(topBar = { androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_details_5ddbc)) }, navigationIcon = { IconButton(onClick = { family = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
+                LazyColumn(Modifier.padding(insets), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item {
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_variants_63d26), style = MaterialTheme.typography.titleLarge)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_download_size_is_separate_from_working_memory_f3202))
+                    }
+                    runtimeStatus?.let { item { Text(it) } }
+                    items(variants, key = { it.entry.id }) { item ->
+                        val decision = support(item)
+                        Text("${item.entry.variantLabel.ifBlank { item.entry.displayName }} · ${item.entry.supportedAccelerators.joinToString()} · ${item.entry.precision.ifBlank { "Precision unknown" }}")
+                        Text("Context: ${item.entry.maxContextTokens.takeIf { it > 0 } ?: "Unknown"} · Minimum RAM: ${item.entry.minRamGb.takeIf { it > 0 }?.let { "$it GB" } ?: "Unknown"}")
+                        if (decision.reasons.isNotEmpty()) {
+                            decision.reasons.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+                            if (decision.action == dev.chungjungsoo.gptmobile.data.catalog.CatalogAction.VIEW_BUILD) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_the_geniex_apk_is_a_separate_installation_its_dedfc))
+                        } else {
+                            LocalModelItem(
+                                item,
+                                uiState.source,
+                                uiState.checkingAccessEntryId == item.entry.id,
+                                { if (decision.canDownload) requestDownload(item.entry) },
+                                { viewModel.cancelDownload(item.entry) },
+                                { viewModel.onDeleteClick(item.entry) },
+                                { runtimeViewModel.createProfile(item.entry, onOpenProfile) },
+                                profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
                             )
                         }
-                        runtimeStatus?.let { message -> item { Text(message, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) } }
-                        item { Text("Your models", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.titleLarge) }
-                        val installed = uiState.allItems.filter { it.status == LocalModelItemStatus.READY }
-                        if (installed.isEmpty()) {
-                            item {
-                                Card(Modifier.fillMaxWidth().padding(16.dp)) {
-                                    Column(Modifier.padding(20.dp)) {
-                                        Text("Your next AI can run on this device.", style = MaterialTheme.typography.titleMedium)
-                                        Text("Choose a compatible model to get started.", style = MaterialTheme.typography.bodySmall)
-                                        Button(onClick = { marketplace = true }) {
-                                            Icon(Icons.Rounded.Storefront, null)
-                                            Text("Browse marketplace")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        items(installed, key = { "installed-${it.entry.id}" }) { item ->
-                            LocalModelItem(item, LocalModelSource.CATALOG, false, {}, {}, { viewModel.onDeleteClick(item.entry) }, { runtimeViewModel.createProfile(item.entry, onOpenProfile) }, hasProfile = profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM })
-                        }
-                        val downloading = uiState.allItems.count { it.status == LocalModelItemStatus.DOWNLOADING }
-                        if (downloading > 0) item { TextButton(onClick = { marketplace = true }) { Text("View $downloading active downloads") } }
-                    } else {
-                        item {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Find your next local model", style = MaterialTheme.typography.headlineSmall)
-                                Text("Recommended for ${runtimeViewModel.soc} · ${runtimeViewModel.ramGb} GB RAM", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    (if (qnnAvailable) listOf("All", "LiteRT", "QNN", "MTP") else listOf("All", "LiteRT", "MTP")).forEach { label ->
-                                        FilterChip(selectedArchitecture == label, { architecture = label }, label = { Text(label) })
-                                    }
-                                }
-                                androidx.compose.material3.PrimaryTabRow(selectedTabIndex = marketplaceTab) {
-                                    androidx.compose.material3.Tab(
-                                        selected = marketplaceTab == 0,
-                                        onClick = { marketplaceTab = 0 },
-                                        text = { Text("Discover") }
-                                    )
-                                    androidx.compose.material3.Tab(
-                                        selected = marketplaceTab == 1,
-                                        onClick = { marketplaceTab = 1 },
-                                        text = { Text("Browse") }
-                                    )
-                                    androidx.compose.material3.Tab(
-                                        selected = marketplaceTab == 2,
-                                        onClick = { marketplaceTab = 2 },
-                                        text = { Text("Downloads") }
-                                    )
-                                }
-                            }
-                        }
-                        val recommendations = uiState.allItems.filter { item ->
-                            val qnn = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(item.entry.supportedAccelerators, item.entry.socToModelFiles, runtimeViewModel.soc)
-                            val litert = item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
-                            item.entry.downloadUrl.isNotBlank() &&
-                                item.entry.minRamGb <= runtimeViewModel.ramGb &&
-                                (
-                                    when (selectedArchitecture) {
-                                        "QNN" -> qnn
-                                        "LiteRT" -> litert
-                                        "MTP" -> item.entry.hasMtp()
-                                        else ->
-                                            qnn ||
-                                                litert ||
-                                                item.entry.supportedAccelerators.any { accelerator ->
-                                                    accelerator.equals("mtp", true) ||
-                                                        accelerator.contains("mediatek", true)
-                                                }
-                                    }
-                                    )
-                        }.sortedWith(
-                            compareByDescending<LocalModelListItem> {
-                                backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN && dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(it.entry.supportedAccelerators, it.entry.socToModelFiles, runtimeViewModel.soc)
-                            }.thenByDescending { it.entry.capabilities.tools }.thenBy { it.downloadSizeBytes }
-                        ).groupBy { it.entry.familyId.ifBlank { it.entry.id } }.values.take(3)
-                        if (marketplaceTab == 0 && uiState.searchQuery.isBlank() && recommendations.isNotEmpty()) {
-                            item { Text("Recommended models", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium) }
-                            items(recommendations, key = { "recommended-${it.first().entry.familyId.ifBlank { it.first().entry.id }}" }) { variants ->
-                                var showVariants by remember(variants.first().entry.id) { mutableStateOf(false) }
-                                Column {
-                                    (if (showVariants) variants else variants.take(1)).forEach { item ->
-                                        LocalModelItem(
-                                            item,
-                                            LocalModelSource.CATALOG,
-                                            uiState.checkingAccessEntryId == item.entry.id,
-                                            { requestDownload(item.entry) },
-                                            { viewModel.cancelDownload(item.entry) },
-                                            { viewModel.onDeleteClick(item.entry) },
-                                            { runtimeViewModel.createProfile(item.entry, onOpenProfile) },
-                                            hasProfile = profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
-                                        )
-                                    }
-                                    if (variants.size > 1) {
-                                        TextButton(onClick = { showVariants = !showVariants }, modifier = Modifier.padding(horizontal = 16.dp)) {
-                                            Text(if (showVariants) "Hide variants" else "Compare ${variants.size} variants · Same model family")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (marketplaceTab == 0) {
-                            item {
-                                Card(
-                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-                                ) {
-                                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("Explore the full catalog", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                        Text("Search curated and Hugging Face-compatible models, compare accelerators, and filter by download status.", style = MaterialTheme.typography.bodySmall)
-                                        TextButton(onClick = { marketplaceTab = 1 }) { Text("Browse all models") }
-                                    }
-                                }
-                            }
-                        }
-                        if (marketplaceTab == 1) {
-                            item(key = "search") {
-                                ModelCatalogSearch(
-                                    query = uiState.searchQuery,
-                                    selectedFilter = uiState.filter,
-                                    selectedSource = uiState.source,
-                                    isSearchingHuggingFace = uiState.isSearchingHuggingFace,
-                                    huggingFaceSearchError = uiState.huggingFaceSearchError,
-                                    huggingFaceSearchNotice = uiState.huggingFaceSearchNotice,
-                                    onQueryChange = viewModel::updateSearchQuery,
-                                    onFilterChange = viewModel::updateFilter,
-                                    onSourceChange = viewModel::updateModelSource,
-                                    onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
-                                )
-                            }
-                            item(key = "account") {
-                                HuggingFaceAccountSection(
-                                    hasToken = uiState.hasHuggingFaceToken,
-                                    onAddToken = viewModel::openAccessTokenDialog,
-                                    onRemoveToken = viewModel::removeHuggingFaceAccessToken
-                                )
-                            }
-                        }
-                        val marketplaceItems = when (marketplaceTab) {
-                            0 -> emptyList()
-                            2 -> uiState.items.filter { it.status != LocalModelItemStatus.NOT_DOWNLOADED }
-                            else -> uiState.items
-                        }
-                        if (marketplaceTab != 0 && marketplaceItems.isEmpty()) {
-                            item(key = "empty") {
-                                Text(
-                                    text = stringResource(R.string.local_models_empty),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
-                                )
-                            }
-                        } else {
-                            item(key = "storage") {
-                                Text(
-                                    text = stringResource(
-                                        R.string.local_model_storage_used,
-                                        ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)
-                                    ),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
-                                )
-                            }
-                            items(
-                                items = marketplaceItems.filter { item ->
-                                    when (selectedArchitecture) {
-                                        "QNN" -> qnnAvailable && dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(item.entry.supportedAccelerators, item.entry.socToModelFiles, runtimeViewModel.soc)
-                                        "LiteRT" -> item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
-                                        "MTP" -> item.entry.hasMtp()
-                                        else ->
-                                            item.entry.supportedAccelerators.any {
-                                                it.equals("cpu", true) ||
-                                                    it.equals("gpu", true) ||
-                                                    it.equals("mtp", true) ||
-                                                    it.contains("mediatek", true)
-                                            } ||
-                                                (
-                                                    qnnAvailable &&
-                                                        dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(
-                                                            item.entry.supportedAccelerators,
-                                                            item.entry.socToModelFiles,
-                                                            runtimeViewModel.soc
-                                                        )
-                                                    )
-                                    }
-                                },
-                                key = { it.entry.id },
-                                contentType = { "model" }
-                            ) { item ->
-                                LocalModelItem(
-                                    item = item,
-                                    source = uiState.source,
-                                    isCheckingAccess = uiState.checkingAccessEntryId == item.entry.id,
-                                    onDownload = { requestDownload(item.entry) },
-                                    onCancel = { viewModel.cancelDownload(item.entry) },
-                                    onDelete = { viewModel.onDeleteClick(item.entry) },
-                                    onCreateProfile = { runtimeViewModel.createProfile(item.entry, onOpenProfile) },
-                                    hasProfile = profiles.any { it.model == item.entry.id && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
-                                )
-                            }
-                        }
+                        Text("Artifact: ${item.entry.id}\nSource revision: ${item.entry.upstreamRevision.ifBlank { "Not reported" }}\nSHA-256: ${item.entry.sha256.ifBlank { "Not reported" }}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
         }
     }
-
+    if (filtersOpen) {
+        androidx.compose.material3.AlertDialog(onDismissRequest = { filtersOpen = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_filters_d4bb9)) }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_runtime_10931))
+                Row { listOf("All", "LiteRT-LM", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_processor_54aac))
+                Row {
+                    listOf("Any", "CPU", "GPU", "NPU").forEach { value ->
+                        TextButton(onClick = {
+                            processor = value
+                            viewModel.setNpuOnly(value == "NPU")
+                        }) { Text(if (processor == value) "✓ $value" else value) }
+                    }
+                }
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_capabilities_advertised_not_execution_proof_6761c))
+                Column { listOf("Any", "Images", "Tools", "Thinking", "MTP").forEach { value -> TextButton(onClick = { capability = value }) { Text(if (capability == value) "✓ $value" else value) } } }
+            }
+        }, confirmButton = { TextButton(onClick = { filtersOpen = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_done_11a67)) } }, dismissButton = {
+            TextButton(onClick = {
+                runtime = "All"
+                processor = "Any"
+                capability = "Any"
+                viewModel.setNpuOnly(false)
+            }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reset_filters_10afa)) }
+        })
+    }
+    if (why) {
+        androidx.compose.material3.AlertDialog(onDismissRequest = { why = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_why_these_models_6954d)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_these_are_curated_evaluation_candidates_with__5dd8b)) }, confirmButton = {
+            TextButton(onClick = {
+                why = false
+                tab = 1
+            }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_all_models_0f589)) }
+        })
+    }
     LocalModelDownloadDialogHost(
         dialog = uiState.dialog,
         onConfirmRamWarning = viewModel::confirmRamWarning,
@@ -437,7 +361,7 @@ private fun LocalModelsOverviewCard(state: LocalModelsUiState) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Text("AI on your device", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_ai_on_your_device_2feb5), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
                 "Open a profile to chat. Find more models in the marketplace.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -574,7 +498,7 @@ private fun ModelCatalogSearch(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = onRefreshHuggingFace) { Text("Retry") }
+                TextButton(onClick = onRefreshHuggingFace) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_retry_94208)) }
             }
         }
 

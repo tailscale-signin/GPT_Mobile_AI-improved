@@ -147,15 +147,16 @@ class SettingRepositoryImpl @Inject constructor(
         platform?.let { resolvePlatformToken(it, connections.associateBy(ProviderConnection::uid)) }
     }
 
-    override fun observeThemes(): Flow<ThemeSetting> = settingDataSource.observePreferences().map { fetchThemes() }
+    override fun observeThemes(): Flow<ThemeSetting> = settingDataSource.observeThemes()
 
-    override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(
-        dynamicTheme = settingDataSource.getDynamicTheme() ?: DynamicTheme.OFF,
-        themeMode = settingDataSource.getThemeMode() ?: ThemeMode.DARK,
-        customPrimaryArgb = settingDataSource.getCustomPrimaryArgb(),
-        customPalette = settingDataSource.getCustomPalette(),
-        savedProfiles = settingDataSource.getSavedThemeProfiles()
-    )
+    override suspend fun fetchThemes(): ThemeSetting = settingDataSource.getThemes()
+
+    override suspend fun mutateThemes(transform: (ThemeSetting) -> ThemeSetting): ThemeSetting = settingDataSource.mutateThemes(transform)
+
+    override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings =
+        settingDataSource.mutateFeatureSettings(transform).also {
+            dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection
+        }
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
         settingDataSource.getLocalRuntimeBackend()
@@ -318,11 +319,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateThemes(themeSetting: ThemeSetting) {
-        settingDataSource.updateDynamicTheme(themeSetting.dynamicTheme)
-        settingDataSource.updateThemeMode(themeSetting.themeMode)
-        settingDataSource.updateCustomPrimaryArgb(themeSetting.customPrimaryArgb)
-        settingDataSource.updateCustomPalette(themeSetting.customPalette)
-        settingDataSource.updateSavedThemeProfiles(themeSetting.savedProfiles)
+        settingDataSource.mutateThemes { themeSetting }
     }
 
     override suspend fun addPlatformV2(platform: PlatformV2) {

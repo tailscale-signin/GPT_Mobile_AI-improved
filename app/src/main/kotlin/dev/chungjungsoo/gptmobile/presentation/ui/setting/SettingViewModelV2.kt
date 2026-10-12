@@ -103,34 +103,32 @@ class SettingViewModelV2 @Inject constructor(
 
     fun resetConversationOverrides(id: Int) {
         viewModelScope.launch {
-            val current = settingRepository.getFeatureSettings()
-            settingRepository.updateFeatureSettings(current.copy(conversationReasoning = current.conversationReasoning - id, conversationDelegation = current.conversationDelegation - id))
+            settingRepository.mutateFeatureSettings { current -> current.copy(conversationReasoning = current.conversationReasoning - id, conversationDelegation = current.conversationDelegation - id) }
         }
     }
 
     fun applyExperiencePreset(name: String) {
         viewModelScope.launch {
-            val current = settingRepository.getFeatureSettings()
-            val updated = when (name) {
-                "Quiet" -> current.copy(responseNotifications = false, responseAnimation = false, backgroundGeneration = true)
-                "Battery saver" -> current.copy(backgroundGeneration = false, parallelSearch = true, responseAnimation = false, localIdleMinutes = 1)
-                else -> current.copy(smoothStreaming = true, backgroundGeneration = true, responseNotifications = true, parallelSearch = true, localIdleMinutes = 10)
+            settingRepository.mutateFeatureSettings { current ->
+                when (name) {
+                    "Quiet" -> current.copy(responseNotifications = false, responseAnimation = false, backgroundGeneration = true)
+                    "Battery saver" -> current.copy(backgroundGeneration = false, parallelSearch = true, responseAnimation = false, localIdleMinutes = 1)
+                    else -> current.copy(smoothStreaming = true, backgroundGeneration = true, responseNotifications = true, parallelSearch = true, localIdleMinutes = 10)
+                }
             }
-            settingRepository.updateFeatureSettings(updated)
         }
     }
 
     fun updateFeature(feature: AppFeature, enabled: Boolean) {
         viewModelScope.launch {
-            val updated = featureSettings.value.withFeature(feature, enabled)
-            settingRepository.updateFeatureSettings(updated)
+            settingRepository.mutateFeatureSettings { it.withFeature(feature, enabled) }
             val state = if (enabled) "enabled" else "disabled"
             _uiEvent.emit(UiEvent.ShowToast("${feature.title} $state"))
         }
     }
     fun updateDebugMetric(metric: DebugMetric, enabled: Boolean) {
         viewModelScope.launch {
-            settingRepository.updateFeatureSettings(featureSettings.value.withDebugMetric(metric, enabled))
+            settingRepository.mutateFeatureSettings { it.withDebugMetric(metric, enabled) }
         }
     }
 

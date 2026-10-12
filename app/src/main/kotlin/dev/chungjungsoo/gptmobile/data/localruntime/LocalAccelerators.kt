@@ -20,6 +20,20 @@ object LocalAccelerators {
 
     val ALL = listOf(CPU, GPU, NPU)
 
+    /** GGUF Hexagon is portable within a pinned corpus, not a compiled SoC shard. */
+    fun portableGgufNpu(entry: dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry, soc: String): Boolean =
+        dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED &&
+            entry.manifestVersion == 2 &&
+            entry.variantLabel == "GENIEX_LLAMA_CPP" &&
+            entry.precision.equals("Q4_0", true) &&
+            entry.runtimeRequirement.contains(dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_VERSION) &&
+            entry.supportedAccelerators.any { it.equals(NPU, true) } &&
+            QualcommSocSupport.canonicalSoc(soc) in setOf("SM8750", "SM8850")
+
+    fun choices(entry: dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry, soc: String): List<AcceleratorOption> =
+        choices(entry.supportedAccelerators, entry.socToModelFiles, soc).filterNot { it.accelerator == NPU && portableGgufNpu(entry, soc) } +
+            if (portableGgufNpu(entry, soc)) listOf(AcceleratorOption(NPU, true)) else emptyList()
+
     /**
      * NPU is enabled only when the catalog lists it and this device has a matching
      * SOC-specific variant. Gallery hides NPU-only models whose `socToModelFiles`

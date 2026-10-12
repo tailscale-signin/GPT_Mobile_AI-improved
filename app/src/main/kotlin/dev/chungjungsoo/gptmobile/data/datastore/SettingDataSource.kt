@@ -11,6 +11,23 @@ import kotlinx.coroutines.flow.flowOf
 
 interface SettingDataSource {
     fun observePreferences(): Flow<Preferences> = kotlinx.coroutines.flow.flow { emit(getPreferencesSnapshot()) }
+    fun observeThemes(): Flow<dev.chungjungsoo.gptmobile.data.dto.ThemeSetting> = kotlinx.coroutines.flow.flow { emit(getThemes()) }
+    suspend fun getThemes() = dev.chungjungsoo.gptmobile.data.dto.ThemeSetting(
+        dynamicTheme = getDynamicTheme() ?: DynamicTheme.OFF,
+        themeMode = getThemeMode() ?: ThemeMode.DARK,
+        customPrimaryArgb = getCustomPrimaryArgb(),
+        customPalette = getCustomPalette(),
+        savedProfiles = getSavedThemeProfiles()
+    )
+    suspend fun mutateThemes(transform: (dev.chungjungsoo.gptmobile.data.dto.ThemeSetting) -> dev.chungjungsoo.gptmobile.data.dto.ThemeSetting): dev.chungjungsoo.gptmobile.data.dto.ThemeSetting {
+        val next = transform(getThemes())
+        updateDynamicTheme(next.dynamicTheme)
+        updateThemeMode(next.themeMode)
+        updateCustomPrimaryArgb(next.customPrimaryArgb)
+        updateCustomPalette(next.customPalette)
+        updateSavedThemeProfiles(next.savedProfiles)
+        return next
+    }
     suspend fun getPreferencesSnapshot(): Preferences
     suspend fun updateDynamicTheme(theme: DynamicTheme)
     suspend fun updateThemeMode(themeMode: ThemeMode)
@@ -22,9 +39,15 @@ interface SettingDataSource {
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
     suspend fun updateDebugMode(enabled: Boolean)
     suspend fun updateFeatureSettings(settings: AppFeatureSettings) = Unit
+    suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings {
+        val updated = transform(getFeatureSettings())
+        updateFeatureSettings(updated)
+        return updated
+    }
     suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {
-        val current = getFeatureSettings()
-        updateFeatureSettings(current.copy(delegation = current.delegation.copy(deepResearch = settings.migrated())))
+        mutateFeatureSettings { current ->
+            current.copy(delegation = current.delegation.copy(deepResearch = settings.migrated()))
+        }
     }
     suspend fun getFeatureSettings(): AppFeatureSettings = AppFeatureSettings()
     fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())

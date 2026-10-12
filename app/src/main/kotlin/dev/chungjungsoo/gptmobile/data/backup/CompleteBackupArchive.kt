@@ -78,7 +78,7 @@ internal object CompleteBackupArchive {
     }
 
     fun validatePath(path: String) {
-        if (path == "database.sqlite") return
+        if (path == "database.sqlite" || path == "tool-statistics.json") return
         val parts = path.split('/')
         require(parts.size >= 2 && parts.first() in setOf("internal", "external")) { "Invalid backup location." }
         require(parts.none { it.isBlank() || it == "." || it == ".." || it.startsWith(".full-restore-") || '\\' in it || ':' in it || '\u0000' in it }) { "Invalid backup path." }

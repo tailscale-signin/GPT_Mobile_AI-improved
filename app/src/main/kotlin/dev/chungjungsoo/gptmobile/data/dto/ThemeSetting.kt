@@ -9,7 +9,8 @@ data class ThemeSetting(
     val themeMode: ThemeMode = ThemeMode.DARK,
     val customPrimaryArgb: Long? = null,
     val customPalette: CustomThemePalette? = null,
-    val savedProfiles: List<SavedThemeProfile> = emptyList()
+    val savedProfiles: List<SavedThemeProfile> = emptyList(),
+    val recoveryWarning: String? = null
 )
 
 @Serializable
@@ -21,7 +22,22 @@ data class CustomThemePalette(
 )
 
 @Serializable
-data class SavedThemeProfile(val name: String, val palette: CustomThemePalette, val mode: ThemeMode = ThemeMode.DARK)
+data class SavedThemeProfile(val name: String, val palette: CustomThemePalette, val mode: ThemeMode = ThemeMode.DARK, val id: String = "")
+
+/** Stable even before the first write, including duplicate entries in legacy backups. */
+fun ThemeSetting.withStableProfileIds(): ThemeSetting {
+    val used = mutableSetOf<String>()
+    return copy(
+        savedProfiles = savedProfiles.mapIndexed { index, profile ->
+            val existing = profile.id.takeIf { it.isNotBlank() && it !in used }
+            val id = existing ?: "saved:" + java.util.UUID.nameUUIDFromBytes(
+                "$index:${profile.name}:${profile.mode}:${profile.palette}".toByteArray(Charsets.UTF_8)
+            )
+            used += id
+            profile.copy(id = id)
+        }
+    )
+}
 
 object ThemePresets {
     val defaultProfile = SavedThemeProfile("Cyan", CustomThemePalette(0xFF00FFDE, 0xFFCC00FF, 0xFF001219, 0xFF0B2028))

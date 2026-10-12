@@ -6,8 +6,16 @@ import kotlinx.serialization.Serializable
 data class ModelCatalog(
     val schemaVersion: Int = 0,
     val revision: Int = 0,
-    val models: List<CatalogEntry> = emptyList()
+    val models: List<CatalogEntry> = emptyList(),
+    val source: CatalogSource? = null,
+    val coverage: List<CatalogCoverage> = emptyList()
 )
+
+@Serializable
+data class CatalogSource(val upstreamCommit: String, val retrievedAt: String, val inputDigest: String, val familyCount: Int, val artifactCount: Int, val complete: Boolean)
+
+@Serializable
+data class CatalogCoverage(val familyId: String, val artifactId: String, val status: String, val runtime: String, val chipset: String, val precision: String = "")
 
 @Serializable
 data class CatalogEntry(
@@ -31,7 +39,9 @@ data class CatalogEntry(
     val runtimeRequirement: String = "",
     val familyId: String = "",
     val variantLabel: String = "",
-    val precision: String = ""
+    val precision: String = "",
+    val coverageStatus: String = "represented",
+    val sourceChipset: String = ""
 )
 
 @Serializable
@@ -63,6 +73,4 @@ data class SocVariant(
 )
 
 /** MTP is multi-token prediction, not the MediaTek accelerator. */
-fun CatalogEntry.hasMtp(): Boolean = supportsMtp ||
-    supportedAccelerators.any { it.equals("mtp", true) } ||
-    Regex("(?i)(?:^|[-_/ .])mtp(?:$|[-_/ .])").containsMatchIn("$id $displayName $downloadUrl")
+fun CatalogEntry.hasMtp(): Boolean = supportsMtp

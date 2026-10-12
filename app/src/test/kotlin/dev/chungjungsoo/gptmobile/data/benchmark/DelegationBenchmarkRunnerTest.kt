@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -105,7 +106,7 @@ class DelegationBenchmarkRunnerTest {
         assertEquals(0, result.delegation!!.fixtureCalls)
     }
 
-    @Test fun `primary DNS errors stay transport errors in the research handoff case`() = runTest {
+    @Test fun `primary DNS errors stay transport errors in the research handoff case`() = runBlocking {
         val runner = DelegationBenchmarkRunner(
             createCoordinator = {
                 LocalDelegationCoordinator(source, { config }, { listOf(helper) }, { _, prompt, _ ->
@@ -128,7 +129,7 @@ class DelegationBenchmarkRunnerTest {
             workerCalls = { 0 }
         )
         val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-research" })
-        assertEquals(BenchmarkOutcome.ERROR, result.outcome)
+        assertEquals(result.error, BenchmarkOutcome.ERROR, result.outcome)
         assertTrue(result.error.orEmpty().contains("Unable to resolve host"))
     }
 
@@ -173,7 +174,7 @@ class DelegationBenchmarkRunnerTest {
     private val helper = PlatformV2(uid = "helper", name = "Helper", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.2:8080")
     private val config = ModelDelegationSettings(enabled = true, targetProfileUid = "helper", maxPages = 1, crawlDepth = 0, maxLocalModelCalls = 10)
 
-    @Test fun `pipeline reads fixture then preserves code and source through primary synthesis`() = runTest {
+    @Test fun `pipeline reads fixture then preserves code and source through primary synthesis`() = runBlocking {
         var calls = 0
         var primaryCalls = 0
         val runner = DelegationBenchmarkRunner(
@@ -206,7 +207,7 @@ class DelegationBenchmarkRunnerTest {
             workerCalls = { calls }
         )
         val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-research" })
-        assertEquals(BenchmarkOutcome.PASSED, result.outcome)
+        assertEquals(result.error, BenchmarkOutcome.PASSED, result.outcome)
         assertEquals(1, primaryCalls)
         assertEquals(1, result.delegation!!.pagesRead)
         assertEquals(100L, result.delegation!!.primaryInputTokens)

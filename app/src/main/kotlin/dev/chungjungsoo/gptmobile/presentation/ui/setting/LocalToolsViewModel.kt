@@ -30,8 +30,7 @@ class LocalToolsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings())
     fun updateBudget(transform: (dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) -> dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) {
         viewModelScope.launch {
-            val latest = settings.getFeatureSettings()
-            settings.updateFeatureSettings(latest.copy(tokenBudget = transform(latest.tokenBudget).normalized()))
+            settings.mutateFeatureSettings { latest -> latest.copy(tokenBudget = transform(latest.tokenBudget).normalized()) }
         }
     }
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -74,28 +73,38 @@ class LocalToolsViewModel @Inject constructor(
     fun resetDelegationDefaults() {
         update { current ->
             ModelDelegationSettings(
+                policyVersion = 2,
+                selectionMode = current.selectionMode,
                 enabled = current.enabled,
                 targetProfileUid = current.targetProfileUid,
                 localPlatformsOnly = current.localPlatformsOnly,
-                allowRemoteWorkers = current.allowRemoteWorkers
+                allowRemoteWorkers = current.allowRemoteWorkers,
+                cloudPermission = current.cloudPermission,
+                reviewerEnabled = current.reviewerEnabled,
+                reviewerProfileUid = current.reviewerProfileUid,
+                approvedWorkerUids = current.approvedWorkerUids,
+                fallbackPolicy = current.fallbackPolicy,
+                fallbackToAnotherProfile = current.fallbackToAnotherProfile,
+                processingOwnership = current.processingOwnership
             )
         }
     }
 
+    private var pendingEdits = 0
     fun update(transform: (ModelDelegationSettings) -> ModelDelegationSettings) {
-        if (_busy.value) return
+        pendingEdits += 1
         _busy.value = true
         viewModelScope.launch {
             try {
-                val latest = settings.getFeatureSettings()
-                settings.updateFeatureSettings(latest.copy(delegation = transform(latest.delegation).normalized()))
+                settings.mutateFeatureSettings { latest -> latest.copy(delegation = transform(latest.delegation.normalized()).normalized()) }
                 _error.value = null
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
                 _error.value = "Could not save delegation settings. Try again."
             } finally {
-                _busy.value = false
+                pendingEdits -= 1
+                _busy.value = pendingEdits > 0
             }
         }
     }

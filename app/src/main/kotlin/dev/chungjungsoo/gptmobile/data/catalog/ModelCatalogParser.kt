@@ -13,10 +13,23 @@ object ModelCatalogParser {
         explicitNulls = false
     }
 
-    fun parse(rawJson: String): ModelCatalog = json.decodeFromString(rawJson)
+    fun supported(version: Int) = version in 1..2
+    fun parse(rawJson: String): ModelCatalog {
+        require(rawJson.length <= 2_000_000)
+        val catalog = json.decodeFromString<ModelCatalog>(rawJson)
+        require(catalog.models.map { it.id }.distinct().size == catalog.models.size)
+        if (catalog.schemaVersion == 2) {
+            val source = requireNotNull(catalog.source) { "V2 catalog requires source coverage" }
+            require(source.complete && source.artifactCount == catalog.coverage.size && source.familyCount == catalog.coverage.map { it.familyId }.distinct().size)
+            require(source.inputDigest.matches(Regex("[a-f0-9]{64}")))
+            require(catalog.coverage.map { it.artifactId }.distinct().size == catalog.coverage.size)
+            require(catalog.coverage.all { it.status in setOf("represented", "unsupported_platform", "unsupported_app_workflow", "missing_artifact_metadata", "withdrawn") })
+        }
+        return catalog
+    }
 
     fun visibleEntries(catalog: ModelCatalog, currentAppVersion: String): List<CatalogEntry> {
-        if (catalog.schemaVersion != SUPPORTED_SCHEMA_VERSION) {
+        if (!supported(catalog.schemaVersion)) {
             return emptyList()
         }
         return catalog.models.filter { entry ->

@@ -121,7 +121,7 @@ class ModelCatalogParserTest {
         val unknown = ModelCatalogParser.parse(
             """
             {
-              "schemaVersion": 2,
+              "schemaVersion": 99,
               "models": [
                 {
                   "id": "future-model",

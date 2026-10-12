@@ -48,8 +48,9 @@ internal object SettingsSearchRegistry {
     } + DebugMetric.entries.map {
         SettingsSearchEntry("debug.${it.name}", it.title, "Debug › Display", SettingsSearchDestination.DEBUG, it.name, it.description)
     } + listOf(
-        SettingsSearchEntry("appearance.presets", "Theme Presets", "Appearance › Presets", SettingsSearchDestination.APPEARANCE, "0", "theme colours colors graphite cyan midnight"),
-        SettingsSearchEntry("appearance.custom", "Custom Colours", "Appearance › Custom", SettingsSearchDestination.APPEARANCE, "1", "palette contrast accent secondary background cards hex save theme"),
+        SettingsSearchEntry("appearance.presets", "Theme Styles", "Appearance › Style", SettingsSearchDestination.APPEARANCE, "0", "theme colours colors graphite cyan midnight"),
+        SettingsSearchEntry("appearance.custom", "Custom Colours", "Appearance › Colours", SettingsSearchDestination.APPEARANCE, "1", "palette contrast accent secondary background cards hex save theme"),
+        SettingsSearchEntry("appearance.saved", "Saved Themes", "Appearance › Saved", SettingsSearchDestination.APPEARANCE, "3", "saved theme rename duplicate delete backup colours colors"),
         SettingsSearchEntry("appearance.display", "Display", "Appearance › Display", SettingsSearchDestination.APPEARANCE, "2", "dark light system wallpaper dynamic colours"),
         SettingsSearchEntry("memory.facts", "Saved Memories", "Memory › Facts", SettingsSearchDestination.MEMORY, "Memories", "saved facts recall edit delete pin private memory vault"),
         SettingsSearchEntry("memory.documents", "Document Indexing", "Memory › Documents", SettingsSearchDestination.MEMORY, "Documents", "attachments indexing import retry remove"),

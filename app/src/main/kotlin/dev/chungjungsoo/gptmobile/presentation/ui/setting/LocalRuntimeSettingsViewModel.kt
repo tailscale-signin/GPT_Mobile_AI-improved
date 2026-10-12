@@ -101,8 +101,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         policy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy? = null
     ) = perform {
         updates.withLock {
-            val current = repository.getFeatureSettings()
-            repository.updateFeatureSettings(
+            repository.mutateFeatureSettings { current ->
                 current.copy(
                     localExecutionPolicy = policy ?: current.localExecutionPolicy,
                     localCpuThreads = threads?.coerceIn(0, cores) ?: current.localCpuThreads,
@@ -113,7 +112,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
                     localIdleMinutes = idle?.coerceIn(0, 60) ?: current.localIdleMinutes,
                     qnnAutomaticFallback = fallback ?: current.qnnAutomaticFallback
                 )
-            )
+            }
         }
         _status.value = "Saved. Performance changes apply to the next model load."
     }
@@ -146,6 +145,8 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         _status.value = if (runtime.unloadIfIdle(0L)) "Idle model memory released" else "No idle model to release; active responses are kept running"
     }
     fun createProfile(entry: CatalogEntry, onCreated: (String) -> Unit) = perform {
+        val support = dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogCompatibilityResolver.resolve(entry, dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED, soc, installed = true)
+        require(support.reasons.isEmpty()) { support.reasons.joinToString("; ") }
         val modelPath = checkNotNull(models.resolveDownloadedPath(entry.id)) { "Download this model first" }
         dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.installedPackageIssue(entry.downloadUrl, modelPath)?.let { error("Blocked package: $it") }
         val existing = repository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.model == entry.id }
@@ -153,7 +154,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             onCreated(existing.uid)
             return@perform
         }
-        check(LocalAccelerators.selectable(entry.supportedAccelerators, entry.socToModelFiles, soc).isNotEmpty()) { "This package does not match this phone. Choose a compatible download in the marketplace." }
+        check(LocalAccelerators.choices(entry, soc).any { it.enabled }) { "This package does not match this phone. Choose a compatible download in the marketplace." }
         val capabilities = runtime.inspectModel(modelPath)
         val profile = PlatformV2(
             name = entry.displayName,

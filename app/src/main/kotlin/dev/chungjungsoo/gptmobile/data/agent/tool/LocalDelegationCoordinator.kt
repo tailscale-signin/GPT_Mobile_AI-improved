@@ -6,6 +6,10 @@ import dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy
 import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.delegation.DelegationEvent
+import dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind
+import dev.chungjungsoo.gptmobile.data.delegation.DelegationRole
+import dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
@@ -56,8 +60,13 @@ internal class LocalDelegationCoordinator(
     private val useWorkloadRuntimeLimit: Boolean = true,
     private val onRecoveryRequired: (suspend (PlatformV2, List<PlatformV2>, String) -> DelegationRecoveryDecision)? = null,
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val researchJournal: dev.chungjungsoo.gptmobile.data.research.ResearchJournal? = null
+    private val researchJournal: dev.chungjungsoo.gptmobile.data.research.ResearchJournal? = null,
+    private val beforeDispatch: suspend () -> Boolean = { true },
+    private val onEvent: (DelegationEvent) -> Unit = {}
 ) {
+    private fun observe(event: DelegationEvent) {
+        runCatching { onEvent(event) }
+    }
     companion object {
         // Absolute emergency ceiling in addition to the user-configurable token budget.
         private const val MAX_DELEGATION_INPUT_TOKENS = 12_000
@@ -136,7 +145,12 @@ internal class LocalDelegationCoordinator(
     private val worker = Semaphore(4)
 
     private fun automaticFallbackAllowed(config: ModelDelegationSettings): Boolean =
-        config.targetProfileUid.isBlank() || config.fallbackToAnotherProfile
+        when (config.fallbackPolicy) {
+            dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.NONE,
+            dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.ASK -> false
+            dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.APPROVED_ORDER -> true
+            null -> config.targetProfileUid.isBlank() || config.fallbackToAnotherProfile
+        }
 
     private fun availabilityKey(profile: PlatformV2): String {
         val credentialFingerprint = profile.token?.hashCode() ?: profile.secretRef?.hashCode() ?: 0
@@ -156,7 +170,7 @@ internal class LocalDelegationCoordinator(
         }
     }
 
-    private fun cancelDelegation() {
+    fun cancelDelegation() {
         synchronized(reviewStateLock) { delegationCanceledByUser.set(true) }
         activeRequests.forEach { it.cancel(CancellationException("PRIMARY_ONLY_HANDOFF")) }
     }
@@ -266,6 +280,7 @@ internal class LocalDelegationCoordinator(
                     if (delegationCanceledByUser.get()) return primaryOnlyHandoff()
                     reviewerScores.add(assessment.score)
                 }
+                observe(DelegationEvent(DelegationEventKind.REVIEW_FINISHED, role = DelegationRole.REVIEWER, profileUid = reviewer.uid, reviewScore = assessment.score, reviewVerdict = assessment.verdict))
                 val accountedInputTokens = observedInputTokens.takeIf { it > 0L } ?: estimatedInput.toLong()
                 AppLogRecorder.record(
                     "Delegation",
@@ -408,13 +423,14 @@ internal class LocalDelegationCoordinator(
         }
     }
     private suspend fun localTarget(config: ModelDelegationSettings): PlatformV2? {
+        if (config.selectionMode == dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.FIXED && config.targetProfileUid.isBlank()) return null
         if (!config.enabled || config.processingOwnership >= 100 || source.disableAllTools || source.disableLocalTools || source.excludesMemory()) return null
         val battery = batteryPercent()
         if (battery != null && battery <= config.lowBatteryThresholdPercent && config.processingOwnership < 65) return null
         val availableProfiles = profiles()
         val reserved = reservedReviewer(config, availableProfiles, source)
         val eligible = mutableListOf<PlatformV2>()
-        for (candidate in availableProfiles) {
+        for (candidate in dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.ranked(availableProfiles, config, source, reserved)) {
             val metadataEligible =
                 candidate.uid != source.uid &&
                     candidate.enabled &&
@@ -436,7 +452,7 @@ internal class LocalDelegationCoordinator(
         val selected = eligible.firstOrNull { it.uid == config.targetProfileUid }
         if (selected != null) return selected
 
-        if (config.targetProfileUid.isNotBlank() && !config.fallbackToAnotherProfile) return null
+        if (config.targetProfileUid.isNotBlank() && (!config.fallbackToAnotherProfile || config.fallbackPolicy in setOf(dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.NONE, dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback.ASK))) return null
         val fallback = eligible.firstOrNull()
         if (fallback != null) {
             AppLogRecorder.record(
@@ -462,7 +478,7 @@ internal class LocalDelegationCoordinator(
         if (battery != null && battery <= config.lowBatteryThresholdPercent && config.processingOwnership < 65) return emptyList()
         val availableProfiles = profiles()
         val reserved = reservedReviewer(config, availableProfiles, source)
-        return availableProfiles.filter { candidate ->
+        return dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.ranked(availableProfiles, config, source, reserved).filter { candidate ->
             candidate.uid != source.uid &&
                 candidate.uid != failedUid &&
                 candidate.enabled &&
@@ -808,7 +824,16 @@ internal class LocalDelegationCoordinator(
         onObservedOutput: (Long) -> Unit = {},
         onObservedUsage: (Long) -> Unit
     ): String? {
-        if (delegationCanceledByUser.get()) return null
+        val stepId = java.util.UUID.randomUUID().toString()
+        val role = if (reviewer) DelegationRole.REVIEWER else DelegationRole.HELPER
+        val queuedAt = nowMs()
+        observe(DelegationEvent(DelegationEventKind.STEP_QUEUED, stepId = stepId, role = role, profileUid = profile.uid))
+        val admitted = !delegationCanceledByUser.get() && beforeDispatch()
+        val live = settings().normalized()
+        if (!admitted || delegationCanceledByUser.get() || !live.enabled || (!live.remoteWorkersAllowed() && !profile.isPrivateDestination()) || profiles().none { it == profile }) {
+            observe(DelegationEvent(DelegationEventKind.STEP_FINISHED, stepId = stepId, role = role, profileUid = profile.uid, status = DelegationStepStatus.CANCELED))
+            return null
+        }
         // Reviewers never fall back to a callback that can inherit worker tools.
         val progressive = if (reviewer) {
             generateReviewerWithProgress
@@ -822,7 +847,12 @@ internal class LocalDelegationCoordinator(
         return coroutineScope {
             val startedAt = nowMs()
             val attemptRepairMs = AtomicLong()
+            val observedInput = AtomicLong(-1)
+            val observedOutput = AtomicLong(-1)
+            val firstOutputAt = AtomicLong(-1)
             var successful = false
+            var canceled = false
+            observe(DelegationEvent(DelegationEventKind.REQUEST_STARTED, stepId = stepId, role = role, profileUid = profile.uid, queueMs = (startedAt - queuedAt).coerceAtLeast(0)))
             val firstProgressAt = AtomicLong(-1L)
             val lastProgressAt = AtomicLong(startedAt)
             delegateAttempts.incrementAndGet()
@@ -839,12 +869,22 @@ internal class LocalDelegationCoordinator(
                     val now = nowMs()
                     when (progress.kind) {
                         DelegateProgressKind.OUTPUT, DelegateProgressKind.TOOL_ACTIVITY -> {
+                            if (progress.kind == DelegateProgressKind.OUTPUT && firstOutputAt.compareAndSet(-1L, now)) {
+                                observe(DelegationEvent(DelegationEventKind.OUTPUT_OBSERVED, stepId = stepId, role = role, profileUid = profile.uid, firstOutputMs = (now - startedAt).coerceAtLeast(0)))
+                            }
+                            if (progress.kind == DelegateProgressKind.TOOL_ACTIVITY) observe(DelegationEvent(DelegationEventKind.TOOL_STARTED, stepId = stepId, role = role, profileUid = profile.uid))
                             firstProgressAt.compareAndSet(-1L, now)
                             lastProgressAt.set(now)
                         }
                         DelegateProgressKind.USAGE -> {
-                            progress.inputTokens?.let(onObservedUsage)
-                            progress.outputTokens?.let(onObservedOutput)
+                            progress.inputTokens?.let {
+                                observedInput.set(it)
+                                onObservedUsage(it)
+                            }
+                            progress.outputTokens?.let {
+                                observedOutput.set(it)
+                                onObservedOutput(it)
+                            }
                             lastProgressAt.set(now)
                         }
                         DelegateProgressKind.REPAIR_WASTE -> {
@@ -892,9 +932,25 @@ internal class LocalDelegationCoordinator(
                 }
                 deferred.await().also { successful = !it.isNullOrBlank() }
             } catch (cancelled: CancellationException) {
+                canceled = true
                 if (delegationCanceledByUser.get()) null else throw cancelled
             } finally {
                 val elapsed = (nowMs() - startedAt).coerceAtLeast(0)
+                observe(
+                    DelegationEvent(
+                        DelegationEventKind.STEP_FINISHED, stepId = stepId, role = role, profileUid = profile.uid,
+                        status = if (canceled || delegationCanceledByUser.get()) {
+                            DelegationStepStatus.CANCELED
+                        } else if (successful) {
+                            DelegationStepStatus.RETURNED_OUTPUT
+                        } else {
+                            DelegationStepStatus.NO_OUTPUT
+                        },
+                        elapsedMs = elapsed, firstOutputMs = firstOutputAt.get().takeIf { it >= 0 }?.let { (it - startedAt).coerceAtLeast(0) },
+                        inputTokens = observedInput.get().takeIf { it >= 0 }, outputTokens = observedOutput.get().takeIf { it >= 0 },
+                        usageProvenance = if (observedInput.get() >= 0 || observedOutput.get() >= 0) "provider-reported" else "unavailable"
+                    )
+                )
                 if (successful) {
                     successfulRequests.incrementAndGet()
                     val repairMs = minOf(attemptRepairMs.get(), elapsed)
@@ -971,6 +1027,7 @@ internal class LocalDelegationCoordinator(
         }
         val profile = availableProfiles.firstOrNull { candidate ->
             candidate.uid == target.uid &&
+                dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, latest, source, reserved).isEmpty() &&
                 candidate.enabled &&
                 !candidate.excludesMemory() &&
                 candidate.uid != source.uid &&
@@ -1088,7 +1145,7 @@ internal class LocalDelegationCoordinator(
         failoverTarget: PlatformV2?
     ): String? {
         val failedUid = resolvedProfileUid ?: target.uid
-        val latest = (pinnedConfig ?: settings()).normalized()
+        val latest = effectiveWorkerPolicy(pinnedConfig)
         if (interactiveRecovery && onRecoveryRequired != null && recoveryReason != null) {
             val failedProfile = profiles().firstOrNull { it.uid == failedUid } ?: target
             val candidates = recoveryCandidates(latest, failedUid).filter { it.uid !in attemptedProfiles }
@@ -1120,6 +1177,7 @@ internal class LocalDelegationCoordinator(
                         return null
                     }
                     userSelectedRecoveryProfile.set(selected)
+                    observe(DelegationEvent(DelegationEventKind.FALLBACK_CHOSEN, profileUid = selected.uid))
                     AppLogRecorder.record("Delegation", "User selected delegation failover · failed=$failedUid · selected=${selected.uid}", "W")
                     return workerText(selected, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid, sameTargetRetryAttempt = 0)
                 }
@@ -1130,6 +1188,7 @@ internal class LocalDelegationCoordinator(
             ?: if (failoverTarget != null) recoveryCandidates(latest, failedUid).firstOrNull { it.uid !in attemptedProfiles } else null
         if (fallback != null && fallback.uid != target.uid) {
             userSelectedRecoveryProfile.set(fallback)
+            observe(DelegationEvent(DelegationEventKind.FALLBACK_CHOSEN, profileUid = fallback.uid))
             AppLogRecorder.record(
                 "Delegation",
                 "Worker failover · failed=$failedUid · fallback=${fallback.uid} · type=${fallback.compatibleType} · stickyForTurn=true",
@@ -1138,6 +1197,13 @@ internal class LocalDelegationCoordinator(
             return workerText(fallback, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid, sameTargetRetryAttempt = 0)
         }
         return null
+    }
+
+    private suspend fun effectiveWorkerPolicy(pinned: ModelDelegationSettings?): ModelDelegationSettings {
+        val live = settings().normalized()
+        val admitted = pinned?.normalized() ?: live
+        return admitted.copy(enabled = admitted.enabled && live.enabled)
+            .withRemoteWorkersAllowed(admitted.remoteWorkersAllowed() && live.remoteWorkersAllowed())
     }
 
     private suspend fun workerText(
@@ -1151,7 +1217,7 @@ internal class LocalDelegationCoordinator(
         attemptedProfiles: Set<String> = emptySet(),
         sameTargetRetryAttempt: Int = 0
     ): String? {
-        val config = (pinnedConfig ?: settings()).normalized()
+        val config = effectiveWorkerPolicy(pinnedConfig)
         if (target.uid in attemptedProfiles) return null
         if (!config.enabled || delegationCanceledByUser.get()) return null
         if (failedLocalTokens.get() + canceledLocalTokens.get() >= config.effectiveWastedLocalTokens()) return null
@@ -1163,7 +1229,7 @@ internal class LocalDelegationCoordinator(
         var dispatchedAtMs: Long? = null
         var requestedOutputCapForFailure = tokens
         val result = worker.withPermit {
-            val latest = (pinnedConfig ?: settings()).normalized()
+            val latest = effectiveWorkerPolicy(pinnedConfig)
             awaitWorkerSlot(latest.maxConcurrentDelegates)
             try {
                 val preparation = prepareWorkerDispatch(
@@ -1257,7 +1323,7 @@ internal class LocalDelegationCoordinator(
                 AppLogRecorder.record("Delegation", "Worker cancelled by parent · target=${target.uid} · calls=${localCalls.get()} · reason=${cancelled.message.orEmpty()}", "W")
                 throw cancelled
             } catch (failure: Exception) {
-                val latestAfterFailure = (pinnedConfig ?: settings()).normalized()
+                val latestAfterFailure = effectiveWorkerPolicy(pinnedConfig)
                 val resolution = handleWorkerFailure(
                     failure = failure,
                     target = target,

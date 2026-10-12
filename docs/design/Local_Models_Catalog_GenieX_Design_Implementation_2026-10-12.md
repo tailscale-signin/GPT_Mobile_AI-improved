@@ -5,8 +5,8 @@
 
 GPT Mobile AI (Improved)  |  12 October 2026  |  Version 1.0
 
-**Repository:** tailscale-signin/GPT_Mobile_AI-improved  
-**Inspected branch:** main  
+**Repository:** tailscale-signin/GPT_Mobile_AI-improved
+**Inspected branch:** main
 **Inspected commit:** 7553e4ff14316f0d28639d5cc0ed24cb59511066
 
 **Decision:** Keep the existing local-inference architecture, replace the fragmented catalog interface, and complete GenieX integration through explicit artifact, runtime, device, and workflow checks.
@@ -19,13 +19,13 @@ GPT Mobile AI (Improved)  |  12 October 2026  |  Version 1.0
 
 ### Reading map
 
-01-02  Verified baseline and product requirements  
-03-04  Screen, cards, details, and interaction design  
-05-06  Recommended models and complete catalog coverage  
-07-08  GenieX build, execution, and feature integration  
-09-10  Data contracts and migration  
-11-13  Installation and file-level implementation plan  
-14-15  Tests, rollout, and completion criteria  
+01-02  Verified baseline and product requirements
+03-04  Screen, cards, details, and interaction design
+05-06  Recommended models and complete catalog coverage
+07-08  GenieX build, execution, and feature integration
+09-10  Data contracts and migration
+11-13  Installation and file-level implementation plan
+14-15  Tests, rollout, and completion criteria
 Appendix  Primary sources and repository references
 
 ---

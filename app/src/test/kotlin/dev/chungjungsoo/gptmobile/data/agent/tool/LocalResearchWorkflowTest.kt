@@ -28,7 +28,7 @@ class LocalResearchWorkflowTest {
             override suspend fun load(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = null
             override suspend fun save(snapshot: dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot) = Unit
             override fun stopRequested() = false
-            override fun budget(totalLogicalCalls: Int) = budget
+            override fun budget(totalLogicalCalls: Int, downloadLimitBytes: Int) = budget
         }
         var reads = 0
         var summaries = 0

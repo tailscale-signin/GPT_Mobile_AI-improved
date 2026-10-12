@@ -12,7 +12,6 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
 import dev.chungjungsoo.gptmobile.data.research.ResearchSource
 import dev.chungjungsoo.gptmobile.data.research.ResearchToolEvent
 import dev.chungjungsoo.gptmobile.data.research.SourceIdentity
-import dev.chungjungsoo.gptmobile.data.research.relatedResearchPassages
 import dev.chungjungsoo.gptmobile.data.research.researchDomainAllowed
 import dev.chungjungsoo.gptmobile.data.research.researchDomains
 import dev.chungjungsoo.gptmobile.data.research.researchHash
@@ -57,6 +56,7 @@ internal class AndroidResearchWorkflow(
     private val budget = journal?.budget(totalLogicalCalls) ?: ResearchBudget(totalLogicalCalls)
     private val readerHealth = journal?.readerHealth() ?: ResearchReaderHealth(now)
     private var state = ResearchSnapshot("")
+    private val sourceTarget: Int get() = state.targetSources.takeIf { it > 0 } ?: options.maxPages
 
     @Volatile private var exhausted = false
     private var collectionDeadlineMs = Long.MAX_VALUE
@@ -76,7 +76,7 @@ internal class AndroidResearchWorkflow(
         .map { researchHash("${it.sourceId}\n${it.text}\n${it.quote}") }.toSet()
 
     private suspend fun checkpoint(phase: String = state.phase, complete: Boolean = false) {
-        state = state.copy(phase = phase, complete = complete, attempts = readAttempts.get(), sources = sources.values.toList(), queries = queries.toList(), updatedAt = now(), targetSources = options.maxPages)
+        state = state.copy(phase = phase, complete = complete, attempts = readAttempts.get(), sources = sources.values.toList(), queries = queries.toList(), updatedAt = now(), targetSources = sourceTarget)
         journal?.save(state)
     }
 
@@ -149,7 +149,7 @@ internal class AndroidResearchWorkflow(
     private suspend fun runLocked(task: String, callId: String): LocalResearchResult {
         collectionDeadlineMs = monotonicMs() + config.preparationTimeoutSeconds.coerceAtLeast(1) * 1000L * 2 / 3
         val policy = researchHash(options.toString() + tools.joinToString { it.selectionId() })
-        val saved = journal?.load(task)?.takeIf { normalizedTask(it.task).equals(normalizedTask(task), ignoreCase = true) && now() - it.updatedAt in 0..900_000 && it.sources.filter { source -> source.readable }.all { source -> now() - source.retrievedAt in 0..900_000 } && "Policy:$policy" in it.notes }
+        val saved = journal?.load(task)?.takeIf { now() - it.updatedAt in 0..86_400_000 && it.sources.filter { source -> source.readable }.all { source -> now() - source.retrievedAt in 0..86_400_000 } }
         state = saved ?: ResearchSnapshot(task.take(8000), notes = listOf("Policy:$policy"))
         readAttempts.set(state.attempts.coerceIn(0, maxAttempts))
         var noResearchNeeded = saved?.phase == "Not needed"
@@ -181,7 +181,7 @@ internal class AndroidResearchWorkflow(
                 if (saved != null && !saved.complete) {
                     // Resume extraction from saved discoveries first; never repeat completed queries.
                     nextQueries = emptyList()
-                    state = state.copy(notes = state.notes + "Resumed saved research within its 15-minute freshness window.")
+                    state = state.copy(notes = state.notes + "Resumed this turn’s shared research corpus and retained budget.")
                 }
                 for (round in (if (saved?.complete == true) options.maxRounds else state.round.coerceAtLeast(0)) until options.maxRounds) {
                     if (exhausted || stopped() || !collecting()) break
@@ -200,7 +200,7 @@ internal class AndroidResearchWorkflow(
                     if (options.reviewEvidence && !stopped()) review()
                     val read = sources.values.count { it.readable }
                     val stagnant = evidenceGain.shouldStop(sources.keys.toSet(), supportedClaimIdentities())
-                    if (stopped() || !collecting() || read >= options.maxPages || round == options.maxRounds - 1) break
+                    if (stopped() || !collecting() || read >= sourceTarget || round == options.maxRounds - 1) break
                     if (stagnant && options.effort < 100) {
                         state = state.copy(notes = state.notes + "Stopped after two rounds added no new canonical sources or supported claims.")
                         break
@@ -229,7 +229,7 @@ internal class AndroidResearchWorkflow(
                     "Stopped"
                 } else if (noResearchNeeded) {
                     "Not needed"
-                } else if (exhausted || completed == null || !collecting()) {
+                } else if (exhausted || completed == null || !collecting() || sources.values.count { it.readable } < sourceTarget) {
                     "Partial"
                 } else {
                     "Complete"
@@ -250,6 +250,9 @@ internal class AndroidResearchWorkflow(
         if (state.claims.none { it.verdict == "Supported" }) notes += "No claims passed passage review. Read excerpts remain unverified evidence."
         if (options.maxPages == 0) notes += "Quick mode discovers leads only; full pages were not read."
         if (sources.isEmpty()) notes += "No usable sources were discovered."
+        val acceptedCount = sources.values.count { it.readable }
+        if (acceptedCount < sourceTarget) notes += "PARTIAL_COVERAGE: $acceptedCount/$sourceTarget readable sources. Discovery was exhausted, blocked or stopped within the recorded run limits."
+        if (acceptedCount == 0) notes += "NO_READABLE_SOURCES: search results and abstracts are discovery leads only."
         val rows = sources.values.map { DelegationSource(it.id, it.url, it.title, text = it.passage, pageRead = it.readable, excerpted = true, depth = it.depth, evidenceType = it.status) }
         return LocalResearchResult(
             delegationHandoff(findings, rows, notes, config.handoffTokens),
@@ -339,7 +342,7 @@ internal class AndroidResearchWorkflow(
             put("maxProviderCalls", providerCalls)
         }
         for (page in 1..if (options.effort == 100) 10 else 3) {
-            if (stopped() || exhausted || !collecting() || sources.values.count { it.readable } >= options.maxPages) break
+            if (stopped() || exhausted || !collecting() || sources.values.count { it.readable } >= sourceTarget) break
             val started = monotonicMs()
             val args = kotlinx.serialization.json.JsonObject(baseArgs + ("cursor" to JsonPrimitive(page.toString())))
             val result = operation { invoke(reader, "$callId:page$page", args) } ?: return
@@ -454,7 +457,7 @@ internal class AndroidResearchWorkflow(
     private suspend fun readAcademicPages(callId: String) {
         val reader = tools.firstOrNull { it.modelToolName == "deep_research_read_paper" } ?: return
         for (source in sources.values.filter { it.paperId.isNotBlank() && it.status == "Metadata only" }.toList()) {
-            if (exhausted || stopped() || !collecting() || sources.values.count { it.readable } >= options.maxPages) break
+            if (exhausted || stopped() || !collecting() || sources.values.count { it.readable } >= sourceTarget) break
             if (!charge(ResearchBudget.Phase.DISCOVERY) || !startReadAttempt()) break
             val result = operation { invoke(reader, "$callId:academic:${source.id}", buildJsonObject { put("identifier", source.paperId) }) }
             account(result)
@@ -498,7 +501,7 @@ internal class AndroidResearchWorkflow(
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
         while (!exhausted && !stopped() && collecting() && readAttempts.get() < maxAttempts && sources.values.count { it.readable } < options.maxPages) {
-            val remaining = options.maxPages - sources.values.count { it.readable }
+            val remaining = sourceTarget - sources.values.count { it.readable }
             val batch = sources.values.filter { it.status == "Discovered" }.sortedByDescending { source ->
                 researchTerms(source.title + " " + source.url).count { it in questionTerms }
             }.distinctBy { runCatching { URI(it.url).host }.getOrNull() }.take(minOf(options.concurrency, remaining, maxAttempts - readAttempts.get()))
@@ -579,7 +582,7 @@ internal class AndroidResearchWorkflow(
                     val allowed = researchDomainAllowed(finalUrl, included, excluded)
                     val usable = valid && allowed
                     val fingerprint = if (usable) researchHash(text.lowercase().replace(Regex("\\s+"), " ")) else ""
-                    val origin = sources.values.firstOrNull { fingerprint.isNotEmpty() && (it.fingerprint == fingerprint || relatedResearchPassages(it.passage, passage)) }?.id.orEmpty()
+                    val origin = sources.values.firstOrNull { fingerprint.isNotEmpty() && it.fingerprint == fingerprint }?.id.orEmpty()
                     val status = when {
                         !allowed -> "Blocked"
                         result?.blockedPage() == true -> "Blocked"
@@ -596,7 +599,7 @@ internal class AndroidResearchWorkflow(
                         contentFingerprint = fingerprint,
                         retrievalQuality = when (status) {
                             "Read" -> "FULL_TEXT"
-                            "Partially read" -> "ABSTRACT"
+                            "Partially read" -> "FULL_TEXT"
                             "Blocked" -> "BLOCKED"
                             "Failed" -> "EMPTY"
                             else -> "LEAD"

@@ -33,7 +33,8 @@ internal class DeepResearchTool(
     private val options: DeepResearchSettings,
     private val permitted: suspend () -> Boolean,
     private val remote: AgentTool? = null,
-    private val budget: AcademicRunBudget = AcademicRunBudget()
+    private val budget: AcademicRunBudget = AcademicRunBudget(),
+    private val persistentEvidence: Boolean = false
 ) : AgentTool {
     override val definition = AgentToolDefinition(
         "deep_research_$operation",
@@ -120,7 +121,8 @@ internal class DeepResearchTool(
                         "maxProviderCalls" to JsonPrimitive(providerCalls),
                         "enabledProviderIds" to JsonArray(selection.enabledProviders.sorted().map(::JsonPrimitive)),
                         "includeDomains" to JsonArray(researchDomains(options.includeDomains).map(::JsonPrimitive)),
-                        "excludeDomains" to JsonArray(researchDomains(options.excludeDomains).map(::JsonPrimitive))
+                        "excludeDomains" to JsonArray(researchDomains(options.excludeDomains).map(::JsonPrimitive)),
+                        "ephemeral" to JsonPrimitive(!persistentEvidence)
                     )
                 )
                 val result = remote.execute(callId, bound)
@@ -188,7 +190,7 @@ internal class DeepResearchTool(
                 if (operation == "get_paper") {
                     json.encodeToJsonElement(paper).jsonObject
                 } else {
-                    val evidence = client.read(paper, permitted, policy)
+                    val evidence = client.read(paper, permitted, policy, persistent = persistentEvidence)
                     json.encodeToJsonElement(evidence).jsonObject
                 }
             }

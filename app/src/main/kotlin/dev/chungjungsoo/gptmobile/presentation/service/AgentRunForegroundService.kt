@@ -151,6 +151,15 @@ class AgentRunForegroundService : Service() {
         }
     }
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        AppLogRecorder.record("AgentService", "PLATFORM_TIMEOUT · startId=$startId · type=$fgsType · checkpointed evidence retained", "W")
+        agentRunCoordinator.cancelAll()
+        releaseWakeLock()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        isForeground = false
+        stopSelf()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {

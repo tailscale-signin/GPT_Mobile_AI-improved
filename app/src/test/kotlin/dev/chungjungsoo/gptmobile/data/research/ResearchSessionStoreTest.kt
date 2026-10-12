@@ -48,6 +48,7 @@ class ResearchSessionStoreTest {
         val related = store.journal("profile-b", 1, true, turnId = "1:42")
         assertEquals("What changed in the latest release?", related.load("  WHAT changed in the latest   release? ")?.task)
         assertNull(store.journal("profile-c", 1, true, turnId = "1:43").load("What changed in the latest release?"))
+        assertNotNull(related.load("A sibling subquestion shares the same corpus"))
     }
 
     @Test fun taskScopedResearchLockSerializesSiblingProfiles() = runBlocking {
@@ -93,5 +94,21 @@ class ResearchSessionStoreTest {
         repeat(50) { store.journal("run$it", 1, true).save(ResearchSnapshot("task", updatedAt = it.toLong(), complete = true)) }
         assertEquals(48, directory.listFiles().orEmpty().count { it.extension == "json" })
         assertEquals(24, store.sessions.value.size)
+    }
+
+    @Test fun threeHundredSourceBodiesSurviveRestartOutsideTheManifest() = runBlocking {
+        val sources = (1..300).map { index -> ResearchSource("S$index", "https://example.org/$index", "Source $index", status = "Read", passage = "Evidence ".repeat(600), retrievalQuality = "FULL_TEXT") }
+        ResearchSessionStore(context).journal("large", 1, true, "turn").save(ResearchSnapshot("task", sources = sources, targetSources = 300))
+        assertEquals(300, directory.listFiles().orEmpty().count { it.extension == "source" })
+        assertTrue(directory.listFiles().orEmpty().single { it.extension == "json" }.length() < 512 * 1024)
+        val restored = ResearchSessionStore(context).journal("large", 1, true, "turn").load()!!
+        assertEquals(300, restored.sources.count { it.readable })
+    }
+
+    @Test fun changingProfileAfterRestartDoesNotCreateAnotherTurnBudget() {
+        val first = ResearchSessionStore(context).journal("a", 1, true, "turn").budget(120)
+        assertTrue(first!!.tryCharge(dev.chungjungsoo.gptmobile.data.agent.ResearchBudget.Phase.DISCOVERY, true))
+        val restored = ResearchSessionStore(context).journal("b", 1, true, "turn").budget(2400)!!
+        assertEquals(first.snapshot(), restored.snapshot())
     }
 }

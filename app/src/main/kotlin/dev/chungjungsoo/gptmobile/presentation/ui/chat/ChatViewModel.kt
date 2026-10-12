@@ -735,6 +735,9 @@ class ChatViewModel @Inject constructor(
     fun setConversationResearch(value: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) {
         _chatToolConfig.update { it.copy(research = value.normalized()) }
         val id = _chatRoom.value.id
+        if (!value.researchToggle || value.depth <= 0) {
+            researchSessionStore?.sessions?.value?.values?.filter { it.chatId == id && !it.snapshot.complete }?.forEach { researchSessionStore?.stop(it.runId) }
+        }
         if (id <= 0) return
         viewModelScope.launch {
             conversationDelegationMutex.withLock {

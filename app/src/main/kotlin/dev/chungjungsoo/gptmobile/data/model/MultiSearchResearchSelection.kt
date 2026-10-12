@@ -37,6 +37,7 @@ fun academicUnlockReason(selection: MultiSearchResearchSelection, settings: AppF
     !selection.researchToggle -> "Research is off"
     selection.depth <= 0 -> "Increase Research Depth to unlock"
     selection.scope == ResearchContentScope.WEB_ONLY -> "Web-only scope selected"
+    !settings.delegationFor(profileUid).deepResearch.enabled -> "Deep Research is disabled for this AI profile"
     !settings.delegationFor(profileUid).deepResearch.academicSources -> "Enable Papers and studies consent"
     !settings.isToolPluginEnabled(ToolPluginId.DEEP_RESEARCH) -> "Enable Deep Research in Plugins & Tools"
     !settings.isToolPluginSelected(profileUid, ToolPluginId.DEEP_RESEARCH) -> "Enable Deep Research for this AI profile"

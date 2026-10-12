@@ -112,13 +112,13 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
-def public_fetch(url: str, *, maximum=MAX_BODY, included=(), excluded=(), cancelled=lambda: False):
+def public_fetch(url: str, *, maximum=MAX_BODY, included=(), excluded=(), cancelled=lambda: False, source_document=False):
     """Pin checked public DNS addresses, preserve certificate/SNI checks, validate every redirect."""
     for _ in range(4):
         if cancelled():
             raise AcademicError("cancelled")
         parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.port not in (None, 443) or parsed.username or parsed.password or not domain_allowed(url, included, excluded):
+        if parsed.scheme != "https" or (not parsed.hostname or (not source_document and parsed.hostname not in HOSTS)) or parsed.port not in (None, 443) or parsed.username or parsed.password or (source_document and not domain_allowed(url, included, excluded)):
             raise AcademicError("host_not_allowed")
         addresses = {info[4][0] for info in socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)}
         if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
@@ -194,6 +194,7 @@ class AcademicRouter:
         self.papers = {}
         self.cache = {}
         self.cursors = {}
+        self.transient_evidence = {}
 
     def _remember(self, record):
         with self.lock:
@@ -202,7 +203,7 @@ class AcademicRouter:
             self.papers[record["paperId"]] = record
         return record
 
-    def _request(self, provider, url, args, cancelled, maximum=MAX_BODY):
+    def _request(self, provider, url, args, cancelled, maximum=MAX_BODY, source_document=False):
         if provider not in self.enabled and provider != "opencitations":
             raise AcademicError("provider_disabled")
         requested = args.get("enabledProviderIds")
@@ -227,7 +228,10 @@ class AcademicRouter:
                         if cancelled():
                             raise AcademicError("cancelled")
                         time.sleep(min(.05, max(0, stop - time.monotonic())))
-            status, headers, body, final = self.fetch(url, maximum=maximum, included=args.get("includeDomains", ()), excluded=args.get("excludeDomains", ()), cancelled=cancelled)
+            fetch_options = {"maximum": maximum, "included": args.get("includeDomains", ()) if source_document else (), "excluded": args.get("excludeDomains", ()) if source_document else (), "cancelled": cancelled}
+            if self.fetch is public_fetch:
+                fetch_options["source_document"] = source_document
+            status, headers, body, final = self.fetch(url, **fetch_options)
             if status == 429:
                 retry = headers.get("retry-after", "60")
                 try:
@@ -459,10 +463,10 @@ class AcademicRouter:
         if not record:
             return {"retrievalStatus": "unavailable", "text": ""}
         url = record.get("openAccessUrl")
-        if not url or urllib.parse.urlsplit(url).hostname not in OA_HOSTS:
+        if not url or not domain_allowed(url, args.get("includeDomains", ()), args.get("excludeDomains", ())):
             return {**record, "retrievalStatus": "metadata_only", "text": ""}
         provider = "arxiv" if "arxiv.org" in url else "europepmc" if "ebi.ac.uk" in url else record["sourceProviders"][0]
-        body, headers, final = self._request(provider, url, args, cancelled, MAX_PDF)
+        body, headers, final = self._request(provider, url, args, cancelled, MAX_PDF, source_document=True)
         sections = []
         is_pdf = "application/pdf" in headers.get("content-type", "") or urllib.parse.urlsplit(url).path.endswith(".pdf") or (urllib.parse.urlsplit(url).hostname == "arxiv.org" and urllib.parse.urlsplit(url).path.startswith("/pdf/")) or body.startswith(b"%PDF-")
         if is_pdf:
@@ -509,7 +513,12 @@ class AcademicRouter:
                     "retrievalStatus": "partially_read" if text else "unavailable", "section": "Bounded OA extract (first 40 PDF pages at most)",
                     "contentLicense": record.get("contentLicense"), "providerReceipts": record["providerReceipts"],
                     "sections": sections[:5], "truncated": True}
-        if text:
+        if text and args.get("ephemeral", False):
+            with self.lock:
+                if len(self.transient_evidence) >= 1200:
+                    raise AcademicError("temporary_corpus_limit")
+                self.transient_evidence[digest(evidence["paperId"] + "|" + evidence["versionId"])] = evidence
+        if text and not args.get("ephemeral", False):
             target = self.root / (digest(evidence["paperId"] + "|" + evidence["versionId"]) + ".json")
             temporary = target.with_suffix("." + uuid.uuid4().hex + ".tmp")
             temporary.write_text(json.dumps(evidence)); os.replace(temporary, target)
@@ -535,9 +544,11 @@ class AcademicRouter:
     def verify(self, args):
         paper_id, version, quote = (str(args.get(key, "")) for key in ("paperId", "versionId", "quote"))
         path = self.root / (digest(paper_id + "|" + version) + ".json")
-        if not path.is_file() or path.stat().st_size > MAX_OUTPUT:
-            return {"verdict": "not_read"}
-        evidence = json.loads(path.read_text())
+        evidence = self.transient_evidence.get(digest(paper_id + "|" + version))
+        if evidence is None:
+            if not path.is_file() or path.stat().st_size > MAX_OUTPUT:
+                return {"verdict": "not_read"}
+            evidence = json.loads(path.read_text())
         if not domain_allowed(evidence["sourceUrl"], args.get("includeDomains", ()), args.get("excludeDomains", ())):
             raise AcademicError("domain_excluded")
         verdict = "quote_verified"

@@ -62,7 +62,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     null
                 }
                 check(!persistent || !budgetFile.isFile || saved != null) { "Research budget checkpoint is corrupt; start a new turn" }
-                val total = saved?.number("total")?.takeIf { it in 1..2400 } ?: totalLogicalCalls
+                check(saved == null || saved.number("total") in 1..2400) { "Invalid research budget checkpoint" }
+                val total = saved?.number("total") ?: totalLogicalCalls
                 val persist: ((ResearchBudget.Snapshot) -> Unit)? = if (!persistent) {
                     null
                 } else {
@@ -102,18 +103,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         override suspend fun load(task: String): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
-            val taskKey = normalizedTask(task)
+            // A turn has one corpus, including sibling subquestions.
             lock.withLock {
                 val persisted = if (persistent) directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read) else emptyList()
                 (persisted + mutable.value.values.filter { it.chatId == chatId })
                     .asSequence()
-                    .filter { it.chatId == chatId && it.turnId == turnId && normalizedTask(it.snapshot.task) == taskKey }
+                    .filter { it.chatId == chatId && it.turnId == turnId }
                     .maxByOrNull { it.snapshot.updatedAt }
                     ?.snapshot
             }
         }
         override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
-            val key = "$chatId:$turnId:${researchHash(normalizedTask(task))}"
+            val key = "$chatId:$turnId"
             val taskLock = taskLocks[(key.hashCode() and Int.MAX_VALUE) % taskLocks.size]
             return taskLock.withLock { block() }
         }
@@ -127,6 +128,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 }
                 try {
                     check(directory.mkdirs() || directory.isDirectory)
+                    var corpusBytes = directory.listFiles().orEmpty().filter { it.extension == "source" }.sumOf { it.length() }
                     val atomic = AtomicFile(file(runId))
                     val data = buildJsonObject {
                         put("runId", runId)
@@ -137,6 +139,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             val name = researchHash(bytes.decodeToString()) + ".source"
                             val destination = File(directory, name)
                             if (!destination.isFile) {
+                                check(corpusBytes + bytes.size <= 128L * 1024 * 1024) { "Research corpus storage limit reached" }
+                                corpusBytes += bytes.size
                                 val sourceFile = AtomicFile(destination)
                                 val sourceStream = sourceFile.startWrite()
                                 try {
@@ -165,8 +169,19 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     // Never evict active or resumable runs to satisfy historical retention.
                     directory.listFiles().orEmpty().filter { it.extension == "json" && read(it)?.snapshot?.complete == true }
                         .sortedByDescending { it.lastModified() }.drop(48).forEach { AtomicFile(it).delete() }
-                } catch (_: Exception) {
-                    mutable.update { it + (runId to session.copy(snapshot = snapshot.copy(notes = snapshot.notes + "Research history could not be saved."))) }
+                } catch (failure: Exception) {
+                    val previouslyRetained = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId }
+                        .flatMap { it.snapshot.sources }.filter { it.readable }.map { it.equivalenceGroup.ifBlank { it.canonicalUrl } }.toSet()
+                    val partial = snapshot.copy(
+                        complete = false,
+                        phase = "Storage error",
+                        sources = snapshot.sources.map { source ->
+                            if (source.readable && source.equivalenceGroup.ifBlank { source.canonicalUrl } !in previouslyRetained) source.copy(status = "Failed", retrievalQuality = "EMPTY") else source
+                        },
+                        notes = snapshot.notes + "Research storage failed; new documents are not counted as durably retained."
+                    )
+                    mutable.update { it + (runId to session.copy(snapshot = partial)) }
+                    throw failure
                 }
             }
         }

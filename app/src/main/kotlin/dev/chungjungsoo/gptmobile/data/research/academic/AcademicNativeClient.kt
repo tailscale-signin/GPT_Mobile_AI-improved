@@ -31,6 +31,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -85,6 +86,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     private data class Cached(val at: Long, val papers: List<AcademicPaper>)
     private val cache = ConcurrentHashMap<String, Cached>()
     private val papers = ConcurrentHashMap<String, AcademicPaper>()
+    private val transientEvidence = ConcurrentHashMap<String, AcademicEvidence>()
     private val cursors = ConcurrentHashMap<String, String>()
     private fun remember(paper: AcademicPaper): AcademicPaper {
         if (papers.size >= 1200) papers.keys.firstOrNull()?.let(papers::remove)
@@ -231,7 +233,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         return@withContext search(AcademicSearchRequest(query, 20, 1, includeDomains = policy.included, excludeDomains = policy.excluded), MultiSearchResearchSelection(true, 20, enabledProviders = setOf("europepmc")), allowed).papers.firstOrNull()
     }
 
-    internal suspend fun read(paper: AcademicPaper, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy()): AcademicEvidence = withContext(Dispatchers.IO) {
+    internal suspend fun read(paper: AcademicPaper, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), persistent: Boolean = true): AcademicEvidence = withContext(Dispatchers.IO) {
         check(allowed()) { "permission_denied" }
         val pmc = paper.identifiers["pmcid"].orEmpty()
         val arxiv = paper.identifiers["arxiv"].orEmpty()
@@ -271,7 +273,14 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             },
             contentLicense = paper.contentLicense, providerReceipts = paper.providerReceipts
         )
-        if (evidence.retrievalStatus in setOf("read", "partially_read")) save(evidence)
+        if (evidence.retrievalStatus in setOf("read", "partially_read")) {
+            if (persistent) {
+                save(evidence)
+            } else {
+                check(transientEvidence.size < 1200) { "Temporary evidence capacity reached" }
+                transientEvidence[researchHash("${evidence.paperId}|${evidence.versionId}")] = evidence
+            }
+        }
         return@withContext evidence
     }
 
@@ -293,7 +302,9 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     }
 
     internal suspend fun evidence(paperId: String, versionId: String): AcademicEvidence? = withContext(Dispatchers.IO) {
-        val file = File(evidenceDirectory, researchHash("$paperId|$versionId") + ".json")
+        val identity = researchHash("$paperId|$versionId")
+        transientEvidence[identity]?.let { return@withContext it }
+        val file = File(evidenceDirectory, identity + ".json")
         if (!file.isFile || file.length() > 256 * 1024) null else runCatching { json.decodeFromString<AcademicEvidence>(file.readText()) }.getOrNull()
     }
     private suspend fun save(evidence: AcademicEvidence) = snapshotMutex.withLock {
@@ -343,7 +354,25 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         withContext(Dispatchers.IO) { check(preferences.edit().putLong("$provider:day", day).putInt("$provider:count", count + 1).putLong("$provider:last", System.currentTimeMillis()).commit()) }
     }
 
-    private suspend fun fetch(url: String, included: List<String> = emptyList(), excluded: List<String> = emptyList(), allowed: suspend () -> Boolean, provider: String, sourceDocument: Boolean = false): Pair<String, String> = global.withPermit {
+    private suspend fun fetch(url: String, included: List<String> = emptyList(), excluded: List<String> = emptyList(), allowed: suspend () -> Boolean, provider: String, sourceDocument: Boolean = false): Pair<String, String> {
+        var last: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                if (attempt > 0) reserve(provider, allowed)
+                return fetchOnce(url, included, excluded, allowed, provider, sourceDocument)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                val retryable = (failure is AcademicHttpFailure && failure.status in 500..599) || failure is java.io.IOException || failure is io.ktor.client.plugins.HttpRequestTimeoutException
+                if (!retryable || attempt == 2) throw failure
+                last = failure
+                delay(250L * (attempt + 1) + kotlin.random.Random.nextLong(100))
+            }
+        }
+        throw checkNotNull(last)
+    }
+
+    private suspend fun fetchOnce(url: String, included: List<String> = emptyList(), excluded: List<String> = emptyList(), allowed: suspend () -> Boolean, provider: String, sourceDocument: Boolean = false): Pair<String, String> = global.withPermit {
         var target = url
         repeat(4) {
             check(allowed()) { "permission_denied" }
@@ -353,7 +382,41 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             var redirect: String? = null
             val started = System.nanoTime()
             val eventId = UUID.randomUUID().toString()
-            val result = http.prepareGet(target) { header("User-Agent", "GPTMobileAcademic/1 (keyless public research)") }.execute { response ->
+            var responseCode: Int? = null
+            var successful = false
+            val result = try {
+                http.prepareGet(target) { header("User-Agent", "GPTMobileAcademic/1 (keyless public research)") }.execute { response ->
+                    responseCode = response.status.value
+                    if (response.status.value in 300..399) {
+                        redirect = uri.resolve(response.headers["Location"] ?: error("Missing redirect target")).toString()
+                        return@execute null
+                    }
+                    if (response.status.value == 429) {
+                        val retry = response.headers["Retry-After"]
+                        val duration = retry?.toLongOrNull()?.coerceIn(1, 86400)?.times(1000)
+                            ?: runCatching { java.time.ZonedDateTime.parse(retry, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() }.getOrNull()?.coerceIn(1000, 86_400_000) ?: 60_000
+                        val until = System.currentTimeMillis() + duration
+                        withContext(Dispatchers.IO) { preferences.edit().putLong("$provider:cooldown", until).commit() }
+                        throw AcademicHttpFailure(429, until)
+                    }
+                    if (response.status.value == 401) {
+                        withContext(Dispatchers.IO) { preferences.edit().putBoolean("$provider:authBlocked", true).commit() }
+                    }
+                    if (response.status.value !in 200..299) throw AcademicHttpFailure(response.status.value)
+                    val stream = response.bodyAsChannel()
+                    val output = ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        check(allowed()) { "permission_denied" }
+                        val read = stream.readAvailable(buffer)
+                        if (read < 0) break
+                        require(output.size() + read <= 2 * 1024 * 1024) { "Academic response exceeds 2 MiB" }
+                        output.write(buffer, 0, read)
+                    }
+                    successful = true
+                    output.toString("UTF-8") to response.headers["Content-Type"].orEmpty()
+                }
+            } finally {
                 telemetry.record(
                     dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(
                         eventId = eventId,
@@ -361,37 +424,16 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                         operation = if (sourceDocument) "read" else "lookup_search",
                         recordedAt = System.currentTimeMillis(),
                         durationMs = (System.nanoTime() - started) / 1_000_000,
-                        outcome = if (response.status.value in 200..399) "SUCCESS" else "FAILED",
-                        httpCode = response.status.value
+                        outcome = if (!currentCoroutineContext().isActive) {
+                            "CANCELLED"
+                        } else if (successful || responseCode?.let { it in 300..399 } == true) {
+                            "SUCCESS"
+                        } else {
+                            "FAILED"
+                        },
+                        httpCode = responseCode
                     )
                 )
-                if (response.status.value in 300..399) {
-                    redirect = uri.resolve(response.headers["Location"] ?: error("Missing redirect target")).toString()
-                    return@execute null
-                }
-                if (response.status.value == 429) {
-                    val retry = response.headers["Retry-After"]
-                    val duration = retry?.toLongOrNull()?.coerceIn(1, 86400)?.times(1000)
-                        ?: runCatching { java.time.ZonedDateTime.parse(retry, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() }.getOrNull()?.coerceIn(1000, 86_400_000) ?: 60_000
-                    val until = System.currentTimeMillis() + duration
-                    withContext(Dispatchers.IO) { preferences.edit().putLong("$provider:cooldown", until).commit() }
-                    throw AcademicHttpFailure(429, until)
-                }
-                if (response.status.value == 401) {
-                    withContext(Dispatchers.IO) { preferences.edit().putBoolean("$provider:authBlocked", true).commit() }
-                }
-                if (response.status.value !in 200..299) throw AcademicHttpFailure(response.status.value)
-                val stream = response.bodyAsChannel()
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (true) {
-                    check(allowed()) { "permission_denied" }
-                    val read = stream.readAvailable(buffer)
-                    if (read < 0) break
-                    require(output.size() + read <= 2 * 1024 * 1024) { "Academic response exceeds 2 MiB" }
-                    output.write(buffer, 0, read)
-                }
-                output.toString("UTF-8") to response.headers["Content-Type"].orEmpty()
             }
             if (result != null) return@withPermit result
             target = checkNotNull(redirect)

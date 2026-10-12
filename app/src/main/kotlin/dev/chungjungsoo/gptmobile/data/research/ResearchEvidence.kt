@@ -49,7 +49,7 @@ data class ResearchSource(
     val providerReceipts: List<String> = emptyList(),
     val reviewStatus: String = "unknown"
 ) {
-    val readable: Boolean get() = retrievalQuality == "FULL_TEXT" && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
+    val readable: Boolean get() = originId.isBlank() && retrievalQuality == "FULL_TEXT" && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
         put("id", id)
         put("url", url)

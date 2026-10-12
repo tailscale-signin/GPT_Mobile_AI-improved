@@ -35,6 +35,7 @@ class ResearchTelemetryStore(private val directory: File) {
         check(directory.mkdirs() || directory.isDirectory)
         val file = File(directory, "${event.eventId}.json")
         if (file.isFile) return
+        check(directory.listFiles().orEmpty().size < 100_000) { "Research telemetry storage limit reached" }
         val temporary = File(directory, "${event.eventId}.tmp")
         temporary.outputStream().use { it.write(json.encodeToString(event).toByteArray()) }
         check(temporary.renameTo(file)) { "Could not checkpoint research telemetry" }

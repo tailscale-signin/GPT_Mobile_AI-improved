@@ -354,6 +354,7 @@ class AgentToolResolver @Inject constructor(
                     !current.disableAllTools &&
                     dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, !current.disableRemoteTools) == null
             }
+            val persistentAcademicEvidence = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == false } == true
             val academicOptions = researchSelection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch
             val academicBudget = AcademicRunBudget(limit = academicOptions.requestCeiling, maxReads = academicOptions.maxPages * 3, maxBytes = academicOptions.downloadLimitMiB * 1024 * 1024)
             DeepResearchTool.OPERATIONS.forEach { operation ->
@@ -374,7 +375,7 @@ class AgentToolResolver @Inject constructor(
                                     )
                             )
                 }
-                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget)
+                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget, persistentEvidence = persistentAcademicEvidence)
                 resolved += ResolvedAgentTool(facade, remote?.connectionUid, "Deep Research", remote?.realToolName ?: facade.definition.name, facade.definition.name, shareableReadOnly = false, canReuseResult = access)
             }
         }

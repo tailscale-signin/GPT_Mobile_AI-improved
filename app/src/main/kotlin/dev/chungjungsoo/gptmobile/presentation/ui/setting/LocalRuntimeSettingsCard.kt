@@ -124,7 +124,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel) 
                 Text("${trials.count { it.finished && !it.completed }} failed · ${trials.count { it.historical }} historical · ${qualifications.count { it.status == dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus.QUALIFIED }} qualified plans", style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = viewModel::clearRuntimeEvidence, enabled = comparison == null && !busy) { Text("Clear runtime evidence") }
             }
-            LocalAssistToggle(settings.localAssist, { viewModel.updateTuning(assist = it) }, enabled = !busy)
+            LocalAssistToggle(settings.localAssist, { viewModel.updateTuning(assist = it) }, enabled = !busy, mode = settings.localAssistPolicy.mode, onModeChanged = { viewModel.updateTuning(assistMode = it) }, extractEvidence = settings.localAssistPolicy.extractEvidence, onExtractionChanged = { viewModel.updateTuning(assistExtraction = it) })
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide tuning" else "Performance tuning") }
             if (expanded) {
                 Text("GPU/NPU experiments", style = MaterialTheme.typography.titleMedium)

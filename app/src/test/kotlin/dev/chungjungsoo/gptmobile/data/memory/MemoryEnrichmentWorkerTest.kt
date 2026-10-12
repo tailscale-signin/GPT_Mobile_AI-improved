@@ -14,6 +14,14 @@ class MemoryEnrichmentWorkerTest {
         assertEquals(3, enrichmentRetryLimit("INFERENCE_TIMEOUT"))
     }
 
+    @Test fun `model proposals are not committed saves`() {
+        assertEquals(false, MemoryEnrichmentCommit(accepted = 3).changed)
+        assertEquals(true, MemoryEnrichmentCommit(written = 1).changed)
+        assertNull(MemoryEnrichmentWorker.parse("""{"observations":[],"tool":"write"}"""))
+        assertNull(MemoryEnrichmentWorker.parse("""text {"observations":[]}"""))
+        assertNull(MemoryEnrichmentWorker.parse("""{"observations":[{"quote":"hello","kind":"invented"}]}"""))
+    }
+
     @Test fun `empty observations are valid but arbitrary JSON is not enrichment`() {
         assertNotNull(MemoryEnrichmentWorker.parse("""{"observations":[]}"""))
         assertNull(MemoryEnrichmentWorker.parse("{}"))

@@ -10,6 +10,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun explicitRequiredCapabilityCannotDisappearDuringCompaction() {
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalContextPlanner.plan(emptyList(), "Find evidence", "", emptyList(), 1024, null, requiredTools = setOf("web_search"))
+        }
+        val tool = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val plan = LocalContextPlanner.plan(emptyList(), "Find evidence", "", listOf(tool), 1024, null, requiredTools = setOf("web_search"))
+        assertEquals(listOf(tool), plan.tools)
+    }
+
     @Test
     fun `large tool catalog fits a 1024 context with response and result headroom`() {
         val tools = (1..40).map { AgentToolDefinition("tool$it", "description ".repeat(20), buildJsonObject {}) }

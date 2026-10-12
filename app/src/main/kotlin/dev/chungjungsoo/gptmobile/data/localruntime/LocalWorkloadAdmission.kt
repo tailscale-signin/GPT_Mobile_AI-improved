@@ -14,9 +14,12 @@ class LocalWorkloadAdmission(private val clock: () -> Long = SystemClock::elapse
             recoveredAt = null
             return "Device is too hot for a new local request. Let it cool and retry."
         }
-        if (availableBytes != null && availableBytes < requiredBytes.coerceAtLeast(0) + reserveBytes.coerceAtLeast(0)) {
+        val demand = requiredBytes.coerceAtLeast(0)
+        val reserve = reserveBytes.coerceAtLeast(0)
+        val total = if (Long.MAX_VALUE - demand < reserve) Long.MAX_VALUE else demand + reserve
+        if (availableBytes != null && availableBytes < total) {
             recoveredAt = null
-            return "Not enough available memory for this model and context. Release another model or choose a smaller profile."
+            return "Not enough available memory for this model and context. Required=$demand bytes; reserve=$reserve bytes; available=$availableBytes bytes. Release another model or choose a smaller profile."
         }
         if (!optional) return null
         if (hardware.isModeratePressure || hardware.isThrottlingRequired) {

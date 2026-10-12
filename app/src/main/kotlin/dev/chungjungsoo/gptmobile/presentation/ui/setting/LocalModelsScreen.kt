@@ -154,7 +154,7 @@ fun LocalModelsScreen(
                     } else if (!marketplace) {
                         item(key = "overview") { LocalModelsOverviewCard(uiState) }
                         item(key = "local-assist") {
-                            LocalAssistToggle(runtimeSettings.localAssist, { runtimeViewModel.updateTuning(assist = it) }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), enabled = !runtimeBusy)
+                            LocalAssistToggle(runtimeSettings.localAssist, { runtimeViewModel.updateTuning(assist = it) }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), enabled = !runtimeBusy, mode = runtimeSettings.localAssistPolicy.mode, onModeChanged = { runtimeViewModel.updateTuning(assistMode = it) }, extractEvidence = runtimeSettings.localAssistPolicy.extractEvidence, onExtractionChanged = { runtimeViewModel.updateTuning(assistExtraction = it) })
                         }
                         item(key = "download-policy") {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

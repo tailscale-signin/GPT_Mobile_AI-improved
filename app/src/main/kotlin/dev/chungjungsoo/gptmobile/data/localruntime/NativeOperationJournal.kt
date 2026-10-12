@@ -11,6 +11,7 @@ internal class NativeOperationJournal(
     private val exitCause: (Long, Int) -> String = { _, _ -> "UNKNOWN" },
     private val processId: () -> Int = { 0 }
 ) {
+    private var activeToken: String? = null
     private val pending get() = File(directory, "pending")
     private val metadata get() = File(directory, "pending-metadata")
     private fun digest(tuple: String) = MessageDigest.getInstance("SHA-256").digest(tuple.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -21,13 +22,16 @@ internal class NativeOperationJournal(
     fun diagnostic(): String = "pending=${pending.isFile}; quarantined=${directory.listFiles()?.count { it.name.startsWith("quarantined-") } ?: 0}"
 
     @Synchronized
-    fun before(tuple: String, stage: String = "NATIVE", requestId: String = "", generation: String = "") {
+    fun before(tuple: String, stage: String = "NATIVE", requestId: String = "", generation: String = ""): String {
         check(directory.mkdirs() || directory.isDirectory)
         recoverInterrupted()
         val key = digest(tuple)
         check(!blocked(key).exists()) { "This artifact/runtime/backend was interrupted inside native code. Choose another compatible backend or a qualified artifact/runtime update before retrying. App updates alone do not clear this restriction." }
         durableWrite(pending, key)
-        durableWrite(metadata, listOf(System.currentTimeMillis(), processId(), stage.take(64), requestId.take(128), generation.take(128)).joinToString("\n"))
+        val token = java.util.UUID.randomUUID().toString()
+        durableWrite(metadata, listOf(System.currentTimeMillis(), processId(), stage.take(64), requestId.take(128), generation.take(128), token).joinToString("\n"))
+        activeToken = token
+        return token
     }
 
     private fun recoverInterrupted() {
@@ -52,7 +56,10 @@ internal class NativeOperationJournal(
     }
 
     @Synchronized
-    fun finished() {
+    fun finished(token: String? = activeToken) {
+        if (token == null || token != activeToken) return
+        if (runCatching { metadata.readLines().getOrNull(5) }.getOrNull() != token) return
+        activeToken = null
         pending.delete()
         metadata.delete()
     }

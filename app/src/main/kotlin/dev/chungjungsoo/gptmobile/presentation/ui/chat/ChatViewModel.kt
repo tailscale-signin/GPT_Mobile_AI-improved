@@ -803,6 +803,24 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun setConversationAssistMode(mode: dev.chungjungsoo.gptmobile.data.assist.AssistMode?) {
+        val chatId = _chatRoom.value.id
+        if (chatId <= 0) return
+        viewModelScope.launch {
+            try {
+                conversationDelegationMutex.withLock {
+                    val latest = settingRepository.getFeatureSettings()
+                    val overrides = latest.conversationAssistModes - chatId
+                    settingRepository.updateFeatureSettings(latest.copy(conversationAssistModes = if (mode == null) overrides else overrides + (chatId to mode)))
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not save this conversation's Local Assist mode."
+            }
+        }
+    }
+
     fun setConversationDelegation(value: ConversationDelegationSettings?) {
         _chatToolConfig.update { it.copy(delegation = value) }
         val chatId = _chatRoom.value.id

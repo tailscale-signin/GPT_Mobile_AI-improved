@@ -50,7 +50,7 @@ class ResearchBudget(
         for (phase in listOf(Phase.FINALIZATION, Phase.RECOVERY, Phase.VERIFICATION, Phase.DISCOVERY)) {
             if (shares.getValue(phase) <= 0 || byPhase.getValue(phase) > 0) continue
             val donor = Phase.entries.filter { it != phase && byPhase.getValue(it) > 1 }.maxByOrNull { byPhase.getValue(it) }
-                ?: Phase.DISCOVERY.takeIf { it != phase && byPhase.getValue(it) > 0 }
+                ?: Phase.DISCOVERY.takeIf { it != phase && byPhase.getValue(it) > 1 }
             if (donor != null) {
                 byPhase[donor] = byPhase.getValue(donor) - 1
                 byPhase[phase] = 1

@@ -13,6 +13,13 @@ class ProviderOutputLimitsTest {
         assertNull(ProviderOutputLimits.effective("$route-other", null))
     }
 
+    @Test fun learnedCeilingsExpireWithoutChangingRequestedPreference() {
+        val route = java.util.UUID.randomUUID().toString()
+        assertEquals(4096, ProviderOutputLimits.learn(route, "max_tokens too large; supports at most 4096 completion tokens", 16384, nowMs = 0))
+        assertEquals(4096, ProviderOutputLimits.effective(route, 16384, nowMs = 1))
+        assertEquals(16384, ProviderOutputLimits.effective(route, 16384, nowMs = 30 * 60_000L))
+    }
+
     @Test fun contextErrorsAndUnrelatedNumbersNeverBecomeCompletionCeilings() {
         assertNull(ProviderOutputLimits.learn("context", "max_tokens is too large: 256000; context window 131072", 256000))
         assertNull(ProviderOutputLimits.learn("small", "max_tokens is too large; supports at most 131072 completion tokens", 4096))

@@ -4,6 +4,7 @@ package dev.chungjungsoo.gptmobile.data.agent.provider
 data class RequestConstraints(
     val maxOutputTokens: Int? = null,
     val allowTools: Boolean = true,
+    val requiredToolNames: Set<String> = emptySet(),
     val allowReasoning: Boolean = true,
     val allowGatewayLocalTools: Boolean = false,
     val requestRole: String? = null,

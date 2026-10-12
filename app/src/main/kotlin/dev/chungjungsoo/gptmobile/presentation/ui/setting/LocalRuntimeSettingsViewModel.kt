@@ -98,6 +98,8 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         speculative: SpeculativeDecodingMode? = null,
         nativeMetrics: Boolean? = null,
         assist: Boolean? = null,
+        assistExtraction: Boolean? = null,
+        assistMode: dev.chungjungsoo.gptmobile.data.assist.AssistMode? = null,
         policy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy? = null
     ) = perform {
         updates.withLock {
@@ -110,6 +112,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
                     localSpeculativeDecoding = speculative ?: current.localSpeculativeDecoding,
                     localNativeMetrics = nativeMetrics ?: current.localNativeMetrics,
                     localAssist = assist ?: current.localAssist,
+                    localAssistPolicy = current.localAssistPolicy.copy(mode = assistMode ?: current.localAssistPolicy.mode, extractEvidence = assistExtraction ?: current.localAssistPolicy.extractEvidence),
                     localIdleMinutes = idle?.coerceIn(0, 60) ?: current.localIdleMinutes,
                     qnnAutomaticFallback = fallback ?: current.qnnAutomaticFallback
                 )

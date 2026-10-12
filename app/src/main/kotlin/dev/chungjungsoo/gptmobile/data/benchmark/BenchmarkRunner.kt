@@ -282,6 +282,8 @@ class BenchmarkRunner(
             val reportedQnnStage = Regex("QNN ([A-Z_]+) failed \\[").find(detail)?.groupValues?.getOrNull(1)
             val category = when {
                 qnn != null || reportedQnnStage != null -> "INIT"
+                detail.contains("NATIVE_SHUTDOWN_UNCERTAIN", true) || detail.contains("interrupted inside native", true) || detail.contains("artifact/runtime/backend was interrupted", true) || detail.contains("worker must be restarted", true) || detail.contains("template", true) && detail.contains("sequence", true) -> "BLOCKED_CONFIGURATION"
+                detail.contains("not enough available memory", true) -> "DEFERRED_RESOURCE"
                 detail.contains("context", ignoreCase = true) && detail.contains("token", ignoreCase = true) -> "CONTEXT"
                 detail.contains("timeout", ignoreCase = true) -> "TIMEOUT"
                 detail.contains("provider", ignoreCase = true) || detail.contains("http", ignoreCase = true) -> "PROVIDER"
@@ -337,7 +339,7 @@ private fun fixtureTool(code: String): AgentTool = object : AgentTool {
 
 /** Infrastructure errors are not model-quality failures, even in full-suite mode. */
 internal fun benchmarkInfrastructureFailure(sample: BenchmarkSample): Boolean {
-    if (sample.outcome in setOf(BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) || sample.failureCategory == "INIT") return true
+    if (sample.outcome in setOf(BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED) || sample.failureCategory in setOf("INIT", "BLOCKED_CONFIGURATION", "DEFERRED_RESOURCE")) return true
     if (sample.outcome == BenchmarkOutcome.PASSED) return false
     val detail = listOfNotNull(sample.error).plus(sample.delegation?.diagnosticEvents.orEmpty().map { it.message }).joinToString("\n")
     return listOf(
@@ -363,7 +365,7 @@ suspend fun runBenchmarkSuite(
         }
         if (reason != null) {
             for (remaining in suite.drop(index + 1)) {
-                onSample(BenchmarkSample(remaining.id, remaining.label, remaining.category, BenchmarkOutcome.SKIPPED, error = reason, failureCategory = "SKIPPED", tokenBasis = ReferenceTextTokenizer.VERSION, warmup = remaining.warmup, workload = remaining.workload))
+                onSample(BenchmarkSample(remaining.id, remaining.label, remaining.category, BenchmarkOutcome.SKIPPED, error = reason, failureCategory = sample.failureCategory?.takeIf { it in setOf("INIT", "BLOCKED_CONFIGURATION", "DEFERRED_RESOURCE") } ?: "SKIPPED", tokenBasis = ReferenceTextTokenizer.VERSION, warmup = remaining.warmup, workload = remaining.workload))
             }
             return reason
         }

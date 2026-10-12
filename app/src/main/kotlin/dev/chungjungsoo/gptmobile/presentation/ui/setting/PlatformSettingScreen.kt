@@ -385,6 +385,16 @@ fun PlatformSettingScreen(
                                 )
                             }
                         )
+                        Text("Local Assist for this profile", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.titleSmall)
+                        androidx.compose.material3.TextButton(onClick = { settingViewModel.updateProfileBehavior(behavior.copy(localAssistMode = null)) }) {
+                            Text(if (behavior.localAssistMode == null) "Use global default (selected)" else "Use global default")
+                        }
+                        dev.chungjungsoo.gptmobile.data.assist.AssistMode.entries.forEach { mode ->
+                            androidx.compose.material3.TextButton(
+                                onClick = { settingViewModel.updateProfileBehavior(behavior.copy(localAssistMode = mode)) },
+                                enabled = features.localAssist && !isLocalPlatform && platformData.enabled
+                            ) { Text(mode.label + if (behavior.localAssistMode == mode) " (selected)" else "") }
+                        }
                         PreferenceListSwitch(
                             title = "Delegation mode",
                             description = if (features.delegation.enabled) "Allow this profile to use a delegate" else "Enable delegation in Settings to use helpers",

@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 /** Optional capabilities are explicit for each profile, including restored legacy profiles. */
 @Serializable
 data class ProfileBehaviorSettings(
+    val localAssistMode: dev.chungjungsoo.gptmobile.data.assist.AssistMode? = null,
     val delegationEnabled: Boolean = false,
     val crawlersEnabled: Boolean = false,
     val crawlerToolIds: Set<String> = emptySet(),

@@ -28,7 +28,8 @@ internal object LocalContextPlanner {
         contextTokens: Int,
         outputLimit: Int?,
         imageCount: Int = 0,
-        historyImageCount: (ConversationTurn) -> Int = { 0 }
+        historyImageCount: (ConversationTurn) -> Int = { 0 },
+        requiredTools: Set<String> = emptySet()
     ): LocalContextPlan {
         require(contextTokens > 0)
         val outputReserve = minOf(outputLimit?.takeIf { it > 0 } ?: 1024, maxOf(1, contextTokens / 4))
@@ -48,7 +49,8 @@ internal object LocalContextPlanner {
                 "Max Output Tokens controls reply length; it does not increase model context."
         }
 
-        val requiredNames = requiredToolNames(currentUserPrompt, tools)
+        require(tools.map { it.name }.containsAll(requiredTools)) { "Required tools are unavailable or not permitted for this request. Choose a compatible profile or explicitly answer without research." }
+        val requiredNames = requiredTools + requiredToolNames(currentUserPrompt, tools)
         val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
         val selectedTools = mutableListOf<AgentToolDefinition>()
         var toolTokens = 0L

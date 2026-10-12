@@ -303,6 +303,7 @@ class ChatRepositoryImpl(
         val record = state.engineSpec ?: return false
         val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull() ?: return false
         return record.modelPath == selection.path &&
+            record.accelerator == dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator) &&
             !localRuntime.hasOpenConversation() &&
             !localRuntime.getHardwareState().isThrottlingRequired
     }
@@ -380,7 +381,7 @@ class ChatRepositoryImpl(
         benchmarkCategory: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
         val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
-        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
+        val constraints = RequestConstraints(maxOutputTokens = outputBudget, requiredToolNames = tools.map { it.definition.name }.toSet(), allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory)
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
@@ -1259,9 +1260,35 @@ class ChatRepositoryImpl(
                     }
                 }
             }
+            val runFeatures = settingRepository.getFeatureSettings()
+            val assistTarget = if (runFeatures.isLocalAssistEnabled(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0)) {
+                settingRepository.fetchPlatformV2s().firstOrNull {
+                    it.compatibleType == ClientType.LITERT_LM &&
+                        it.enabled &&
+                        !it.excludesMemory() &&
+                        runCatching { localModelRepository.resolveLocalModelSelection(it.model, it.accelerator).path == localRuntime.loadedEngineSpec()?.modelPath }.getOrDefault(false)
+                }
+            } else {
+                null
+            }
+            val assist = if (runFeatures.isLocalAssistEnabled(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0) && !platform.disableAllTools && !platform.disableLocalTools && !platform.excludesMemory() && !runId.startsWith("combined-synthesis:") && platform.compatibleType != ClientType.LITERT_LM && assistTarget != null) {
+                dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
+                    goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
+                    warmEligible = {
+                        settingRepository.getFeatureSettings().isLocalAssistEnabled(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0) && runtimeEligibleForAssist(assistTarget)
+                    },
+                    selectEvidence = { task -> delegateToProfile(assistTarget, task, if (runFeatures.effectiveAssistPolicy(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0).extractEvidence) 768 else 128, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
+                    notice = { emit(ApiState.Notice(it)) },
+                    policy = runFeatures.effectiveAssistPolicy(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0),
+                    scope = runId,
+                    stillPermitted = { settingRepository.getFeatureSettings().isLocalAssistEnabled(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0) }
+                )
+            } else {
+                null
+            }
             val recovery = prepareRecoveryContext()
             var contextTurns = withContext(Dispatchers.Default) {
-                buildContextTurns(effectiveUserMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform).also { turns ->
+                buildContextTurns(effectiveUserMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform, assist).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
@@ -1276,7 +1303,6 @@ class ChatRepositoryImpl(
                 runOverride = effectiveMaxTools,
                 maxRoundsOverride = effectiveMaxTools
             )
-            val runFeatures = settingRepository.getFeatureSettings()
             val searchPolicy = dev.chungjungsoo.gptmobile.data.agent.tool.SearchMergePolicy(
                 reuseIdenticalRequests = runFeatures.reuseSearchRequests,
                 dedupeUrls = runFeatures.deduplicateSearch,
@@ -1612,19 +1638,24 @@ class ChatRepositoryImpl(
                     }
                 )
             }
-            val assistTarget = settingRepository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() }
-            val assist = if (runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM && assistTarget != null) {
-                dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
-                    goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
-                    warmEligible = { runtimeEligibleForAssist(assistTarget) },
-                    selectEvidence = { task -> delegateToProfile(assistTarget, task, 128, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
-                    notice = { emit(ApiState.Notice(it)) }
+            val evidenceReader = assist?.takeIf { runFeatures.effectiveAssistPolicy(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0).extractEvidence }?.evidenceReader()?.let { reader ->
+                ResolvedAgentTool(
+                    toolBudget.bind(reader, authorize = { _, _ ->
+                        settingRepository.getFeatureSettings().isLocalAssistEnabled(platform.uid, effectiveUserMessages.lastOrNull()?.chatId ?: 0)
+                    }),
+                    null,
+                    null,
+                    reader.definition.name,
+                    reader.definition.name,
+                    shareableReadOnly = false
                 )
-            } else {
-                null
             }
             val boundedTools = authorizedBoundedTools.map { resolved ->
                 if (assist != null && resolved.shareableReadOnly) resolved.copy(tool = assist.bind(resolved.tool)) else resolved
+            } + listOfNotNull(evidenceReader)
+            if (evidenceReader != null) {
+                exposedTools = exposedTools + evidenceReader
+                contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             }
             val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
             val delegationConfig = effectiveDelegationSettings()
@@ -1648,7 +1679,16 @@ class ChatRepositoryImpl(
                 ownerRoute = "$runId:${platform.uid}",
                 configurationRevision = { settingRepository.getFeatureSettings().hashCode().toString() }
             )
-            delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }
+            delegatedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(
+                authorizedBoundedTools.filterNot { it.realToolName == "delegate_to_model" },
+                true,
+                true,
+                canExecute = acquisitionBudget::canExecute,
+                remainingBytes = acquisitionBudget::remainingOutputBytes,
+                policy = searchPolicy,
+                ownerRoute = "$runId:${platform.uid}",
+                configurationRevision = { settingRepository.getFeatureSettings().hashCode().toString() }
+            )
             // The model calls the aggregate name, while local workers can call individual
             // engines. Preserve both snapshots, preferring aggregate metadata on a name collision.
             val traceTools = (aggregatedTools + boundedTools).distinctBy { it.modelToolName }
@@ -1930,9 +1970,9 @@ class ChatRepositoryImpl(
         )
         val remainingWordGoal = wordGoal?.let { (it - previousAnswerWords).coerceAtLeast(0) }
         val continuationLimit = if (editorialPass) {
-            dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(latestUser?.content.orEmpty(), requestConstraints.outputLimit(platform.maxTokens), remainingWordGoal)
+            dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(latestUser?.content.orEmpty(), resolvedOutputCap, remainingWordGoal)
         } else {
-            dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
+            dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, resolvedOutputCap)
         }
         val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY
         val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
@@ -2248,13 +2288,14 @@ class ChatRepositoryImpl(
     private suspend fun buildContextTurns(
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
-        platform: PlatformV2
+        platform: PlatformV2,
+        assist: dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator? = null
     ): List<ConversationTurn> {
         val policy = ProviderContextPolicy.forClientType(platform.compatibleType).copy(
             recentTurnWindow = Int.MAX_VALUE,
             maxHistoryCharBudget = Int.MAX_VALUE
         )
-        val preparedUsers = userMessages.map { withDocumentContext(it, platform) }
+        val preparedUsers = userMessages.mapIndexed { index, message -> withDocumentContext(message, platform, assist.takeIf { index == userMessages.lastIndex }) }
         val preparedAssistants = assistantMessages.map { row -> row.map { withDocumentContext(it, platform) } }
         val contextTurns = contextBuilder.build(preparedUsers, preparedAssistants, platform, policy)
         if (!policy.preferProviderFileRefs || contextTurns.isEmpty()) {
@@ -2264,7 +2305,7 @@ class ChatRepositoryImpl(
         return ensureProviderReferencesForTurns(contextTurns, platform, userMessages.associateBy { it.id })
     }
 
-    private suspend fun withDocumentContext(message: MessageV2, platform: PlatformV2): MessageV2 {
+    private suspend fun withDocumentContext(message: MessageV2, platform: PlatformV2, assist: dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator? = null): MessageV2 {
         if (platform.compatibleType == ClientType.FREE) return message
         val nativePdf = platform.compatibleType in setOf(ClientType.OPENAI, ClientType.ANTHROPIC, ClientType.GOOGLE)
         val documents = message.attachments.filter { !FileUtils.isImage(it.mimeType) }
@@ -2283,7 +2324,13 @@ class ChatRepositoryImpl(
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "Attachment indexing failed for chat ${message.chatId}", "E")
                     }
                 }
-                if (document in textOnlyDocuments) "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text.take(12000)}" else null
+                if (document in textOnlyDocuments) {
+                    val prepared = assist?.prepareText(extracted.text)
+                    val coverage = if (prepared == null && extracted.text.length > 12_000) "\nPartial attachment projection: first 12000 of ${extracted.text.length} extracted characters. This is not a full-document review." else ""
+                    "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}$coverage\n${prepared ?: extracted.text.take(12000)}"
+                } else {
+                    null
+                }
             }
         }
         return message.copy(

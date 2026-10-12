@@ -15,6 +15,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true)
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)
         "feedback manager requires a model with a single signature" in text -> DiagnosticClassification("optional_model_feature", "info", false)
+        text.startsWith("enrichment_skipped") -> DiagnosticClassification("no_change", "info", false, "not_saved")
         text.startsWith("enrichment_waiting_") -> DiagnosticClassification("deferred_work", "info", false, "waiting")
         text.startsWith("search_index_ready") ||
             text.startsWith("refresh_ok") ||
@@ -26,7 +27,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         level == "W" -> DiagnosticClassification("warning", "warning", true)
         Regex("(?:^| · )(?:error=true|status=FAILED|outcome=FAILED)(?: · |$)", RegexOption.IGNORE_CASE).containsMatchIn(message) ->
             DiagnosticClassification("reported_failure", "error", true)
-        tag == "Frame" && Regex("(?:slowFrames|jankyFrames)=[1-9]").containsMatchIn(message) ->
+        tag in setOf("Frame", "Rendering") && Regex("(?:slowFrames|jankyFrames|jankFrames)=[1-9]").containsMatchIn(message) ->
             DiagnosticClassification("performance", "warning", true)
         else -> DiagnosticClassification("informational", "info", false)
     }

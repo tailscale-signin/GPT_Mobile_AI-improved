@@ -60,12 +60,17 @@ class PlannedLocalRuntime(
         }
         val chosen = tuned.copy(accelerator = decision?.selected?.languageBackend ?: tuned.accelerator, speculativeDecoding = decision?.selected?.speculativeDecoding ?: tuned.speculativeDecoding)
         val warm = delegate.loadedEngineSpec()
-        val estimate = if (warm?.engineConfiguration() == chosen.engineConfiguration()) {
-            128L * 1024 * 1024
-        } else {
-            File(spec.modelPath).length() + spec.maxTokens * 256L * 1024 + (if (chosen.speculativeDecoding == true) File(spec.modelPath).length() / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
+        val estimate = LocalMemoryEstimate.estimate(
+            File(spec.modelPath).length(),
+            spec.maxTokens,
+            warm?.engineConfiguration() == chosen.engineConfiguration(),
+            chosen.speculativeDecoding == true,
+            spec.isVisionEnabled
+        )
+        val available = LocalWorkloadAdmission.availableMemory(context)
+        admission.rejection(getHardwareState(), available, estimate.upperBytes, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, optional = false)?.let {
+            error("$it Required estimate=${estimate.lowerBytes}..${estimate.upperBytes} bytes; available=${available ?: -1}; context=${spec.maxTokens}; confidence=${estimate.confidence}.")
         }
-        admission.rejection(getHardwareState(), LocalWorkloadAdmission.availableMemory(context), estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, optional = false)?.let { error(it) }
         mutableState.value = state.value.copy(lifecycle = "LOADING", decision = decision)
         try {
             delegate.loadEngine(chosen)

@@ -25,6 +25,18 @@ internal fun structuredDiagnosticLine(line: String, captureSource: String = "unk
         put("captureSource", captureSource)
         put("duplicate", duplicate)
         put("countAsIssue", !duplicate && match != null && classification.actionable)
+        if (classification.actionable && match != null) {
+            // Correlate signatures within one response/connection. Keep event IDs and raw
+            // continuation counts separate; do not use an entire personal message as a key.
+            fun field(name: String): String = fields.indexOfFirst { it.groupValues[1] == name }.takeIf { it >= 0 }?.let { index ->
+                val item = fields[index]
+                message.substring(item.range.last + 1, fields.getOrNull(index + 1)?.range?.first ?: message.length).trim().trimEnd('·').trim()
+            }.orEmpty()
+            val owner = listOf("runId", "requestId", "connection", "profile").firstNotNullOfOrNull { field(it).takeIf(String::isNotBlank) }.orEmpty()
+            val stage = listOf("errorCode", "stage", "reason").firstNotNullOfOrNull { field(it).takeIf(String::isNotBlank) } ?: classification.category
+            val signature = "${match.groupValues[3]}|${owner.ifBlank { diagnosticEventIdentity(line) }}|$stage"
+            put("incidentId", java.security.MessageDigest.getInstance("SHA-256").digest(signature.toByteArray()).joinToString("") { "%02x".format(it) }.take(24))
+        }
         put("category", classification.category)
         put("severity", classification.severity)
         put("recovery", classification.recovery)

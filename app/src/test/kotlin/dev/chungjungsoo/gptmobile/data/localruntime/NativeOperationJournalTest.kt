@@ -19,6 +19,18 @@ class NativeOperationJournalTest {
         restarted.finished()
     }
 
+    @Test fun staleOperationTokenCannotClearANewerRequest() {
+        val root = temporary.newFolder()
+        val journal = NativeOperationJournal(root)
+        val first = journal.before("tuple")
+        journal.finished(first)
+        val second = journal.before("tuple")
+        journal.finished(first)
+        assertTrue(root.resolve("pending").exists())
+        journal.finished(second)
+        assertTrue(!root.resolve("pending").exists())
+    }
+
     @Test fun normalCompletionOrCancellationDoesNotQuarantine() {
         val root = temporary.newFolder()
         val journal = NativeOperationJournal(root)

@@ -121,6 +121,8 @@ fun ChatModelDialog(
     onReasoningChanged: (Boolean) -> Unit = {},
     localAssist: Boolean = false,
     onLocalAssistChanged: (Boolean) -> Unit = {},
+    conversationAssistMode: dev.chungjungsoo.gptmobile.data.assist.AssistMode? = null,
+    onConversationAssistChanged: (dev.chungjungsoo.gptmobile.data.assist.AssistMode?) -> Unit = {},
     onDelegationChanged: (ConversationDelegationSettings?) -> Unit = {},
     isTemporary: Boolean = false,
     onTemporaryChanged: (Boolean) -> Unit = {},
@@ -183,6 +185,15 @@ fun ChatModelDialog(
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (section == "Models") {
                         dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalAssistToggle(localAssist, onLocalAssistChanged)
+                        Text("This conversation override", style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = { onConversationAssistChanged(null) }) {
+                            Text(if (conversationAssistMode == null) "Use profile default (selected)" else "Use profile default")
+                        }
+                        dev.chungjungsoo.gptmobile.data.assist.AssistMode.entries.forEach { mode ->
+                            TextButton(onClick = { onConversationAssistChanged(mode) }, enabled = localAssist) {
+                                Text(mode.label + if (conversationAssistMode == mode) " (selected)" else "")
+                            }
+                        }
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         ConversationDelegationCard(
                             settings = delegationSettings,

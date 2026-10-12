@@ -270,7 +270,18 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             "RESULT", "DONE", "ERROR", "CANCELLED" -> {
                 if (packet.operation == "DONE") request.events?.offer(LocalRuntimeEvent.Done)
                 if (packet.operation == "ERROR" || packet.operation == "CANCELLED") {
-                    request.events?.offer(LocalRuntimeEvent.Error(packet.text, packet.errorCode?.let(::LocalToolLimitException)))
+                    request.events?.offer(
+                        LocalRuntimeEvent.Error(
+                            packet.text,
+                            when (packet.errorCode) {
+                                "MODEL_CONFIGURATION" -> LocalModelConfigurationException(packet.text)
+                                "NPU_PACKAGE" -> LocalNpuPackageException.fromRemote(packet.text)
+                                "NATIVE_SHUTDOWN_UNCERTAIN" -> IllegalStateException(packet.text)
+                                null -> null
+                                else -> LocalToolLimitException(packet.errorCode)
+                            }
+                        )
+                    )
                     sessionId = ""
                 }
                 mutableState.value = state.value.copy(lifecycle = if (packet.operation == "ERROR") "FAILED" else "READY")

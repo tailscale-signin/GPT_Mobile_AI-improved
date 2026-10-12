@@ -48,6 +48,8 @@ data class AppFeatureSettings(
     val localSpeculativeDecoding: SpeculativeDecodingMode = SpeculativeDecodingMode.AUTO,
     val localNativeMetrics: Boolean = false,
     val localAssist: Boolean = false,
+    val conversationAssistModes: Map<Int, dev.chungjungsoo.gptmobile.data.assist.AssistMode> = emptyMap(),
+    val localAssistPolicy: dev.chungjungsoo.gptmobile.data.assist.AssistPolicy = dev.chungjungsoo.gptmobile.data.assist.AssistPolicy(),
     val localIdleMinutes: Int = 10,
     val localExecutionPolicy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy = dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.PROFILE,
     val localExecutionPolicyVersion: Int = 1,
@@ -63,6 +65,14 @@ data class AppFeatureSettings(
     val spendBudget: dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings = dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings(),
     val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()
 ) {
+    fun effectiveAssistPolicy(profileUid: String, chatId: Int): dev.chungjungsoo.gptmobile.data.assist.AssistPolicy {
+        val selected = conversationAssistModes[chatId] ?: profileBehavior[profileUid]?.localAssistMode ?: localAssistPolicy.mode
+        return localAssistPolicy.copy(mode = if (localAssist) selected else dev.chungjungsoo.gptmobile.data.assist.AssistMode.OFF).normalized()
+    }
+
+    fun isLocalAssistEnabled(profileUid: String, chatId: Int): Boolean =
+        effectiveAssistPolicy(profileUid, chatId).mode != dev.chungjungsoo.gptmobile.data.assist.AssistMode.OFF
+
     fun withFeature(feature: AppFeature, enabled: Boolean): AppFeatureSettings = when (feature) {
         AppFeature.COMPACT_CHAT_LIST -> copy(compactChatList = enabled)
         AppFeature.SMOOTH_STREAMING -> copy(smoothStreaming = enabled)

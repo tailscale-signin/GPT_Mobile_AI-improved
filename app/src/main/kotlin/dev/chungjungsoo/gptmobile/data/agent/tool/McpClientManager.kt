@@ -50,6 +50,8 @@ enum class McpConnectionHealthState {
 data class McpConnectionHealth(
     val state: McpConnectionHealthState = McpConnectionHealthState.RECOVERING,
     val lastSuccessAtMs: Long? = null,
+    val lastFreshCatalogAtMs: Long? = null,
+    val catalogFromCache: Boolean = false,
     val lastFailureAtMs: Long? = null,
     val latencyMs: Long? = null,
     val consecutiveFailures: Int = 0,
@@ -130,13 +132,16 @@ class McpClientManager internal constructor(
             return transport.listTools(config).also {
                 dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
                 recordSuccess(config.connectionUid, availableToolCount = it.size)
+                recordCatalogProvenance(config.connectionUid, true, it.size)
                 recordCatalog(config, it)
             }
         }
-        val result = withSession(config, bypassBackoff = forceRefresh, recordFailures = false) { session ->
+        var freshCatalog = false
+        val result = withSession(config, bypassBackoff = forceRefresh, recordFailures = false, recordSuccessfulRequest = false) { session ->
             session.toolCatalogMutex.withLock {
                 val now = nowMs()
                 session.toolCatalog?.takeIf { !forceRefresh && now - it.loadedAtMs < TOOL_CATALOG_TTL_MS }?.tools ?: run {
+                    freshCatalog = true
                     val tools = mutableListOf<Tool>()
                     val seenCursors = mutableSetOf<String>()
                     var pageCount = 0
@@ -155,10 +160,26 @@ class McpClientManager internal constructor(
                 }
             }
         }
-        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
-        recordSuccess(config.connectionUid, availableToolCount = result.size)
+        if (freshCatalog) {
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
+            recordSuccess(config.connectionUid, availableToolCount = result.size)
+        }
+        recordCatalogProvenance(config.connectionUid, freshCatalog, result.size)
         recordCatalog(config, result)
         return result
+    }
+
+    private fun recordCatalogProvenance(uid: String, fresh: Boolean, count: Int) {
+        _health.update { current ->
+            val previous = current[uid] ?: McpConnectionHealth()
+            current + (
+                uid to previous.copy(
+                    catalogFromCache = !fresh,
+                    lastFreshCatalogAtMs = if (fresh) nowMs() else previous.lastFreshCatalogAtMs,
+                    availableToolCount = count
+                )
+                )
+        }
     }
 
     private suspend fun recordCatalog(config: McpConnectionConfig, tools: List<Tool>) {
@@ -198,6 +219,7 @@ class McpClientManager internal constructor(
                     recordQuota(failure)
                 }
             }
+            if (result.isError != true) recordSuccess(config.connectionUid)
             mediaStore?.materialize(result) ?: result
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -384,6 +406,7 @@ class McpClientManager internal constructor(
         bypassBackoff: Boolean = false,
         retryStale: Boolean = true,
         recordFailures: Boolean = true,
+        recordSuccessfulRequest: Boolean = true,
         block: suspend (Session) -> T
     ): T {
         var staleSessionRetries = 0
@@ -392,7 +415,7 @@ class McpClientManager internal constructor(
             val startedAtMs = nowMs()
             try {
                 return block(session).also {
-                    recordSuccess(config.connectionUid, latencyMs = nowMs() - startedAtMs)
+                    if (recordSuccessfulRequest) recordSuccess(config.connectionUid, latencyMs = nowMs() - startedAtMs)
                 }
             } catch (error: CancellationException) {
                 withContext(NonCancellable) { invalidate(config.connectionUid, session) }

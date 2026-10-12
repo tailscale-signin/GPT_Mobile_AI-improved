@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchBudgetTest {
+    @Test fun tinyBudgetsCannotMoveAllDiscoveryCapacityToFinalization() {
+        for (total in 1..4) {
+            val budget = ResearchBudget(total)
+            assertTrue(budget.tryCharge(ResearchBudget.Phase.DISCOVERY, false))
+            assertEquals(total - 1, budget.snapshot().remaining)
+        }
+    }
+
     @Test fun discoveryCannotConsumeRecoveryOrFinalizationReservations() {
         val budget = ResearchBudget(totalLogicalCalls = 100)
 

@@ -873,6 +873,8 @@ fun ChatScreen(
                 onReasoningChanged = chatViewModel::setConversationReasoning,
                 localAssist = featureSettings.localAssist,
                 onLocalAssistChanged = chatViewModel::setLocalAssist,
+                conversationAssistMode = featureSettings.conversationAssistModes[chatRoom.id],
+                onConversationAssistChanged = chatViewModel::setConversationAssistMode,
                 initialCreativity = initialCreativity,
                 locationToolsEnabled = locationToolIds.isNotEmpty() &&
                     availableChatTools.any { it.id in locationToolIds && it.isEnabled && chatToolConfig.isToolEnabled(it.id) },

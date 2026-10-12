@@ -19,6 +19,9 @@ enum class ConnectionHealth {
     AUTHENTICATION_FAILED,
     CONNECT_TIMEOUT,
     HTTP_ERROR,
+    RATE_LIMITED,
+    SOURCE_UNAVAILABLE,
+    SERVER_UNAVAILABLE,
     MCP_HANDSHAKE_FAILED,
     STREAM_INTERRUPTED,
     HEALTHY,
@@ -78,7 +81,12 @@ internal object LocalServiceHealth {
     fun classify(failure: Throwable): ConnectionHealth {
         val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
         val message = causes.joinToString { it.message.orEmpty().take(512) }.lowercase()
+        val protocolStatus = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.tool.ModernMcpError>().firstOrNull()?.status
         return when {
+            protocolStatus in setOf(401, 403) -> ConnectionHealth.AUTHENTICATION_FAILED
+            protocolStatus == 429 -> ConnectionHealth.RATE_LIMITED
+            protocolStatus in setOf(404, 410) -> ConnectionHealth.SOURCE_UNAVAILABLE
+            protocolStatus != null && protocolStatus >= 500 -> ConnectionHealth.SERVER_UNAVAILABLE
             causes.any { it is java.net.UnknownHostException } -> ConnectionHealth.DNS_FAILED
             causes.any { it is java.net.NoRouteToHostException } -> ConnectionHealth.ROUTE_UNAVAILABLE
             causes.any { it is java.net.SocketTimeoutException || it.javaClass.simpleName == "ConnectTimeoutException" } || "timed out" in message -> ConnectionHealth.CONNECT_TIMEOUT

@@ -54,6 +54,25 @@ class AssistCoordinatorTest {
     }
 
     @Test
+    fun textProjectionRejectsFabricatedQuotesAndPreservesOriginal() = runBlocking {
+        val source = "Mass: 12 kg; NOT approved. " + "source evidence ".repeat(300)
+        val invalid = AssistCoordinator("Find mass", { true }, { """{"excerpts":[{"start":0,"end":11,"quote":"Mass: 99 kg"}]}""" }, {}, policy = AssistPolicy(extractEvidence = true))
+        assertEquals(null, invalid.prepareText(source))
+        val valid = AssistCoordinator("Find mass", { true }, { """{"excerpts":[{"start":0,"end":11,"quote":"Mass: 12 kg"}]}""" }, {}, policy = AssistPolicy(extractEvidence = true))
+        val projection = kotlinx.serialization.json.Json.parseToJsonElement(checkNotNull(valid.prepareText(source))) as JsonObject
+        val result = valid.evidenceReader().execute(
+            "expand",
+            buildJsonObject {
+                put("handle", projection.getValue("sourceHandle"))
+                put("revision", projection.getValue("sourceRevision"))
+                put("start", 0)
+                put("end", 25)
+            }
+        )
+        assertEquals(source.take(25), (result.content as ToolResultContent.Text).text)
+    }
+
+    @Test
     fun coldOrBusyWorkerIsBypassed() = runBlocking {
         var workerCalls = 0
         val assist = AssistCoordinator("Find evidence", { false }, {

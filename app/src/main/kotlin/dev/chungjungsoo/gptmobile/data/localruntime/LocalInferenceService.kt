@@ -46,6 +46,8 @@ class LocalInferenceService : Service() {
     private val toolResults = ConcurrentHashMap<String, CompletableDeferred<RuntimeWire>>()
     private var sessionId = ""
 
+    @Volatile private var retiring = false
+
     @Volatile private var generatingRequest: String? = null
 
     override fun onCreate() {
@@ -79,6 +81,10 @@ class LocalInferenceService : Service() {
 
     private fun start(packet: RuntimeWire, target: Messenger) {
         val reply = Reply(packet, target)
+        if (retiring) {
+            reply.send("ERROR", text = "NATIVE_SHUTDOWN_UNCERTAIN: stopping local engine; choose another profile while it retires", errorCode = "NATIVE_SHUTDOWN_UNCERTAIN")
+            return
+        }
         if (packet.generation.isNotBlank() && packet.generation != generation) {
             reply.send("ERROR", text = "Inference worker changed. Start a new request; interrupted work is not replayed.")
             return
@@ -195,19 +201,24 @@ class LocalInferenceService : Service() {
                 withContext(NonCancellable) { runCatching { runtime.closeConversation() }.onFailure { if (it is NativeCancellationTimeoutException) Process.killProcess(Process.myPid()) } }
                 reply.send("CANCELLED", text = "Local request cancelled after native cleanup")
             } catch (error: Throwable) {
-                if (error is NativeCancellationTimeoutException) Process.killProcess(Process.myPid())
+                if (error is NativeCancellationTimeoutException) {
+                    retiring = true
+                    val cause = error.cause ?: error
+                    reply.send("ERROR", text = "NATIVE_SHUTDOWN_UNCERTAIN: ${cause.message ?: cause.javaClass.simpleName}. Native cleanup was not acknowledged; stopping local engine.", errorCode = "NATIVE_SHUTDOWN_UNCERTAIN")
+                }
                 val errorCode = when (error) {
                     is LocalModelConfigurationException -> "MODEL_CONFIGURATION"
                     is LocalNpuPackageException -> "NPU_PACKAGE"
                     else -> null
                 }
-                reply.send("ERROR", text = error.message ?: "Local worker failed", errorCode = errorCode, loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty())
+                if (!retiring) reply.send("ERROR", text = error.message ?: "Local worker failed", errorCode = errorCode, loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty())
             } finally {
                 if (generatingRequest == packet.requestId) generatingRequest = null
                 jobs.remove(packet.requestId)
                 replies.remove(packet.requestId)
                 operationLock.unlock()
                 reply.flushTerminal()
+                if (retiring) Process.killProcess(Process.myPid())
             }
         }
         jobs[packet.requestId] = job

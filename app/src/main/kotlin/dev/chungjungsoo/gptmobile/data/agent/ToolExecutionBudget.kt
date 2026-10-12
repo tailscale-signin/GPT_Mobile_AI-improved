@@ -102,19 +102,21 @@ class ToolExecutionBudget(
                 var deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.FAILED
                 var reason: String? = null
                 var shared = false
+                var producer: String? = null
                 suspend fun invokeObserved(): AgentToolResult {
                     // Admission and semaphore waiting do not count as uses.
-                    statisticsId = statistics?.begin(statisticsIdentity, statisticsProfile, statisticsRoot, executionOwner.name)
+                    statisticsId = statistics?.begin(statisticsIdentity, statisticsProfile, statisticsRoot, executionOwner.name, callId)
                     startedNanos = System.nanoTime()
                     val recorder = statistics
                     val recordedId = statisticsId
-                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
+                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, statisticsProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
                     return result.also { raw ->
                         if (!raw.dispatched) {
                             statistics?.rejectedBeforeDispatch(statisticsId)
                             statisticsId = null
                         }
                         shared = raw.sharedResult
+                        producer = raw.statisticsProducerId
                         executionOutcome = when {
                             raw.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
                             raw.isError -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
@@ -179,6 +181,11 @@ class ToolExecutionBudget(
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {
+                    val receipt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDeliveryReceipt]
+                    if (receipt != null && statisticsId != null && statistics != null && deliveryOutcome == dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED) {
+                        receipt.pending(statisticsId!!, statistics)
+                        deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.PENDING
+                    }
                     withContext(NonCancellable) {
                         statistics?.complete(
                             statisticsId,
@@ -186,7 +193,8 @@ class ToolExecutionBudget(
                             deliveryOutcome,
                             reason,
                             startedNanos.takeIf { it > 0 }?.let { (System.nanoTime() - it) / 1_000_000 },
-                            shared
+                            shared,
+                            producer
                         )
                         onFinished(callId, success)
                     }

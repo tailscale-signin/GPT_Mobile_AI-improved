@@ -72,11 +72,12 @@ data class ToolInvocation(
     val durationMs: Long? = null,
     val shared: Boolean = false,
     val detailRetained: Boolean = true,
-    val authoritativeOutcome: String? = null
+    val authoritativeOutcome: String? = null,
+    val producerInvocation: String? = null
 )
 
 @Serializable
-@Entity(tableName = "tool_rollup", primaryKeys = ["subject", "bucket"])
+@Entity(tableName = "tool_rollup", primaryKeys = ["subject", "bucket", "profile"])
 data class ToolRollup(
     val subject: String,
     /** -1 is retained lifetime. Other buckets are UTC start hours. Never sum the two. */
@@ -93,7 +94,9 @@ data class ToolRollup(
     val liveDurationMs: Long = 0,
     val liveSamples: Long = 0,
     /** Bounded successful, non-shared latency samples. Serialized without a Room converter. */
-    val latencyBuckets: String = "0,0,0,0,0,0,0,0"
+    val latencyBuckets: String = "0,0,0,0,0,0,0,0",
+    /** Empty only for pre-v2 history whose profile dimension was not retained. */
+    val profile: String = ""
 ) {
     @get:androidx.room.Ignore
     val determinate: Long get() = success + failure + partial
@@ -152,20 +155,21 @@ data class ToolAttempt(@PrimaryKey val id: String, val invocation: String, val o
 data class ToolStatisticsPreferences(val collect: Boolean = true, val history: Boolean = true, val retentionDays: Int = 30, val includeInBackup: Boolean = false, val includesImportedHistory: Boolean = false)
 
 @Serializable
-data class ToolStatisticsSnapshot(val schema: Int = 1, val subjects: List<ToolSubject>, val invocations: List<ToolInvocation>, val rollups: List<ToolRollup>, val attempts: List<ToolAttempt>) {
+data class ToolStatisticsSnapshot(val schema: Int = 2, val subjects: List<ToolSubject>, val invocations: List<ToolInvocation>, val rollups: List<ToolRollup>, val attempts: List<ToolAttempt>) {
     fun validate() {
-        require(schema == 1) { "Unsupported statistics snapshot version" }
+        require(schema in 1..2) { "Unsupported statistics snapshot version" }
         require(subjects.size <= 10000 && invocations.size <= 100000 && rollups.size <= 200000 && attempts.size <= 200000)
         require(subjects.map { it.key }.distinct().size == subjects.size)
         require(invocations.map { it.id }.distinct().size == invocations.size)
-        require(rollups.map { it.subject to it.bucket }.distinct().size == rollups.size)
+        require(rollups.map { Triple(it.subject, it.bucket, it.profile) }.distinct().size == rollups.size)
         fun identifier(value: String): Boolean = value.length in 1..256 && value.all { it.isLetterOrDigit() || it in "-_.:" }
         require(subjects.all { identifier(it.key) && identifier(it.epoch) && identifier(it.plugin) && identifier(it.instance) && identifier(it.capability) && it.since >= 0 })
+        require(invocations.all { it.producerInvocation == null || identifier(it.producerInvocation) })
         require(invocations.all { identifier(it.id) && identifier(it.epoch) && identifier(it.root) && identifier(it.profile) && identifier(it.owner) && (it.parent == null || identifier(it.parent)) && it.startedAt >= 0 && (it.finishedAt == null || it.finishedAt >= it.startedAt) && (it.durationMs == null || it.durationMs in 0..86400000) && (it.reason == null || it.reason in ToolStatisticsRepository.REASONS) })
         require(invocations.all { it.authoritativeOutcome == null || it.authoritativeOutcome in setOf("SUCCESS", "FAILURE", "CANCELED", "PARTIAL") })
         val invocationIds = invocations.map { it.id }.toSet()
         require(attempts.map { it.id }.distinct().size == attempts.size)
-        require(attempts.all { identifier(it.id) && it.invocation in invocationIds && it.outcome in ToolOutcome.entries.map { outcome -> outcome.name } && it.kind in setOf("UPSTREAM", "CACHE", "COALESCED") && it.observedAt >= 0 })
+        require(attempts.all { identifier(it.id) && it.invocation in invocationIds && it.outcome in ToolOutcome.entries.map { outcome -> outcome.name } && it.kind in setOf("UPSTREAM", "MCP_CALL", "HTTP", "LOCAL", "CACHE", "COALESCED") && it.observedAt >= 0 })
         val keys = subjects.map { it.key }.toSet()
         require(rollups.all { it.subject in keys && it.valid() })
         rollups.filter { it.bucket == -1L }.fold(0L) { total, row -> Math.addExact(total, row.total) }
@@ -178,3 +182,15 @@ data class ToolStatisticsSnapshot(val schema: Int = 1, val subjects: List<ToolSu
 @Serializable
 @Entity(tableName = "tool_health")
 data class ToolHealthObservation(@PrimaryKey val connection: String, val state: String, val source: String, val observedAt: Long, val expiresAt: Long)
+
+/** A receipt survives detail pruning and reset; replay cannot create another use. */
+@Entity(tableName = "tool_start_receipt")
+data class ToolStartReceipt(@PrimaryKey val id: String, val subject: String, val epoch: String)
+
+data class ToolStatisticsScope(val profile: String? = null, val fromHour: Long = -1, val untilHour: Long = Long.MAX_VALUE) {
+    init {
+        require(fromHour >= -1 && untilHour > fromHour)
+    }
+    val fromMillis: Long get() = if (fromHour < 0) 0 else Math.multiplyExact(fromHour, 3600000)
+    val untilMillis: Long get() = if (untilHour == Long.MAX_VALUE) Long.MAX_VALUE else Math.multiplyExact(untilHour, 3600000)
+}

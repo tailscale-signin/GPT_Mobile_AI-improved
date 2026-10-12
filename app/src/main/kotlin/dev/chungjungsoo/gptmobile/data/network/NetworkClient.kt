@@ -32,6 +32,7 @@ class NetworkClient @Inject constructor(
 
     private val client by lazy {
         HttpClient(httpEngine) {
+            install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
             expectSuccess = false
 
             // Optimize CIO engine with TCP keep-alive and connection limits when CIO is used

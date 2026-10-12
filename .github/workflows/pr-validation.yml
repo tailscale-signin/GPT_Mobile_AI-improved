@@ -68,6 +68,16 @@ jobs:
           set -o pipefail
           ./gradlew :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
 
+      - name: Upload generated statistics schema and reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: statistics-schema-and-tests
+          path: |
+            app/schemas/dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsDatabase/*.json
+            app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: warn
+
       - name: Verify exported Room schemas
         if: always()
         run: python3 scripts/check_room_schemas.py

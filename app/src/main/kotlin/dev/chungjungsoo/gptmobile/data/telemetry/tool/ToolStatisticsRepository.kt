@@ -28,9 +28,18 @@ import kotlinx.serialization.json.Json
 
 @Singleton
 class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: Context) {
-    private val database = Room.databaseBuilder(context, ToolStatisticsDatabase::class.java, "tool-statistics-v1.db").build()
+    private val database = Room.databaseBuilder(context, ToolStatisticsDatabase::class.java, "tool-statistics-v1.db").addMigrations(ToolStatisticsDatabase.MIGRATION_1_2).build()
     val dao = database.statistics()
-    fun summaries(plugin: String) = dao.summary(plugin).map { StatisticsRead(value = it) }.catch {
+    fun profiles() = dao.profiles().catch {
+        gap()
+        emit(emptyList())
+    }
+    fun attempts(plugin: String, scope: ToolStatisticsScope, limit: Int = 100) = dao.observedAttempts(plugin, scope.profile, scope.fromMillis, scope.untilMillis, limit).catch {
+        gap()
+        emit(emptyList())
+    }
+
+    fun summaries(plugin: String, scope: ToolStatisticsScope = ToolStatisticsScope()) = dao.summary(plugin, scope.profile, scope.fromHour, scope.untilHour).map { StatisticsRead(value = it) }.catch {
         gap()
         emit(StatisticsRead(unavailable = true))
     }
@@ -38,11 +47,11 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
         gap()
         emit(emptyList())
     }
-    fun activity(plugin: String, limit: Int) = dao.activity(plugin, limit).catch {
+    fun activity(plugin: String, limit: Int, scope: ToolStatisticsScope = ToolStatisticsScope(), outcome: String? = null) = dao.activity(plugin, limit, profile = scope.profile, fromMillis = scope.fromMillis, untilMillis = scope.untilMillis, outcome = outcome).catch {
         gap()
         emit(emptyList())
     }
-    fun chart(plugin: String, since: Long) = dao.chart(plugin, since).catch {
+    fun chart(plugin: String, since: Long, scope: ToolStatisticsScope = ToolStatisticsScope()) = dao.chart(plugin, since, scope.profile, scope.untilHour).catch {
         gap()
         emit(emptyList())
     }
@@ -113,7 +122,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
         null
     }
 
-    suspend fun begin(identity: ToolIdentity, profile: String, root: String, owner: String): String? {
+    suspend fun begin(identity: ToolIdentity, profile: String, root: String, owner: String, callId: String = UUID.randomUUID().toString()): String? {
         if (!preferences.value.collect) return null
         return withTimeoutOrNull(150) {
             recovery.await()
@@ -122,10 +131,14 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
                     val now = System.currentTimeMillis()
                     val subject = dao.subject(identity.key) ?: ToolSubject(identity.key, identity.plugin, identity.instance, identity.capability.take(128).map { if (it.isLetterOrDigit() || it in "-_.:") it else '_' }.joinToString(""), UUID.randomUUID().toString(), now).also { dao.put(it) }
                     val parent = kotlinx.coroutines.currentCoroutineContext()[ToolStatisticsContext]?.invocationId
-                    val call = ToolInvocation(UUID.randomUUID().toString(), identity.key, subject.epoch, profile, root, parent, owner, now, detailRetained = preferences.value.history)
+                    val id = UUID.nameUUIDFromBytes("${identity.key}\u0000$profile\u0000$root\u0000$callId".toByteArray()).toString()
+                    // The logical observer allocates identity before dispatch, not on delivery.
+                    if (dao.receipt(id) != null) return@withTransaction null
+                    dao.put(ToolStartReceipt(id, identity.key, subject.epoch))
+                    val call = ToolInvocation(id, identity.key, subject.epoch, profile, root, parent, owner, now, detailRetained = preferences.value.history)
                     dao.put(call)
                     for (bucket in listOf(-1L, now / 3600000L)) {
-                        val rollup = dao.rollup(call.subject, bucket) ?: ToolRollup(call.subject, bucket)
+                        val rollup = dao.rollup(call.subject, bucket, call.profile) ?: ToolRollup(call.subject, bucket, profile = call.profile)
                         dao.put(rollup.transition(null, ToolOutcome.IN_PROGRESS).copy(lastUsed = now))
                     }
                     call.id
@@ -134,20 +147,21 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
         }.also { if (it == null) gap() }
     }
 
-    suspend fun complete(id: String?, outcome: ToolOutcome, delivery: ToolDelivery, reason: String?, durationMs: Long?, shared: Boolean) {
+    suspend fun complete(id: String?, outcome: ToolOutcome, delivery: ToolDelivery, reason: String?, durationMs: Long?, shared: Boolean, producer: String? = null) {
         if (id == null) return
         val completed = withTimeoutOrNull(250) {
             safe {
-                database.withTransaction { finish(id, outcome, delivery, reason, durationMs, shared) }
+                database.withTransaction { finish(id, outcome, delivery, reason, durationMs, shared, producer) }
                 true
             }
         }
         if (completed != true) gap()
     }
-    private suspend fun finish(id: String, reportedOutcome: ToolOutcome, delivery: ToolDelivery, reason: String?, durationMs: Long?, shared: Boolean) {
+    private suspend fun finish(id: String, reportedOutcome: ToolOutcome, delivery: ToolDelivery, reason: String?, durationMs: Long?, shared: Boolean, producer: String? = null) {
         val old = dao.invocation(id) ?: return
         val subject = dao.subject(old.subject) ?: return
         if (subject.epoch != old.epoch) return
+        dao.settleAttempts(id)
         val previous = ToolOutcome.valueOf(old.outcome)
         val outcome = if (reportedOutcome == ToolOutcome.UNKNOWN) old.authoritativeOutcome?.let(ToolOutcome::valueOf) ?: reportedOutcome else reportedOutcome
         if (previous != ToolOutcome.IN_PROGRESS && previous != ToolOutcome.UNKNOWN) return
@@ -155,15 +169,15 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
         val validDuration = durationMs?.coerceIn(0L, 86400000L)
         val measured = outcome == ToolOutcome.SUCCESS && !shared && validDuration != null && old.durationMs == null
         for (bucket in listOf(-1L, old.startedAt / 3600000L)) {
-            val rollup = dao.rollup(old.subject, bucket) ?: continue
+            val rollup = dao.rollup(old.subject, bucket, old.profile) ?: dao.rollup(old.subject, bucket) ?: continue
             val next = rollup.transition(previous, outcome)
             val withShared = next.copy(shared = Math.addExact(next.shared, if (shared && !old.shared) 1L else 0L))
             dao.put(if (measured) withShared.withLatency(validDuration!!) else withShared)
         }
         // Only bounded reason codes are permitted; never copy arbitrary exception/result strings.
         val code = reason?.takeIf { it in REASONS }
-        dao.put(old.copy(outcome = outcome.name, delivery = delivery.name, reason = code, finishedAt = System.currentTimeMillis(), durationMs = validDuration, shared = shared))
-        if (!old.detailRetained && outcome !in setOf(ToolOutcome.IN_PROGRESS, ToolOutcome.UNKNOWN)) {
+        dao.put(old.copy(outcome = outcome.name, delivery = delivery.name, reason = code, finishedAt = System.currentTimeMillis(), durationMs = validDuration, shared = shared, producerInvocation = producer ?: old.producerInvocation))
+        if (!old.detailRetained && delivery != ToolDelivery.PENDING && outcome !in setOf(ToolOutcome.IN_PROGRESS, ToolOutcome.UNKNOWN)) {
             dao.removeInvocation(id)
             dao.pruneAttempts()
         }
@@ -194,24 +208,39 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
                     val call = dao.invocation(id) ?: return@withTransaction
                     if (call.outcome != ToolOutcome.IN_PROGRESS.name) return@withTransaction
                     for (bucket in listOf(-1L, call.startedAt / 3600000L)) {
-                        dao.rollup(call.subject, bucket)?.let { dao.put(it.copy(total = it.total - 1, inProgress = it.inProgress - 1)) }
+                        dao.rollup(call.subject, bucket, call.profile)?.let { dao.put(it.copy(total = it.total - 1, inProgress = it.inProgress - 1)) }
                     }
                     dao.removeInvocation(id)
                 }
             }
         }
     }
-    suspend fun attempt(invocation: String, id: String, outcome: ToolOutcome) {
+    suspend fun attempt(invocation: String, id: String, outcome: ToolOutcome, kind: String = "MCP_CALL") {
+        require(kind in setOf("MCP_CALL", "HTTP", "LOCAL"))
         withTimeoutOrNull(150) {
             safe {
                 database.withTransaction {
                     val call = dao.invocation(invocation) ?: return@withTransaction
                     if (dao.subject(call.subject)?.epoch != call.epoch) return@withTransaction
-                    dao.put(ToolAttempt(id, invocation, outcome.name, "UPSTREAM", System.currentTimeMillis()))
+                    dao.put(ToolAttempt(id, invocation, outcome.name, kind, System.currentTimeMillis()))
                 }
             }
         }
     }
+    suspend fun delivered(id: String) {
+        withTimeoutOrNull(250) {
+            safe {
+                database.withTransaction {
+                    val call = dao.invocation(id) ?: return@withTransaction
+                    if (dao.subject(call.subject)?.epoch == call.epoch && call.delivery == ToolDelivery.PENDING.name) {
+                        dao.put(call.copy(delivery = ToolDelivery.DELIVERED.name))
+                        if (!call.detailRetained && call.outcome !in setOf("IN_PROGRESS", "UNKNOWN")) dao.removeInvocation(id)
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun clear(pluginOrSubject: String) = database.withTransaction {
         dao.subjects().filter { it.plugin == pluginOrSubject || it.key == pluginOrSubject || pluginOrSubject == "*" }.forEach {
             dao.clearAttempts(it.key)
@@ -243,7 +272,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
             val ids = snapshot.invocations.associate { it.id to UUID.randomUUID().toString() }
             snapshot.subjects.forEach { dao.put(it.copy(epoch = epochs.getValue(it.key))) }
             snapshot.rollups.forEach { dao.put(it) }
-            snapshot.invocations.forEach { dao.put(it.copy(id = ids.getValue(it.id), epoch = epochs.getValue(it.subject), parent = it.parent?.let(ids::get))) }
+            snapshot.invocations.forEach { dao.put(it.copy(id = ids.getValue(it.id), epoch = epochs.getValue(it.subject), parent = it.parent?.let(ids::get), producerInvocation = it.producerInvocation?.let(ids::get))) }
             snapshot.attempts.forEach { dao.put(it.copy(id = UUID.randomUUID().toString(), invocation = ids.getValue(it.invocation))) }
             dao.interrupted().forEach { finish(it.id, ToolOutcome.UNKNOWN, ToolDelivery.PENDING, "RESTORED_HISTORY", null, false) }
         }

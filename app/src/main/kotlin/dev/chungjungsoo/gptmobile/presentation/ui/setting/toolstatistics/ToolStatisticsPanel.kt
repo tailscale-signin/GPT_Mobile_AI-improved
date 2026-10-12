@@ -54,12 +54,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
-class ToolStatisticsViewModel @Inject constructor(val repository: ToolStatisticsRepository, val mcp: McpClientManager) : ViewModel()
+class ToolStatisticsViewModel @Inject constructor(val repository: ToolStatisticsRepository, val mcp: McpClientManager, val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository) : ViewModel()
 
 /** Reused inside configuration; live records never own or replace the form's draft. */
 @Composable
-fun ToolStatisticsPanel(plugin: String, name: String, enabled: Boolean = true, viewModel: ToolStatisticsViewModel = hiltViewModel()) {
-    val summaryResult by remember(plugin) { viewModel.repository.summaries(plugin) }.collectAsStateWithLifecycle(dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsRead<List<dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolRollup>>())
+fun ToolStatisticsPanel(plugin: String, name: String, enabled: Boolean = true, viewModel: ToolStatisticsViewModel = hiltViewModel(), profileUid: String? = null) {
+    val summaryResult by remember(plugin, profileUid) { viewModel.repository.summaries(plugin, dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsScope(profileUid)) }.collectAsStateWithLifecycle(dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsRead<List<dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolRollup>>())
     val summary = summaryResult.value.orEmpty()
     val subjects by remember(plugin) { viewModel.repository.subjects(plugin) }.collectAsStateWithLifecycle(emptyList())
     val gap by viewModel.repository.coverageGap.collectAsStateWithLifecycle()
@@ -103,12 +103,23 @@ fun ToolStatisticsPanel(plugin: String, name: String, enabled: Boolean = true, v
                 }
             }
             val since = subjects.minOfOrNull { it.since }
-            Text((if (preferences.includesImportedHistory) "Retained lifetime · Includes imported history · All profiles" else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_lifetime_this_device_all_profiles_a16ac)) + (since?.let { " · Since ${timestamp(it)}" } ?: ""), style = MaterialTheme.typography.labelSmall)
+            Text(
+                (
+                    if (profileUid != null) {
+                        "This profile · Retained lifetime"
+                    } else if (preferences.includesImportedHistory) {
+                        "Retained lifetime · Includes imported history · All profiles"
+                    } else {
+                        androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_lifetime_this_device_all_profiles_a16ac)
+                    }
+                    ) + (since?.let { " · Since ${timestamp(it)}" } ?: ""),
+                style = MaterialTheme.typography.labelSmall
+            )
             if (gap) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_statistics_may_be_incomplete_b6fb3), color = MaterialTheme.colorScheme.error)
             TextButton(onClick = { details = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_view_statistics_2f47c)) }
         }
     }
-    if (details) ToolStatisticsDetails(plugin, name, { details = false }, viewModel)
+    if (details) ToolStatisticsDetails(plugin, name, { details = false }, viewModel, profileUid)
 }
 
 @Composable
@@ -122,15 +133,23 @@ private fun timestamp(value: Long): String = DateFormat.getDateTimeInstance(Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () -> Unit, model: ToolStatisticsViewModel) {
+private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () -> Unit, model: ToolStatisticsViewModel, initialProfile: String? = null) {
     var tab by rememberSaveable { mutableStateOf(0) }
     var limit by rememberSaveable { mutableStateOf(50) }
     var outcome by rememberSaveable { mutableStateOf("All") }
     var clear by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var child by remember { mutableStateOf<Pair<String, String>?>(null) }
-    val records by remember(plugin, limit) { model.repository.activity(plugin, limit) }.collectAsStateWithLifecycle(emptyList())
-    val totalsResult by remember(plugin) { model.repository.summaries(plugin) }.collectAsStateWithLifecycle(dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsRead<List<dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolRollup>>())
+    var profile by rememberSaveable(plugin) { mutableStateOf(initialProfile) }
+    var days by rememberSaveable(plugin) { mutableStateOf(0) }
+    val nowHour = remember(days) { System.currentTimeMillis() / 3600000L }
+    val queryScope = remember(profile, days, nowHour) { dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsScope(profile, if (days == 0) -1 else nowHour - days * 24 + 1, if (days == 0) Long.MAX_VALUE else nowHour + 1) }
+    val profiles by model.settings.observePlatformV2s().collectAsStateWithLifecycle(emptyList())
+    val recordedProfiles by remember { model.repository.profiles() }.collectAsStateWithLifecycle(emptyList())
+    var chooseProfile by remember { mutableStateOf(false) }
+    val attempts by remember(plugin, queryScope) { model.repository.attempts(plugin, queryScope) }.collectAsStateWithLifecycle(emptyList())
+    val records by remember(plugin, limit, queryScope, outcome) { model.repository.activity(plugin, limit, queryScope, outcome.takeUnless { it == "All" }) }.collectAsStateWithLifecycle(emptyList())
+    val totalsResult by remember(plugin, queryScope) { model.repository.summaries(plugin, queryScope) }.collectAsStateWithLifecycle(dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsRead<List<dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolRollup>>())
     val totals = totalsResult.value.orEmpty()
     val subjects by remember(plugin) { model.repository.subjects(plugin) }.collectAsStateWithLifecycle(emptyList())
     val prefs by model.repository.preferences.collectAsStateWithLifecycle()
@@ -166,16 +185,25 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
         Scaffold(topBar = { TopAppBar(title = { Text(name) }, navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
             Column(Modifier.fillMaxSize().padding(insets)) {
                 ScrollableTabRow(tab, edgePadding = 8.dp) { listOf("Overview", "Activity", "Diagnostics", "Configuration").forEachIndexed { i, title -> Tab(tab == i, { tab = i }, text = { Text(title) }) } }
+                androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { chooseProfile = true }) { Text(profile?.let { uid -> profiles.find { it.uid == uid }?.name ?: "Removed profile" } ?: "All profiles") }
+                    listOf(0, 1, 7, 30, 90).forEach { count ->
+                        FilterChip(days == count, {
+                            days = count
+                            limit = 50
+                        }, label = { Text(if (count == 0) "All time" else "$count days") })
+                    }
+                }
                 LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
                     if (tab == 0) {
-                        item { ToolUsageChart(plugin, model.repository) }
+                        item { ToolUsageChart(plugin, model.repository, queryScope) }
                         item {
                             if (totalsResult.value == null) {
                                 Text(if (totalsResult.unavailable) "Statistics unavailable" else "Loading statistics…")
                             } else {
                                 val determinate = totals.sumOf { it.determinate }
-                                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_lifetime_outcome_summary_80f1d), style = MaterialTheme.typography.titleLarge)
+                                Text(if (days == 0) "Retained lifetime outcomes" else "Outcomes in selected UTC start-hour window", style = MaterialTheme.typography.titleLarge)
                                 Text(if (determinate == 0L) "Success rate — · No determinate executions" else "Success rate %.1f%% · %d determinate executions".format(totals.sumOf { it.success } * 100.0 / determinate, determinate))
                                 Text("${totals.sumOf { it.partial }} partial · ${totals.sumOf { it.canceled }} canceled · ${totals.sumOf { it.unknown }} unknown · ${totals.sumOf { it.inProgress }} in progress")
                                 Text("${totals.sumOf { it.shared }} shared-result receipts")
@@ -196,7 +224,16 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
                         }
                     }
                     if (tab == 1) {
-                        item { Row { listOf("All", "SUCCESS", "FAILURE", "UNKNOWN").forEach { value -> TextButton(onClick = { outcome = value }) { Text(value.lowercase()) } } } }
+                        item {
+                            androidx.compose.foundation.layout.FlowRow {
+                                listOf("All", "SUCCESS", "FAILURE", "PARTIAL", "CANCELED", "UNKNOWN", "IN_PROGRESS").forEach { value ->
+                                    TextButton(onClick = {
+                                        outcome = value
+                                        limit = 50
+                                    }) { Text(value.lowercase()) }
+                                }
+                            }
+                        }
                         if (records.isEmpty()) item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_no_executions_recorded_opening_settings_never_d5617)) }
                         items(records.filter { outcome == "All" || it.outcome == outcome }, key = { it.id }) { row ->
                             Card {
@@ -210,6 +247,10 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
                         item { TextButton(onClick = { limit = (limit + 50).coerceAtMost(1000) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_load_more_ac899)) } }
                     }
                     if (tab == 2) {
+                        items(attempts, key = { it.id }) { attempt ->
+                            Text("${attempt.kind} · ${attempt.outcome} · ${timestamp(attempt.observedAt)}")
+                        }
+                        item { Text("Observed local HTTP sends and MCP calls are separate layers. Gateway-internal retries are not reported unless supplied by that gateway. Latest 100 retained attempts.") }
                         item {
                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_measurement_coverage_53769), style = MaterialTheme.typography.titleLarge)
                             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_logical_uses_are_recorded_after_admission_pri_6db0e))
@@ -251,12 +292,31 @@ private fun ToolStatisticsDetails(plugin: String, name: String, onDismiss: () ->
             }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_clear_83b12)) }
         }, dismissButton = { TextButton(onClick = { clear = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_cancel_19766)) } })
     }
-    child?.let { ToolStatisticsDetails(it.first, it.second, { child = null }, model) }
+    if (chooseProfile) {
+        AlertDialog(onDismissRequest = { chooseProfile = false }, title = { Text("Statistics profile") }, text = {
+            LazyColumn {
+                item {
+                    TextButton(onClick = {
+                        profile = null
+                        chooseProfile = false
+                    }) { Text("All profiles") }
+                }
+                items((profiles.map { it.uid } + recordedProfiles).distinct(), key = { it }) { uid ->
+                    TextButton(onClick = {
+                        profile = uid
+                        limit = 50
+                        chooseProfile = false
+                    }) { Text(profiles.find { it.uid == uid }?.name ?: "Removed profile · ${uid.take(8)}") }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { chooseProfile = false }) { Text("Close") } })
+    }
+    child?.let { ToolStatisticsDetails(it.first, it.second, { child = null }, model, profile) }
 }
 
 @Composable
-fun ToolStatisticsLink(subject: String, name: String, model: ToolStatisticsViewModel = hiltViewModel()) {
+fun ToolStatisticsLink(subject: String, name: String, model: ToolStatisticsViewModel = hiltViewModel(), profileUid: String? = null) {
     var open by rememberSaveable(subject) { mutableStateOf(false) }
     TextButton(onClick = { open = true }) { Text("Statistics · $name") }
-    if (open) ToolStatisticsDetails(subject, name, { open = false }, model)
+    if (open) ToolStatisticsDetails(subject, name, { open = false }, model, profileUid)
 }

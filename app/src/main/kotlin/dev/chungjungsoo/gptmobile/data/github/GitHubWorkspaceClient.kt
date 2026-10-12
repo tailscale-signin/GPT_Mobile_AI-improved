@@ -55,6 +55,7 @@ class GitHubWorkspaceClient(
 
         private val sharedClient by lazy {
             HttpClient(OkHttp) {
+                install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
                 followRedirects = false
                 install(HttpTimeout) {
                     requestTimeoutMillis = 60_000

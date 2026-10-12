@@ -58,6 +58,7 @@ data class AgentToolResult(
     val traceContent: ToolResultContent? = null,
     val measurement: ToolPayloadMetrics? = null,
     val sharedResult: Boolean = false,
+    val statisticsProducerId: String? = null,
     val outputBudgetExhausted: Boolean = false,
     val toolCallBudgetExhausted: Boolean = false,
     val toolCallBudgetUsed: Int? = null,

@@ -77,7 +77,8 @@ class AgentToolResolver @Inject constructor(
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val documentContext: android.content.Context? = null,
     private val healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
     private val healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null,
-    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
+    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
+    private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -511,8 +512,17 @@ class AgentToolResolver @Inject constructor(
                         (resolved.connectionUid == null || features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(resolved.connectionUid)))
                 })
             }
+            .map { resolved -> resolved.copy(tool = dev.chungjungsoo.gptmobile.data.telemetry.tool.ObservedTool(resolved.tool, dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid))) }
             .sortedBy { it.modelToolName }
     }
+
+    private fun observedUi(tool: AgentTool, profile: String, connection: String? = null): AgentTool =
+        dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(
+            dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(),
+            statistics = statistics,
+            statisticsProfile = profile,
+            statisticsRoot = java.util.UUID.randomUUID().toString()
+        ).bind(tool, statisticsIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(tool.definition.name, connection))
 
     private fun pluginEnabledForBinding(
         settings: AppFeatureSettings,
@@ -649,7 +659,7 @@ class AgentToolResolver @Inject constructor(
                 listing.infants?.let { put("infants", kotlinx.serialization.json.JsonPrimitive(it)) }
                 listing.pets?.let { put("pets", kotlinx.serialization.json.JsonPrimitive(it)) }
             }
-            val result = nativeAirbnb(profileUid).execute("airbnb-details-${java.util.UUID.randomUUID()}", arguments)
+            val result = observedUi(nativeAirbnb(profileUid), profileUid).execute("airbnb-details-${java.util.UUID.randomUUID()}", arguments)
             val payload = (result.content as? ToolResultContent.Json)?.value
             if (!result.isError && payload != null && pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB)) {
                 dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.normalize(payload, arguments).firstOrNull { it.id == listing.id }?.let { return it }
@@ -686,7 +696,7 @@ class AgentToolResolver @Inject constructor(
             listing.infants?.let { if ("infants" in fields) put("infants", kotlinx.serialization.json.JsonPrimitive(it)) }
             listing.pets?.let { if ("pets" in fields) put("pets", kotlinx.serialization.json.JsonPrimitive(it)) }
         }
-        val result = tool.execute("airbnb-details-${java.util.UUID.randomUUID()}", arguments)
+        val result = observedUi(tool, profileUid).execute("airbnb-details-${java.util.UUID.randomUUID()}", arguments)
         if (result.isError || !pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB)) return null
         val payload = (result.content as? ToolResultContent.Json)?.value ?: return null
         return dev.chungjungsoo.gptmobile.data.airbnb.AirbnbListings.normalize(payload, arguments).firstOrNull { it.id == listing.id }
@@ -701,8 +711,8 @@ class AgentToolResolver @Inject constructor(
             isAllowed = { settingRepository.getFeatureSettings().isToolPluginEnabled(ToolPluginId.AMAZON_FREE) },
             permissionChanges = settingRepository.observeFeatureSettings().map { it.isToolPluginEnabled(ToolPluginId.AMAZON_FREE) }
         )
-        return tool.execute(
-            "amazon-free-settings-test",
+        return observedUi(tool, "settings").execute(
+            java.util.UUID.randomUUID().toString(),
             kotlinx.serialization.json.buildJsonObject {
                 put("query", kotlinx.serialization.json.JsonPrimitive("headphones"))
                 put("maxResults", kotlinx.serialization.json.JsonPrimitive(1))
@@ -742,7 +752,7 @@ class AgentToolResolver @Inject constructor(
         }
         val connection = toolConnectionRepository.listConnections().firstOrNull { it.type == ToolConnectionType.AMAZON_SERPAPI && allowed(it) } ?: return null
         val tool = resolveAmazon(connection, settingRepository.getFeatureSettings()).first { it.realToolName == AmazonSearchTool.GET_PRODUCTS }.tool
-        val result = tool.execute(
+        val result = observedUi(tool, profileUid, connection.connectionUid).execute(
             "amazon-product-card-${java.util.UUID.randomUUID()}",
             kotlinx.serialization.json.buildJsonObject {
                 put("marketplace", kotlinx.serialization.json.JsonPrimitive(marketplace))
@@ -758,8 +768,8 @@ class AgentToolResolver @Inject constructor(
     suspend fun testAmazonConnection(connection: ToolConnection): AgentToolResult {
         require(connection.type == ToolConnectionType.AMAZON_SERPAPI)
         val tool = resolveAmazon(connection, settingRepository.getFeatureSettings()).first().tool
-        return tool.execute(
-            "amazon-connection-test",
+        return observedUi(tool, "settings", connection.connectionUid).execute(
+            java.util.UUID.randomUUID().toString(),
             kotlinx.serialization.json.buildJsonObject {
                 put("query", kotlinx.serialization.json.JsonPrimitive("headphones"))
                 put("maxResults", kotlinx.serialization.json.JsonPrimitive(1))

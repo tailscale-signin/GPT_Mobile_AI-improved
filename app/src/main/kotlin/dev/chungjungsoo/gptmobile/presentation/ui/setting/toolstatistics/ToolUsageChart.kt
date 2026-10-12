@@ -26,11 +26,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository
 
 @Composable
-internal fun ToolUsageChart(plugin: String, repository: ToolStatisticsRepository) {
+internal fun ToolUsageChart(plugin: String, repository: ToolStatisticsRepository, scope: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsScope = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsScope()) {
     var days by rememberSaveable { mutableStateOf(7) }
     var table by rememberSaveable { mutableStateOf(false) }
     val today = remember { System.currentTimeMillis() / 86400000L }
-    val records by remember(plugin, days) { repository.chart(plugin, (today - days + 1) * 24) }.collectAsStateWithLifecycle(emptyList())
+    val records by remember(plugin, days, scope) { repository.chart(plugin, maxOf((today - days + 1) * 24, scope.fromHour), scope) }.collectAsStateWithLifecycle(emptyList())
     val values = (today - days + 1..today).map { day -> day to records.filter { it.bucket / 24 == day }.sumOf { it.total } }
     val total = values.sumOf { it.second }
     val color = MaterialTheme.colorScheme.primary

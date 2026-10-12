@@ -78,7 +78,7 @@ class ModelCatalogRepositoryImpl(
             if (selected != null) inMemoryCatalogCache.set(selected)
             val entries = selected?.models.orEmpty()
             // Installed artifacts win collisions. A catalog refresh cannot redefine their identity.
-            val merged = (entries + readInstalledEntries()).associateBy { it.id }.values.toList()
+            val merged = mergeInstalledEntries(entries)
             dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot(
                 merged,
                 selected?.revision ?: 0,
@@ -133,7 +133,16 @@ class ModelCatalogRepositoryImpl(
         inMemoryCatalogCache.set(catalog)
         val entries = ModelCatalogParser.visibleEntries(catalog, appVersionName)
         val deviceEntries = if (deviceSocModel.isBlank()) entries else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.forDevice(entries, deviceSocModel)
-        return (deviceEntries + readInstalledEntries()).associateBy { it.id }.values.toList()
+        return mergeInstalledEntries(deviceEntries)
+    }
+
+    /** Refresh display text while retaining the installed artifact and execution identity. */
+    private fun mergeInstalledEntries(entries: List<CatalogEntry>): List<CatalogEntry> {
+        val current = entries.associateBy { it.id }
+        val installed = readInstalledEntries().map { entry ->
+            current[entry.id]?.displayName?.takeIf { it.isNotBlank() }?.let { entry.copy(displayName = it) } ?: entry
+        }
+        return (entries + installed).associateBy { it.id }.values.toList()
     }
 
     private suspend fun fetchParsableCatalog(

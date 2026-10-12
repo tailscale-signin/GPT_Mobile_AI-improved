@@ -43,7 +43,9 @@ class DelegationSettingsContentTest {
             }
         }
         compose.onNodeWithText("Search Queries: 9").assertDoesNotExist()
+        compose.onNodeWithText("Workers").performScrollTo().performClick()
         compose.onNodeWithTag("delegate_model_dropdown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Overview").performScrollTo().performClick()
         compose.onNodeWithTag("delegation_advanced").performScrollTo().performClick()
         compose.onNodeWithText("Search Queries: 9").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Pages To Read: 11").performScrollTo().assertIsDisplayed()
@@ -53,23 +55,26 @@ class DelegationSettingsContentTest {
     fun conversationSwitchRevealsDropdownAndSelectingOnlineHelperCreatesOverride() {
         var selected: ConversationDelegationSettings? = null
         val helper = PlatformV2(uid = "online", name = "Online helper", model = "model", compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1")
+        val defaults = ModelDelegationSettings(enabled = true).withRemoteWorkersAllowed(true)
         compose.setContent {
             MaterialTheme {
-                var settings by remember { mutableStateOf(ModelDelegationSettings()) }
-                ConversationDelegationCard(settings, listOf(helper), selected == null) { value ->
-                    selected = value
-                    settings = value?.applyTo(ModelDelegationSettings()) ?: ModelDelegationSettings()
+                var settings by remember { mutableStateOf(defaults.copy(enabled = false)) }
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    ConversationDelegationCard(settings, listOf(helper), selected == null) { value ->
+                        selected = value
+                        settings = value?.applyTo(defaults) ?: defaults
+                    }
                 }
             }
         }
         compose.onNodeWithTag("delegate_model_dropdown").assertDoesNotExist()
         compose.onNodeWithTag("conversation_delegation_toggle").performClick()
-        compose.onNodeWithTag("delegate_model_dropdown").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("delegate_model_dropdown").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Online helper").performClick()
         assertEquals("online", selected?.targetProfileUid)
         assertTrue(selected?.enabled == true)
         assertTrue(selected?.allowRemoteWorker == true)
-        compose.onNodeWithText("Use settings defaults").performClick()
+        compose.onNodeWithText("Use settings defaults").performScrollTo().performClick()
         assertEquals(null, selected)
     }
 }

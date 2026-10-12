@@ -213,18 +213,19 @@ class AgentToolResolverTest {
     }
 
     @Test
-    fun conversationDelegationCanEnableAndDisableTheActualToolIndependentlyOfDefaults() = runBlocking {
+    fun conversationDelegationCannotEnableDisabledGlobalPolicyAndCanRestrictEnabledDefaults() = runBlocking {
         val main = PlatformV2(uid = "main", name = "Main", compatibleType = ClientType.OPENAI)
         val helper = PlatformV2(uid = "helper", name = "Helper", compatibleType = ClientType.OLLAMA, apiUrl = "http://localhost:11434")
         val enabledForChat = ChatMcpToolConfig(delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(true, helper.uid))
         val offByDefault = resolver(settings = ResolverFakeSettingRepository(listOf(main, helper)))
         val tools = offByDefault.resolve(main.uid, enabledForChat, delegate = { target, _, _ -> "Helper ${target.uid}" })
-        val delegate = tools.single { it.realToolName == "delegate_to_model" }
-        assertFalse(delegate.tool.execute("chat-enabled", buildJsonObject { put("task", "Summarize") }).isError)
+        assertFalse(tools.any { it.realToolName == "delegate_to_model" })
         assertFalse(offByDefault.resolve(main.uid, delegate = { _, _, _ -> "unused" }).any { it.realToolName == "delegate_to_model" })
 
-        val enabledDefaults = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(delegation = dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(enabled = true))
+        val enabledDefaults = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(delegation = dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(enabled = true), profileBehavior = mapOf(main.uid to dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings(delegationEnabled = true)))
         val onByDefault = resolver(settings = ResolverFakeSettingRepository(listOf(main, helper), enabledDefaults))
+        val delegate = onByDefault.resolve(main.uid, enabledForChat, delegate = { target, _, _ -> "Helper ${target.uid}" }).single { it.realToolName == "delegate_to_model" }
+        assertFalse(delegate.tool.execute("chat-enabled", buildJsonObject { put("task", "Summarize") }).isError)
         val disabledForChat = enabledForChat.copy(delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(false))
         assertFalse(onByDefault.resolve(main.uid, disabledForChat, delegate = { _, _, _ -> "unused" }).any { it.realToolName == "delegate_to_model" })
     }

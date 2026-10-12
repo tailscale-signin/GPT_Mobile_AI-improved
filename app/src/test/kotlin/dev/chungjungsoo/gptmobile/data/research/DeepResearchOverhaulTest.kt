@@ -8,11 +8,11 @@ import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.nio.file.Files
 
 class DeepResearchOverhaulTest {
     @Test

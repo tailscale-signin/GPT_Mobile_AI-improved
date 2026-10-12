@@ -117,7 +117,7 @@ internal class AndroidResearchWorkflow(
             val budgetContext = "Source goal: $sourceTarget. No additional application cap. Use compact completed evidence."
             withTimeoutOrNull(options.pageTimeoutSeconds * 1000L) {
                 generate(delegationPrompt("$instruction\n$budgetContext", state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000)), minOf(config.maxOutputTokens, 768))
-                ?.let(::parseDelegationObject)
+                    ?.let(::parseDelegationObject)
             }
         }
     }

@@ -15,9 +15,6 @@ import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.utils.io.readAvailable
-import okhttp3.Dns
-import org.jsoup.Jsoup
-import org.jsoup.parser.Parser
 import java.io.File
 import java.net.Proxy
 import java.net.URI
@@ -53,6 +50,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import okhttp3.Dns
+import org.jsoup.Jsoup
+import org.jsoup.parser.Parser
 
 internal data class AcademicSearchRequest(
     val query: String,

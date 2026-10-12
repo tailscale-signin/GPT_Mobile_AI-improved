@@ -16,8 +16,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.charset
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readAvailable
-import okhttp3.Dns
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.ByteArrayOutputStream
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -40,6 +38,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class ReadUrlTool(
     private val dns: Dns = Dns.SYSTEM,

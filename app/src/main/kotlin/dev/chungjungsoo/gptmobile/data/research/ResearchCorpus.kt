@@ -30,16 +30,15 @@ data class ResearchCorpus(
         if (citedUrls.isEmpty()) return emptyList()
         return sources.filter { source ->
             runCatching { SourceIdentity.canonicalResearchUrl(source.canonicalUrl.ifBlank { source.url }) }.getOrNull() in citedUrls
-        }.distinctBy { it.id }.take(MAX_SOURCES)
+        }.distinctBy { it.id }
     }
 
     companion object {
-        private const val MAX_SOURCES = 900
         private const val MAX_CLAIMS = 30
         private const val MAX_EVENTS = 200
 
         fun freeze(snapshot: ResearchSnapshot): ResearchCorpus {
-            val sources = snapshot.sources.take(MAX_SOURCES)
+            val sources = snapshot.sources
             val validClaims = validatedResearchClaims(
                 snapshot.claims.map { claim ->
                     buildJsonObject {

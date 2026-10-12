@@ -1707,7 +1707,8 @@ class ChatRepositoryImpl(
                             val current = settingRepository.getFeatureSettings()
                             current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
                                 current.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                                current.delegationFor(platform.uid).deepResearch.enabled
+                                current.delegationFor(platform.uid).deepResearch.enabled &&
+                                (current.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
                         }
                     ).run(latestUser.content, "$runId:research-acquisition")
                     preparedEvidenceComplete = research.pagesRead > 0

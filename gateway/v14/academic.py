@@ -228,10 +228,23 @@ class AcademicRouter:
                         if cancelled():
                             raise AcademicError("cancelled")
                         time.sleep(min(.05, max(0, stop - time.monotonic())))
+            accounting = args.get("_accounting")
+            if accounting is not None:
+                with self.lock:
+                    allowance = args.get("researchRequestAllowance")
+                    if allowance is not None and accounting["physicalRequests"] >= allowance:
+                        raise AcademicError("user_request_limit")
+                    accounting["physicalRequests"] += 1
             fetch_options = {"maximum": maximum, "included": args.get("includeDomains", ()) if source_document else (), "excluded": args.get("excludeDomains", ()) if source_document else (), "cancelled": cancelled}
             if self.fetch is public_fetch:
                 fetch_options["source_document"] = source_document
             status, headers, body, final = self.fetch(url, **fetch_options)
+            if accounting is not None:
+                with self.lock:
+                    accounting["downloadedBytes"] += len(body)
+                    allowance = args.get("researchDownloadAllowance")
+                    if allowance is not None and accounting["downloadedBytes"] > allowance:
+                        raise AcademicError("user_download_limit")
             if status == 429:
                 retry = headers.get("retry-after", "60")
                 try:
@@ -256,7 +269,9 @@ class AcademicRouter:
             raise AcademicError("arguments_too_large")
         op = name.removeprefix("deep_research_")
         if op == "status":
-            return {"schemaVersion": 1, "owner": "gateway_mcp", "providers": [{"id": p, **self.statuses.get(p, {"state": "unknown" if p in self.enabled else "disabled_until_verified"})} for p in sorted(SUPPORTED | CONDITIONAL)], "quotas": self.quotas.status(), "pdfReaderAvailable": self._pdf_reader() is not None, "excludedProviders": sorted(EXCLUDED)}
+            return {"schemaVersion": 1, "researchPolicyVersions": [3], "accountingMode": "goal_driven", "owner": "gateway_mcp", "providers": [{"id": p, **self.statuses.get(p, {"state": "unknown" if p in self.enabled else "disabled_until_verified"})} for p in sorted(SUPPORTED | CONDITIONAL)], "quotas": self.quotas.status(), "pdfReaderAvailable": self._pdf_reader() is not None, "excludedProviders": sorted(EXCLUDED)}
+        args = dict(args)
+        args["_accounting"] = {"physicalRequests": 0, "downloadedBytes": 0}
         if op == "search_papers":
             result = self.search(args, cancelled)
         elif op == "get_paper":
@@ -269,6 +284,7 @@ class AcademicRouter:
             result = self.verify(args)
         if len(json.dumps(result).encode()) > MAX_OUTPUT:
             raise AcademicError("output_budget_exhausted")
+        result["researchAccounting"] = dict(args["_accounting"])
         return result
 
     def search(self, args, cancelled):
@@ -278,7 +294,7 @@ class AcademicRouter:
         depth = max(1, min(int(args.get("depth", 50)), 100))
         limit = max(1, min(int(args.get("maxResults", 25)), 50))
         page = int(args.get("cursor") or 1)
-        if not 1 <= page <= 10:
+        if not 1 <= page <= 2147483647:
             raise AcademicError("invalid_cursor")
         mix = list(CORE[:2]) + ["datacite"]
         if re.search(r"gpu|npu|learning|transformer|physics|algorithm", query, re.I):
@@ -296,7 +312,7 @@ class AcademicRouter:
         planned = planned if depth == 100 else planned[:max(1, min(int(args.get("maxProviderCalls", 3)), len(SUPPORTED)))]
         def search_one(provider):
             receipt = uuid.uuid4().hex
-            cache_key = digest(json.dumps([provider, args], sort_keys=True))
+            cache_key = digest(json.dumps([provider, {k: v for k, v in args.items() if not k.startswith("_") and not k.startswith("research")}], sort_keys=True))
             try:
                 if cancelled():
                     raise AcademicError("cancelled")
@@ -330,13 +346,18 @@ class AcademicRouter:
         states = [state for _, state in results]
         more = len(merged) > limit or any(s["fetched"] >= min(limit, 20) for s in states)
         return {"schemaVersion": 1, "searchId": uuid.uuid4().hex, "query": query, "status": "complete" if states and all(s["state"] in ("success", "empty") for s in states) else "partial",
-                "papers": merged[:limit], "providers": states, "totalDistinctPapers": len(merged[:limit]), "truncated": more, "nextCursor": str(page + 1) if more and page < 10 else None,
+                "papers": merged[:limit], "providers": states, "totalDistinctPapers": len(merged[:limit]), "truncated": more, "nextCursor": str(page + 1) if more and page < 2147483647 else None,
                 "coverage": {"searchedProviders": len(states), "unavailableProviders": sum(s["state"] not in ("success", "empty") for s in states)}, "depth": depth}
 
     def _search_provider(self, provider, query, limit, page, args, cancelled):
         q = urllib.parse.quote(query)
-        cursor_key = digest(json.dumps([query, limit, {k: v for k, v in args.items() if k != "cursor"}], sort_keys=True))
+        cursor_key = digest(json.dumps([query, limit, {k: v for k, v in args.items() if k != "cursor" and not k.startswith("_") and not k.startswith("research")}], sort_keys=True))
         cursor = "*" if page == 1 else self.cursors.get((cursor_key, page))
+        cursor_file = self.root / (digest(f"cursor:{provider}:{cursor_key}:{page}") + ".cursor")
+        if not cursor and not args.get("ephemeral", False) and cursor_file.is_file() and cursor_file.stat().st_size <= 64 * 1024:
+            saved = json.loads(cursor_file.read_text())
+            if saved.get("key") == cursor_key and saved.get("page") == page:
+                cursor = saved.get("token")
         if provider == "europepmc" and not cursor:
             raise AcademicError("cursor_unavailable")
         endpoints = {
@@ -361,6 +382,11 @@ class AcademicRouter:
                     if len(self.cursors) >= 192:
                         self.cursors.pop(next(iter(self.cursors)))
                     self.cursors[(cursor_key, page + 1)] = next_cursor
+                    if not args.get("ephemeral", False):
+                        target = self.root / (digest(f"cursor:{provider}:{cursor_key}:{page + 1}") + ".cursor")
+                        temporary = target.with_suffix("." + uuid.uuid4().hex + ".tmp")
+                        temporary.write_text(json.dumps({"key": cursor_key, "page": page + 1, "token": next_cursor}))
+                        os.replace(temporary, target)
         return self.parse(provider, body)
 
     def parse(self, provider, body):
@@ -522,14 +548,6 @@ class AcademicRouter:
             target = self.root / (digest(evidence["paperId"] + "|" + evidence["versionId"]) + ".json")
             temporary = target.with_suffix("." + uuid.uuid4().hex + ".tmp")
             temporary.write_text(json.dumps(evidence)); os.replace(temporary, target)
-            snapshots = sorted(self.root.glob("*.json"), key=lambda item: item.stat().st_mtime)
-            total_bytes = sum(item.stat().st_size for item in snapshots)
-            for stale in snapshots:
-                if total_bytes <= 128 * 1024**2:
-                    break
-                if self.now() - stale.stat().st_mtime > 30 * 86400:
-                    total_bytes -= stale.stat().st_size
-                    stale.unlink(missing_ok=True)
         return evidence
 
     def citations(self, args, cancelled):

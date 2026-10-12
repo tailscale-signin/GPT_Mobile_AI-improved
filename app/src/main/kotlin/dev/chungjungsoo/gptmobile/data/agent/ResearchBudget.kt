@@ -5,7 +5,8 @@ class ResearchBudget(
     totalLogicalCalls: Int,
     private val reservations: Reservations = Reservations(),
     private val persist: ((Snapshot) -> Unit)? = null,
-    private val downloadLimitBytes: Int = 512 * 1024 * 1024
+    private val downloadLimitBytes: Int = 512 * 1024 * 1024,
+    val ledger: ResearchRunLedger? = null
 ) {
     enum class Phase { DISCOVERY, VERIFICATION, RECOVERY, FINALIZATION }
 
@@ -65,6 +66,7 @@ class ResearchBudget(
     @Synchronized
     fun tryCharge(phase: Phase, physicalRequest: Boolean, cost: Int = 1): Boolean {
         require(cost > 0)
+        ledger?.let { return it.charge(logical = cost.toLong(), physical = if (physicalRequest) cost.toLong() else 0) }
         val phaseUsed = used.getValue(phase)
         // Subtract before comparing so a large batch cannot wrap the counters.
         if (cost > limits.getValue(phase) - phaseUsed || cost > total - used.values.sum() || (physicalRequest && cost > total - physicalRequests)) return false
@@ -84,6 +86,7 @@ class ResearchBudget(
     @Synchronized
     fun tryChargeRequests(cost: Int): Boolean {
         require(cost > 0)
+        ledger?.let { return it.charge(physical = cost.toLong()) }
         if (physicalRequests.toLong() + cost > total || downloadedBytes >= downloadLimitBytes) return false
         val previousAccountingVersion = accountingVersion
         accountingVersion = 2
@@ -101,6 +104,7 @@ class ResearchBudget(
     @Synchronized
     fun tryChargeDownloadedBytes(count: Int): Boolean {
         require(count >= 0)
+        ledger?.let { return it.charge(downloaded = count.toLong()) }
         if (downloadedBytes.toLong() + count > downloadLimitBytes) return false
         downloadedBytes += count
         try {

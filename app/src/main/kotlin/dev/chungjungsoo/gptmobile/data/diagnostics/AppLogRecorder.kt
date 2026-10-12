@@ -63,6 +63,18 @@ object AppLogRecorder {
     @Synchronized fun initialize(application: Application) {
         if (app != null) return
         app = application.applicationContext
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        if (previousHandler != null) {
+            Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
+                // Keep application frames even when the async queue cannot drain. Do not log
+                // exception messages, which can contain private document or request data.
+                runCatching {
+                    val frames = failure.stackTrace.filter { it.className.startsWith("dev.chungjungsoo.gptmobile") }.take(40)
+                    checkpoint("AppCrash", "type=${failure.javaClass.name} · thread=${thread.name.take(80)}\n" + frames.joinToString("\n"))
+                }
+                previousHandler.uncaughtException(thread, failure)
+            }
+        }
         scope.launch {
             for (entry in queue) {
                 synchronized(fileLock) {

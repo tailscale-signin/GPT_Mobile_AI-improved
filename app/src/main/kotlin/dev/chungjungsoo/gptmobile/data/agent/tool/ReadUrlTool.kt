@@ -150,6 +150,8 @@ class ReadUrlTool(
                 if (until > now) return error(callId, "Read URL failed: this host is rate-limited for another ${(until - now + 999) / 1000} seconds. Choose another source.")
                 rateLimitUntil.remove(authority, until)
             }
+            val research = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]
+            check(research?.budget?.tryChargeRequests(1) != false) { "User request limit reached" }
             val request = request(current)
             try {
                 val response = request.response
@@ -200,6 +202,7 @@ class ReadUrlTool(
                 }
                 val text = document?.text ?: if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
                 val normalizedText = normalizeWhitespace(text)
+                val chunks = research?.retainBody?.invoke(normalizedText).orEmpty()
                 val plainText = truncateUtf8(normalizedText, outputCap)
                 val content = if (includeLinks) {
                     val linkText = if (isHtmlContent(contentType)) {
@@ -209,6 +212,7 @@ class ReadUrlTool(
                     }
                     ToolResultContent.Json(
                         buildJsonObject {
+                            put("bodyChunks", JsonArray(chunks.map(::JsonPrimitive)))
                             put("url", current.toString())
                             put("content", plainText)
                             put("truncated", document?.note != null || boundedBody.truncated || plainText.toByteArray().size < normalizedText.toByteArray().size)
@@ -290,6 +294,7 @@ class ReadUrlTool(
                 yield()
                 continue
             }
+            check(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeDownloadedBytes(read) != false) { "User download limit reached" }
             output.write(buffer, 0, read)
         }
         if (output.size() >= bodyLimit) truncated = true

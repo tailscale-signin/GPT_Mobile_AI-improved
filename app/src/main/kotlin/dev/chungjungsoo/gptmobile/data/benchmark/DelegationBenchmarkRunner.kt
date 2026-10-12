@@ -243,7 +243,7 @@ internal class DelegationBenchmarkRunner(
                             }
                             ResolvedAgentTool(tool, null, "Benchmark fixture", tool.definition.name, tool.definition.name, true)
                         }
-                        val result = coordinator.prepare("Research https://example.org/parcel using the supplied tools and report the parcel code with its source URL.", fixtures, "benchmark-research")
+                        val result = coordinator.prepare("Research https://example.org/parcel using the supplied tools and report the parcel code with its source URL.", fixtures, "benchmark-research", researchGoalOverride = 1)
                         delegateEvidence = result.handoff
                         searches = result.searches
                         pages = result.pagesRead

@@ -116,6 +116,15 @@ class WebSearchTool(
         }
     }
 
+    private suspend fun chargeResearchRequest() {
+        check(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeRequests(1) != false) { "User research request limit reached" }
+    }
+
+    private suspend fun researchBody(text: String): String {
+        check(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeDownloadedBytes(text.toByteArray().size) != false) { "User research download limit reached" }
+        return text
+    }
+
     private suspend fun executeConfiguredProvider(callId: String, request: WebSearchRequest): AgentToolResult {
         return try {
             if (config.bearerToken.isBlank()) {
@@ -131,6 +140,7 @@ class WebSearchTool(
             if (clock.millis() < authenticationBlockedUntilMs.get()) {
                 return error(callId, "${config.provider} web search is disabled after an authentication, billing, or access failure. Check this search connection and provider account.")
             }
+            chargeResearchRequest()
             val response = if (config.provider == WebSearchProvider.BRAVE) {
                 networkClient().get(config.endpointUrl) {
                     timeout { requestTimeoutMillis = 30_000 }
@@ -158,7 +168,7 @@ class WebSearchTool(
                 }
                 return error(callId, providerFailureMessage(response.status.value))
             }
-            val content = runCatching { normalized(config.provider, response.bodyAsText(), request) }.getOrElse { exception ->
+            val content = runCatching { normalized(config.provider, researchBody(response.bodyAsText()), request) }.getOrElse { exception ->
                 if (exception is CancellationException) throw exception
                 return if (exception is MissingRequiredResultFieldException) {
                     error(callId, "Web search failed: missing required result fields.")
@@ -235,12 +245,13 @@ class WebSearchTool(
 
     private suspend fun tryTermuxMcpSearch(request: WebSearchRequest): List<JsonObject>? {
         val endpoint = config.endpointUrl.takeIf { it.isNotBlank() } ?: return null
+        chargeResearchRequest()
         val response = networkClient().get(endpoint) {
             parameter("query", request.query)
             parameter("limit", request.maxResults)
         }
         if (response.status.value !in 200..299) return null
-        val bodyText = response.bodyAsText()
+        val bodyText = researchBody(response.bodyAsText())
         val root = NetworkClient.json.parseToJsonElement(bodyText).jsonObject
         val rawResults = root["results"]?.jsonArray ?: return null
         return rawResults.mapNotNull { element ->
@@ -264,6 +275,7 @@ class WebSearchTool(
 
         for (url in endpoints) {
             try {
+                chargeResearchRequest()
                 val response = networkClient().get(url) {
                     header("User-Agent", USER_AGENT)
                     header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -276,7 +288,7 @@ class WebSearchTool(
                     return emptyList()
                 }
                 if (response.status.value in 200..299) {
-                    val html = response.bodyAsText()
+                    val html = researchBody(response.bodyAsText())
                     if (html.isNotBlank()) {
                         val parsed = parseDuckDuckGoHtml(html, request.maxResults)
                         if (parsed.isNotEmpty()) {

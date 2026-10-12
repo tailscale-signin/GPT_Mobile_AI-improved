@@ -23,14 +23,32 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun ResearchEngineHealthPanel() {
+internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet(), onEngineEnabled: ((String, Boolean) -> Unit)? = null) {
     val context = LocalContext.current
     val store = remember(context) { ResearchTelemetryStore(File(context.filesDir, "research-telemetry")) }
     var since by remember { mutableStateOf(0L) }
     var rollups by remember { mutableStateOf(emptyMap<String, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchEngineRollup>()) }
     var pending by remember { mutableStateOf(false) }
-    LaunchedEffect(since) {
-        rollups = withContext(Dispatchers.IO) { ResearchEngineRegistry.entries.filter { it.ready }.associate { it.id to store.rollup(it.id, since) } }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
+    var retry by remember { mutableStateOf(0) }
+    LaunchedEffect(since, retry) {
+        loading = true
+        error = false
+        try {
+            rollups = withContext(Dispatchers.IO) { ResearchEngineRegistry.entries.filter { it.ready }.associate { it.id to store.rollup(it.id, since) } }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            error = true
+        } finally {
+            loading = false
+        }
+    }
+    if (loading) Text("Loading engine history…")
+    if (error) {
+        Text("Engine history is unavailable. Research settings remain editable.")
+        TextButton(onClick = { retry++ }) { Text("Retry") }
     }
     Row {
         TextButton(onClick = { since = 0 }) { Text("Lifetime") }
@@ -41,6 +59,12 @@ internal fun ResearchEngineHealthPanel() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ResearchEngineRegistry.entries.filter { it.ready }.forEach { engine ->
             val health = rollups[engine.id]
+            if (onEngineEnabled != null && engine.id in ResearchEngineRegistry.searchableIds) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Enable ${engine.name}")
+                    androidx.compose.material3.Switch(engine.id !in disabledEngineIds, { onEngineEnabled(engine.id, it) })
+                }
+            }
             Text(engine.name + " · " + engine.capability, style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth())
             Text(
                 if (health == null || health.attempts == 0) {

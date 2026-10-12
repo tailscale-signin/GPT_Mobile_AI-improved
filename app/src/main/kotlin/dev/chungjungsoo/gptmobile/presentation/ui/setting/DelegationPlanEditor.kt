@@ -37,7 +37,7 @@ import kotlinx.serialization.json.Json
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: List<PlatformV2>, onChange: ((ModelDelegationSettings) -> ModelDelegationSettings) -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
     var open by rememberSaveable { mutableStateOf(false) }
     var raw by rememberSaveable { mutableStateOf(Json.encodeToString(config.taskPlan)) }
     var base by rememberSaveable { mutableStateOf(Json.encodeToString(config.taskPlan)) }
@@ -104,7 +104,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_25c1878e0d, index + 1), style = MaterialTheme.typography.titleMedium)
                         OutlinedTextField(step.instruction, { text -> edit(step.id) { it.copy(instruction = text.take(1000)) } }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f27d6fd145)) })
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { DelegationTemplate.Role.entries.forEach { role -> FilterChip(step.role == role, { edit(step.id) { it.copy(role = role) } }, label = { Text(androidx.compose.ui.res.stringResource(role.planLabelResource())) }) } }
-                        DelegateModelDropdown(profiles = profiles, blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config, reviewer = profiles.find { it.uid == config.reviewerProfileUid }).takeIf { it.isNotEmpty() }?.joinToString { context.getString(it.planLabelResource()) } }, selectedProfileUid = step.workerUid, enabled = true, onSelected = { selected -> edit(step.id) { it.copy(workerUid = selected?.uid.orEmpty()) } }, automaticLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_approved), roleLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_worker), testTag = "plan_worker_${step.id}")
+                        DelegateModelDropdown(profiles = profiles, blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config, reviewer = profiles.find { it.uid == config.reviewerProfileUid }).takeIf { it.isNotEmpty() }?.joinToString { resources.getString(it.planLabelResource()) } }, selectedProfileUid = step.workerUid, enabled = true, onSelected = { selected -> edit(step.id) { it.copy(workerUid = selected?.uid.orEmpty()) } }, automaticLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_approved), roleLabel = androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_picker_worker), testTag = "plan_worker_${step.id}")
                         var tokenText by rememberSaveable(step.id) { mutableStateOf(step.outputTokens.toString()) }
                         OutlinedTextField(tokenText, { text ->
                             tokenText = text
@@ -119,7 +119,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
                         TextButton(onClick = { update(plan.copy(steps = plan.steps.filterNot { it.id == step.id }.map { it.copy(dependsOn = it.dependsOn - step.id) })) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b243b9910e, index + 1)) }
                     }
                 }
-                item { TextButton(enabled = plan.steps.size < 12, onClick = { update(plan.copy(steps = plan.steps + DelegationPlanStep(UUID.randomUUID().toString(), instruction = context.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_default_instruction)))) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0d550f39b8)) } }
+                item { TextButton(enabled = plan.steps.size < 12, onClick = { update(plan.copy(steps = plan.steps + DelegationPlanStep(UUID.randomUUID().toString(), instruction = resources.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_default_instruction)))) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0d550f39b8)) } }
                 item { TextButton(onClick = { update(DelegationTaskPlan()) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b943aa3521)) } }
             }
         }, confirmButton = {
@@ -127,16 +127,16 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
                 try {
                     plan.validate()
                     if (Json.encodeToString(config.taskPlan) != base) {
-                        error = context.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_changed)
+                        error = resources.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_changed)
                     } else {
                         onChange { latest ->
-                            check(Json.encodeToString(latest.taskPlan) == base) { context.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_changed) }
+                            check(Json.encodeToString(latest.taskPlan) == base) { resources.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_changed) }
                             latest.copy(taskPlan = plan)
                         }
                         open = false
                     }
                 } catch (failure: IllegalArgumentException) {
-                    error = context.getString(
+                    error = resources.getString(
                         when {
                             plan.steps.any { it.instruction.isBlank() || it.instruction.length > 1000 } -> dev.chungjungsoo.gptmobile.R.string.v0950_plan_instruction_invalid
                             plan.steps.any { it.outputTokens !in 128..4096 } -> dev.chungjungsoo.gptmobile.R.string.v0950_plan_budget_invalid
@@ -145,7 +145,7 @@ internal fun DelegationPlanEditor(config: ModelDelegationSettings, profiles: Lis
                         }
                     )
                 } catch (failure: IllegalStateException) {
-                    error = context.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_changed)
+                    error = resources.getString(dev.chungjungsoo.gptmobile.R.string.v0950_plan_changed)
                 }
             }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_283285f828)) }
         }, dismissButton = { TextButton(onClick = { open = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c0774c1850)) } })

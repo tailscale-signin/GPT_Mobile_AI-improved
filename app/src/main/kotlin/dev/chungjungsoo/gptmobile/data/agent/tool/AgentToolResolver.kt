@@ -380,7 +380,15 @@ class AgentToolResolver @Inject constructor(
                                     )
                             )
                 }
-                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget, persistentEvidence = persistentAcademicEvidence,
+                val facade = DeepResearchTool(
+                    operation,
+                    academicClient,
+                    researchSelection,
+                    academicOptions,
+                    liveAccess,
+                    remote?.tool,
+                    academicBudget,
+                    persistentEvidence = persistentAcademicEvidence,
                     runKey = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
                     remoteCapability = {
                         val statusTool = academicRemote.singleOrNull { it.connectionUid == researchSelection.gatewayConnectionUid && it.realToolName.endsWith("deep_research_status") && it.shareableReadOnly }
@@ -390,13 +398,16 @@ class AgentToolResolver @Inject constructor(
                                     toolConnectionRepository.listBindingsWithConnections(profileUid).any { it.binding.connectionUid == uid && it.binding.toolName == statusTool.realToolName }
                             }
                         } == true
-                        if (statusTool == null || !statusAllowed || !liveAccess()) false else {
+                        if (statusTool == null || !statusAllowed || !liveAccess()) {
+                            false
+                        } else {
                             val result = statusTool.tool.execute("research-capability", JsonObject(emptyMap()))
                             val payload = (result.content as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json)?.value as? JsonObject
                                 ?: (result.content as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text)?.text?.let { runCatching { kotlinx.serialization.json.Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
                             !result.isError && (payload?.get("researchPolicyVersions") as? kotlinx.serialization.json.JsonArray)?.any { it.toString() == "3" } == true
                         }
-                    })
+                    }
+                )
                 resolved += ResolvedAgentTool(facade, remote?.connectionUid, "Deep Research", remote?.realToolName ?: facade.definition.name, facade.definition.name, shareableReadOnly = false, canReuseResult = access)
             }
         }

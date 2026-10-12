@@ -473,7 +473,13 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             val atomic = android.util.AtomicFile(File(cursorDirectory, researchHash("${scope.runKey}:$key") + ".cursor"))
             val output = atomic.startWrite()
             try {
-                output.write(buildJsonObject { put("chatId", scope.runKey.substringBefore(':').toIntOrNull() ?: 0); put("key", key); put("token", token) }.toString().toByteArray())
+                output.write(
+                    buildJsonObject {
+                        put("chatId", scope.runKey.substringBefore(':').toIntOrNull() ?: 0)
+                        put("key", key)
+                        put("token", token)
+                    }.toString().toByteArray()
+                )
                 atomic.finishWrite(output)
             } catch (error: Exception) {
                 atomic.failWrite(output)
@@ -490,7 +496,9 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         if (!scope.persistent || scope.runKey.isBlank()) return null
         return withContext(Dispatchers.IO) {
             val file = File(cursorDirectory, researchHash("${scope.runKey}:$key") + ".cursor")
-            if (!file.isFile || file.length() !in 1..64 * 1024) null else {
+            if (!file.isFile || file.length() !in 1..64 * 1024) {
+                null
+            } else {
                 val value = Json.parseToJsonElement(android.util.AtomicFile(file).openRead().use { it.readBytes() }.decodeToString()).jsonObject
                 check(value.string("key") == key)
                 value.string("token").takeIf { it.length in 1..4096 }

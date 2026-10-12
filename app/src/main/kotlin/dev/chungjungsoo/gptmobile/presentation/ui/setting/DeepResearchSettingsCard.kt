@@ -30,7 +30,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchIntensity
 internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Boolean, onChange: (DeepResearchSettings) -> Unit) {
     val goal = if (value.enabled && value.effort > 0) value.customSourceTarget ?: DeepResearchSettings.targetForEffort(value.effort) else 0
     var advanced by rememberSaveable { mutableStateOf(true) }
-    var customTarget by rememberSaveable() { mutableStateOf(value.customSourceTarget?.toString().orEmpty()) }
+    var customTarget by rememberSaveable { mutableStateOf(value.customSourceTarget?.toString().orEmpty()) }
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -43,7 +43,7 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                         FilterChip(selected = value.intensity == intensity, onClick = { onChange(value.preset(intensity)) }, enabled = enabled, label = { Text(intensity.name.lowercase().replaceFirstChar(Char::uppercase)) })
                     }
                 }
-                Text("${value.effort}% effort · ${goal}-source goal · No additional cap", style = MaterialTheme.typography.bodySmall)
+                Text("${value.effort}% effort · $goal-source goal · No additional cap", style = MaterialTheme.typography.bodySmall)
                 val limits = listOfNotNull(
                     value.userLimits.maxRequests?.let { "$it HTTP requests" },
                     value.userLimits.maxDownloadedBytes?.let { "$it downloaded bytes" },

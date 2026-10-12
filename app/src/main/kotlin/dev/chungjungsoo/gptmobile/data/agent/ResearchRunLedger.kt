@@ -22,15 +22,19 @@ class ResearchRunLedger(
     )
     private var state = State(fingerprint = fingerprint, limits = limits)
 
-    init { limits.validate() }
+    init {
+        limits.validate()
+    }
 
     @Synchronized
     fun charge(logical: Long = 0, physical: Long = 0, downloaded: Long = 0, activeMillis: Long = 0): Boolean {
         require(listOf(logical, physical, downloaded, activeMillis).all { it >= 0 })
         if (state.limitReason != null) return false
         val next = state.copy(
-            logical = Math.addExact(state.logical, logical), physical = Math.addExact(state.physical, physical),
-            downloaded = Math.addExact(state.downloaded, downloaded), activeMillis = Math.addExact(state.activeMillis, activeMillis)
+            logical = Math.addExact(state.logical, logical),
+            physical = Math.addExact(state.physical, physical),
+            downloaded = Math.addExact(state.downloaded, downloaded),
+            activeMillis = Math.addExact(state.activeMillis, activeMillis)
         )
         val reason = when {
             limits.maxRequests?.let { next.physical > it } == true -> "user_request_limit"

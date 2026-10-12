@@ -62,10 +62,12 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -431,9 +433,12 @@ fun ToolConnectionsScreen(
         if (pluginSettingsDestination(plugin) == PluginSettingsDestination.DEEP_RESEARCH) {
             DeepResearchSettingsScreen(onClose = { pluginSettings = null })
         } else if (plugin == null || pluginSettingsDestination(plugin) == PluginSettingsDestination.UNAVAILABLE) {
-            AlertDialog(onDismissRequest = { pluginSettings = null }, title = { Text("Settings unavailable") },
+            AlertDialog(
+                onDismissRequest = { pluginSettings = null },
+                title = { Text("Settings unavailable") },
                 text = { Text("This plugin is no longer available or has no settings handler.") },
-                confirmButton = { TextButton(onClick = { pluginSettings = null }) { Text("Close") } })
+                confirmButton = { TextButton(onClick = { pluginSettings = null }) { Text("Close") } }
+            )
         } else {
             PluginConfigurationDialog(
                 plugin.id,

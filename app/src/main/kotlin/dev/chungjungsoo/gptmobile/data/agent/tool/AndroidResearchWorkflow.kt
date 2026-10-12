@@ -115,8 +115,10 @@ internal class AndroidResearchWorkflow(
         if (!charge(phase)) return null
         return operation {
             val budgetContext = "Source goal: $sourceTarget. No additional application cap. Use compact completed evidence."
-            withTimeoutOrNull(options.pageTimeoutSeconds * 1000L) { generate(delegationPrompt("$instruction\n$budgetContext", state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000)), minOf(config.maxOutputTokens, 768))
-                ?.let(::parseDelegationObject) }
+            withTimeoutOrNull(options.pageTimeoutSeconds * 1000L) {
+                generate(delegationPrompt("$instruction\n$budgetContext", state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000)), minOf(config.maxOutputTokens, 768))
+                ?.let(::parseDelegationObject)
+            }
         }
     }
 
@@ -254,7 +256,13 @@ internal class AndroidResearchWorkflow(
                 } else if (noResearchNeeded) {
                     "Not needed"
                 } else if (exhausted || completed == null || !collecting() || !stillEnabled() || sources.values.readableWorkCount() < sourceTarget) {
-                    if (exhausted || !collecting()) "User limit reached" else if (!stillEnabled()) "Permission revoked" else "No more eligible evidence"
+                    if (exhausted || !collecting()) {
+                        "User limit reached"
+                    } else if (!stillEnabled()) {
+                        "Permission revoked"
+                    } else {
+                        "No more eligible evidence"
+                    }
                 } else {
                     "Complete"
                 },

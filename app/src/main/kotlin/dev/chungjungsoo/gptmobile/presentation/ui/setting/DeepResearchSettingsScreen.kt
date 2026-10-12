@@ -28,7 +28,12 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
 internal fun DeepResearchSettingsScreen(onClose: () -> Unit, viewModel: DeepResearchSettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.open() }
-    val cancel = { if (!state.saving) { viewModel.discard(); onClose() } }
+    val cancel = {
+        if (!state.saving) {
+            viewModel.discard()
+            onClose()
+        }
+    }
     FadingDialog(onDismissRequest = cancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(modifier = Modifier.fillMaxSize().testTag("deep-research-settings"), topBar = {
             TopAppBar(title = { Text("Deep Research") }, navigationIcon = { TextButton(onClick = cancel, enabled = !state.saving) { Text("Cancel") } }, actions = {

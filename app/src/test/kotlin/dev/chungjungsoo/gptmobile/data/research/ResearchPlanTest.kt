@@ -4,22 +4,26 @@ import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
 import dev.chungjungsoo.gptmobile.data.model.ResearchIntensity
 import dev.chungjungsoo.gptmobile.data.model.ResearchUserLimits
 import dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 class ResearchPlanTest {
     @Test fun legacyCapsNeverReduceTheEffortGoal() {
-        for (version in 1..2) for (cap in listOf(1, 30, 150)) for (intensity in ResearchIntensity.entries) {
-            val old = DeepResearchSettings(schemaVersion = version, sourceSafetyCap = cap, effort = 100, intensity = intensity)
-            val migrated = old.migrated()
-            val restored = Json.decodeFromString<DeepResearchSettings>(Json.encodeToString(migrated))
-            assertEquals(3, restored.schemaVersion)
-            assertEquals(300, effectiveResearchPlan(restored).sourceGoal)
-            assertEquals(cap, restored.sourceSafetyCap)
+        for (version in 1..2) {
+            for (cap in listOf(1, 30, 150)) {
+                for (intensity in ResearchIntensity.entries) {
+                    val old = DeepResearchSettings(schemaVersion = version, sourceSafetyCap = cap, effort = 100, intensity = intensity)
+                    val migrated = old.migrated()
+                    val restored = Json.decodeFromString<DeepResearchSettings>(Json.encodeToString(migrated))
+                    assertEquals(3, restored.schemaVersion)
+                    assertEquals(300, effectiveResearchPlan(restored).sourceGoal)
+                    assertEquals(cap, restored.sourceSafetyCap)
+                }
+            }
         }
     }
 

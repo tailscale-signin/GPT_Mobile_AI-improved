@@ -98,6 +98,7 @@ class DeepResearchAcquisitionTest {
         assertTrue(captured!!.sources.all { it.passage.length <= 6000 })
         assertEquals(2, parent.maxToolCalls)
     }
+
     @Test
     fun acquisitionContinuesBeyondTenPagesAndNineHundredCandidates() = runTest {
         val options = DeepResearchSettings(academicSources = true, reviewEvidence = false, customSourceTarget = 1000, sourceSafetyCap = 150).forEffort(100)

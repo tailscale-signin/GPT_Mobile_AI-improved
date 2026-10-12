@@ -278,7 +278,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             old.restore(ResearchBudget.Snapshot(total, saved.number("used"), saved.number("physical"), total - saved.number("used"), ResearchBudget.Phase.entries.associateWith { requireNotNull(saved["phases"]).jsonObject.number(it.name) }, saved.number("downloaded"), byteLimit, saved.number("accounting").takeIf { it in 1..2 } ?: 1))
             val previous = old.snapshot()
             val state = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State(
-                fingerprint = plan.fingerprint, limits = plan.limits, logical = previous.usedLogical.toLong(), physical = previous.physicalRequests.toLong(), downloaded = previous.downloadedBytes.toLong()
+                fingerprint = plan.fingerprint,
+                limits = plan.limits,
+                logical = previous.usedLogical.toLong(),
+                physical = previous.physicalRequests.toLong(),
+                downloaded = previous.downloadedBytes.toLong()
             )
             dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(plan.fingerprint, plan.limits).restore(state)
             val manifestFile = file(session.runId)
@@ -286,11 +290,14 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val previousMetadata = requireNotNull(manifest["snapshot"]).jsonObject
             val newMetadata = kotlinx.serialization.json.JsonObject(previousMetadata + mapOf("targetSources" to JsonPrimitive(plan.sourceGoal), "phase" to JsonPrimitive("Paused")))
             writeAtomic(manifestFile, kotlinx.serialization.json.JsonObject(manifest + ("snapshot" to newMetadata)).toString().toByteArray())
-            writeAtomic(target, buildJsonObject {
-                put("chatId", session.chatId)
-                put("migratedFrom", previous.accountingVersion)
-                put("state", Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State.serializer(), state))
-            }.toString().toByteArray())
+            writeAtomic(
+                target,
+                buildJsonObject {
+                    put("chatId", session.chatId)
+                    put("migratedFrom", previous.accountingVersion)
+                    put("state", Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State.serializer(), state))
+                }.toString().toByteArray()
+            )
             synchronized(turnBudgets) { turnBudgets.remove(key) }
             mutable.update { it + (session.runId to session.copy(snapshot = session.snapshot.copy(targetSources = plan.sourceGoal, phase = "Paused"))) }
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchPolicy", "legacy_migrated · schema=3 · run=${researchHash(session.runId).take(12)} · policy=${plan.fingerprint.take(12)}")
@@ -399,7 +406,6 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         val restored = if (references == null) {
             raw
         } else {
-
             val rows = references.map { entry ->
                 val name = (entry as? JsonPrimitive)?.contentOrNull.orEmpty()
                 require(name.matches(Regex("[a-f0-9]{64}\\.source")))

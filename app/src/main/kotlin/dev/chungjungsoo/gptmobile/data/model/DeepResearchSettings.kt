@@ -84,10 +84,14 @@ data class DeepResearchSettings(
         require(schemaVersion in 1..3) { "Unsupported research settings version" }
         require(customSourceTarget == null || customSourceTarget > 0) { "Source goal must be positive" }
         userLimits.validate()
-        return if (schemaVersion < 3) copy(
-            schemaVersion = 3,
-            migrationNotice = "The old research source cap has been removed. Your research goal is preserved."
-        ).normalized() else normalized()
+        return if (schemaVersion < 3) {
+            copy(
+                schemaVersion = 3,
+                migrationNotice = "The old research source cap has been removed. Your research goal is preserved."
+            ).normalized()
+        } else {
+            normalized()
+        }
     }
 
     val goalDriven: Boolean get() = enabled && effort > 0 && schemaVersion == 3

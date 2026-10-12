@@ -111,6 +111,7 @@ class ResearchSessionStoreTest {
         val restored = ResearchSessionStore(context).journal("b", 1, true, "turn").budget(2400)!!
         assertEquals(first.snapshot(), restored.snapshot())
     }
+
     @Test fun thousandSourcesAndChunkReferencesSurvivePagedManifestRestore() = runBlocking {
         val journal = ResearchSessionStore(context).journal("large-paged", 1, true, "paged-turn")
         val chunks = journal.retainBody("Unique source body ".repeat(6000))
@@ -131,5 +132,4 @@ class ResearchSessionStoreTest {
         val restored = ResearchSessionStore(context).journal("b", 1, true, "long-turn").goalBudget(plan)
         assertEquals(first.ledger.snapshot(), restored.ledger!!.snapshot())
     }
-
 }

@@ -35,6 +35,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val turnBudgets = linkedMapOf<Pair<Int, String>, Pair<Long, ResearchBudget>>()
     private val taskLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
+    private val temporaryBodies = ConcurrentHashMap<String, String>()
     private val deletedChats = ConcurrentHashMap.newKeySet<Int>()
     private val mutable = MutableStateFlow<Map<String, ResearchSession>>(emptyMap())
     val sessions = mutable.asStateFlow()
@@ -97,6 +98,40 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 }
             }
         }
+        override fun goalBudget(plan: dev.chungjungsoo.gptmobile.data.model.EffectiveResearchPlan): ResearchBudget = synchronized(turnBudgets) {
+            val key = chatId to turnId
+            turnBudgets[key]?.second?.let { existing ->
+                check(existing.ledger?.fingerprint == plan.fingerprint) { "Research policy changed; resume requires the original plan" }
+                return@synchronized existing
+            }
+            val ledgerFile = File(directory, researchHash("budget:$chatId:$turnId") + ".ledger")
+            val legacyFile = File(directory, researchHash("budget:$chatId:$turnId") + ".budget")
+            check(!persistent || ledgerFile.isFile || !legacyFile.isFile) { "Legacy run requires explicit research policy migration before resume" }
+            val ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(plan.fingerprint, plan.limits) { state ->
+                if (persistent) {
+                    check(directory.mkdirs() || directory.isDirectory)
+                    val atomic = AtomicFile(ledgerFile)
+                    val output = atomic.startWrite()
+                    try {
+                        val envelope = buildJsonObject {
+                            put("chatId", chatId)
+                            put("state", Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State.serializer(), state))
+                        }
+                        output.write(envelope.toString().toByteArray())
+                        atomic.finishWrite(output)
+                    } catch (error: Exception) {
+                        atomic.failWrite(output)
+                        throw error
+                    }
+                }
+            }
+            if (persistent && ledgerFile.isFile) {
+                val envelope = Json.parseToJsonElement(AtomicFile(ledgerFile).openRead().use { it.readBytes() }.decodeToString()).jsonObject
+                check(envelope.number("chatId") == chatId)
+                ledger.restore(Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State.serializer(), requireNotNull(envelope["state"])))
+            }
+            ResearchBudget(1, ledger = ledger).also { turnBudgets[key] = System.currentTimeMillis() to it }
+        }
         override fun stopRequested() = runId in stops || chatId in deletedChats
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
@@ -122,6 +157,27 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val taskLock = taskLocks[(key.hashCode() and Int.MAX_VALUE) % taskLocks.size]
             return taskLock.withLock { block() }
         }
+        override suspend fun retainBody(text: String): List<String> = withContext(Dispatchers.IO) {
+            lock.withLock {
+                check(!stopRequested()) { "Research stopped" }
+                text.chunked(16 * 1024).map { chunk ->
+                    val name = researchHash(chunk) + ".chunk"
+                    if (persistent) {
+                        check(directory.mkdirs() || directory.isDirectory)
+                        val destination = File(directory, name)
+                        if (!destination.isFile) {
+                            check(directory.usableSpace >= 8L * 1024 * 1024 + chunk.toByteArray().size) { "Paused for device resources: insufficient storage" }
+                            writeAtomic(destination, chunk.toByteArray())
+                        }
+                    } else {
+                        val runtime = Runtime.getRuntime()
+                        check(runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() >= 16L * 1024 * 1024) { "Paused for device resources: temporary memory pressure" }
+                        temporaryBodies["$chatId:$turnId:$name"] = chunk
+                    }
+                    name
+                }
+            }
+        }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats) return@withLock
@@ -144,7 +200,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             val name = researchHash(bytes.decodeToString()) + ".source"
                             val destination = File(directory, name)
                             if (!destination.isFile) {
-                                check(corpusBytes + bytes.size <= 128L * 1024 * 1024) { "Research corpus storage limit reached" }
+                                check(directory.usableSpace >= bytes.size + 8L * 1024 * 1024) { "Paused for device resources: insufficient storage" }
                                 corpusBytes += bytes.size
                                 val sourceFile = AtomicFile(destination)
                                 val sourceStream = sourceFile.startWrite()
@@ -158,8 +214,10 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             }
                             JsonPrimitive(name)
                         }
-                        put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.json() - "sources"))
-                        put("sourceRefs", JsonArray(sourceRefs))
+                        put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.copy(sources = emptyList(), queries = emptyList()).json() - "sources"))
+                        put("storageVersion", 3)
+                        put("sourcePages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(sourceRefs)))))
+                        put("queryPages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(snapshot.queries.map(::JsonPrimitive))))))
                     }.toString().toByteArray()
                     require(data.size <= 512 * 1024)
                     val stream = atomic.startWrite()
@@ -192,6 +250,60 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
     }
 
+    data class StorageStats(val retainedSources: Int, val bytes: Long, val resumable: List<ResearchSession>)
+
+    suspend fun storageStats(): StorageStats = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val files = directory.listFiles().orEmpty()
+            val resumable = files.asSequence().filter { it.extension == "json" }.mapNotNull(::read).filter { !it.snapshot.complete }.take(24).toList()
+            StorageStats(files.count { it.extension == "source" }, files.sumOf { it.length() }, resumable)
+        }
+    }
+
+    /** User-triggered migration only. Old checkpoints remain untouched for audit/rollback. */
+    suspend fun migrateLegacyRun(session: ResearchSession, plan: dev.chungjungsoo.gptmobile.data.model.EffectiveResearchPlan) = withContext(Dispatchers.IO) {
+        lock.withLock {
+            require(!session.snapshot.complete) { "Completed runs remain historical" }
+            require(plan.active)
+            val key = session.chatId to session.turnId
+            val legacy = File(directory, researchHash("budget:${session.chatId}:${session.turnId}") + ".budget")
+            val target = File(directory, researchHash("budget:${session.chatId}:${session.turnId}") + ".ledger")
+            require(!target.exists()) { "Run already uses a migrated research policy" }
+            require(legacy.isFile && legacy.length() in 1..64 * 1024) { "Legacy checkpoint is unavailable" }
+            val saved = Json.parseToJsonElement(AtomicFile(legacy).openRead().use { it.readBytes() }.decodeToString()).jsonObject
+            val total = saved.number("total")
+            val byteLimit = saved.number("downloadLimit")
+            require(total in 1..2400 && byteLimit in 1..512 * 1024 * 1024)
+            val old = ResearchBudget(total, downloadLimitBytes = byteLimit)
+            old.restore(ResearchBudget.Snapshot(total, saved.number("used"), saved.number("physical"), total - saved.number("used"), ResearchBudget.Phase.entries.associateWith { requireNotNull(saved["phases"]).jsonObject.number(it.name) }, saved.number("downloaded"), byteLimit, saved.number("accounting").takeIf { it in 1..2 } ?: 1))
+            val previous = old.snapshot()
+            val state = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State(
+                fingerprint = plan.fingerprint,
+                limits = plan.limits,
+                logical = previous.usedLogical.toLong(),
+                physical = previous.physicalRequests.toLong(),
+                downloaded = previous.downloadedBytes.toLong()
+            )
+            dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(plan.fingerprint, plan.limits).restore(state)
+            val manifestFile = file(session.runId)
+            val manifest = Json.parseToJsonElement(AtomicFile(manifestFile).openRead().use { it.readBytes() }.decodeToString()).jsonObject
+            val previousMetadata = requireNotNull(manifest["snapshot"]).jsonObject
+            val newMetadata = kotlinx.serialization.json.JsonObject(previousMetadata + mapOf("targetSources" to JsonPrimitive(plan.sourceGoal), "phase" to JsonPrimitive("Paused")))
+            writeAtomic(manifestFile, kotlinx.serialization.json.JsonObject(manifest + ("snapshot" to newMetadata)).toString().toByteArray())
+            writeAtomic(
+                target,
+                buildJsonObject {
+                    put("chatId", session.chatId)
+                    put("migratedFrom", previous.accountingVersion)
+                    put("state", Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State.serializer(), state))
+                }.toString().toByteArray()
+            )
+            synchronized(turnBudgets) { turnBudgets.remove(key) }
+            mutable.update { it + (session.runId to session.copy(snapshot = session.snapshot.copy(targetSources = plan.sourceGoal, phase = "Paused"))) }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchPolicy", "legacy_migrated · schema=3 · run=${researchHash(session.runId).take(12)} · policy=${plan.fingerprint.take(12)}")
+        }
+    }
+
     suspend fun loadChat(chatId: Int) = withContext(Dispatchers.IO) {
         lock.withLock {
             val restored = directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read).filter { it.chatId == chatId }
@@ -208,16 +320,74 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
     suspend fun deleteChat(chatId: Int) = withContext(Dispatchers.IO) {
         deletedChats += chatId
+        temporaryBodies.keys.removeAll { it.startsWith("$chatId:") }
         readerHealth.keys.removeAll { it.first == chatId }
         synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
-            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension == "budget" && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
+            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension in setOf("budget", "ledger", "cursor") && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
             val retained = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { file ->
-                runCatching { (Json.parseToJsonElement(file.readText()).jsonObject["sourceRefs"] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
+                runCatching { references(Json.parseToJsonElement(file.readText()).jsonObject).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
             }.toSet()
             directory.listFiles().orEmpty().filter { it.extension == "source" && it.name !in retained }.forEach { AtomicFile(it).delete() }
+            val retainedIndexes = mutableSetOf<String>()
+            fun markIndex(name: String) {
+                if (!name.matches(Regex("[a-f0-9]{64}\\.index")) || !retainedIndexes.add(name)) return
+                val file = File(directory, name)
+                if (file.isFile) (Json.parseToJsonElement(file.readText()) as JsonArray).forEach { markIndex((it as JsonPrimitive).content) }
+            }
+            directory.listFiles().orEmpty().filter { it.extension == "json" }.forEach { manifest ->
+                val value = Json.parseToJsonElement(manifest.readText()).jsonObject
+                listOf("sourcePages", "queryPages").forEach { field -> (value[field] as? JsonArray).orEmpty().forEach { markIndex((it as JsonPrimitive).content) } }
+            }
+            directory.listFiles().orEmpty().filter { it.extension == "index" && it.name !in retainedIndexes }.forEach { AtomicFile(it).delete() }
+            val retainedChunks = retained.flatMap { name ->
+                runCatching { Json.parseToJsonElement(File(directory, name).readText()).jsonObject.strings("bodyChunks") }.getOrDefault(emptyList())
+            }.toSet()
+            directory.listFiles().orEmpty().filter { it.extension == "chunk" && it.name !in retainedChunks }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }
         }
+    }
+
+    private fun writeAtomic(file: File, bytes: ByteArray) {
+        val atomic = AtomicFile(file)
+        val output = atomic.startWrite()
+        try {
+            output.write(bytes)
+            atomic.finishWrite(output)
+        } catch (failure: Exception) {
+            atomic.failWrite(output)
+            throw failure
+        }
+    }
+
+    private fun writeReferenceTree(values: List<JsonPrimitive>): String {
+        if (values.size > 100) return writeReferenceTree(values.chunked(100).map { JsonPrimitive(writeReferenceTree(it)) })
+        val page = JsonArray(values)
+        val bytes = page.toString().toByteArray()
+        val name = researchHash(bytes.decodeToString()) + ".index"
+        val destination = File(directory, name)
+        if (!destination.isFile) writeAtomic(destination, bytes)
+        return name
+    }
+
+    private fun readReferenceTree(name: String, depth: Int = 0): List<JsonPrimitive> {
+        require(depth <= 8 && name.matches(Regex("[a-f0-9]{64}\\.index")))
+        val page = File(directory, name)
+        require(page.length() in 1..64 * 1024)
+        val text = AtomicFile(page).openRead().use { it.readBytes() }.decodeToString()
+        require(researchHash(text) + ".index" == name)
+        val rows = Json.parseToJsonElement(text) as JsonArray
+        require(rows.size <= 100)
+        return rows.flatMap { entry ->
+            val value = entry as JsonPrimitive
+            if (value.content.matches(Regex("[a-f0-9]{64}\\.index"))) readReferenceTree(value.content, depth + 1) else listOf(value)
+        }
+    }
+
+    private fun references(value: kotlinx.serialization.json.JsonObject): JsonArray? {
+        val pages = value["sourcePages"] as? JsonArray ?: return value["sourceRefs"] as? JsonArray
+        require(value.number("storageVersion") == 3)
+        return JsonArray(pages.flatMap { readReferenceTree((it as JsonPrimitive).content) })
     }
 
     private fun file(runId: String) = File(directory, researchHash(runId) + ".json")
@@ -229,12 +399,13 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         val value = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
         val runId = value.text("runId")
-        val raw = value["snapshot"]!!.jsonObject
-        val references = value["sourceRefs"] as? JsonArray
+        val metadata = requireNotNull(value["snapshot"]).jsonObject
+        val queryPages = value["queryPages"] as? JsonArray
+        val raw = if (queryPages == null) metadata else kotlinx.serialization.json.JsonObject(metadata + ("queries" to JsonArray(queryPages.flatMap { readReferenceTree((it as JsonPrimitive).content) })))
+        val references = references(value)
         val restored = if (references == null) {
             raw
         } else {
-            require(references.size <= 900)
             val rows = references.map { entry ->
                 val name = (entry as? JsonPrimitive)?.contentOrNull.orEmpty()
                 require(name.matches(Regex("[a-f0-9]{64}\\.source")))
@@ -243,7 +414,13 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     input.readBytes()
                 }
                 require(researchHash(sourceBytes.decodeToString()) + ".source" == name)
-                Json.parseToJsonElement(sourceBytes.decodeToString()).jsonObject
+                Json.parseToJsonElement(sourceBytes.decodeToString()).jsonObject.also { source ->
+                    source.strings("bodyChunks").forEach { chunkName ->
+                        require(chunkName.matches(Regex("[a-f0-9]{64}\\.chunk")))
+                        val chunk = File(directory, chunkName)
+                        require(chunk.isFile && chunk.length() <= 64 * 1024 && researchHash(chunk.readText()) + ".chunk" == chunkName)
+                    }
+                }
             }
             kotlinx.serialization.json.JsonObject(raw + ("sources" to JsonArray(rows)))
         }

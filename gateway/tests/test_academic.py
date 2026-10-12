@@ -133,3 +133,26 @@ class AcademicTests(unittest.TestCase):
         with self.assertRaises(AcademicError):self.router.verify(args)
 
 if __name__=='__main__':unittest.main()
+
+class GoalDrivenAcademicTests(unittest.TestCase):
+    def test_page_eleven_is_a_valid_provider_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            seen = []
+            def fetch(url, **_):
+                seen.append(url)
+                return 200, {}, b'{"results":[]}', url
+            router = AcademicRouter(directory, fetch=fetch, enabled=['openalex'])
+            result = router.execute('deep_research_search_papers', {'query':'test', 'cursor':'11', 'enabledProviderIds':['openalex']})
+            self.assertTrue(any('page=11' in url for url in seen))
+            self.assertEqual(1, result['researchAccounting']['physicalRequests'])
+            self.assertEqual(len(b'{"results":[]}'), result['researchAccounting']['downloadedBytes'])
+
+    def test_explicit_request_allowance_blocks_dispatch_and_status_advertises_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def never_fetch(*args, **kwargs):
+                self.fail('zero allowance must not dispatch')
+            router = AcademicRouter(directory, fetch=never_fetch, enabled=['openalex'])
+            result = router.execute('deep_research_search_papers', {'query':'test', 'enabledProviderIds':['openalex'], 'researchRequestAllowance':0})
+            self.assertEqual(0, result['researchAccounting']['physicalRequests'])
+            self.assertEqual('user_request_limit', result['providers'][0]['state'])
+            self.assertIn(3, router.execute('deep_research_status', {})['researchPolicyVersions'])

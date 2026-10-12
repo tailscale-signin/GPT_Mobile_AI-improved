@@ -51,10 +51,12 @@ data class ResearchSource(
     val publicationType: String = "unknown",
     val isPreprint: Boolean? = null,
     val isRetracted: Boolean? = null,
-    val contentLicense: String? = null
+    val contentLicense: String? = null,
+    val bodyChunks: List<String> = emptyList()
 ) {
     val readable: Boolean get() = originId.isBlank() && retrievalQuality == "FULL_TEXT" && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
+        put("bodyChunks", JsonArray(bodyChunks.map(::JsonPrimitive)))
         put("id", id)
         put("url", url)
         put("title", title)
@@ -142,11 +144,13 @@ data class ResearchSnapshot(
     val updatedAt: Long = System.currentTimeMillis(),
     val complete: Boolean = false,
     val toolEvents: List<ResearchToolEvent> = emptyList(),
-    val targetSources: Int = 0
+    val targetSources: Int = 0,
+    val frontierCursors: Map<String, String> = emptyMap()
 ) {
     fun json() = buildJsonObject {
         put("version", 3)
         put("targetSources", targetSources)
+        put("frontierCursors", JsonObject(frontierCursors.mapValues { JsonPrimitive(it.value) }))
         put("task", task)
         put("phase", phase)
         put("round", round)
@@ -168,10 +172,10 @@ data class ResearchSnapshot(
         fun parse(value: JsonObject): ResearchSnapshot? = runCatching {
             val version = value["version"]?.jsonPrimitive?.int
             require(version in 1..3)
-            val sources = value.rows("sources").take(900).mapNotNull { s ->
+            val sources = value.rows("sources").mapNotNull { s ->
                 val id = s.text("id")
                 val url = s.text("url").take(2048)
-                if (!id.matches(Regex("S[1-9][0-9]{0,2}")) ||
+                if (!id.matches(Regex("S[1-9][0-9]{0,9}")) ||
                     !runCatching {
                         URI(url).let { it.scheme?.lowercase() in setOf("http", "https") && !it.host.isNullOrBlank() && it.rawUserInfo == null }
                     }.getOrDefault(false)
@@ -182,7 +186,7 @@ data class ResearchSnapshot(
                 val source = ResearchSource(
                     id, url, s.text("title").take(240), status, s.text("passage").take(6000), s.number("depth").coerceIn(0, 2),
                     (s["retrievedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, s.text("publishedAt").take(80),
-                    s.strings("engines").take(20).map { it.take(120) }, s.text("fingerprint").take(64), s.text("originId").take(4), s.text("location").take(240)
+                    s.strings("engines").take(20).map { it.take(120) }, s.text("fingerprint").take(64), s.text("originId").take(11), s.text("location").take(240)
                 )
                 source.copy(
                     doi = SourceIdentity.normalizeDoi(s.text("doi")),
@@ -208,7 +212,8 @@ data class ResearchSnapshot(
                     publicationType = s.text("publicationType").take(80).ifBlank { "unknown" },
                     isPreprint = (s["isPreprint"] as? JsonPrimitive)?.booleanOrNull,
                     isRetracted = (s["isRetracted"] as? JsonPrimitive)?.booleanOrNull,
-                    contentLicense = s.text("contentLicense").take(1000).takeIf(String::isNotBlank)
+                    contentLicense = s.text("contentLicense").take(1000).takeIf(String::isNotBlank),
+                    bodyChunks = s.strings("bodyChunks").onEach { require(it.matches(Regex("[a-f0-9]{64}\\.chunk"))) }
                 )
             }.distinctBy { source ->
                 when {
@@ -218,7 +223,7 @@ data class ResearchSnapshot(
                     source.pmcid.isNotBlank() -> "pmcid:${source.pmcid}"
                     else -> source.canonicalUrl.ifBlank { source.url }
                 }
-            }.take(900)
+            }
             val claimRows = value.rows("claims").take(30)
             val claims = validatedResearchClaims(claimRows, sources).map { claim ->
                 val verdict = claimRows.firstOrNull { it.text("sourceId") == claim.sourceId && it.text("text").trim().take(600) == claim.text && it.text("quote").trim().take(1200) == claim.quote }
@@ -226,11 +231,12 @@ data class ResearchSnapshot(
                 claim.copy(verdict = verdict)
             }
             ResearchSnapshot(
-                task = value.text("task").take(8000), targetSources = value.number("targetSources").coerceIn(0, 300), phase = value.text("phase").take(40), round = value.number("round").coerceIn(0, 8),
-                searches = value.number("searches").coerceIn(0, 80), attempts = value.number("attempts").coerceIn(0, 900),
+                frontierCursors = (value["frontierCursors"] as? JsonObject)?.mapValues { (_, cursor) -> (cursor as JsonPrimitive).content.also { require(it.toIntOrNull()?.let { page -> page > 0 } == true) } }.orEmpty(),
+                task = value.text("task").take(8000), targetSources = value.number("targetSources").coerceAtLeast(0), phase = value.text("phase").take(40), round = value.number("round").coerceAtLeast(0),
+                searches = value.number("searches").coerceAtLeast(0), attempts = value.number("attempts").coerceAtLeast(0),
                 engineResponses = value.number("engineResponses").coerceAtLeast(0), engineFailures = value.number("engineFailures").coerceAtLeast(0),
                 sources = sources, claims = claims,
-                questions = value.strings("questions").take(8).map { it.take(350) }, queries = value.strings("queries").take(12).map { it.take(500) }, notes = value.strings("notes").take(20).map { it.take(500) },
+                questions = value.strings("questions").take(8).map { it.take(350) }, queries = value.strings("queries").map { it.take(500) }, notes = value.strings("notes").take(20).map { it.take(500) },
                 updatedAt = (value["updatedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, complete = (value["complete"] as? JsonPrimitive)?.booleanOrNull == true,
                 toolEvents = value.rows("toolEvents").takeLast(200).mapNotNull { event ->
                     val outcome = event.text("outcome").takeIf { it in setOf("SUCCESS", "PARTIAL", "EMPTY", "BLOCKED", "AUTH_FAILED", "RATE_LIMITED", "INVALID_RESPONSE", "BUDGET_EXHAUSTED", "CIRCUIT_OPEN", "FAILED") }
@@ -238,7 +244,7 @@ data class ResearchSnapshot(
                     ResearchToolEvent(
                         query = event.text("query").take(500), engine = event.text("engine").take(120), reader = event.text("reader").take(120),
                         argumentsDigest = event.text("argumentsDigest").takeIf { it.matches(Regex("[0-9a-f]{64}")) }.orEmpty(), outcome = outcome,
-                        sourceIds = event.strings("sourceIds").filter { it.matches(Regex("S[1-9][0-9]{0,2}")) }.distinct().take(120),
+                        sourceIds = event.strings("sourceIds").filter { it.matches(Regex("S[1-9][0-9]{0,9}")) }.distinct().take(120),
                         failureReason = event.text("failureReason").take(240), latencyMs = (event["latencyMs"] as? JsonPrimitive)?.longOrNull?.coerceIn(0, 86_400_000) ?: 0,
                         cacheHit = (event["cacheHit"] as? JsonPrimitive)?.booleanOrNull == true, shared = (event["shared"] as? JsonPrimitive)?.booleanOrNull == true,
                         recordedAt = (event["recordedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0
@@ -252,8 +258,11 @@ data class ResearchSnapshot(
 interface ResearchJournal {
     fun readerHealth(): dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth? = null
     fun budget(totalLogicalCalls: Int, downloadLimitBytes: Int = 512 * 1024 * 1024): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
+    fun goalBudget(plan: dev.chungjungsoo.gptmobile.data.model.EffectiveResearchPlan): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget =
+        dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(1, ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(plan.fingerprint, plan.limits))
     suspend fun load(): ResearchSnapshot?
     suspend fun load(task: String): ResearchSnapshot? = load()
+    suspend fun retainBody(text: String): List<String> = emptyList()
     suspend fun save(snapshot: ResearchSnapshot)
     fun stopRequested(): Boolean
     suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T = block()

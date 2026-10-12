@@ -29,8 +29,8 @@ class ToolExecutionBudget(
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
     private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
 
-    fun canExecute(): Boolean = remainingBytes.get() > 0 && !callBudgetIsExhausted()
-    fun remainingOutputBytes(): Int = remainingBytes.get().coerceAtLeast(0)
+    fun canExecute(): Boolean = (limits.researchAcquisition || remainingBytes.get() > 0) && !callBudgetIsExhausted()
+    fun remainingOutputBytes(): Int = if (limits.researchAcquisition) 64 * 1024 else remainingBytes.get().coerceAtLeast(0)
 
     fun bind(
         tool: AgentTool,
@@ -46,7 +46,7 @@ class ToolExecutionBudget(
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
-            if (attempts.incrementAndGet() > limits.maxObservedToolCalls.coerceIn(1, 1024) || callId.length > 256 || boundedJsonBytes(arguments, 16 * 1024) > 16 * 1024) {
+            if ((!limits.researchAcquisition && attempts.incrementAndGet() > limits.maxObservedToolCalls.coerceIn(1, 1024)) || callId.length > 256 || boundedJsonBytes(arguments, 16 * 1024) > 16 * 1024) {
                 return { withBudgetState(ToolResultEnvelope.error(callId.take(256), "TOOL_BATCH_OVERSIZE", "Observed tool attempt or argument limit reached. No action dispatched.")) }
             }
             val invocation = "$executionOwner:${tool.definition.name}:$callId"
@@ -75,7 +75,7 @@ class ToolExecutionBudget(
                     )
                 }
             }
-            if (remainingBytes.get() <= 0) {
+            if (!limits.researchAcquisition && remainingBytes.get() <= 0) {
                 val message = outputBudgetMessage()
                 AppLogRecorder.record(
                     "ToolBudget",
@@ -196,7 +196,7 @@ class ToolExecutionBudget(
     }
 
     private fun tryAcquireCall(): Boolean {
-        if (executionLimit == Int.MAX_VALUE) {
+        if (limits.researchAcquisition || executionLimit == Int.MAX_VALUE) {
             calls.incrementAndGet()
             return true
         }
@@ -239,7 +239,7 @@ class ToolExecutionBudget(
             minOf(16 * 1024, limits.maxToolOutputBytes)
         }
         val chargedBytes = minOf(size, resultAllowance)
-        val sharedAvailable = remainingBytes.getAndUpdate { (it.toLong() - chargedBytes).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
+        val sharedAvailable = if (limits.researchAcquisition) 64 * 1024 else remainingBytes.getAndUpdate { (it.toLong() - chargedBytes).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
         val handoffReserve = if (
             preserveSuccessfulHandoff &&
             !result.isError &&
@@ -320,16 +320,16 @@ class ToolExecutionBudget(
                 },
                 retainedContent = result.retainedContent ?: result.content.takeIf { changed },
                 traceContent = trace,
-                outputBudgetExhausted = result.outputBudgetExhausted || remainingBytes.get() <= 0,
+                outputBudgetExhausted = result.outputBudgetExhausted || !limits.researchAcquisition && remainingBytes.get() <= 0,
                 toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
             )
         )
     }
 
     private fun withBudgetState(result: AgentToolResult): AgentToolResult {
-        val configuredCalls = limits.maxToolCalls.takeUnless { it == Int.MAX_VALUE }
-        val callLimit = executionLimit.takeUnless { it == Int.MAX_VALUE }
-        val resultByteLimit = limits.maxToolOutputBytes.takeUnless { it == Int.MAX_VALUE }
+        val configuredCalls = limits.maxToolCalls.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
+        val callLimit = executionLimit.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
+        val resultByteLimit = limits.maxToolOutputBytes.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
         val resultBytesUsed = resultByteLimit?.let { limit ->
             (limit.toLong() - remainingBytes.get().toLong()).coerceIn(0L, limit.toLong()).toInt()
         }
@@ -348,7 +348,7 @@ class ToolExecutionBudget(
             text.startsWith("<!-- delegation:local -->") || text.startsWith("<!-- delegation:remote -->")
         } == true
     private fun callBudgetIsExhausted(): Boolean =
-        executionLimit != Int.MAX_VALUE && calls.get() >= executionLimit
+        !limits.researchAcquisition && executionLimit != Int.MAX_VALUE && calls.get() >= executionLimit
 
     private fun toolCallBudgetMessage(): String {
         val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)

@@ -31,6 +31,11 @@ interface SettingRepository {
         updateFeatureSettings(updated)
         return updated
     }
+    suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {
+        mutateFeatureSettings { current ->
+            current.copy(delegation = current.delegation.copy(deepResearch = settings.migrated()))
+        }
+    }
     fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
     suspend fun migrateToPlatformV2()
     suspend fun migrateSecrets(): List<SecretMigrationError>

@@ -1,10 +1,10 @@
 # Theme Settings Redesign
 ## Design and Implementation Specification
 
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Date:** October 12, 2026  
-**Audited baseline:** `main` at `7553e4ff14316f0d28639d5cc0ed24cb59511066`  
-**Status:** Proposed implementation design. This change adds documentation only.  
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`
+**Date:** October 12, 2026
+**Audited baseline:** `main` at `7553e4ff14316f0d28639d5cc0ed24cb59511066`
+**Status:** Proposed implementation design. This change adds documentation only.
 **Scope:** The Appearance / Theme Settings experience, its editors and dialogs, theme state, saved themes, search navigation, and backup compatibility.
 
 > Create a calm, polished theme workspace with four meaningful tabs: **Style**, **Colours**, **Display**, and **Saved**. Keep every existing theme capability. Separate browsing from applying, editing from saving, and saved-theme management from the built-in collection.

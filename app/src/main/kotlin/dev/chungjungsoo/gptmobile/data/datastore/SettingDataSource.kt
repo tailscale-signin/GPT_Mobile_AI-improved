@@ -44,6 +44,11 @@ interface SettingDataSource {
         updateFeatureSettings(updated)
         return updated
     }
+    suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {
+        mutateFeatureSettings { current ->
+            current.copy(delegation = current.delegation.copy(deepResearch = settings.migrated()))
+        }
+    }
     suspend fun getFeatureSettings(): AppFeatureSettings = AppFeatureSettings()
     fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
     suspend fun getDebugMode(): Boolean

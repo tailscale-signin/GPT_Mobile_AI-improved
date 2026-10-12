@@ -78,10 +78,11 @@ private class AcademicHttpFailure(val status: Int, val retryAtMs: Long? = null) 
 class AcademicNativeClient @Inject constructor(@param:ApplicationContext context: Context) {
     private val preferences = context.getSharedPreferences("academic-quotas-v1", Context.MODE_PRIVATE)
     private val evidenceDirectory = File(context.filesDir, "academic-evidence-v1")
+    private val cursorDirectory = File(context.filesDir, "research-history")
     private val downloadDirectory = File(context.cacheDir, "academic-downloads")
     private val permits = CORE.associateWith { Semaphore(1) } + mapOf("opencitations" to Semaphore(1))
     private val global = Semaphore(8)
-    private val sourcePermits = ConcurrentHashMap<String, Semaphore>()
+    private val sourcePermits = Array(64) { Semaphore(2) }
     private val snapshotMutex = Mutex()
     private val quotaLocks = ConcurrentHashMap<String, Mutex>()
     private val statuses = ConcurrentHashMap<String, AcademicProviderStatus>()
@@ -125,7 +126,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     fun status(): List<AcademicProviderStatus> = (CORE + "opencitations").map { id -> (statuses[id] ?: AcademicProviderStatus(id, "unknown", limitation = if (id == "arxiv") "Preprints; PDF reading requires the gateway" else "Public metadata; anonymous quotas apply")).copy(requests = telemetry.rollup(id).attempts, successes = telemetry.rollup(id).successes, failures = telemetry.rollup(id).failures) }
 
     internal suspend fun search(request: AcademicSearchRequest, selection: MultiSearchResearchSelection, allowed: suspend () -> Boolean): AcademicSearchResult = coroutineScope {
-        require(request.query.length in 1..500 && request.maxResults in 1..50 && request.page in 1..10)
+        require(request.query.length in 1..500 && request.maxResults in 1..50 && request.page > 0)
         require(request.fromYear == null || request.toYear == null || request.fromYear <= request.toYear)
         val query = request.query.lowercase()
         val routed = when {
@@ -149,11 +150,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                             reserve(provider, allowed)
                             check(allowed()) { "permission_denied" }
                             val body = fetch(searchUrl(provider, request), request.includeDomains, request.excludeDomains, allowed, provider).first
-                            if (provider == "europepmc") {
+                            if (provider in setOf("europepmc", "pubmed")) {
                                 val cursor = json.parseToJsonElement(body).jsonObject.string("nextCursorMark")
                                 if (cursor.isNotBlank()) {
                                     if (cursors.size >= 192) cursors.keys.firstOrNull()?.let(cursors::remove)
-                                    cursors[cursorKey(request, request.page + 1)] = cursor
+                                    saveCursor(request, request.page + 1, cursor)
                                 }
                             }
                             parseSearch(provider, body)
@@ -199,7 +200,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             papers = merged.take(request.maxResults),
             providers = states,
             truncated = merged.size > request.maxResults || results.any { it.first.size >= minOf(request.maxResults, 20) },
-            nextCursor = (request.page + 1).toString().takeIf { request.page < 10 && results.any { it.first.size >= minOf(request.maxResults, 20) } }
+            nextCursor = (request.page + 1).toString().takeIf { request.page < Int.MAX_VALUE && results.any { it.first.size >= minOf(request.maxResults, 20) } }
         )
     }
 
@@ -261,10 +262,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         }
         require(policy.allows(provider)) { "Academic provider disabled" }
         val readerIdentity = if (pmc.isNotBlank() || arxiv.isNotBlank()) provider else "source:${URI(url).host.orEmpty().lowercase()}"
-        val readerPermit = permits[readerIdentity] ?: sourcePermits.computeIfAbsent(readerIdentity) {
-            check(sourcePermits.size < 512) { "Source-host concurrency registry is full" }
-            Semaphore(2)
-        }
+        val readerPermit = permits[readerIdentity] ?: sourcePermits[(readerIdentity.hashCode() and Int.MAX_VALUE) % sourcePermits.size]
         val body = readerPermit.withPermit {
             reserve(readerIdentity, allowed)
             fetch(url, policy.included, policy.excluded, allowed, readerIdentity, sourceDocument = pmc.isBlank())
@@ -290,7 +288,8 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             if (persistent) {
                 save(evidence)
             } else {
-                check(transientEvidence.size < 1200) { "Temporary evidence capacity reached" }
+                val runtime = Runtime.getRuntime()
+                check(runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() >= 16L * 1024 * 1024) { "Paused for device resources: temporary memory pressure" }
                 transientEvidence[researchHash("${evidence.paperId}|${evidence.versionId}")] = evidence
             }
         }
@@ -323,17 +322,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     private suspend fun save(evidence: AcademicEvidence) = snapshotMutex.withLock {
         withContext(Dispatchers.IO) {
             evidenceDirectory.mkdirs()
-            val files = evidenceDirectory.listFiles().orEmpty().sortedBy { it.lastModified() }
-            // Byte-based retention: a 300-source corpus must survive the old 128-file ceiling.
-            var retainedBytes = files.sumOf { it.length() }
-            for (old in files) {
-                if (retainedBytes <= 128L * 1024 * 1024) break
-                if (System.currentTimeMillis() - old.lastModified() > 30L * 86_400_000) {
-                    retainedBytes -= old.length()
-                    old.delete()
-                }
-            }
-            check(retainedBytes + evidence.text.toByteArray().size <= 128L * 1024 * 1024) { "Academic corpus storage limit reached" }
+            check(evidenceDirectory.usableSpace >= evidence.text.toByteArray().size + 8L * 1024 * 1024) { "Paused for device resources: insufficient storage" }
             val file = android.util.AtomicFile(File(evidenceDirectory, researchHash("${evidence.paperId}|${evidence.versionId}") + ".json"))
             val output = file.startWrite()
             try {
@@ -474,20 +463,62 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         error("Too many academic redirects")
     }
 
+    private suspend fun saveCursor(request: AcademicSearchRequest, page: Int, token: String) {
+        val key = cursorKey(request, page)
+        cursors[key] = token
+        val scope = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext] ?: return
+        if (!scope.persistent || scope.runKey.isBlank()) return
+        withContext(Dispatchers.IO) {
+            check(cursorDirectory.mkdirs() || cursorDirectory.isDirectory)
+            val atomic = android.util.AtomicFile(File(cursorDirectory, researchHash("${scope.runKey}:$key") + ".cursor"))
+            val output = atomic.startWrite()
+            try {
+                output.write(
+                    buildJsonObject {
+                        put("chatId", scope.runKey.substringBefore(':').toIntOrNull() ?: 0)
+                        put("key", key)
+                        put("token", token)
+                    }.toString().toByteArray()
+                )
+                atomic.finishWrite(output)
+            } catch (error: Exception) {
+                atomic.failWrite(output)
+                throw error
+            }
+        }
+    }
+
+    private suspend fun loadCursor(request: AcademicSearchRequest): String? {
+        if (request.page == 1) return "*"
+        val key = cursorKey(request, request.page)
+        cursors[key]?.let { return it }
+        val scope = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext] ?: return null
+        if (!scope.persistent || scope.runKey.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            val file = File(cursorDirectory, researchHash("${scope.runKey}:$key") + ".cursor")
+            if (!file.isFile || file.length() !in 1..64 * 1024) {
+                null
+            } else {
+                val value = Json.parseToJsonElement(android.util.AtomicFile(file).openRead().use { it.readBytes() }.decodeToString()).jsonObject
+                check(value.string("key") == key)
+                value.string("token").takeIf { it.length in 1..4096 }
+            }
+        }
+    }
+
     private fun cursorKey(request: AcademicSearchRequest, page: Int) = researchHash(request.copy(page = 1).toString()) + ":$page"
-    private fun searchUrl(provider: String, request: AcademicSearchRequest): String {
+    private suspend fun searchUrl(provider: String, request: AcademicSearchRequest): String {
         val query = encode(request.query)
         val limit = minOf(request.maxResults, 20)
         val page = request.page
-        val offset = (page - 1) * limit
+        val offset = Math.multiplyExact(page.toLong() - 1, limit.toLong())
         return when (provider) {
             "openalex" -> "https://api.openalex.org/works?search=$query&per-page=$limit&page=$page"
             "crossref" -> "https://api.crossref.org/works?query.bibliographic=$query&rows=$limit&offset=$offset"
             "arxiv" -> "https://export.arxiv.org/api/query?search_query=all:$query&start=$offset&max_results=$limit"
-            "pubmed" -> "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encode("(${request.query}) AND SRC:MED")}&format=json&pageSize=$limit"
-            "europepmc" -> {
-                val cursor = if (page == 1) "*" else cursors[cursorKey(request, page)] ?: error("Cursor unavailable; start at page 1")
-                "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=$query&format=json&pageSize=$limit&cursorMark=${encode(cursor)}"
+            "europepmc", "pubmed" -> {
+                val cursor = loadCursor(request) ?: error("Cursor unavailable; resume requires the saved provider checkpoint")
+                "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${if (provider == "pubmed") encode("(${request.query}) AND SRC:MED") else query}&format=json&pageSize=$limit&cursorMark=${encode(cursor)}"
             }
             "datacite" -> "https://api.datacite.org/dois?query=$query&page%5Bsize%5D=$limit&page%5Bnumber%5D=$page"
             else -> error("Provider is not in the native allowlist")

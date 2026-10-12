@@ -111,4 +111,25 @@ class ResearchSessionStoreTest {
         val restored = ResearchSessionStore(context).journal("b", 1, true, "turn").budget(2400)!!
         assertEquals(first.snapshot(), restored.snapshot())
     }
+
+    @Test fun thousandSourcesAndChunkReferencesSurvivePagedManifestRestore() = runBlocking {
+        val journal = ResearchSessionStore(context).journal("large-paged", 1, true, "paged-turn")
+        val chunks = journal.retainBody("Unique source body ".repeat(6000))
+        val sources = (1..1000).map { index -> ResearchSource("S$index", "https://example.org/$index", "Source $index", status = "Read", passage = "Captured evidence $index", bodyChunks = chunks) }
+        journal.save(ResearchSnapshot("task", sources = sources, targetSources = 1000))
+        val restored = ResearchSessionStore(context).journal("large-paged", 1, true, "paged-turn").load()!!
+        assertEquals(1000, restored.sources.count { it.readable })
+        assertEquals(chunks, restored.sources.last().bodyChunks)
+        assertTrue(directory.listFiles().orEmpty().filter { it.extension == "index" }.all { it.length() <= 64 * 1024 })
+        ResearchSessionStore(context).deleteChat(1)
+        assertTrue(directory.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun longLedgerSurvivesRestartAndProfileSwitchWithoutRefund() {
+        val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings().forEffort(100))
+        val first = ResearchSessionStore(context).journal("a", 1, true, "long-turn").goalBudget(plan)
+        assertTrue(first.ledger!!.charge(physical = 3000, downloaded = 3L * 1024 * 1024 * 1024))
+        val restored = ResearchSessionStore(context).journal("b", 1, true, "long-turn").goalBudget(plan)
+        assertEquals(first.ledger.snapshot(), restored.ledger!!.snapshot())
+    }
 }

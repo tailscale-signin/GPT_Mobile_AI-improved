@@ -41,7 +41,7 @@ class AcademicContractsTest {
         assertEquals(2, quick.deepResearch.maxRounds)
         assertEquals(before, Json.encodeToString(defaults))
         assertEquals(300, MultiSearchResearchSelection(true, 100).applyTo(defaults).deepResearch.maxPages)
-        assertEquals(150, MultiSearchResearchSelection(true, 100).applyTo(defaults.copy(deepResearch = defaults.deepResearch.copy(sourceSafetyCap = 150))).deepResearch.maxPages)
+        assertEquals(300, MultiSearchResearchSelection(true, 100).applyTo(defaults.copy(deepResearch = defaults.deepResearch.copy(sourceSafetyCap = 150))).deepResearch.maxPages)
     }
 
     @Test fun duplicateDoiReceiptsMergeButPreprintVersionsDoNot() {

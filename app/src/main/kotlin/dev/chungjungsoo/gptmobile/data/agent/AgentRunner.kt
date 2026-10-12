@@ -40,7 +40,8 @@ data class AgentRunLimits(
     val maxRetainedEvidenceTokens: Int = 16_000,
     val allowToolStormFinalization: Boolean = true,
     val maxGeneratedCharacters: Int = 0,
-    val detectRepetition: Boolean = false
+    val detectRepetition: Boolean = false,
+    val researchAcquisition: Boolean = false
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50

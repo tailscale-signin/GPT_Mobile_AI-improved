@@ -213,6 +213,14 @@ class SettingDataSourceImpl @Inject constructor(
         }
     }
 
+    override suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {
+        val validated = settings.migrated()
+        dataStore.edit { pref ->
+            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(it) } ?: AppFeatureSettings()
+            pref[featureSettingsKey] = json.encodeToString(current.copy(delegation = current.delegation.copy(deepResearch = validated)))
+        }
+    }
+
     override suspend fun getFeatureSettings(): AppFeatureSettings = dataStore.data.map { pref ->
         pref[featureSettingsKey]
             ?.let { raw -> runCatching { json.decodeFromString<AppFeatureSettings>(raw) }.getOrNull() }

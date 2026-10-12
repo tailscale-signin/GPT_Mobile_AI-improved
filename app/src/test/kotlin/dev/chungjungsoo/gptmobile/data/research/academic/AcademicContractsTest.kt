@@ -37,10 +37,11 @@ class AcademicContractsTest {
         val defaults = ModelDelegationSettings()
         val before = Json.encodeToString(defaults)
         val quick = MultiSearchResearchSelection(true, 20).applyTo(defaults)
-        assertEquals(0, quick.deepResearch.maxPages)
-        assertEquals(1, quick.deepResearch.maxRounds)
+        assertEquals(24, quick.deepResearch.maxPages)
+        assertEquals(2, quick.deepResearch.maxRounds)
         assertEquals(before, Json.encodeToString(defaults))
-        assertTrue(MultiSearchResearchSelection(true, 100).applyTo(defaults).deepResearch.maxPages <= defaults.deepResearch.maxPages)
+        assertEquals(300, MultiSearchResearchSelection(true, 100).applyTo(defaults).deepResearch.maxPages)
+        assertEquals(150, MultiSearchResearchSelection(true, 100).applyTo(defaults.copy(deepResearch = defaults.deepResearch.copy(sourceSafetyCap = 150))).deepResearch.maxPages)
     }
 
     @Test fun duplicateDoiReceiptsMergeButPreprintVersionsDoNot() {

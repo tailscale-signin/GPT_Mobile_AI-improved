@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.research.researchDomains
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -33,7 +34,8 @@ internal class DeepResearchTool(
     private val options: DeepResearchSettings,
     private val permitted: suspend () -> Boolean,
     private val remote: AgentTool? = null,
-    private val budget: AcademicRunBudget = AcademicRunBudget()
+    private val budget: AcademicRunBudget = AcademicRunBudget(),
+    private val persistentEvidence: Boolean = false
 ) : AgentTool {
     override val definition = AgentToolDefinition(
         "deep_research_$operation",
@@ -102,10 +104,12 @@ internal class DeepResearchTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if (!permitted()) return failure(callId, "permission_denied", "Deep Research is locked. Check the chat Research toggle, depth, Papers consent and profile permission.")
         try {
-            val providerCalls = ((arguments["maxProviderCalls"] as? JsonPrimitive)?.intOrNull ?: 3).coerceIn(1, 3)
+            val providerCalls = ((arguments["maxProviderCalls"] as? JsonPrimitive)?.intOrNull ?: if (selection.depth == 100) AcademicNativeClient.CORE.size else 3).coerceIn(1, AcademicNativeClient.CORE.size)
             budget.reserve(
                 operation,
-                if (operation == "search_papers") {
+                if (remote == null) {
+                    0
+                } else if (operation == "search_papers") {
                     providerCalls
                 } else if (operation == "read_paper") {
                     2
@@ -120,7 +124,8 @@ internal class DeepResearchTool(
                         "maxProviderCalls" to JsonPrimitive(providerCalls),
                         "enabledProviderIds" to JsonArray(selection.enabledProviders.sorted().map(::JsonPrimitive)),
                         "includeDomains" to JsonArray(researchDomains(options.includeDomains).map(::JsonPrimitive)),
-                        "excludeDomains" to JsonArray(researchDomains(options.excludeDomains).map(::JsonPrimitive))
+                        "excludeDomains" to JsonArray(researchDomains(options.excludeDomains).map(::JsonPrimitive)),
+                        "ephemeral" to JsonPrimitive(!persistentEvidence)
                     )
                 )
                 val result = remote.execute(callId, bound)
@@ -135,22 +140,16 @@ internal class DeepResearchTool(
                 if (!result.isError || !selection.allowNativeFallback || operation == "verify_evidence") return result
                 budget.reserve(
                     operation,
-                    if (operation == "search_papers") {
-                        providerCalls
-                    } else if (operation == "read_paper") {
-                        2
-                    } else {
-                        1
-                    }
+                    0
                 )
                 // Completed remote results return above. Only a failed read-only operation
                 // may fall back to the explicitly consented native owner.
             } else if (selection.gatewayConnectionUid != null && !selection.allowNativeFallback) {
                 return failure(callId, "gateway_unavailable", "Reconnect the selected academic gateway or explicitly allow native fallback.")
             }
-            val payload = native(arguments)
+            val payload = withContext(AcademicRequestBudgetContext(budget)) { native(arguments) }
             check(permitted()) { "permission_denied" }
-            budget.chargeBytes(payload.toString().toByteArray().size)
+            // Native downloaded bytes are charged in the bounded response stream.
             return AgentToolResult(callId, ToolResultContent.Json(if (selection.gatewayConnectionUid != null) JsonObject(payload + mapOf("fallbackOwner" to JsonPrimitive("native"), "coveragePartial" to JsonPrimitive(true))) else payload), false)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -173,10 +172,10 @@ internal class DeepResearchTool(
             "search_papers" -> json.encodeToJsonElement(
                 client.search(
                     AcademicSearchRequest(
-                        query = str("query"), depth = selection.depth, page = str("cursor").ifBlank { "1" }.toInt().also { require(it in 1..3) }, maxResults = (number("maxResults") ?: if (selection.depth < 35) 10 else 25).coerceIn(1, 50),
+                        query = str("query"), depth = selection.depth, page = str("cursor").ifBlank { "1" }.toInt().also { require(it in 1..10) }, maxResults = (number("maxResults") ?: if (selection.depth < 35) 10 else 25).coerceIn(1, 50),
                         fromYear = number("fromYear"), toYear = number("toYear"), reviewStatus = str("reviewStatus").ifBlank { "any" },
                         includeDomains = researchDomains(options.includeDomains), excludeDomains = researchDomains(options.excludeDomains),
-                        maxProviderCalls = (number("maxProviderCalls") ?: 3).coerceIn(1, 3)
+                        maxProviderCalls = (number("maxProviderCalls") ?: if (selection.depth == 100) AcademicNativeClient.CORE.size else 3).coerceIn(1, AcademicNativeClient.CORE.size)
                     ),
                     selection,
                     permitted
@@ -188,7 +187,7 @@ internal class DeepResearchTool(
                 if (operation == "get_paper") {
                     json.encodeToJsonElement(paper).jsonObject
                 } else {
-                    val evidence = client.read(paper, permitted, policy)
+                    val evidence = client.read(paper, permitted, policy, persistent = persistentEvidence)
                     json.encodeToJsonElement(evidence).jsonObject
                 }
             }
@@ -228,22 +227,30 @@ internal class DeepResearchTool(
     }
 }
 
-internal class AcademicRunBudget(private val limit: Int = 30, private val maxReads: Int = 12) {
+internal class AcademicRunBudget(private val limit: Int = 30, private val maxReads: Int = 12, private val maxBytes: Int = 256 * 1024, private val shared: dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null) {
     private val mutex = Mutex()
     private var calls = 0
     private var bytes = 0
     private var reads = 0
     suspend fun reserve(operation: String, cost: Int = 1) = mutex.withLock {
-        check(cost in 1..3 && calls + (if (operation == "status") 0 else cost) <= limit && bytes < 256 * 1024) { "Academic budget exhausted; synthesize the retained evidence" }
+        if (operation in setOf("status", "verify_evidence")) return@withLock
+        check(cost in 0..64 && calls + cost <= limit && bytes < maxBytes) { "Academic budget exhausted; synthesize the retained evidence" }
         if (operation == "read_paper") {
             check(reads < maxReads) { "Academic reading budget exhausted" }
             reads++
         }
-        if (operation != "status") calls += cost
+        if (operation != "status") {
+            if (cost > 0) check(shared?.tryCharge(dev.chungjungsoo.gptmobile.data.agent.ResearchBudget.Phase.DISCOVERY, physicalRequest = true, cost = cost) != false) { "Shared research request budget exhausted" }
+            calls += cost
+        }
     }
     suspend fun chargeBytes(count: Int) = mutex.withLock {
         bytes += count
-        check(bytes <= 256 * 1024) { "Academic output budget exhausted" }
+        check(bytes <= maxBytes) { "Academic output budget exhausted" }
     }
     fun remaining() = (limit - calls).coerceAtLeast(0)
+}
+
+internal class AcademicRequestBudgetContext(val budget: AcademicRunBudget) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<AcademicRequestBudgetContext>
 }

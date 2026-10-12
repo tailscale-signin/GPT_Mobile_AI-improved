@@ -50,7 +50,7 @@
     "tests/test_gateway_v14_stability.py": "b989fd88d5ea8970d5f274dba7c56a6e1a719b66946ff369fe3e69aad7cd4485",
     "tests/test_gateway_v14_state_lock.py": "6abd0acc2e07c860a930631339e4f1813a39b5a3f22ca8a210defa6b1c6f6a31",
     "v14/__init__.py": "8727da36332b2a517d46d2c32792cbe4d394782db6b7228ce9da8d64f72bdf78",
-    "v14/academic.py": "3c0992ff99b8f90409c50c9f65647658a90bd44ede31fe98676a8d6e2195dd8a",
+    "v14/academic.py": "64dab8da37dd45fd9b85921e60c8a235f5a32f1bb3d3f0914c319dadd5c31b82",
     "v14/actions.py": "5ff0d4fc6d7ad25c37093872f6a2f28ab114da6c580c147ca9efb5d7275cb008",
     "v14/browser-bootstrap.js": "d2b43d5c473a294fe9b27d19e828d4c93c02e1454a12f2a1a4075384f6b9c399",
     "v14/browser.py": "ab46b807439cac21f766a03e0f7a60d72155f5ba433618f2866d35b3aea725b1",
@@ -69,7 +69,8 @@
     "v14/research.py": "d9e35cee26ec14e5bd7b8248b15cba433d91dfdae32c4c9d20aa9ce4c6493318",
     "v14/service.py": "9ff1589ecc116a8aefcc616d43fb52740916e062d4c415b7b90b3b54d2dcd463",
     "v14/state_lock.py": "5b58f0cf6d1493ab522361a6d1cfef89f0f6cd301eef1d1f557543d6c1cf7e07",
-    "v14/tools.py": "68bdb9405d1f706e25ed62d43fe0b2f20db93fc70f6cb44425cfdcbd70cfd6bf"
+    "v14/tools.py": "68bdb9405d1f706e25ed62d43fe0b2f20db93fc70f6cb44425cfdcbd70cfd6bf",
+    "tests/test_deep_research_overhaul.py": "75db5e20ef7d740240e709e85edba4400c7ed3290fdafe4230eace5992117104"
   },
   "sourceDescription": "Reviewed GPU/NPU and academic implementation overlay on sourceCommit; file hashes identify the packaged contents."
 }

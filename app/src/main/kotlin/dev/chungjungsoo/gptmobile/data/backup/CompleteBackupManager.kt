@@ -252,7 +252,7 @@ class CompleteBackupManager @Inject constructor(
 
             if (selected.includes(CompleteBackupSection.CONVERSATIONS)) {
                 File(context.filesDir, "research-history").listFiles().orEmpty()
-                    .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.json")) && it.length() <= 512 * 1024 }
+                    .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.(json|source|budget)")) && it.length() <= 512 * 1024 }
                     .forEach { sources["internal/research-history/${it.name}"] = it }
             }
             if (selected.includes(CompleteBackupSection.HEALTH_DATA)) {

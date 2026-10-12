@@ -76,7 +76,8 @@ class AgentToolResolver @Inject constructor(
     private val academicClient: dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient? = null,
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val documentContext: android.content.Context? = null,
     private val healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
-    private val healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null
+    private val healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null,
+    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -354,8 +355,12 @@ class AgentToolResolver @Inject constructor(
                     !current.disableAllTools &&
                     dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, !current.disableRemoteTools) == null
             }
+            val persistentAcademicEvidence = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == false } == true
             val academicOptions = researchSelection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch
-            val academicBudget = AcademicRunBudget(maxReads = academicOptions.maxPages)
+            val sharedTurnBudget = userMessage?.let { message ->
+                researchSessions?.journal("academic:${message.chatId}:${message.id}", message.chatId, persistentAcademicEvidence, "${message.chatId}:${message.id}")?.budget(academicOptions.requestCeiling)
+            }
+            val academicBudget = AcademicRunBudget(limit = academicOptions.requestCeiling, maxReads = academicOptions.maxPages * 3, maxBytes = academicOptions.downloadLimitMiB * 1024 * 1024, shared = sharedTurnBudget)
             DeepResearchTool.OPERATIONS.forEach { operation ->
                 val remote = academicRemote.singleOrNull {
                     it.connectionUid == researchSelection.gatewayConnectionUid && it.shareableReadOnly && it.realToolName.endsWith("deep_research_$operation")
@@ -374,7 +379,7 @@ class AgentToolResolver @Inject constructor(
                                     )
                             )
                 }
-                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget)
+                val facade = DeepResearchTool(operation, academicClient, researchSelection, academicOptions, liveAccess, remote?.tool, academicBudget, persistentEvidence = persistentAcademicEvidence)
                 resolved += ResolvedAgentTool(facade, remote?.connectionUid, "Deep Research", remote?.realToolName ?: facade.definition.name, facade.definition.name, shareableReadOnly = false, canReuseResult = access)
             }
         }

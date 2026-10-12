@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "pluginId": "deep_research",
   "implementation": "repository-native public HTTPS adapters",
-  "routerSha256": "3c0992ff99b8f90409c50c9f65647658a90bd44ede31fe98676a8d6e2195dd8a",
+  "routerSha256": "64dab8da37dd45fd9b85921e60c8a235f5a32f1bb3d3f0914c319dadd5c31b82",
   "defaultProviders": [
     "openalex",
     "crossref",

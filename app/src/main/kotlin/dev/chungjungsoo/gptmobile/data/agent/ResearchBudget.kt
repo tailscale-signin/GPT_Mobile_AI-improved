@@ -3,7 +3,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 /** One bounded turn budget shared by discovery, review, recovery, and finalization. */
 class ResearchBudget(
     totalLogicalCalls: Int,
-    private val reservations: Reservations = Reservations()
+    private val reservations: Reservations = Reservations(),
+    private val persist: ((Snapshot) -> Unit)? = null
 ) {
     enum class Phase { DISCOVERY, VERIFICATION, RECOVERY, FINALIZATION }
 
@@ -56,12 +57,39 @@ class ResearchBudget(
     private var physicalRequests = 0
 
     @Synchronized
-    fun tryCharge(phase: Phase, physicalRequest: Boolean): Boolean {
+    fun tryCharge(phase: Phase, physicalRequest: Boolean, cost: Int = 1): Boolean {
+        require(cost > 0)
         val phaseUsed = used.getValue(phase)
-        if (phaseUsed >= limits.getValue(phase) || used.values.sum() >= total) return false
-        used[phase] = phaseUsed + 1
-        if (physicalRequest) physicalRequests++
+        // Subtract before comparing so a large batch cannot wrap the counters.
+        if (cost > limits.getValue(phase) - phaseUsed || cost > total - used.values.sum()) return false
+        used[phase] = phaseUsed + cost
+        if (physicalRequest) physicalRequests += cost
+        try {
+            persist?.invoke(snapshot())
+        } catch (failure: Exception) {
+            used[phase] = phaseUsed
+            if (physicalRequest) physicalRequests -= cost
+            throw failure
+        }
         return true
+    }
+
+    @Synchronized
+    fun restore(snapshot: Snapshot) {
+        require(snapshot.total == total && snapshot.usedLogical in 0..total)
+        require(snapshot.remaining == total - snapshot.usedLogical)
+        require(snapshot.physicalRequests in 0..snapshot.usedLogical)
+        require(snapshot.remainingByPhase.keys == limits.keys)
+        // Validate the entire checkpoint before changing live counters. Never silently
+        // clamp corrupt phase data into a fresh allowance after an app restart.
+        val restoredUsed = Phase.entries.associateWith { phase ->
+            val remaining = snapshot.remainingByPhase.getValue(phase)
+            require(remaining in 0..limits.getValue(phase))
+            limits.getValue(phase) - remaining
+        }
+        require(restoredUsed.values.sum() == snapshot.usedLogical)
+        used.putAll(restoredUsed)
+        physicalRequests = snapshot.physicalRequests
     }
 
     @Synchronized

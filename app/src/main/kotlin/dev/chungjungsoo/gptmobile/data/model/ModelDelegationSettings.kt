@@ -188,7 +188,7 @@ data class ModelDelegationSettings(
             reviewerOutputTokens = reviewerOutputTokens.coerceIn(128, 1024),
             reviewerMinimumScore = reviewerMinimumScore.coerceIn(0, 100),
             reviewerRetryLimit = reviewerRetryLimit.coerceIn(0, 5),
-            preparationTimeoutSeconds = preparationTimeoutSeconds.coerceIn(30, 300),
+            preparationTimeoutSeconds = preparationTimeoutSeconds.coerceIn(30, 3600),
             reviewTimeoutSeconds = reviewTimeoutSeconds.coerceIn(15, 120),
             maxDelegationDepth = maxDelegationDepth.coerceIn(1, 2),
             maxInputCharacters = maxInputCharacters.coerceIn(1000, 64000),

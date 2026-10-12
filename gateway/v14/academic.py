@@ -34,7 +34,7 @@ HOSTS = {"api.openalex.org", "api.crossref.org", "export.arxiv.org", "arxiv.org"
 SUPPORTED = set(CORE) | {"dblp", "zenodo", "doaj", "inspirehep", "hal", "ror", "opencitations"}
 OA_HOSTS = {"arxiv.org", "www.ebi.ac.uk", "pmc.ncbi.nlm.nih.gov", "aclanthology.org", "zenodo.org"}
 MAX_BODY = 2 * 1024 * 1024
-MAX_PDF = 12 * 1024 * 1024
+MAX_PDF = 20 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024
 
 
@@ -112,13 +112,13 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
-def public_fetch(url: str, *, maximum=MAX_BODY, included=(), excluded=(), cancelled=lambda: False):
+def public_fetch(url: str, *, maximum=MAX_BODY, included=(), excluded=(), cancelled=lambda: False, source_document=False):
     """Pin checked public DNS addresses, preserve certificate/SNI checks, validate every redirect."""
     for _ in range(4):
         if cancelled():
             raise AcademicError("cancelled")
         parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.port not in (None, 443) or parsed.username or parsed.password or not domain_allowed(url, included, excluded):
+        if parsed.scheme != "https" or (not parsed.hostname or (not source_document and parsed.hostname not in HOSTS)) or parsed.port not in (None, 443) or parsed.username or parsed.password or (source_document and not domain_allowed(url, included, excluded)):
             raise AcademicError("host_not_allowed")
         addresses = {info[4][0] for info in socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)}
         if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
@@ -189,20 +189,21 @@ class AcademicRouter:
         self.enabled = set(enabled) & SUPPORTED
         self.lock = threading.RLock()
         self.permits = {key: threading.Semaphore(1) for key in SUPPORTED}
-        self.global_permit = threading.Semaphore(3)
+        self.global_permit = threading.Semaphore(8)
         self.statuses = {}
         self.papers = {}
         self.cache = {}
         self.cursors = {}
+        self.transient_evidence = {}
 
     def _remember(self, record):
         with self.lock:
-            if len(self.papers) >= 256 and record["paperId"] not in self.papers:
+            if len(self.papers) >= 1200 and record["paperId"] not in self.papers:
                 self.papers.pop(next(iter(self.papers)))
             self.papers[record["paperId"]] = record
         return record
 
-    def _request(self, provider, url, args, cancelled, maximum=MAX_BODY):
+    def _request(self, provider, url, args, cancelled, maximum=MAX_BODY, source_document=False):
         if provider not in self.enabled and provider != "opencitations":
             raise AcademicError("provider_disabled")
         requested = args.get("enabledProviderIds")
@@ -227,7 +228,10 @@ class AcademicRouter:
                         if cancelled():
                             raise AcademicError("cancelled")
                         time.sleep(min(.05, max(0, stop - time.monotonic())))
-            status, headers, body, final = self.fetch(url, maximum=maximum, included=args.get("includeDomains", ()), excluded=args.get("excludeDomains", ()), cancelled=cancelled)
+            fetch_options = {"maximum": maximum, "included": args.get("includeDomains", ()) if source_document else (), "excluded": args.get("excludeDomains", ()) if source_document else (), "cancelled": cancelled}
+            if self.fetch is public_fetch:
+                fetch_options["source_document"] = source_document
+            status, headers, body, final = self.fetch(url, **fetch_options)
             if status == 429:
                 retry = headers.get("retry-after", "60")
                 try:
@@ -252,7 +256,7 @@ class AcademicRouter:
             raise AcademicError("arguments_too_large")
         op = name.removeprefix("deep_research_")
         if op == "status":
-            return {"schemaVersion": 1, "owner": "gateway_mcp", "providers": [{"id": p, **self.statuses.get(p, {"state": "available" if p in self.enabled else "disabled_until_verified"})} for p in sorted(SUPPORTED | CONDITIONAL)], "quotas": self.quotas.status(), "pdfReaderAvailable": self._pdf_reader() is not None, "excludedProviders": sorted(EXCLUDED)}
+            return {"schemaVersion": 1, "owner": "gateway_mcp", "providers": [{"id": p, **self.statuses.get(p, {"state": "unknown" if p in self.enabled else "disabled_until_verified"})} for p in sorted(SUPPORTED | CONDITIONAL)], "quotas": self.quotas.status(), "pdfReaderAvailable": self._pdf_reader() is not None, "excludedProviders": sorted(EXCLUDED)}
         if op == "search_papers":
             result = self.search(args, cancelled)
         elif op == "get_paper":
@@ -274,7 +278,7 @@ class AcademicRouter:
         depth = max(1, min(int(args.get("depth", 50)), 100))
         limit = max(1, min(int(args.get("maxResults", 25)), 50))
         page = int(args.get("cursor") or 1)
-        if not 1 <= page <= 3:
+        if not 1 <= page <= 10:
             raise AcademicError("invalid_cursor")
         mix = list(CORE[:2]) + ["datacite"]
         if re.search(r"gpu|npu|learning|transformer|physics|algorithm", query, re.I):
@@ -288,8 +292,8 @@ class AcademicRouter:
         requested = args.get("enabledProviderIds") or sorted(self.enabled)
         if not isinstance(requested, list) or "all" in requested or set(requested) & EXCLUDED:
             raise AcademicError("invalid_provider_allowlist")
-        planned = [p for p in dict.fromkeys(mix + list(CORE)) if p in self.enabled and p in requested]
-        planned = planned[:max(1, min(int(args.get("maxProviderCalls", 3)), 3))]
+        planned = [p for p in dict.fromkeys(mix + list(CORE) + sorted(self.enabled - {"opencitations", "ror"})) if p in self.enabled and p in requested]
+        planned = planned if depth == 100 else planned[:max(1, min(int(args.get("maxProviderCalls", 3)), len(SUPPORTED)))]
         def search_one(provider):
             receipt = uuid.uuid4().hex
             cache_key = digest(json.dumps([provider, args], sort_keys=True))
@@ -320,12 +324,13 @@ class AcademicRouter:
                     self.statuses[provider] = state
                 return [], state
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            results = list(pool.map(search_one, planned))
+            futures = [pool.submit(search_one, provider) for provider in planned]
+            results = [future.result() for future in concurrent.futures.as_completed(futures)]
         merged = merge_papers([p for records, _ in results for p in records])
         states = [state for _, state in results]
         more = len(merged) > limit or any(s["fetched"] >= min(limit, 20) for s in states)
         return {"schemaVersion": 1, "searchId": uuid.uuid4().hex, "query": query, "status": "complete" if states and all(s["state"] in ("success", "empty") for s in states) else "partial",
-                "papers": merged[:limit], "providers": states, "totalDistinctPapers": len(merged[:limit]), "truncated": more, "nextCursor": str(page + 1) if more and page < 3 else None,
+                "papers": merged[:limit], "providers": states, "totalDistinctPapers": len(merged[:limit]), "truncated": more, "nextCursor": str(page + 1) if more and page < 10 else None,
                 "coverage": {"searchedProviders": len(states), "unavailableProviders": sum(s["state"] not in ("success", "empty") for s in states)}, "depth": depth}
 
     def _search_provider(self, provider, query, limit, page, args, cancelled):
@@ -458,10 +463,10 @@ class AcademicRouter:
         if not record:
             return {"retrievalStatus": "unavailable", "text": ""}
         url = record.get("openAccessUrl")
-        if not url or urllib.parse.urlsplit(url).hostname not in OA_HOSTS:
+        if not url or not domain_allowed(url, args.get("includeDomains", ()), args.get("excludeDomains", ())):
             return {**record, "retrievalStatus": "metadata_only", "text": ""}
         provider = "arxiv" if "arxiv.org" in url else "europepmc" if "ebi.ac.uk" in url else record["sourceProviders"][0]
-        body, headers, final = self._request(provider, url, args, cancelled, MAX_PDF)
+        body, headers, final = self._request(provider, url, args, cancelled, MAX_PDF, source_document=True)
         sections = []
         is_pdf = "application/pdf" in headers.get("content-type", "") or urllib.parse.urlsplit(url).path.endswith(".pdf") or (urllib.parse.urlsplit(url).hostname == "arxiv.org" and urllib.parse.urlsplit(url).path.startswith("/pdf/")) or body.startswith(b"%PDF-")
         if is_pdf:
@@ -508,13 +513,23 @@ class AcademicRouter:
                     "retrievalStatus": "partially_read" if text else "unavailable", "section": "Bounded OA extract (first 40 PDF pages at most)",
                     "contentLicense": record.get("contentLicense"), "providerReceipts": record["providerReceipts"],
                     "sections": sections[:5], "truncated": True}
-        if text:
+        if text and args.get("ephemeral", False):
+            with self.lock:
+                if len(self.transient_evidence) >= 1200:
+                    raise AcademicError("temporary_corpus_limit")
+                self.transient_evidence[digest(evidence["paperId"] + "|" + evidence["versionId"])] = evidence
+        if text and not args.get("ephemeral", False):
             target = self.root / (digest(evidence["paperId"] + "|" + evidence["versionId"]) + ".json")
             temporary = target.with_suffix("." + uuid.uuid4().hex + ".tmp")
             temporary.write_text(json.dumps(evidence)); os.replace(temporary, target)
             snapshots = sorted(self.root.glob("*.json"), key=lambda item: item.stat().st_mtime)
-            for stale in snapshots[:-128]:
-                stale.unlink(missing_ok=True)
+            total_bytes = sum(item.stat().st_size for item in snapshots)
+            for stale in snapshots:
+                if total_bytes <= 128 * 1024**2:
+                    break
+                if self.now() - stale.stat().st_mtime > 30 * 86400:
+                    total_bytes -= stale.stat().st_size
+                    stale.unlink(missing_ok=True)
         return evidence
 
     def citations(self, args, cancelled):
@@ -529,9 +544,11 @@ class AcademicRouter:
     def verify(self, args):
         paper_id, version, quote = (str(args.get(key, "")) for key in ("paperId", "versionId", "quote"))
         path = self.root / (digest(paper_id + "|" + version) + ".json")
-        if not path.is_file() or path.stat().st_size > MAX_OUTPUT:
-            return {"verdict": "not_read"}
-        evidence = json.loads(path.read_text())
+        evidence = self.transient_evidence.get(digest(paper_id + "|" + version))
+        if evidence is None:
+            if not path.is_file() or path.stat().st_size > MAX_OUTPUT:
+                return {"verdict": "not_read"}
+            evidence = json.loads(path.read_text())
         if not domain_allowed(evidence["sourceUrl"], args.get("includeDomains", ()), args.get("excludeDomains", ())):
             raise AcademicError("domain_excluded")
         verdict = "quote_verified"

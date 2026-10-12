@@ -757,6 +757,15 @@ fun ChatScreen(
                     .onSizeChanged { composerHeightPx = it.height }
             ) {
                 Column {
+                    chatToolConfig.research?.takeIf { it.researchToggle && it.depth > 0 }?.let { selection ->
+                        val profileUid = activePlatformUids.firstOrNull().orEmpty()
+                        val target = selection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch.maxPages
+                        androidx.compose.material3.AssistChip(
+                            onClick = chatViewModel::openChatModelDialog,
+                            label = { Text("Research · ${selection.depth}% · target $target") },
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
                     nextMessageProfileUid?.let { uid ->
                         TextButton(onClick = { showProfileManagement = true }) {
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))

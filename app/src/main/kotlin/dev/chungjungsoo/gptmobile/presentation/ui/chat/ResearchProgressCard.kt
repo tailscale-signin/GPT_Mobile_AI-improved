@@ -14,6 +14,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchSession
 @Composable
 internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds: Set<String>, stop: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf("") }
     val activeSessions = sessions.filter { it.runId in activeRunIds && !it.snapshot.complete }
     val latest = (activeSessions.ifEmpty { sessions }).maxByOrNull { it.snapshot.updatedAt } ?: return
     val snapshot = latest.snapshot
@@ -38,7 +40,19 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(if (active) "Research · ${snapshot.phase}" else "Research evidence", style = MaterialTheme.typography.titleSmall)
             Text("${snapshot.searches} searches · ${snapshot.engineResponses} engine reports · ${snapshot.engineFailures} unavailable", style = MaterialTheme.typography.bodySmall)
-            Text("${snapshot.sources.count { it.readable }} read · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
+            Text("${snapshot.sources.count { it.readable }} / ${snapshot.targetSources} readable sources · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
+            val accepted = snapshot.sources.count { it.readable }
+            Text(
+                "${snapshot.sources.count { it.readable && it.status == "Read" }} complete · ${snapshot.sources.count { it.readable && it.status != "Read" }} partial · ${if (accepted == 0) {
+                    "No readable sources"
+                } else if (accepted < snapshot.targetSources) {
+                    "Partial coverage"
+                } else {
+                    "Target reached"
+                }}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(if (snapshot.claims.any { it.verdict == "Supported" }) "Some claims reviewed; see evidence for individual verdicts" else "Unreviewed evidence", style = MaterialTheme.typography.bodySmall)
             val papers = snapshot.sources.filter { it.paperId.isNotBlank() }
             if (papers.isNotEmpty()) Text("${papers.size} academic works · ${papers.flatMap { it.engines }.distinct().size} underlying sources · ${papers.count { it.readable }} passages read", style = MaterialTheme.typography.bodySmall)
             Row {
@@ -52,13 +66,14 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
         ModalBottomSheet(onDismissRequest = { expanded = false }) {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 600.dp), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item { Text("Research history", style = MaterialTheme.typography.titleLarge) }
+                item { OutlinedTextField(filter, { filter = it.take(200) }, label = { Text("Search sources and captured evidence") }, modifier = Modifier.fillMaxWidth()) }
                 sessions.sortedByDescending { it.snapshot.updatedAt }.forEach { session ->
                     item(key = session.runId) {
                         Text(session.snapshot.task.take(200), style = MaterialTheme.typography.titleMedium)
                         Text("${session.snapshot.phase} · ${session.snapshot.searches} searches · ${session.snapshot.attempts} page attempts", style = MaterialTheme.typography.bodySmall)
                         session.snapshot.notes.filterNot { it.startsWith("Policy:") }.distinct().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
-                    items(session.snapshot.sources, key = { session.runId + it.id }) { source ->
+                    items(session.snapshot.sources.filter { filter.isBlank() || (it.title + " " + it.passage + " " + it.url).contains(filter, ignoreCase = true) }, key = { session.runId + it.id }) { source ->
                         OutlinedCard {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(source.title, style = MaterialTheme.typography.titleSmall)

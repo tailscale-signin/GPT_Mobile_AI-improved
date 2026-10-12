@@ -19,8 +19,25 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ToolStatisticsHttpTest {
+    @Test fun recordingDeadlineDoesNotFailOrRepeatToolExecution() = runBlocking {
+        val repository = ToolStatisticsRepository(ApplicationProvider.getApplicationContext(), 0, 0)
+        var executions = 0
+        val tool = object : dev.chungjungsoo.gptmobile.data.agent.AgentTool {
+            override val definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("deadline_fixture", "Fixture", kotlinx.serialization.json.JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): dev.chungjungsoo.gptmobile.data.agent.AgentToolResult {
+                executions++
+                return dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(callId, dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text("fixture result"), false)
+            }
+        }
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(), statistics = repository)
+        val result = budget.bind(tool).execute("call", kotlinx.serialization.json.JsonObject(emptyMap()))
+        assertEquals(false, result.isError)
+        assertEquals(1, executions)
+        assertEquals(true, repository.coverageGap.value)
+    }
+
     @Test fun physicalRetriesDoNotMultiplyLogicalUsesAndResetRejectsReplayedStart() = runBlocking {
-        val repository = ToolStatisticsRepository(ApplicationProvider.getApplicationContext())
+        val repository = ToolStatisticsRepository(ApplicationProvider.getApplicationContext(), 5000, 5000)
         repository.dao.subjects() // Finish Room initialization before the bounded observer starts.
         val identity = ToolIdentity.of("web_search")
         val id = requireNotNull(repository.begin(identity, "profile", "run", "CLIENT", "call"))

@@ -39,6 +39,13 @@ jobs:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Compile and test isolated preview
         run: ./gradlew -PgeniexRuntime=true :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Save GenieX unit reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: geniex-unit-results
+          path: app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: warn
       - name: Validate release shrinker for the GenieX runtime
         run: |
           ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=2

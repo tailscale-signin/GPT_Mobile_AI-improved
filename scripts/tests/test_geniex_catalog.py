@@ -53,3 +53,15 @@ class GenieXCatalogTest(unittest.TestCase):
         module.validate_inventory_entry(inventory, asset)
         inventory['files'][0]['path'] = '../model.bin'
         with self.assertRaisesRegex(ValueError, 'Unsafe'): module.validate_inventory_entry(inventory, asset)
+
+    def test_portable_geniex_gguf_is_discovered_without_inventing_a_chipset_or_download(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp); self.capture(path)
+            source = module.load(path / 'model-a.json')
+            source['assets'] = [{'runtime': 'RUNTIME_GENIEX_LLAMACPP', 'chipset': None, 'precision': 'Q4_K_M', 'download_url': 'https://example.org/model.zip'}]
+            (path / 'model-a.json').write_text(json.dumps(source))
+            result = module.normalize(path, {'models': []}, {}, 50)
+            self.assertEqual('missing_artifact_metadata', result['coverage'][0]['status'])
+            self.assertEqual(['cpu', 'gpu'], result['models'][0]['supportedAccelerators'])
+            self.assertEqual('', result['models'][0]['sourceChipset'])
+            self.assertEqual('', result['models'][0]['downloadUrl'])

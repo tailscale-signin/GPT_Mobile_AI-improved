@@ -520,6 +520,114 @@
       "redistributionRestricted": true
     },
     {
+      "id": "geniex_b11166aa075133336a6280a1",
+      "familyId": "gpt_oss_20b",
+      "displayName": "GPT-OSS-20B",
+      "variantLabel": "GGUF \u00b7 PRECISION_MXFP4",
+      "precision": "PRECISION_MXFP4",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": false
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-mxfp4.gguf",
+      "licenseUrl": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
+      "id": "geniex_8bf5605551187067f0c7941d",
+      "familyId": "gemma_4_e2b_it",
+      "displayName": "Gemma-4-E2B-it",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/main/gemma-4-E2B_q4_0-it.gguf",
+      "licenseUrl": "https://ai.google.dev/gemma/apache_2",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
+      "id": "geniex_6cf70593786743a82364b1e0",
+      "familyId": "granite_4_0_micro",
+      "displayName": "Granite-4.0-Micro",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": false
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/granite-4.0-h-micro-GGUF/resolve/main/granite-4.0-h-micro-Q4_0.gguf",
+      "licenseUrl": "https://github.com/ibm-granite/granite-4.0-language-models/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
+      "id": "geniex_1a3f21d912738bf899e2d832",
+      "familyId": "gemma_4_e4b_it",
+      "displayName": "Gemma-4-E4B-it",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf",
+      "licenseUrl": "https://ai.google.dev/gemma/apache_2",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
       "id": "geniex_076a1b9f1870004af3de81bd",
       "familyId": "gemma_4_e4b_it",
       "displayName": "Gemma-4-E4B-it",
@@ -1656,6 +1764,33 @@
       "redistributionRestricted": true
     },
     {
+      "id": "geniex_03b8f47c6aff8ce3c0711712",
+      "familyId": "ministral_3_3b_instruct_2512",
+      "displayName": "Ministral-3-3B-Instruct-2512",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Ministral-3-3B-Instruct-2512-GGUF/resolve/main/Ministral-3-3B-Instruct-2512-Q4_0.gguf",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
       "id": "geniex_884921b7dafe6086162eea6c",
       "familyId": "phi_3_5_mini_instruct",
       "displayName": "Phi-3.5-Mini-Instruct",
@@ -1732,6 +1867,60 @@
       "redistributionRestricted": false,
       "coverageStatus": "unsupported_platform",
       "sourceChipset": "qualcomm-snapdragon-x-plus-8-core"
+    },
+    {
+      "id": "geniex_25059b6ebd4376b1fcc20064",
+      "familyId": "phi_4_mini_instruct",
+      "displayName": "Phi-4-Mini-Instruct",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": false
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/bartowski/microsoft_Phi-4-mini-instruct-GGUF/resolve/main/microsoft_Phi-4-mini-instruct-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/microsoft/Phi-4-mini-instruct/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
+      "id": "geniex_0f090feb3963280ccc395921",
+      "familyId": "qwen2_5_vl_7b_instruct",
+      "displayName": "Qwen2.5-VL-7B-Instruct",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
     },
     {
       "id": "geniex_a67eb551a0c1d76a26b28f7a",
@@ -2124,6 +2313,33 @@
       "sourceChipset": "qualcomm-snapdragon-x-plus-8-core"
     },
     {
+      "id": "geniex_363ffd20b8311be8d95b7109",
+      "familyId": "qwen3_1_7b",
+      "displayName": "Qwen3-1.7B",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": false
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3-1.7B/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
       "id": "geniex_e5857f62d8a31e219dc1c0f8",
       "familyId": "qwen3_1_7b",
       "displayName": "Qwen3-1.7B",
@@ -2512,6 +2728,60 @@
       "redistributionRestricted": false,
       "coverageStatus": "unsupported_platform",
       "sourceChipset": "qualcomm-snapdragon-x-plus-8-core"
+    },
+    {
+      "id": "geniex_58c488998ec245ef089be7fd",
+      "familyId": "qwen3_vl_2b_instruct",
+      "displayName": "Qwen3-VL-2B-Instruct",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen3-VL-2B-Instruct-Q4_0.gguf",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
+      "id": "geniex_e136608d14edafcf186b75f6",
+      "familyId": "qwen3_4b",
+      "displayName": "Qwen3-4B",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": false
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3-4B/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
     },
     {
       "id": "geniex_59435d04d07f5ca042da5ed4",
@@ -3294,6 +3564,33 @@
       "sourceChipset": "qualcomm-snapdragon-x-plus-8-core"
     },
     {
+      "id": "geniex_5627a8b86527646e1fe93891",
+      "familyId": "qwen3_4b_instruct_2507",
+      "displayName": "Qwen3-4B-Instruct-2507",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": false
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
       "id": "geniex_4756ee547d254f1272a0d537",
       "familyId": "qwen3_4b_instruct_2507",
       "displayName": "Qwen3-4B-Instruct-2507",
@@ -3682,6 +3979,60 @@
       "redistributionRestricted": false,
       "coverageStatus": "unsupported_platform",
       "sourceChipset": "qualcomm-snapdragon-x-plus-8-core"
+    },
+    {
+      "id": "geniex_a011707c4faa0c743fabf535",
+      "familyId": "qwen3_5_0_8b",
+      "displayName": "Qwen3.5-0.8B",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3.5-0.8B/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
+      "id": "geniex_eeaa6186d110f427ea56f452",
+      "familyId": "qwen3_0_6b",
+      "displayName": "Qwen3-0.6B",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": false
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
     },
     {
       "id": "geniex_35766f4ad29799661b89f30d",
@@ -4464,6 +4815,60 @@
       "sourceChipset": "qualcomm-snapdragon-x-plus-8-core"
     },
     {
+      "id": "geniex_f911cdba95f835453af22201",
+      "familyId": "qwen3_5_2b",
+      "displayName": "Qwen3.5-2B",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_0.gguf",
+      "licenseUrl": "https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
+      "id": "geniex_7f0646fd92b0e89350f41a6b",
+      "familyId": "qwen3_vl_4b_instruct",
+      "displayName": "Qwen3-VL-4B-Instruct",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q4_0",
+      "precision": "PRECISION_Q4_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3-VL-4B-Instruct-Q4_0.gguf",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
+    },
+    {
       "id": "geniex_0b991bc8ced068eac53e1aa3",
       "familyId": "qwen3_vl_4b_instruct",
       "displayName": "Qwen3-VL-4B-Instruct",
@@ -5034,6 +5439,33 @@
       "redistributionRestricted": false,
       "coverageStatus": "unsupported_platform",
       "sourceChipset": "qualcomm-snapdragon-x-plus-8-core"
+    },
+    {
+      "id": "geniex_e12e4ca1ecc61923bc85c59e",
+      "familyId": "smolvlm2_2_2b_instruct",
+      "displayName": "SmolVLM2-2.2B-Instruct",
+      "variantLabel": "GGUF \u00b7 PRECISION_Q8_0",
+      "precision": "PRECISION_Q8_0",
+      "runtimeRequirement": "geniex-0.8.0",
+      "minAppVersion": "0.9.50.0",
+      "manifestVersion": 2,
+      "downloadUrl": "",
+      "sha256": "",
+      "sizeInBytes": 0,
+      "maxContextTokens": 0,
+      "supportedAccelerators": [
+        "cpu",
+        "gpu"
+      ],
+      "capabilities": {
+        "vision": true
+      },
+      "upstreamRevision": "a5c8e7fb4a364ddcccefbf187afd1bac52d88de5",
+      "sourceUrl": "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/SmolVLM2-2.2B-Instruct-Q8_0.gguf",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "redistributionRestricted": false,
+      "coverageStatus": "missing_artifact_metadata",
+      "sourceChipset": ""
     }
   ],
   "source": {
@@ -8497,7 +8929,7 @@
     {
       "familyId": "gpt_oss_20b",
       "artifactId": "geniex_b11166aa075133336a6280a1",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_MXFP4"
@@ -8849,7 +9281,7 @@
     {
       "familyId": "gemma_4_e2b_it",
       "artifactId": "geniex_8bf5605551187067f0c7941d",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -8905,7 +9337,7 @@
     {
       "familyId": "granite_4_0_micro",
       "artifactId": "geniex_6cf70593786743a82364b1e0",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -8913,7 +9345,7 @@
     {
       "familyId": "gemma_4_e4b_it",
       "artifactId": "geniex_1a3f21d912738bf899e2d832",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -10893,7 +11325,7 @@
     {
       "familyId": "ministral_3_3b_instruct_2512",
       "artifactId": "geniex_03b8f47c6aff8ce3c0711712",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -13380,7 +13812,7 @@
     {
       "familyId": "phi_4_mini_instruct",
       "artifactId": "geniex_25059b6ebd4376b1fcc20064",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -14067,7 +14499,7 @@
     {
       "familyId": "qwen2_5_vl_7b_instruct",
       "artifactId": "geniex_0f090feb3963280ccc395921",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -14291,7 +14723,7 @@
     {
       "familyId": "qwen3_1_7b",
       "artifactId": "geniex_363ffd20b8311be8d95b7109",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -14419,7 +14851,7 @@
     {
       "familyId": "qwen3_vl_2b_instruct",
       "artifactId": "geniex_58c488998ec245ef089be7fd",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -14427,7 +14859,7 @@
     {
       "familyId": "qwen3_4b",
       "artifactId": "geniex_e136608d14edafcf186b75f6",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -14675,7 +15107,7 @@
     {
       "familyId": "qwen3_4b_instruct_2507",
       "artifactId": "geniex_5627a8b86527646e1fe93891",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -14803,7 +15235,7 @@
     {
       "familyId": "qwen3_5_0_8b",
       "artifactId": "geniex_a011707c4faa0c743fabf535",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -14811,7 +15243,7 @@
     {
       "familyId": "qwen3_0_6b",
       "artifactId": "geniex_eeaa6186d110f427ea56f452",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -15059,7 +15491,7 @@
     {
       "familyId": "qwen3_5_2b",
       "artifactId": "geniex_f911cdba95f835453af22201",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -15067,7 +15499,7 @@
     {
       "familyId": "qwen3_vl_4b_instruct",
       "artifactId": "geniex_7f0646fd92b0e89350f41a6b",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q4_0"
@@ -16289,7 +16721,7 @@
     {
       "familyId": "smolvlm2_2_2b_instruct",
       "artifactId": "geniex_e12e4ca1ecc61923bc85c59e",
-      "status": "unsupported_platform",
+      "status": "missing_artifact_metadata",
       "runtime": "RUNTIME_GENIEX_LLAMACPP",
       "chipset": "",
       "precision": "PRECISION_Q8_0"

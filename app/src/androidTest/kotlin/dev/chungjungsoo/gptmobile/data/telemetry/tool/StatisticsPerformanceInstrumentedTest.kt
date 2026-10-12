@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.telemetry.tool
 
 import android.util.Log
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -9,10 +10,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
 
 /** Raw emulator measurements are evidence of execution, not representative device performance. */
+@RunWith(AndroidJUnit4::class)
 class StatisticsPerformanceInstrumentedTest {
-    @Test fun catalogParseAndStatisticsOverheadProduceMeasuredEvidence() = runBlocking {
+    @Test fun catalogParseAndStatisticsOverheadProduceMeasuredEvidence(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val repository = ToolStatisticsRepository(context)
         repository.dao.subjects()
@@ -44,6 +47,8 @@ class StatisticsPerformanceInstrumentedTest {
                 put("appCommit", dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT)
                 put("deviceFingerprint", android.os.Build.FINGERPRINT)
                 put("hardware", android.os.Build.HARDWARE)
+                put("screenWidthDp", context.resources.configuration.screenWidthDp)
+                put("densityDpi", context.resources.displayMetrics.densityDpi)
                 put("representativeDevice", false)
                 put("samples", writes.size)
                 put("writeP95Ms", p95(writes))

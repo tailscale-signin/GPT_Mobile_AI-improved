@@ -100,7 +100,7 @@ def normalize(capture, baseline, inventory, revision):
             assets = assets_doc['assets']
         info_path = capture / (name + '.info.json')
         info = load(info_path) if info_path.exists() else {}
-        if not assets and any(r in {'RUNTIME_GENIEX_QAIRT', 'RUNTIME_GENIE'} for r in model.get('supported_runtimes', [])):
+        if not assets and any(r in {'RUNTIME_GENIEX_QAIRT', 'RUNTIME_GENIE', 'RUNTIME_GENIEX_LLAMACPP'} for r in model.get('supported_runtimes', [])):
             entries.append({'id': 'geniex_' + name + '_unresolved', 'familyId': name, 'displayName': model['display_name'],
                             'runtimeRequirement': 'geniex-0.8.0', 'coverageStatus': 'missing_artifact_metadata',
                             'manifestVersion': 2, 'minAppVersion': '0.9.50.0', 'sourceUrl': info.get('source_repo', ''),
@@ -117,10 +117,12 @@ def normalize(capture, baseline, inventory, revision):
             approved = inventory.get(aid)
             chat = model.get('domain') in {'MODEL_DOMAIN_GENERATIVE_AI', 'MODEL_DOMAIN_MULTIMODAL'}
             qairt = runtime in {'RUNTIME_GENIEX_QAIRT', 'RUNTIME_GENIE'}
+            gguf = runtime == 'RUNTIME_GENIEX_LLAMACPP'
+            mobile = (qairt and chipset in android) or (gguf and (not chipset or chipset in android))
             state = 'missing_artifact_metadata'
             if not chat:
                 state = 'unsupported_app_workflow'
-            elif not qairt or chipset not in android:
+            elif not mobile:
                 state = 'unsupported_platform'
             elif approved:
                 validate_inventory_entry(approved, asset)
@@ -130,17 +132,17 @@ def normalize(capture, baseline, inventory, revision):
                     raise ValueError('Approved inventory lacks execution metadata')
                 state = 'represented'
             coverage.append({'familyId': name, 'artifactId': aid, 'status': state, 'runtime': runtime, 'chipset': chipset, 'precision': asset.get('precision', '')})
-            if qairt and chat:
+            if (qairt or gguf) and chat:
                 entries.append({
                     'id': aid, 'familyId': name, 'displayName': model['display_name'],
-                    'variantLabel': chipset + ' · ' + asset.get('precision', ''),
+                    'variantLabel': (chipset or ('GGUF' if gguf else 'Unknown platform')) + ' · ' + asset.get('precision', ''),
                     'precision': asset.get('precision', ''), 'runtimeRequirement': 'geniex-0.8.0',
                     'minAppVersion': '0.9.50.0', 'manifestVersion': 2,
                     'downloadUrl': approved.get('normalizedBundleUrl', '') if state == 'represented' else '',
                     'sha256': approved['sha256'] if state == 'represented' else '',
                     'sizeInBytes': approved['sizeBytes'] if state == 'represented' else 0,
                     'maxContextTokens': approved['contextTokens'] if state == 'represented' else 0,
-                    'supportedAccelerators': ['npu'], 'capabilities': {'vision': 'MODEL_TAG_VLM' in model.get('tags', [])},
+                    'supportedAccelerators': ['cpu', 'gpu'] if gguf else ['npu'], 'capabilities': {'vision': 'MODEL_TAG_VLM' in model.get('tags', [])},
                     'upstreamRevision': UPSTREAM_SHA,
                     'sourceUrl': asset.get('download_url', ''), 'licenseUrl': info.get('license_url', ''),
                     'redistributionRestricted': info.get('restrict_model_sharing', False),

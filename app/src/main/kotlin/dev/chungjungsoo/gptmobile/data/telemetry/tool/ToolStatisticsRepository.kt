@@ -27,7 +27,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Singleton
-class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: Context) {
+class ToolStatisticsRepository internal constructor(
+    context: Context,
+    private val observationTimeoutMs: Long,
+    private val completionTimeoutMs: Long
+) {
+    @Inject constructor(@ApplicationContext context: Context) : this(context, 150, 250)
+
     private val database = Room.databaseBuilder(context, ToolStatisticsDatabase::class.java, "tool-statistics-v1.db").addMigrations(ToolStatisticsDatabase.MIGRATION_1_2).build()
     val dao = database.statistics()
     fun profiles() = dao.profiles().catch {
@@ -124,7 +130,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
 
     suspend fun begin(identity: ToolIdentity, profile: String, root: String, owner: String, callId: String = UUID.randomUUID().toString()): String? {
         if (!preferences.value.collect) return null
-        return withTimeoutOrNull(150) {
+        return withTimeoutOrNull(observationTimeoutMs) {
             recovery.await()
             safe {
                 database.withTransaction {
@@ -149,7 +155,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
 
     suspend fun complete(id: String?, outcome: ToolOutcome, delivery: ToolDelivery, reason: String?, durationMs: Long?, shared: Boolean, producer: String? = null) {
         if (id == null) return
-        val completed = withTimeoutOrNull(250) {
+        val completed = withTimeoutOrNull(completionTimeoutMs) {
             safe {
                 database.withTransaction { finish(id, outcome, delivery, reason, durationMs, shared, producer) }
                 true
@@ -186,7 +192,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
     /** Final server evidence can reconcile an uncertain original use without creating a new use. */
     suspend fun reconcileRemote(id: String, outcome: ToolOutcome) {
         require(outcome in setOf(ToolOutcome.SUCCESS, ToolOutcome.FAILURE, ToolOutcome.CANCELED, ToolOutcome.PARTIAL))
-        withTimeoutOrNull(250) {
+        withTimeoutOrNull(completionTimeoutMs) {
             safe {
                 database.withTransaction {
                     val call = dao.invocation(id) ?: return@withTransaction
@@ -202,7 +208,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
     /** An executor can reject before dispatch after its final permission check. It is not a use. */
     suspend fun rejectedBeforeDispatch(id: String?) {
         if (id == null) return
-        withTimeoutOrNull(250) {
+        withTimeoutOrNull(completionTimeoutMs) {
             safe {
                 database.withTransaction {
                     val call = dao.invocation(id) ?: return@withTransaction
@@ -217,7 +223,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
     }
     suspend fun attempt(invocation: String, id: String, outcome: ToolOutcome, kind: String = "MCP_CALL") {
         require(kind in setOf("MCP_CALL", "HTTP", "LOCAL"))
-        withTimeoutOrNull(150) {
+        withTimeoutOrNull(observationTimeoutMs) {
             safe {
                 database.withTransaction {
                     val call = dao.invocation(invocation) ?: return@withTransaction
@@ -228,7 +234,7 @@ class ToolStatisticsRepository @Inject constructor(@ApplicationContext context: 
         }
     }
     suspend fun delivered(id: String) {
-        withTimeoutOrNull(250) {
+        withTimeoutOrNull(completionTimeoutMs) {
             safe {
                 database.withTransaction {
                     val call = dao.invocation(id) ?: return@withTransaction

@@ -86,6 +86,14 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         }
     }
 
+    fun updateAssist(change: (dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) -> dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) = perform {
+        repository.mutateFeatureSettings { it.copy(localAssistPolicy = change(it.localAssistPolicy).validated()) }
+    }
+    fun pinProfile(profile: PlatformV2) = perform { repository.updatePlatformV2(profile.copy(isFavorite = !profile.isFavorite)) }
+    fun duplicateProfile(profile: PlatformV2) = perform { repository.addPlatformV2(profile.copy(id = 0, uid = java.util.UUID.randomUUID().toString(), name = "${profile.name} (copy)", isFavorite = false)) }
+    fun deleteProfile(profile: PlatformV2) = perform { repository.deletePlatformV2(profile) }
+    fun setMemoryReserve(value: Int) = perform { repository.mutateFeatureSettings { it.copy(localMemoryReserveMb = value.coerceIn(256, 4096)) } }
+
     fun selectBackend(value: LocalRuntimeBackend) = perform {
         require(value != LocalRuntimeBackend.QUALCOMM_QNN || _qnnAvailable.value) { "NPU is unavailable on this device" }
         repository.updateLocalRuntimeBackend(value)

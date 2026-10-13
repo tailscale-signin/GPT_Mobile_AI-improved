@@ -158,7 +158,8 @@ data class BenchmarkRun(
     val delegationPlan: BenchmarkMode? = null,
     val delegationSuiteVersion: Int = 0,
     val reviewerProvider: String? = null,
-    val reviewerModel: String? = null
+    val reviewerModel: String? = null,
+    val billingOrigin: String? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

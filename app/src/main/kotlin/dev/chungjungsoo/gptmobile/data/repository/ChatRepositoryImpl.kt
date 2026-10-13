@@ -1656,13 +1656,15 @@ class ChatRepositoryImpl(
                     }
                 )
             }
-            val assistTarget = settingRepository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() }
+            val assistTarget = settingRepository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() && it.uid == runFeatures.localAssistPolicy.profileUid }
             val assist = if (runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM && assistTarget != null) {
                 dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
                     goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                     warmEligible = { runtimeEligibleForAssist(assistTarget) },
-                    selectEvidence = { task -> delegateToProfile(assistTarget, task, 128, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
-                    notice = { emit(ApiState.Notice(it)) }
+                    selectEvidence = { task -> delegateToProfile(assistTarget, task, if (runFeatures.localAssistPolicy.summarizeRetrievedText || runFeatures.localAssistPolicy.proposeQueries) 1024 else 128, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
+                    notice = { emit(ApiState.Notice(it)) },
+                    policy = runFeatures.localAssistPolicy.validated(),
+                    stillEnabled = { settingRepository.getFeatureSettings().localAssist }
                 )
             } else {
                 null

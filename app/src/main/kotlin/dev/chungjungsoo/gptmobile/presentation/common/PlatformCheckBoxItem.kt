@@ -42,6 +42,7 @@ fun PlatformCheckBoxItem(
     labels: String? = null,
     title: String = stringResource(R.string.sample_item_title),
     description: String? = stringResource(R.string.sample_item_description),
+    supportingContent: (@Composable () -> Unit)? = null,
     onLongClickEvent: (() -> Unit)? = null,
     onClickEvent: () -> Unit
 ) {
@@ -114,6 +115,7 @@ fun PlatformCheckBoxItem(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+            supportingContent?.invoke()
             if (labelsList.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(

@@ -22,6 +22,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadA
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -289,17 +290,38 @@ class LocalModelsViewModel @Inject constructor(
         }
     }
 
+    val importStatus = MutableStateFlow<String?>(null)
+    private var importJob: Job? = null
+    fun cancelImport() {
+        importJob?.cancel()
+        importStatus.value = "Import canceled. Choose the source again to retry."
+    }
+
     fun importCustomModel(contentResolver: ContentResolver, uri: Uri) {
-        viewModelScope.launch {
-            val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "custom.litertlm"
-            val inputStream = runCatching { contentResolver.openInputStream(uri) }.getOrNull()
-            if (inputStream == null) {
-                customDialogState.value = LocalModelsDialog.ImportFailed("Could not open file stream.")
-                return@launch
-            }
-            val result = localModelRepository.importCustomModel(inputStream, fileName)
-            if (result is LocalModelImportResult.Failure) {
-                customDialogState.value = LocalModelsDialog.ImportFailed(result.message)
+        if (importJob?.isActive == true) return
+        importJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            importStatus.value = "Inspecting selected file…"
+            try {
+                val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "unknown"
+                val input = contentResolver.openInputStream(uri) ?: error("Could not open selected source. Choose the file again.")
+                val coroutine = kotlinx.coroutines.currentCoroutineContext()
+                var lastUpdate = 0L
+                val result = localModelRepository.importWithProgress(input, fileName, { coroutine.ensureActive() }) { bytes ->
+                    val now = System.nanoTime() / 1_000_000
+                    if (now - lastUpdate >= 500) {
+                        lastUpdate = now
+                        importStatus.value = "Copying and verifying · ${bytes / (1024 * 1024)} MB"
+                    }
+                }
+                importStatus.value = when (result) {
+                    is LocalModelImportResult.Failure -> result.message
+                    is LocalModelImportResult.Success -> "Imported. Create a profile from the installed model; runtime verification happens before use."
+                }
+                if (result is LocalModelImportResult.Failure) customDialogState.value = LocalModelsDialog.ImportFailed(result.message)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                importStatus.value = error.message ?: "Import failed. Choose the source again to retry."
             }
         }
     }

@@ -191,6 +191,11 @@ class HomeViewModel @Inject constructor(
         )
 
     init {
+        settingRepository.observePlatformV2s().onEach { platforms ->
+            val selected = _platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid }.toSet()
+            _platformState.value = platforms
+            _chatListState.update { it.copy(selectedPlatforms = platforms.map { profile -> profile.enabled && profile.uid in selected }) }
+        }.launchIn(viewModelScope)
         foldersRepository.members.onEach { members ->
             folderMembers = members.associate { it.chatId to it.folderId }
             publishFolderChats()
@@ -606,11 +611,9 @@ class HomeViewModel @Inject constructor(
     fun fetchPlatformStatus() {
         viewModelScope.launch {
             val platforms = settingRepository.fetchPlatformV2s()
-            _platformState.update { platforms }
-
-            if (_chatListState.value.selectedPlatforms.size != platforms.size) {
-                _chatListState.update { it.copy(selectedPlatforms = List(platforms.size) { false }) }
-            }
+            val selected = _platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid }.toSet()
+            _platformState.value = platforms
+            _chatListState.update { it.copy(selectedPlatforms = platforms.map { profile -> profile.enabled && profile.uid in selected }) }
         }
     }
 

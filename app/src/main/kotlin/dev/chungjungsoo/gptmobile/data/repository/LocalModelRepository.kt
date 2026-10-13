@@ -16,6 +16,7 @@ interface LocalModelRepository {
     suspend fun cancelDownload(catalogEntryId: String)
     suspend fun deleteModel(catalogEntryId: String)
     suspend fun importCustomModel(inputStream: InputStream, fileName: String): LocalModelImportResult
+    suspend fun importWithProgress(inputStream: InputStream, fileName: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = importCustomModel(inputStream, fileName)
     suspend fun totalStorageUsed(): Long
     suspend fun reconcile()
     suspend fun awaitActiveDownloadScheduling() = Unit

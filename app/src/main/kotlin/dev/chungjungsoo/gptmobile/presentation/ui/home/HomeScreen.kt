@@ -787,9 +787,14 @@ fun HomeScreen(
         }
 
         if (showSelectModelDialog) {
+            val insightsViewModel: NewChatInsightsViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
+            val insights by insightsViewModel.insights.collectAsStateWithLifecycle()
+            LaunchedEffect(insightsViewModel) { insightsViewModel.refreshWhileVisible() }
             SelectPlatformDialog(
                 platformState,
                 selectedPlatforms = chatListState.selectedPlatforms,
+                insights = insights,
+                onRefreshPrices = insightsViewModel::refreshNow,
                 initialCombined = homeFeatures.lastChatMode == ConversationMode.COMBINED,
                 onDismissRequest = { homeViewModel.closeSelectModelDialog() },
                 onConfirmation = { platforms, conversationMode ->
@@ -1657,14 +1662,16 @@ fun FavoriteDetailDialog(
 }
 
 @Composable
-fun SelectPlatformDialog(
+internal fun SelectPlatformDialog(
     platforms: List<PlatformV2>,
     selectedPlatforms: List<Boolean>,
     onDismissRequest: () -> Unit,
     onConfirmation: (enabledPlatforms: List<String>, conversationMode: String) -> Unit,
     onPlatformSelect: (idx: Int) -> Unit,
     onTogglePlatformFavorite: (platformId: Int) -> Unit = {},
-    initialCombined: Boolean = false
+    initialCombined: Boolean = false,
+    insights: Map<String, ProfileInsight> = emptyMap(),
+    onRefreshPrices: () -> Unit = {}
 ) {
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -1750,7 +1757,8 @@ fun SelectPlatformDialog(
                             selected = selectedPlatforms.getOrElse(originalIndex) { false },
                             isFavorite = platform.isFavorite,
                             labels = platform.labels,
-                            description = null,
+                            description = "${platform.compatibleType.name} · ${platform.model}",
+                            supportingContent = insights[platform.uid]?.let { insight -> { NewChatProfileInsights(insight, onRefreshPrices) } },
                             onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
                             onClickEvent = { onPlatformSelect(originalIndex) }
                         )

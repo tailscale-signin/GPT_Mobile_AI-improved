@@ -176,18 +176,29 @@ class LocalModelRepositoryImpl(
     override suspend fun importCustomModel(
         inputStream: InputStream,
         fileName: String
-    ): LocalModelImportResult = withContext(ioDispatcher) {
+    ): LocalModelImportResult = importWithProgress(inputStream, fileName, {}, {})
+
+    override suspend fun importWithProgress(inputStream: InputStream, fileName: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = withContext(ioDispatcher) {
         val root = storageRoot()
-        val result = if (fileName.endsWith(".localmodel", true) && dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
-            dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root)
+        val result = if (fileName.endsWith(".localmodel", true) || fileName.endsWith(".zip", true)) {
+            if (!dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
+                inputStream.close()
+                return@withContext LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.UNSUPPORTED_FORMAT, "This package needs the separate GenieX build.")
+            }
+            dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root, checkCurrent = checkCurrent)
+        } else if (fileName.endsWith(".gguf", true)) {
+            dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.install(inputStream, root, checkCurrent, progress)
         } else {
             LocalModelLocator.importModel(
                 inputStream = inputStream,
                 fileName = fileName,
-                targetModelsRootDir = root
+                targetModelsRootDir = root,
+                checkCurrent = checkCurrent,
+                onProgress = progress
             )
         }
         if (result is LocalModelImportResult.Success) {
+            checkCurrent()
             if (result.record.fileName == "manifest.json") {
                 val file = File(result.absoluteFilePath)
                 val artifact = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(file)

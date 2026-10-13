@@ -53,7 +53,7 @@ fun AdvancedSettingsScreen(
     val groups = remember { AppFeature.entries.groupBy(SettingsSearchRegistry::group) }
     val rows = remember { groups.values.flatMap { listOf<AppFeature?>(null) + it } }
     LaunchedEffect(initialFocus) {
-        val target = if (initialFocus.startsWith("privacy")) 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(1)
+        val target = if (initialFocus.startsWith("privacy")) 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(2)
         if (target != null) listState.scrollToItem(target)
     }
     CompositionLocalProvider(LocalSettingSearchFocus provides initialFocus.substringAfter(':', "")) {
@@ -71,6 +71,7 @@ fun AdvancedSettingsScreen(
                 item(key = "privacy") {
                     SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) }
                 }
+                item(key = "price-actions") { SettingsPanel("New Chat — Pricing Sources") { NewChatInsightsSettingsPanel() } }
                 groups.forEach { (group, features) ->
                     item(key = "group.$group") { Text(group, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = AppSpacing.medium)) }
                     features.forEach { feature ->

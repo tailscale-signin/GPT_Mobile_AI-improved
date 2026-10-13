@@ -4,6 +4,12 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class AppFeatureSettings(
+    val newChatScores: Boolean = true,
+    val newChatPrices: Boolean = true,
+    val newChatPriceRefresh: Boolean = true,
+    val newChatCommunity: Boolean = false,
+    val newChatBackgroundPrices: Boolean = false,
+    val manualPrices: List<dev.chungjungsoo.gptmobile.data.pricing.ManualPrice> = emptyList(),
     val compactChatList: Boolean = false,
     val lastChatProfileUids: List<String> = emptyList(),
     val lastChatMode: String = "STANDARD",
@@ -48,6 +54,7 @@ data class AppFeatureSettings(
     val localSpeculativeDecoding: SpeculativeDecodingMode = SpeculativeDecodingMode.AUTO,
     val localNativeMetrics: Boolean = false,
     val localAssist: Boolean = false,
+    val localAssistPolicy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(),
     val localIdleMinutes: Int = 10,
     val localExecutionPolicy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy = dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.PROFILE,
     val localExecutionPolicyVersion: Int = 1,
@@ -64,6 +71,11 @@ data class AppFeatureSettings(
     val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()
 ) {
     fun withFeature(feature: AppFeature, enabled: Boolean): AppFeatureSettings = when (feature) {
+        AppFeature.NEW_CHAT_SCORES -> copy(newChatScores = enabled)
+        AppFeature.NEW_CHAT_PRICES -> copy(newChatPrices = enabled)
+        AppFeature.NEW_CHAT_PRICE_REFRESH -> copy(newChatPriceRefresh = enabled)
+        AppFeature.NEW_CHAT_COMMUNITY -> copy(newChatCommunity = enabled)
+        AppFeature.NEW_CHAT_BACKGROUND_PRICES -> copy(newChatBackgroundPrices = enabled)
         AppFeature.COMPACT_CHAT_LIST -> copy(compactChatList = enabled)
         AppFeature.SMOOTH_STREAMING -> copy(smoothStreaming = enabled)
         AppFeature.CENTER_UNREAD -> copy(centerUnread = enabled)
@@ -152,6 +164,11 @@ enum class AppFeature(
     val title: String,
     val description: String
 ) {
+    NEW_CHAT_SCORES("Show Benchmark Scores in New Chat", "Show the selected model’s best compatible test result; never run a benchmark automatically."),
+    NEW_CHAT_PRICES("Show Provider Prices in New Chat", "Show listed input and output rates, source, and freshness for the exact selected provider and model."),
+    NEW_CHAT_PRICE_REFRESH("Automatically Refresh Provider Prices", "Refresh due public pricing metadata while New Chat is open. This does not make an inference request."),
+    NEW_CHAT_COMMUNITY("Use Community Benchmark Fallback", "Read self-reported public scores only when no personal result matches. Never publish your results."),
+    NEW_CHAT_BACKGROUND_PRICES("Refresh Prices in the Background", "Check eligible provider catalogues approximately every six hours. Requires visible prices and automatic refresh."),
     COMPACT_CHAT_LIST("Compact Conversation List", "Show a smaller conversation preview while preserving accessible actions."),
     SMOOTH_STREAMING("Follow Streaming Responses", "Keep the latest text visible until you scroll up."),
     CENTER_UNREAD("Center Unread Responses", "Open new replies at their beginning, in the middle of the screen."),

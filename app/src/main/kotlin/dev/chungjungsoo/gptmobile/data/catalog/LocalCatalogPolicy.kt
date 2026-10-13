@@ -42,5 +42,5 @@ object LocalCatalogRecommendationPolicy {
     fun recommend(entries: List<CatalogEntry>, geniexEnabled: Boolean, soc: String, ramGb: Long? = null): List<CatalogEntry> = entries
         .filter { LocalCatalogCompatibilityResolver.resolve(it, geniexEnabled, soc).canDownload && (ramGb == null || it.minRamGb <= ramGb) }
         .sortedWith(compareBy<CatalogEntry> { curated.indexOfFirst { family -> (it.familyId + it.id).contains(family, true) }.takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }.thenBy { if (it.sizeInBytes > 0) it.sizeInBytes else Long.MAX_VALUE }.thenBy { it.id })
-        .distinctBy { it.familyId.ifBlank { it.id } }.take(6)
+        .distinctBy { it.familyId.ifBlank { it.id } }.take(4)
 }

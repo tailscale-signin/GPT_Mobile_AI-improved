@@ -23,7 +23,13 @@ data class OpenRouterModelItem(
 @Serializable
 data class OpenRouterPricing(
     val prompt: String? = null,
-    val completion: String? = null
+    val completion: String? = null,
+    @SerialName("input_cache_read") val inputCacheRead: String? = null,
+    @SerialName("input_cache_write") val inputCacheWrite: String? = null,
+    val overrides: kotlinx.serialization.json.JsonArray? = null,
+    val request: String? = null,
+    val image: String? = null,
+    @SerialName("web_search") val webSearch: String? = null
 )
 
 @Serializable

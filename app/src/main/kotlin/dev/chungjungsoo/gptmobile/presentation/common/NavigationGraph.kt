@@ -230,6 +230,7 @@ fun NavGraphBuilder.setupNavigation(
             LocalModelsScreen(
                 startInMarketplace = true,
                 onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
+                onUseProfile = { uid -> navController.navigate("chat_room/0?enabled=$uid&mode=STANDARD") },
                 onNavigationClick = { navController.navigateUp() }
             )
         }
@@ -587,6 +588,7 @@ fun NavGraphBuilder.settingNavigation(
                 startInMarketplace = entry.arguments?.getBoolean("marketplace") == true,
                 startInDelegation = entry.arguments?.getBoolean("runtime") == true,
                 onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
+                onUseProfile = { uid -> navController.navigate("chat_room/0?enabled=$uid&mode=STANDARD") },
                 onNavigationClick = { navController.navigateUp() }
             )
         }

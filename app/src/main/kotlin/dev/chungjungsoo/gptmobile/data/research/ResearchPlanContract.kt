@@ -19,7 +19,8 @@ data class ResearchQuery(val id: String, val text: String, val questionIds: List
 data class ResearchPlanContract(val questions: List<ResearchQuestion>, val queries: List<ResearchQuery>, val noResearchNeeded: Boolean = false, val fallback: Boolean = false) {
     companion object {
         /** Explicit adapters for old strings, observed question objects, and versioned rows. */
-        fun parse(value: JsonObject): ResearchPlanContract {
+        fun parse(value: JsonObject, requiresEvidence: Boolean = false): ResearchPlanContract {
+            require(value["schemaVersion"] == null || value.number("schemaVersion") == 1) { "Unsupported planner schema" }
             val questions = parseQuestions(value["questions"] as? JsonArray ?: error("Missing questions array"))
             val rows = value["queries"] as? JsonArray ?: error("Missing queries array")
             require(rows.size <= 64) { "Too many research queries" }
@@ -32,6 +33,7 @@ data class ResearchPlanContract(val questions: List<ResearchQuestion>, val queri
                 ResearchQuery(objectRow?.text("id").orEmpty().ifBlank { "QRY${index + 1}" }, text, refs)
             }
             val unnecessary = (value["noResearchNeeded"] as? JsonPrimitive)?.booleanOrNull == true
+            require(!unnecessary || !requiresEvidence) { "Required evidence cannot be waived by the planner" }
             require(questions.isNotEmpty() || unnecessary && queries.isEmpty()) { "Empty plan is not an explicit no-research decision" }
             require(queries.map { it.id }.distinct().size == queries.size)
             return ResearchPlanContract(questions, queries, unnecessary)

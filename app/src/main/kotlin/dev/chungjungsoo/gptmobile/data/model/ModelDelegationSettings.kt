@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ModelDelegationSettings(
     val enabled: Boolean = false,
+    val orchestrationVersion: Int = 2,
+    val orchestrationEnabled: Boolean = true,
     val taskPlan: dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan = dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan(),
     val templateRole: dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role? = null,
     val policyVersion: Int = 1,
@@ -120,7 +122,7 @@ data class ModelDelegationSettings(
             processingOwnership = 100 - amount,
             automaticResearch = if (amount == 100) true else automaticResearch,
             researchEnabled = if (amount == 100) true else researchEnabled,
-            reviewerEnabled = if (amount == 100) true else reviewerEnabled
+            reviewerEnabled = (amount == 100 || reviewerEnabled) && reviewMode != dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF
         )
     }
 
@@ -184,6 +186,7 @@ data class ModelDelegationSettings(
     fun effectiveWastedLocalTokens(): Int = maxWastedLocalTokensPerTurn.coerceIn(1_000, 64_000)
 
     fun normalized(): ModelDelegationSettings {
+        if (!orchestrationEnabled || orchestrationVersion != 2) return copy(enabled = false, researchEnabled = false, automaticResearch = false, reviewerEnabled = false)
         if (policyVersion < 2) {
             return copy(
                 policyVersion = 2,
@@ -210,7 +213,7 @@ data class ModelDelegationSettings(
             processingOwnership = processingOwnership.coerceIn(0, 100),
             automaticResearch = automaticResearch || processingOwnership <= 0,
             researchEnabled = researchEnabled || processingOwnership <= 0,
-            reviewerEnabled = (reviewerEnabled || processingOwnership <= 0) && reviewMode != dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF,
+            reviewerEnabled = (reviewerEnabled || processingOwnership <= 0 || reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) && reviewMode != dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF,
             reviewerOutputTokens = reviewerOutputTokens.coerceIn(128, 1024),
             reviewerMinimumScore = reviewerMinimumScore.coerceIn(0, 100),
             reviewerRetryLimit = reviewerRetryLimit.coerceIn(0, 5),

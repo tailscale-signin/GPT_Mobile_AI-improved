@@ -1,10 +1,10 @@
 # Delegation: End-to-End Repair Design and Implementation Plan
 
-**Status:** Proposed implementation; this change adds documentation only.  
-**Date:** October 12, 2026, America/Toronto.  
-**Repository baseline:** `1d4dcd8698356abddc5f1be946bb0811017b7d7a` on `main`, the merge for release `0.9.51.0`.  
-**Incident build:** `0.9.51.0`, build `120`, application ID `dev.melo.gptmobile.improved`.  
-**Scope:** Delegation admission, workers, research, independent review, handoff, final writing, recovery, permissions, accounting, persistence, and their UI.  
+**Status:** Proposed implementation; this change adds documentation only.
+**Date:** October 12, 2026, America/Toronto.
+**Repository baseline:** `1d4dcd8698356abddc5f1be946bb0811017b7d7a` on `main`, the merge for release `0.9.51.0`.
+**Incident build:** `0.9.51.0`, build `120`, application ID `dev.melo.gptmobile.improved`.
+**Scope:** Delegation admission, workers, research, independent review, handoff, final writing, recovery, permissions, accounting, persistence, and their UI.
 **Release gate:** Every confirmed issue below must have a reproducing test and a verified resolution. Risks require an explicit test result, not an assumption that they occur.
 
 ## 1. Decision and intended outcome
@@ -481,4 +481,3 @@ The following are the actual source inspection anchors. Repository paths use the
 Completed for this documentation change: programmatic inspection of the supplied JSON's run, invocation, diagnostic, research, and identifier data; source inspection at the pinned commit; classification of observed defects versus unproven risks; implementation mapping; and proposed regression/rollout gates.
 
 Not performed by this change: live provider authentication tests, reproduction on the user's Android device or private server, execution of Android/Kotlin tests, runtime code modifications, release publication, or verification that the proposed fixes already work. The next implementation work must supply that evidence.
-

@@ -91,6 +91,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRepositoryImplTest {
+    @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
     @Test
     fun `helpers honor conversation options and approvals with distinct action identities`() = runBlocking {
@@ -959,6 +960,35 @@ class ChatRepositoryImplTest {
         )
     }
 
+    @Test fun knownForbiddenWriterBlocksContinueBeforeToolPreparationAndExplicitRetryRechecksOnlyWriter() = runBlocking {
+        val api = RecordingOpenAIAPI(
+            ArrayDeque(
+                listOf(
+                    flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "HTTP 403: access forbidden; specific cause unavailable", code = "403"))),
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Resumed final answer"), finishReason = "stop"))))
+                )
+            )
+        )
+        var toolResolutions = 0
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } answers {
+            toolResolutions++
+            emptyList()
+        }
+        val repository = createRepository(openAIAPI = api, agentToolResolver = resolver)
+        val original = MessageV2(id = 1, chatId = 0, content = "Compare synthetic materials", platformType = null)
+        val first = repository.completeChat(listOf(original), emptyList(), customPlatform(), "first", null).toList()
+        assertTrue(first.any { it is ApiState.Error && it.message.contains("403") })
+        val afterFailure = toolResolutions
+        val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), customPlatform(), "continue", null).toList()
+        assertTrue(continued.any { it is ApiState.Error && it.message.contains("Final writer unavailable") })
+        assertEquals(1, api.streamChatCompletionCalls)
+        assertEquals(afterFailure, toolResolutions)
+        val retry = repository.completeChat(listOf(original, original.copy(id = 5, content = "Retry failed stage")), emptyList(), customPlatform(), "retry", null).toList()
+        assertTrue(retry.any { it is ApiState.Success && it.textChunk.contains("Resumed final answer") })
+        assertEquals(2, api.streamChatCompletionCalls)
+    }
+
     private fun createRepository(
         groqAPI: GroqAPI = FakeGroqAPI(emptyFlow()),
         openAIAPI: OpenAIAPI = RecordingOpenAIAPI(),
@@ -971,7 +1001,9 @@ class ChatRepositoryImplTest {
         factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
         toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
-        context = ContextWrapper(null),
+        context = object : ContextWrapper(null) {
+            override fun getFilesDir(): File = testFiles.root
+        },
         chatRoomV2Dao = proxy(),
         messageV2Dao = proxy(),
         chatPlatformModelV2Dao = proxy(),

@@ -1,10 +1,10 @@
 # Diagnostics Reliability — Design and Implementation Plan
 
-**Project:** GPT Mobile AI Improved  
-**Design date:** October 12, 2026, America/Toronto  
-**Status:** Proposed implementation; documentation only. No runtime fixes or device qualification are claimed.  
-**Audited application:** `0.9.51.0`, build `120`, debug, package `dev.melo.gptmobile.improved`  
-**Audited repository commit:** `1d4dcd8698356abddc5f1be946bb0811017b7d7a`  
+**Project:** GPT Mobile AI Improved
+**Design date:** October 12, 2026, America/Toronto
+**Status:** Proposed implementation; documentation only. No runtime fixes or device qualification are claimed.
+**Audited application:** `0.9.51.0`, build `120`, debug, package `dev.melo.gptmobile.improved`
+**Audited repository commit:** `1d4dcd8698356abddc5f1be946bb0811017b7d7a`
 **Repository:** `tailscale-signin/GPT_Mobile_AI-improved`
 
 ## 1. Executive decision
@@ -377,4 +377,3 @@ Repository links below are pinned to the audited commit. File-tree-verified inte
 [U7]: https://developer.android.com/reference/android/app/ApplicationExitInfo
 
 External references were checked during this audit. U3 is OpenRouter's production retry guidance in its audio tutorial, used here only for its general status/Retry-After guidance; it is not treated as evidence that audio endpoints were involved in the log. The observed failures are chat/model, MCP, and source-acquisition operations.
-

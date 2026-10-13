@@ -44,9 +44,15 @@ class ResponseRecoveryContextTest {
             }
         }
         val saved = ToolEvent("e", "old-run", 0, "old-call", "connection", "Workspace", "write_file", "write_file", "{\"path\":\"a.txt\"}", ToolResultCheckpoint.encode("saved result", "TEXT", "Short display"), "CHECKPOINT_V1", "COMPLETED")
-        val wrapper = ResponseRecoveryContext(listOf(run), emptyList(), listOf(saved))
+        val wrapper = ResponseRecoveryContext(listOf(run), emptyList(), listOf(saved), rootWorkId = "1:1")
             .reuseCompletedTool(original, "write_file", "connection")
-        val reused = wrapper.execute("new-call", buildJsonObject { put("path", "a.txt") })
+        val reused = wrapper.execute(
+            "new-call",
+            buildJsonObject {
+                put("path", "a.txt")
+                put("_recovery_effect_id", "e")
+            }
+        )
         assertEquals(0, calls)
         assertTrue(reused.sharedResult)
         assertEquals("new-call", reused.callId)
@@ -124,5 +130,30 @@ class ResponseRecoveryContextTest {
         }
         assertEquals(recovery.content, restored.toString())
         assertTrue(recovery.prefix(500).contains("unknown outcome"))
+    }
+
+    @Test fun sameArgumentsInANewTaskDoNotSuppressNewIntentAndUnknownEffectsAreBlocked() = runTest {
+        var calls = 0
+        val original = object : AgentTool {
+            override val definition = AgentToolDefinition("write_file", "Write", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                calls++
+                return AgentToolResult(callId, ToolResultContent.Text("new"), false)
+            }
+        }
+        val saved = ToolEvent("effect", run.runId, 0, "old", "connection", "Workspace", "write_file", "write_file", "{}", null, "TEXT", "CANCELED")
+        ResponseRecoveryContext(listOf(run), emptyList(), listOf(saved)).reuseCompletedTool(original, "write_file", "connection").execute("new", buildJsonObject {})
+        assertEquals(1, calls)
+        val resumed = ResponseRecoveryContext(listOf(run), emptyList(), listOf(saved), rootWorkId = "1:1").reuseCompletedTool(original, "write_file", "connection")
+        assertTrue(resumed.execute("resume", buildJsonObject { put("_recovery_effect_id", "effect") }).isError)
+        assertEquals(1, calls)
+    }
+
+    @Test fun chatOnlyRecoveryUsesBoundedViewAndReportsOmissionWithoutAdvertisingUnavailableTool() {
+        val message = MessageV2(id = 2, chatId = 1, content = "evidence ".repeat(10000), platformType = "p", currentRunId = run.runId)
+        val view = ResponseRecoveryContext(listOf(run), listOf(message), emptyList()).prefix(1000, pagingAvailable = false)
+        assertTrue(view.length < 2000)
+        assertTrue(view.contains("Omitted"))
+        assertFalse(view.contains("with read_recovery_context"))
     }
 }

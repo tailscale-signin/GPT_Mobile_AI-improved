@@ -100,7 +100,7 @@ class ReadUrlToolTest {
         assertEquals(setOf("url"), schema["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet())
         assertEquals("string", properties["url"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals(false, schema["additionalProperties"]!!.jsonPrimitive.content.toBoolean())
-        assertEquals(setOf("url", "includeLinks", "includeDomains", "excludeDomains"), properties.keys)
+        assertEquals(setOf("url", "includeLinks", "includeDomains", "excludeDomains", "extractDocument"), properties.keys)
         assertEquals("boolean", properties["includeLinks"]!!.jsonObject["type"]!!.jsonPrimitive.content)
     }
 

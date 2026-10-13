@@ -38,3 +38,11 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecover
         }
     return ResolvedTaskRecovery(action, source.id, source.content, primaryOnly)
 }
+
+/** Identity is derived only from this chat's persisted original message, never task text. */
+internal fun rootWorkId(messages: List<MessageV2>, fallbackRunId: String): String {
+    val latest = messages.lastOrNull() ?: return fallbackRunId
+    if (latest.id <= 0) return fallbackRunId
+    val sameChat = messages.filter { it.chatId == latest.chatId }
+    return "${latest.chatId}:${resolveTaskRecovery(sameChat)?.sourceMessageId ?: latest.id}"
+}

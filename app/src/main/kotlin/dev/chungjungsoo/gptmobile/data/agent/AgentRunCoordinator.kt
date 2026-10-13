@@ -215,12 +215,12 @@ class AgentRunCoordinator @Inject constructor(
         requestCancellation(jobs.keys.toSet(), isInterrupted = true)
     }
 
-    suspend fun cancelChatAndJoin(chatId: Int) {
+    suspend fun cancelChatAndJoin(chatId: Int, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         val runIds = _activeRuns.value.values
             .filter { it.chatId == chatId }
             .mapTo(mutableSetOf(), ActiveAgentRun::runId)
         withContext(NonCancellable) {
-            terminalizeAndCancel(runIds, isInterrupted = false)
+            terminalizeAndCancel(runIds, isInterrupted = false, origin = origin)
         }
     }
 
@@ -247,12 +247,12 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean) {
+    private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         if (runIds.isEmpty()) return
         if (isInterrupted) interruptingRunIds += runIds
         val completedAt = currentEpochSeconds()
         runIds.forEach { runId ->
-            cancellationContexts[runId]?.mark(if (isInterrupted) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PROCESS_INTERRUPTION else dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN)
+            cancellationContexts[runId]?.mark(if (isInterrupted) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PROCESS_INTERRUPTION else origin)
             runCatching {
                 cancelAndJoinAgentRun(jobs[runId]) {
                     chatRepository.finishActiveAgentRun(

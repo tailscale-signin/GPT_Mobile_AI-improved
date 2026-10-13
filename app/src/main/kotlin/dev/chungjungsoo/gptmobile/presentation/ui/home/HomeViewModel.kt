@@ -448,7 +448,7 @@ class HomeViewModel @Inject constructor(
             }
 
             val chats = agentRunCoordinator.withChatGate(selectedChats.map { it.id }) {
-                selectedChats.forEach { agentRunCoordinator.cancelChatAndJoin(it.id) }
+                selectedChats.forEach { agentRunCoordinator.cancelChatAndJoin(it.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED) }
                 chatRepository.deleteChatsV2(selectedChats)
                 chatRepository.fetchChatListV2()
             }
@@ -484,7 +484,7 @@ class HomeViewModel @Inject constructor(
         completionStore.clearChat(chatRoom.id)
         viewModelScope.launch {
             agentRunCoordinator.withChatGate(chatRoom.id) {
-                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
+                agentRunCoordinator.cancelChatAndJoin(chatRoom.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
                 chatRepository.deleteChatsV2(listOf(chatRoom))
             }
             fetchChats()
@@ -512,7 +512,7 @@ class HomeViewModel @Inject constructor(
         completionStore.clearChat(chatRoom.id)
         viewModelScope.launch {
             agentRunCoordinator.withChatGate(chatRoom.id) {
-                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
+                agentRunCoordinator.cancelChatAndJoin(chatRoom.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
                 chatRepository.deleteChatsV2(listOf(chatRoom))
             }
             fetchArchivedChats()

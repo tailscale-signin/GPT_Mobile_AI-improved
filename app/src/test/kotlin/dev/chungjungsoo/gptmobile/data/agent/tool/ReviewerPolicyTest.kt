@@ -27,10 +27,10 @@ class ReviewerPolicyTest {
     }
 
     @Test fun `automatic reviewer is reserved before selecting workers`() {
-        val primary = PlatformV2(uid = "primary", name = "Primary")
-        val worker = PlatformV2(uid = "worker", name = "Worker", model = "worker-model", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8080")
-        val reviewer = worker.copy(uid = "reviewer", model = "reviewer-model")
-        val config = ModelDelegationSettings(enabled = true, reviewerEnabled = true, targetProfileUid = worker.uid)
+        val primary = PlatformV2(uid = "primary", name = "Primary", compatibleType = ClientType.OPENAI, model = "gpt-4.1", apiUrl = "https://api.openai.com")
+        val worker = PlatformV2(uid = "worker", name = "Worker", model = "qwen/qwen3-8b", compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1")
+        val reviewer = worker.copy(uid = "reviewer", model = "anthropic/claude-sonnet-4")
+        val config = ModelDelegationSettings(enabled = true, reviewerEnabled = true, targetProfileUid = worker.uid, allowRemoteWorkers = true, localPlatformsOnly = false)
         val reserved = reservedReviewer(config, listOf(primary, worker, reviewer), primary)
         assertEquals(reviewer.uid, reserved?.uid)
         assertTrue(sameDelegationModel(reviewer.copy(uid = "alias"), reserved))

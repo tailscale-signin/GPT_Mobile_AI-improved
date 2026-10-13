@@ -196,4 +196,72 @@ class ResearchSessionStoreTest {
         store.deleteChat(1)
         assertTrue(java.io.File(context.filesDir, "research-history").listFiles().orEmpty().none { it.extension == "claim" })
     }
+
+    @Test fun persistedFenceRejectsOldOwnerAfterStoreRestartAndPreservesTemporaryBoundary() = runBlocking {
+        val oldStore = ResearchSessionStore(context)
+        val old = oldStore.journal("old", 1, true, turnId = "1:1")
+        old.save(ResearchSnapshot("original", updatedAt = 1))
+        val restarted = ResearchSessionStore(context)
+        restarted.resume(1, "1:1", 3)
+        val current = restarted.journal("new", 1, true, turnId = "1:1")
+        current.save(ResearchSnapshot("current", updatedAt = 3))
+        old.save(ResearchSnapshot("stale", updatedAt = 4))
+        assertTrue(old.stopRequested())
+        assertEquals("current", ResearchSessionStore(context).journal("reader", 1, true, turnId = "1:1").load("current")!!.task)
+        restarted.deleteChat(1)
+        assertTrue(directory.listFiles().orEmpty().isEmpty())
+        ResearchSessionStore(context).resume(2, "2:1", 3, persistent = false)
+        assertTrue(directory.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun syntheticIncidentCheckpointReuses207Sources14ClaimsAndSpentBudgetAfterWriterDenial() = runBlocking {
+        val store = ResearchSessionStore(context)
+        val original = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 1, chatId = 1, content = "Compare synthetic composite panels", platformType = null)
+        val root = dev.chungjungsoo.gptmobile.data.agent.rootWorkId(listOf(original), "run-a")
+        val journal = store.journal("run-a", 1, true, root, authority = "fixture")
+        val budget = journal.budget(100, 1000000)!!
+        repeat(24) { assertTrue(budget.tryCharge(dev.chungjungsoo.gptmobile.data.agent.ResearchBudget.Phase.DISCOVERY, physicalRequest = true)) }
+        val sources = (1..207).map { index ->
+            ResearchSource(
+                "S$index",
+                "https://example.org/study/$index",
+                "Synthetic source $index",
+                status = when {
+                    index <= 129 -> "Metadata only"
+                    index <= 176 -> "Discovered"
+                    index <= 195 -> "Failed"
+                    index <= 202 -> "Partially read"
+                    else -> "Read"
+                },
+                passage = if (index > 195) "Synthetic panel evidence with explicit uncertainty." else "",
+                retrievedAt = System.currentTimeMillis()
+            )
+        }
+        val claims = (1..14).map { index ->
+            ResearchClaim(
+                "S${196 + (index - 1) % 12}",
+                "Synthetic claim $index",
+                "Synthetic panel evidence with explicit uncertainty.",
+                verdict = when {
+                    index <= 5 -> "Supported"
+                    index <= 11 -> "Insufficient"
+                    else -> "Unreviewed"
+                }
+            )
+        }
+        journal.save(ResearchSnapshot(original.content, phase = "Partial useful", sources = sources, claims = claims, attempts = 31, searches = 3, engineResponses = 22, engineFailures = 9, targetSources = 12, notes = listOf("Independent reviewer unavailable", "Evidence saved; final writer HTTP 403, specific cause unavailable")))
+        val continueMessage = original.copy(id = 3, content = "Continue")
+        val recoveredRoot = dev.chungjungsoo.gptmobile.data.agent.rootWorkId(listOf(original, continueMessage), "run-b")
+        assertEquals(root, recoveredRoot)
+        val restarted = ResearchSessionStore(context)
+        restarted.resume(1, recoveredRoot, continueMessage.id)
+        val resumed = restarted.journal("run-b", 1, true, recoveredRoot, authority = "fixture")
+        val checkpoint = resumed.load(original.content)!!
+        assertEquals(207, checkpoint.sources.size)
+        assertEquals(12, checkpoint.sources.count { it.readable })
+        assertEquals(mapOf("Supported" to 5, "Insufficient" to 6, "Unreviewed" to 3), checkpoint.claims.groupingBy { it.verdict }.eachCount())
+        assertEquals(24, resumed.budget(100, 1000000)!!.snapshot().usedLogical)
+        assertFalse(checkpoint.complete)
+        assertTrue(checkpoint.notes.any { it.contains("reviewer unavailable") })
+    }
 }

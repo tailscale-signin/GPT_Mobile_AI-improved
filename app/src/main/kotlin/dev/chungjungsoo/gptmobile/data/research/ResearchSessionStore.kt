@@ -43,11 +43,45 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val generations = ConcurrentHashMap<Pair<Int, String>, Long>()
     private val resumeControls = ConcurrentHashMap<Pair<Int, String>, Int>()
 
-    /** Explicit Continue advances ownership, never resets the original budget or authority. */
-    @Synchronized fun resume(chatId: Int, turnId: String, controlMessageId: Int) {
+    private fun fenceFile(chatId: Int, turnId: String) = File(directory, researchHash("generation:$chatId:$turnId") + ".fence")
+
+    @Synchronized private fun currentGeneration(chatId: Int, turnId: String, persistent: Boolean): Long {
         val key = chatId to turnId
-        if (resumeControls.put(key, controlMessageId) == controlMessageId) return
-        generations.compute(key) { _, previous -> (previous ?: 0) + 1 }
+        if (!persistent) return generations[key] ?: 0L
+        val file = fenceFile(chatId, turnId)
+        val saved = if (file.isFile) Json.parseToJsonElement(AtomicFile(file).openRead().use { it.readBytes() }.decodeToString()).jsonObject else null
+        val fence = saved?.text("fence")?.toLongOrNull() ?: if (saved == null) 0L else error("Invalid generation checkpoint")
+        require(fence >= 0 && (saved == null || saved.number("chatId") == chatId))
+        generations[key] = maxOf(generations[key] ?: 0L, fence)
+        return generations.getValue(key)
+    }
+
+    /** Explicit Continue advances durable ownership without resetting budget or authority. */
+    suspend fun resume(chatId: Int, turnId: String, controlMessageId: Int, persistent: Boolean = true) = withContext(Dispatchers.IO) {
+        lock.withLock { advanceGeneration(chatId, turnId, controlMessageId, persistent) }
+    }
+
+    @Synchronized private fun advanceGeneration(chatId: Int, turnId: String, controlMessageId: Int, persistent: Boolean) {
+        check(chatId !in deletedChats) { "Conversation was deleted" }
+        val key = chatId to turnId
+        val current = currentGeneration(chatId, turnId, persistent)
+        val file = fenceFile(chatId, turnId)
+        val savedControl = if (persistent && file.isFile) Json.parseToJsonElement(file.readText()).jsonObject.number("controlMessageId") else null
+        if (resumeControls[key] == controlMessageId || savedControl == controlMessageId) return
+        val next = Math.addExact(current, 1L)
+        if (persistent) {
+            check(directory.mkdirs() || directory.isDirectory)
+            writeAtomic(
+                file,
+                buildJsonObject {
+                    put("chatId", chatId)
+                    put("fence", next)
+                    put("controlMessageId", controlMessageId)
+                }.toString().toByteArray()
+            )
+        }
+        generations[key] = next
+        resumeControls[key] = controlMessageId
         runTurns.filterValues { it == key }.keys.forEach {
             stops += it
             stopOrigins[it] = "SUPERSEDED_GENERATION"
@@ -69,7 +103,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         runTurns[runId]?.let { stoppedTurns += it }
     }
     fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId): ResearchJournal = object : ResearchJournal {
-        private val generation = generations[chatId to turnId] ?: 0L
+        private val generation = currentGeneration(chatId, turnId, persistent)
         init {
             runTurns[runId] = chatId to turnId
         }
@@ -174,7 +208,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             ResearchBudget(1, ledger = ledger).also { turnBudgets[key] = System.currentTimeMillis() to it }
         }
         override fun cancellationOrigin(): String = if (chatId in deletedChats) "CHAT_DELETED" else stopOrigins[runId] ?: "UNKNOWN"
-        override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns
+        override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns || generation != currentGeneration(chatId, turnId, persistent)
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
             lock.withLock {
@@ -233,7 +267,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
-                if (chatId in deletedChats || generation != (generations[chatId to turnId] ?: 0L)) return@withLock
+                if (chatId in deletedChats || generation != currentGeneration(chatId, turnId, persistent)) return@withLock
                 val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
                 val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
                 val snapshot = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
@@ -412,7 +446,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stoppedTurns.removeAll { it.first == chatId }
         synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
-            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension in setOf("budget", "ledger", "cursor") && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
+            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension in setOf("budget", "ledger", "cursor", "fence") && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
             val retained = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { file ->
                 runCatching { references(Json.parseToJsonElement(file.readText()).jsonObject).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
             }.toSet()

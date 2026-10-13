@@ -1217,7 +1217,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (_chatRoom.value.isTemporary) {
-                    agentRunCoordinator.cancelChatAndJoin(_chatRoom.value.id)
+                    agentRunCoordinator.cancelChatAndJoin(_chatRoom.value.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
                     chatRepository.deleteChatsV2(listOf(_chatRoom.value))
                 } else if (_chatRoom.value.id > 0 && composerRestored) {
                     draftMutex.withLock {

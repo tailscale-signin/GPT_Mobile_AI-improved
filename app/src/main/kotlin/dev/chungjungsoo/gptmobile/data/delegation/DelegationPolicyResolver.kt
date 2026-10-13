@@ -90,7 +90,7 @@ object DelegationPolicyResolver {
             appendLine("Output: ${config.maxOutputTokens} tokens; provider/profile may lower this.")
             appendLine("Preparation: ${config.preparationTimeoutSeconds}s; retries share the deadline.")
             appendLine("Tools: intersection of parent, profile, conversation and current authorization.")
-            if (config.processingOwnership == 0 && config.reviewerProfileUid.isBlank()) appendLine("Blocked: delegate-led preparation requires an independent reviewer.")
+            if (config.reviewMode == DelegationReviewMode.REQUIRED && config.reviewerProfileUid.isBlank()) appendLine("Required independent review pauses preparation until an eligible reviewer is selected.")
             append("Changes apply to the next response. Stop and permission revocation remain live.")
         }
     }

@@ -13,7 +13,7 @@ enum class ProviderFailureKind { AUTHENTICATION, BUDGET, PERMISSION, FORBIDDEN_U
 data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val code: String? = null, val retryAfterMillis: Long? = null) {
     val retryable: Boolean get() = kind in setOf(ProviderFailureKind.RATE_LIMIT, ProviderFailureKind.UNAVAILABLE)
     fun message(): String = when (kind) {
-        ProviderFailureKind.AUTHENTICATION -> "HTTP $status: the provider could not authenticate this request. Check this profile's connection."
+        ProviderFailureKind.AUTHENTICATION -> "HTTP $status: the provider could not authenticate this request. Check the platform connection in Settings → Platforms."
         ProviderFailureKind.BUDGET -> "HTTP $status: the provider reported a budget or credit restriction. Check this account's allowance."
         ProviderFailureKind.PERMISSION -> "HTTP $status: the provider reported an explicit permission restriction for this route."
         ProviderFailureKind.FORBIDDEN_UNKNOWN -> "HTTP 403: access forbidden. The provider's specific cause is unavailable."

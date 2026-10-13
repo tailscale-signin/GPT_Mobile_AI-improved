@@ -30,7 +30,8 @@ data class DelegationEvent(
     val reviewVerdict: String? = null,
     val invocationId: String? = null,
     val attemptId: String? = null,
-    val rootWorkId: String? = null
+    val rootWorkId: String? = null,
+    val stageState: DelegationStageState? = null
 )
 
 @Serializable
@@ -44,12 +45,17 @@ data class DelegationActivity(
     val finishedAt: Long? = null,
     val status: DelegationStepStatus = DelegationStepStatus.RUNNING,
     val events: List<DelegationEvent> = emptyList(),
-    val omittedEvents: Int = 0
+    val omittedEvents: Int = 0,
+    val stageStates: Map<String, DelegationStageState> = emptyMap()
 ) {
-    fun append(event: DelegationEvent): DelegationActivity = copy(
-        events = (events + event).takeLast(200),
-        omittedEvents = omittedEvents + if (events.size >= 200) 1 else 0,
-        finishedAt = if (event.kind == DelegationEventKind.RUN_TERMINAL) event.atMs else finishedAt,
-        status = if (event.kind == DelegationEventKind.RUN_TERMINAL) event.status ?: DelegationStepStatus.INTERRUPTED else status
-    )
+    fun append(event: DelegationEvent): DelegationActivity {
+        if (finishedAt != null) return this
+        return copy(
+            stageStates = event.stageState?.let { stageStates + ((event.stepId ?: event.role.name.lowercase()) to it) } ?: stageStates,
+            events = (events + event).takeLast(200),
+            omittedEvents = omittedEvents + if (events.size >= 200) 1 else 0,
+            finishedAt = if (event.kind == DelegationEventKind.RUN_TERMINAL) event.atMs else finishedAt,
+            status = if (event.kind == DelegationEventKind.RUN_TERMINAL) event.status ?: DelegationStepStatus.INTERRUPTED else status
+        )
+    }
 }

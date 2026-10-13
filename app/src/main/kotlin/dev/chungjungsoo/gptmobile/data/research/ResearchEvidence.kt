@@ -321,3 +321,16 @@ fun Collection<ResearchSource>.readableWorkCount(): Int = filter { it.readable }
         else -> source.equivalenceGroup.ifBlank { source.canonicalUrl }
     }
 }.size
+
+/** Expiration invalidates dependent verification, never the entire saved corpus. */
+internal fun ResearchSnapshot.withFreshEvidence(nowMillis: Long, maxAgeMillis: Long = 86_400_000): ResearchSnapshot {
+    val expired = sources.filter { it.readable && nowMillis - it.retrievedAt !in 0..maxAgeMillis }.map { it.id }.toSet()
+    if (expired.isEmpty()) return this
+    return copy(
+        complete = false,
+        sources = sources.map { if (it.id in expired) it.copy(status = "Discovered", passage = "", bodyChunks = emptyList()) else it },
+        claims = claims.map { if (it.sourceId in expired) it.copy(verdict = "Unreviewed", exactQuoteVerified = false, relevance = "Unknown") else it },
+        extractedSourceVersions = extractedSourceVersions.filterNot { key -> expired.any { key.startsWith("$it:") } }.toSet(),
+        notes = (notes + "${expired.size} expired sources need refresh; other completed evidence is retained.").distinct()
+    )
+}

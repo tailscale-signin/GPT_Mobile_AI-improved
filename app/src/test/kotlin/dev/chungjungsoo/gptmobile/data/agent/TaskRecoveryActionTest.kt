@@ -33,4 +33,12 @@ class TaskRecoveryActionTest {
         assertNull(TaskRecoveryAction.fromText("Continue the story in a different style"))
         assertNull(resolveTaskRecovery(listOf(user(1, "Continue"))))
     }
+
+    @Test fun rootIdentitySurvivesControlMessagesButNeverCrossesChatsOrNewTasks() {
+        val initial = user(1, "Compare durable materials")
+        val continued = listOf(initial, user(3, "Continue"), user(5, "Retry failed stage"))
+        assertEquals("1:1", rootWorkId(continued, "new-generation"))
+        assertEquals("1:7", rootWorkId(continued + user(7, initial.content), "new-task"))
+        assertEquals("2:9", rootWorkId(continued + user(9, "Continue").copy(chatId = 2), "different-chat"))
+    }
 }

@@ -240,7 +240,8 @@ class AndroidResearchWorkflowTest {
         val result = withTimeout(2500) { AndroidResearchWorkflow(config(), listOf(search(2), read), ::model, journal).run("Research", "run") }
         assertEquals(1, result.pagesRead)
         assertEquals("Stopped", journal.snapshot!!.phase)
-        assertTrue(result.handoff.contains("Stopped by user"))
+        assertTrue(result.handoff.contains("origin=UNKNOWN"))
+        assertFalse(result.handoff.contains("Stopped by user"))
     }
 
     @Test fun failedPageNeverBecomesEvidenceAndSharedBudgetStopsWork() = runBlocking {
@@ -549,7 +550,7 @@ class AndroidResearchWorkflowTest {
         val settings = config(1).let { it.copy(deepResearch = it.deepResearch.copy(academicSources = true, reviewEvidence = false)) }
         val result = withTimeout(5000) { AndroidResearchWorkflow(settings, listOf(search, read), generate = { _, _ -> null }, journal = Journal()).run("Documented device request limits", "stream") }
         assertEquals(1, result.pagesRead)
-        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+        assertEquals(LocalResearchOutcome.PARTIAL_USEFUL, result.outcome)
     }
 
     @Test fun siblingTaskReusesSourcesButPlansItsOwnQuestions() = runBlocking {

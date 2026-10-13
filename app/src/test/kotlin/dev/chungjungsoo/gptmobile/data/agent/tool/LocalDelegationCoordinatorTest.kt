@@ -125,7 +125,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `reviewer DNS failure retains unverified evidence and stops identical retries`() = runTest {
-        val reviewer = target.copy(uid = "dns-reviewer", model = "independent-review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "dns-reviewer", model = "anthropic/claude-sonnet-4")
         var reviews = 0
         val coordinator = LocalDelegationCoordinator(
             source,
@@ -248,7 +251,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `maximum delegation prepares repository work before isolated review`() = runTest {
-        val reviewer = target.copy(uid = "max-reviewer", name = "Reviewer", model = "review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "max-reviewer", name = "Reviewer", model = "anthropic/claude-sonnet-4")
         val calls = mutableListOf<String>()
         val coordinator = LocalDelegationCoordinator(
             source,
@@ -273,7 +279,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `maximum delegation handles a non web task after the planner declines research`() = runTest {
-        val reviewer = target.copy(uid = "direct-reviewer", model = "review-direct-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "direct-reviewer", model = "anthropic/claude-sonnet-4")
         val stages = mutableListOf<String>()
         val coordinator = LocalDelegationCoordinator(
             source,
@@ -286,7 +295,7 @@ class LocalDelegationCoordinatorTest {
             },
             generateTextWithProgress = { _, _, _, _, _ ->
                 stages += "plan"
-                """{"queries":[],"urls":[]}"""
+                """{"questions":[],"queries":[],"noResearchNeeded":true}"""
             },
             generateReviewerWithProgress = { _, _, _, _, _ ->
                 stages += "review"
@@ -952,7 +961,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `reviewer uses a different model and can correct delegate context with a score`() = runTest {
-        val reviewer = target.copy(uid = "reviewer", name = "Reviewer", model = "reviewer-model", apiUrl = "http://192.168.1.4:8080")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "reviewer", name = "Reviewer", model = "anthropic/claude-sonnet-4", apiUrl = "https://openrouter.ai/api/v1")
         val dispatched = mutableListOf<String>()
         val coordinator = LocalDelegationCoordinator(
             source,
@@ -1012,7 +1024,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `direct dispatch cannot bypass reviewer reservation`() = runTest {
-        val reviewer = target.copy(uid = "reserved", model = "review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "reserved", model = "anthropic/claude-sonnet-4")
         val coordinator = LocalDelegationCoordinator(
             source,
             { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
@@ -1024,7 +1039,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `reviewer rejection triggers correction and rejects after validation limit`() = runTest {
-        val reviewer = target.copy(uid = "reserved", model = "review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "reserved", model = "anthropic/claude-sonnet-4")
         var reviews = 0
         var drafts = 0
         val coordinator = LocalDelegationCoordinator(
@@ -1049,7 +1067,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `unchanged rejected evidence stops further review requests`() = runTest {
-        val reviewer = target.copy(uid = "unchanged-reviewer", model = "independent-review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "unchanged-reviewer", model = "anthropic/claude-sonnet-4")
         var reviews = 0
         var drafts = 0
         val coordinator = LocalDelegationCoordinator(
@@ -1073,7 +1094,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `reviewer accepts repaired evidence only after a second review`() = runTest {
-        val reviewer = target.copy(uid = "repair-reviewer", model = "independent-review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "repair-reviewer", model = "anthropic/claude-sonnet-4")
         var drafts = 0
         var reviews = 0
         val coordinator = LocalDelegationCoordinator(
@@ -1104,7 +1128,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `invalid reviews retry statelessly and never record zero quality`() = runTest {
-        val reviewer = target.copy(uid = "reserved", model = "review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "reserved", model = "anthropic/claude-sonnet-4")
         val prompts = mutableListOf<String>()
         val caps = mutableListOf<Int>()
         val coordinator = LocalDelegationCoordinator(
@@ -1126,7 +1153,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `primary only handoff cancels active review and prevents later reviews`() = runTest {
-        val reviewer = target.copy(uid = "cancel-review", model = "review-model")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "cancel-review", model = "anthropic/claude-sonnet-4")
         val fallback = target.copy(uid = "cancel-fallback", model = "fallback-model")
         val started = kotlinx.coroutines.CompletableDeferred<Unit>()
         var reviewCancelled = false
@@ -1159,7 +1189,10 @@ class LocalDelegationCoordinatorTest {
     }
 
     @Test fun `review score regression stops correction without accepting rejected claims`() = runTest {
-        val reviewer = target.copy(uid = "regression-reviewer", model = "independent-review")
+        val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val config = config.copy(allowRemoteWorkers = true, localPlatformsOnly = false)
+        val reviewer = target.copy(uid = "regression-reviewer", model = "anthropic/claude-sonnet-4")
         var calls = 0
         var repairs = 0
         val coordinator = LocalDelegationCoordinator(

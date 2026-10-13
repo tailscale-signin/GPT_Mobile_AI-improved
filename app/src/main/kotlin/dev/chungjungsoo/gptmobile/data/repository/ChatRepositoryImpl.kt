@@ -1798,6 +1798,13 @@ class ChatRepositoryImpl(
             )
             val toolBudget = ToolExecutionBudget(toolBudgetLimits, statistics = toolStatistics.takeIf { researchPersistent }, statisticsProfile = platform.uid, statisticsRoot = runId)
             val explicitResearchSelection = chatToolConfig?.research
+            val researchBlocked = explicitResearchSelection?.takeIf { it.researchToggle }?.let {
+                dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason(it, runFeatures, platform.uid, !platform.disableAllTools && !platform.disableRemoteTools)
+            }
+            if (!synthesisRun && researchBlocked != null) {
+                emit(ApiState.Notice("Research could not start: $researchBlocked. Open this conversation's Research permissions to resolve it.", persistent = true))
+                AppLogRecorder.record("Research", "ACQUISITION_SKIPPED · reason=$researchBlocked · executionAttempted=false", "W")
+            }
             val explicitResearch = !resumeWriterOnly &&
                 taskRecovery?.primaryOnly != true &&
                 explicitResearchSelection?.let { selection ->
@@ -1954,6 +1961,11 @@ class ChatRepositoryImpl(
                     preparedEvidenceComplete = research.pagesRead > 0
                     preparedEvidenceReviewed = false
                     if (research.handoff.isNotBlank()) appendPreparedEvidence(research.handoff)
+                    if (research.pagesRead == 0) {
+                        appendPreparedEvidence("Research acquisition returned no readable source text. Discovery metadata or search snippets are not full-text evidence. Do not claim that research completed or that sources were read. Explain the missing evidence.")
+                        emit(ApiState.Notice("Research returned no readable sources. Check the engine status and connection credentials in Plugins & Tools; any discovery leads remain in Research history.", persistent = true))
+                    }
+                    AppLogRecorder.record("Research", "ACQUISITION_FINISHED · pagesRead=${research.pagesRead} · reviewed=false · status=${if (research.pagesRead > 0) "EVIDENCE_AVAILABLE" else "NO_READABLE_SOURCES"}", if (research.pagesRead > 0) "I" else "W")
                     emit(ApiState.Notice("Deep Research retained ${research.pagesRead}/${directConfig.deepResearch.maxPages} readable sources. Evidence is unreviewed; see source coverage and stop reasons.", persistent = false))
                 }
                 if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && (processingOwnership == 0 || !isGitHubTask(latestUser.content)) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
@@ -2160,6 +2172,7 @@ class ChatRepositoryImpl(
         val requestConstraints = RequestConstraints(
             maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
+            allowReasoning = !editorialPass,
             allowGatewayLocalTools = false
         )
         if (editorialPass) AppLogRecorder.record("Combined", "OUTPUT_CAP_RESOLVED · runId=$runId · requested=${effectiveOutputCap ?: -1} · profile=${platform.maxTokens ?: -1} · provider=${dev.chungjungsoo.gptmobile.data.agent.provider.ProviderOutputLimits.effective(capKey, null) ?: -1} · effective=${resolvedOutputCap ?: -1}")

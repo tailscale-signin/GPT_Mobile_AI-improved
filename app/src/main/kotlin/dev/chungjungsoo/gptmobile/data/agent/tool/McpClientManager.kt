@@ -90,6 +90,7 @@ class McpClientManager internal constructor(
     // ponytail: one global lock serializes session setup only; use per-connection locks if startup contention becomes measurable.
     private val providerCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
     private val configurationFailures = ConcurrentHashMap<String, String>()
+    private val transportConfigurationKeys = ConcurrentHashMap<String, String>()
     private val sessions = mutableMapOf<String, Session>()
     private val inFlight = mutableMapOf<String, InFlight>()
     private val _health = MutableStateFlow<Map<String, McpConnectionHealth>>(emptyMap())
@@ -97,6 +98,8 @@ class McpClientManager internal constructor(
 
     private suspend fun modernTransport(config: McpConnectionConfig, refresh: Boolean = false): ModernMcpTransport? {
         val key = config.validatedKey()
+        val previousKey = transportConfigurationKeys.put(config.connectionUid, key)
+        if (previousKey != null && previousKey != key) resetHealth(config.connectionUid)
         if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
         configurationFailures[config.connectionUid]?.let { failedKey ->
             if (!refresh && failedKey == key) throw McpEndpointConfigurationException()
@@ -109,9 +112,13 @@ class McpClientManager internal constructor(
                 resetHealth(config.connectionUid)
             } else if (until == Long.MAX_VALUE) {
                 throw McpAuthenticationRequiredException()
+            } else if (until > nowMs()) {
+                throw McpBackoffException(config.connectionUid, until)
             }
         }
         val transport = modern ?: return null
+        val retryAt = healthSnapshot(config.connectionUid).nextRetryAtMs
+        if (!refresh && retryAt != null && retryAt > nowMs()) throw McpBackoffException(config.connectionUid, retryAt)
         return transport.takeIf { it.supports(config, refresh) }
     }
 

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import android.app.Application
 import com.google.mediapipe.tasks.core.logging.TasksStatsLoggerFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -10,7 +11,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = Application::class)
 class PrivateMemoryRuntimeTest {
     @Test fun `embedding SDK uses its no-op logger and cannot load an upload backend`() {
         val logger = TasksStatsLoggerFactory.create(RuntimeEnvironment.getApplication(), "text_embedder", "default")

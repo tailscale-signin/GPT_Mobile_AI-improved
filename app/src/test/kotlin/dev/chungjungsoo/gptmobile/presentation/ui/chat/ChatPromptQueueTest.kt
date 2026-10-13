@@ -33,7 +33,9 @@ import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -124,6 +126,26 @@ class ChatPromptQueueTest {
         assertTrue(submissions.isEmpty())
 
         completePersistedRuns()
+        runCurrent()
+        assertEquals(listOf("Follow up"), submissions.map { it.userMessage.content })
+        assertEquals(0, model.queuedPromptCount.value)
+    }
+
+    @Test
+    fun `queue waits until background message grouping catches up`() = runTest(dispatcher) {
+        val grouping = PausableDispatcher(dispatcher)
+        val model = createViewModel(groupingDispatcher = grouping)
+        runCurrent()
+        send(model, "Follow up")
+        grouping.paused = true
+        completePersistedRuns()
+        runCurrent()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        assertTrue(submissions.isEmpty())
+        assertEquals(1, model.queuedPromptCount.value)
+
+        grouping.resume()
         runCurrent()
         assertEquals(listOf("Follow up"), submissions.map { it.userMessage.content })
         assertEquals(0, model.queuedPromptCount.value)
@@ -343,7 +365,22 @@ class ChatPromptQueueTest {
         runs.value = runs.value.map { it.copy(status = AgentRunStatus.COMPLETED) }
     }
 
-    private fun createViewModel(combined: Boolean = false, availableProfileCount: Int = if (combined) 2 else 1): ChatViewModel {
+    private class PausableDispatcher(private val delegate: CoroutineDispatcher) : CoroutineDispatcher() {
+        var paused = false
+        private val pending = ArrayDeque<Pair<CoroutineContext, Runnable>>()
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            if (paused) pending.addLast(context to block) else delegate.dispatch(context, block)
+        }
+        fun resume() {
+            paused = false
+            while (pending.isNotEmpty()) {
+                val (context, block) = pending.removeFirst()
+                delegate.dispatch(context, block)
+            }
+        }
+    }
+
+    private fun createViewModel(combined: Boolean = false, availableProfileCount: Int = if (combined) 2 else 1, groupingDispatcher: CoroutineDispatcher = dispatcher): ChatViewModel {
         val profiles = (1..availableProfileCount).map { index ->
             PlatformV2(
                 uid = "profile-$index",
@@ -470,7 +507,9 @@ class ChatPromptQueueTest {
             ),
             generationCompletionStore = dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore(
                 ApplicationProvider.getApplicationContext()
-            )
+            ),
+            conversationExitWork = mockk(relaxed = true),
+            messageGroupingDispatcher = groupingDispatcher
         ).also { store.put("chat", it) }
     }
 }

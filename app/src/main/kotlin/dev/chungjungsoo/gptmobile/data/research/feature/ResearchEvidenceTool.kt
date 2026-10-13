@@ -214,7 +214,7 @@ internal class ResearchEvidenceTool(private val operation: String, private val a
         )
     }
     companion object {
-        val OPERATIONS = listOf("find_evidence", "get_evidence", "examine_article", "get_examination", "compare_studies")
+        val OPERATIONS = listOf("find_evidence", "get_evidence", "examine_article", "get_examination", "compare_evidence")
         private fun idSchema() = buildJsonObject {
             put("type", "string")
             put("pattern", "^[a-f0-9]{64}$")

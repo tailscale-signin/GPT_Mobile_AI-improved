@@ -46,6 +46,8 @@ internal fun DeepResearchSettingsScreen(onClose: () -> Unit, viewModel: DeepRese
 internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchSettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val comparison by viewModel.comparison.collectAsStateWithLifecycle()
+    var selectedVersions by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val count by viewModel.archiveCount.collectAsStateWithLifecycle()
     val rows by viewModel.archiveRows.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
@@ -181,6 +183,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                     }, enabled = newTopic.isNotBlank()) { Text("Create topic") }
                                 }
                                 TextButton(onClick = { deleteId = "*" }, enabled = count > 0) { Text("Clear reusable archive") }
+                                TextButton(onClick = { viewModel.compareVersions(selectedVersions) }, enabled = selectedVersions.size >= 2) { Text("Compare selected (${selectedVersions.size})") }
                                 Text("Archive reuse requires a fresh source check. Saved content may be historical or unavailable.")
                             }
                         }
@@ -195,6 +198,9 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                     articleId = row.workId
                                     articleVersion = row.latestVersionId
                                 }) { Text("Article details / Examine") }
+                                FilterChip(row.latestVersionId in selectedVersions, {
+                                    selectedVersions = if (row.latestVersionId in selectedVersions) selectedVersions - row.latestVersionId else (selectedVersions + row.latestVersionId).takeLast(state.featureDraft.comparisonLimit)
+                                }, label = { Text("Select for comparison") })
                                 TextButton(onClick = { moveId = row.workId }) { Text("Move to topic…") }
                                 TextButton(onClick = { deleteId = row.workId }) { Text("Remove from archive") }
                             }
@@ -223,6 +229,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                 }
             })
         }
+        if (comparison.isNotEmpty()) dev.chungjungsoo.gptmobile.presentation.ui.research.ResearchComparisonDialog(comparison, viewModel::closeComparison)
         if (moveId != null || mergeFrom != null) {
             AlertDialog(onDismissRequest = {
                 moveId = null

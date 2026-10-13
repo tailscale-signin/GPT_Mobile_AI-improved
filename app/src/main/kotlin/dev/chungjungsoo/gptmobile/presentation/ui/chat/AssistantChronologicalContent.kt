@@ -117,10 +117,18 @@ internal fun AssistantChronologicalContent(
                             if (isError) {
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
-                                ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                if (isLoading) {
+                                    ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                } else {
+                                    val blocks = remember(response) { dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks(response) }
+                                    blocks.forEachIndexed { blockIndex, block ->
+                                        ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                        if (block.citationText.isNotBlank()) articleCards(block.citationText)
+                                    }
+                                    if (blocks.none { it.citationText.isNotBlank() }) articleCards(citationText)
+                                }
                             }
                         }
-                        if (!isLoading) articleCards(citationText)
                     }
                     AssistantTimelineItemType.TOOL -> if (expanded) {
                         events[item.toolSequence]?.let { event ->

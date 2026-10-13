@@ -96,7 +96,7 @@ internal fun SelectPlatformDialog(
                     Text(stringResource(R.string.select_platform), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                     IconButton(onClick = { help = true }) { Icon(Icons.AutoMirrored.Rounded.HelpOutline, stringResource(R.string.picker_help)) }
                 }
-                LazyColumn(Modifier.weight(1f, fill = false), state = rememberLazyListState(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(Modifier.weight(1f, fill = false).testTag("picker_list"), state = rememberLazyListState(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item(key = "controls") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

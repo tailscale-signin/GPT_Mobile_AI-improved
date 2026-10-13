@@ -45,9 +45,10 @@ internal fun articleCitationOccurrences(text: String): List<CitationOccurrence> 
 }
 
 @Singleton
-class CitationBindingResolver @Inject constructor(private val archive: ResearchArchiveRepository, private val sessions: ResearchSessionStore) {
+class CitationBindingResolver @Inject constructor(private val archive: ResearchArchiveRepository, private val sessions: ResearchSessionStore, private val chats: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2) {
     suspend fun bind(message: MessageV2): List<MessageEvidenceBinding> {
         require(message.id > 0 && message.chatId > 0)
+        if (chats.chatRoomDao().getChatRoomsByIds(listOf(message.chatId)).singleOrNull()?.isTemporary != false) return emptyList()
         val text = message.effectiveContent()
         val revision = researchHash("${message.effectiveRunId()}|${message.activeRevisionIndex}|$text")
         val saved = archive.dao.bindings(message.id.toString(), revision)
@@ -71,7 +72,16 @@ class CitationBindingResolver @Inject constructor(private val archive: ResearchA
                         ?: versions.singleOrNull() ?: return@mapNotNull null
                     Triple(source, version, authority)
                 }.distinctBy { it.second.versionId }
-                val match = resolved.singleOrNull() ?: return@forEach
+                val historical = if (candidates.isEmpty() && !occurrence.key.startsWith("S") && !occurrence.key.startsWith("arxiv:")) {
+                    archive.dao.aliasWork("public|${occurrence.key}")?.let { id ->
+                        val version = archive.dao.latestVersion(id)?.takeIf { it.publicSource }
+                        val work = archive.dao.work(id)
+                        if (version == null || work == null) null else Triple(ResearchSource("archive", work.canonicalUrl, work.title, publicationType = work.publicationType, reviewStatus = work.peerReview.name, retrievedAt = version.retrievedAt), version, "public")
+                    }
+                } else {
+                    null
+                }
+                val match = resolved.singleOrNull() ?: historical ?: return@forEach
                 val (source, version, authority) = match
                 val snapshot = buildJsonObject {
                     put("schemaVersion", 1)

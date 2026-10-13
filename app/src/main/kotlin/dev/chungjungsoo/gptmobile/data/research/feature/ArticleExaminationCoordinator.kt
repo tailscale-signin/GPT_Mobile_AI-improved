@@ -77,7 +77,8 @@ class ArticleExaminationCoordinator @Inject constructor(
     private val chats: ChatDatabaseV2,
     private val academic: AcademicNativeClient,
     private val models: ChatRepository,
-    private val toolResolver: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver>
+    private val toolResolver: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver>,
+    private val sessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
@@ -201,10 +202,16 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 ?: error("A DOI, PMID, PMCID or arXiv identifier is needed for the native article reader")
                             val access = AcademicAccessPolicy(researchDomains(options.includeDomains), researchDomains(options.excludeDomains), selection.enabledProviders)
                             val retrieved = if (selection.gatewayConnectionUid == null) {
-                                val paper = academic.getPaper(identifier, ::allowed, access, refresh = true) ?: error("Article metadata is unavailable")
-                                paper to academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000)
+                                val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(features, profile.uid, selection)
+                                val root = checkpoint.rootWorkId ?: "examination:${record.jobId}"
+                                val shared = sessions.journal("academic:$root", request.chatId, true, root).goalBudget(plan)
+                                val budget = dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRunBudget(shared = shared, goalDriven = true)
+                                withContext(dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext(budget, false, root)) {
+                                    val paper = academic.getPaper(identifier, ::allowed, access, refresh = true) ?: error("Article metadata is unavailable")
+                                    paper to academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000, targetedCrawl = features.researchFeature.targetedCrawl)
+                                }
                             } else {
-                                val available = toolResolver.get().resolve(profile.uid, currentTools(), dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId), examinationRunKey = checkpoint.rootWorkId ?: "examination:${record.jobId}")
+                                val available = toolResolver.get().resolve(profile.uid, currentTools(), dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId, content = "", platformType = null), examinationRunKey = checkpoint.rootWorkId ?: "examination:${record.jobId}")
                                 suspend fun payload(operation: String): String {
                                     check(allowed())
                                     val tool = available.singleOrNull { it.modelToolName == "deep_research_$operation" } ?: error("Approved gateway article reader unavailable")
@@ -221,7 +228,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 paper to json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence>(payload("read_paper"))
                             }
                             val (paper, evidence) = retrieved
-                            check(evidence.text.length <= 240000 && evidence.textHash == researchHash(evidence.text)) { "Article text is oversized or its integrity check failed" }
+                            check(evidence.text.length <= 240000 && (evidence.text.isEmpty() || evidence.textHash == researchHash(evidence.text))) { "Article text is oversized or its integrity check failed" }
                             val body = evidence.text.takeIf { evidence.retrievalStatus in setOf("read", "partially_read") } ?: paper.abstract
                             check(body.isNotBlank()) { evidence.retrievalStatus }
                             val readable = evidence.retrievalStatus in setOf("read", "partially_read")

@@ -83,4 +83,13 @@ class ArticleExaminationContractTest {
         assertTrue(Json.decodeFromString<ExaminationCheckpoint>("{}").independentReports.isEmpty())
         assertFalse(checkpoint.coverage.complete)
     }
+
+    @Test fun researchCardsFollowCitedParagraphsWithoutSplittingFencedCode() {
+        val text = "Introduction.\n\nFirst finding [Sabc].\n\n```\nnot a citation [S999]\n\ncode continues\n```\n\nSecond finding DOI:10.1234/example."
+        val blocks = researchResponseBlocks(text)
+        assertEquals(2, blocks.size)
+        assertTrue(blocks.first().text.contains("First finding"))
+        assertTrue(blocks.last().text.contains("```\nnot a citation [S999]\n\ncode continues\n```"))
+        assertEquals(listOf("Sabc", "doi:10.1234/example"), blocks.flatMap { articleCitationOccurrences(it.citationText).map { occurrence -> occurrence.key } })
+    }
 }

@@ -28,6 +28,19 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     val topics = archive.dao.topics().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
     private val rows = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.research.feature.ArchiveRow>>(emptyList())
     val archiveRows = rows.asStateFlow()
+    private val comparisonRows = MutableStateFlow<List<dev.chungjungsoo.gptmobile.presentation.ui.research.ArticleComparison>>(emptyList())
+    val comparison = comparisonRows.asStateFlow()
+    fun closeComparison() {
+        comparisonRows.value = emptyList()
+    }
+    fun compareVersions(ids: List<String>) = archiveAction {
+        require(ids.distinct().size in 2..mutable.value.featureDraft.comparisonLimit)
+        comparisonRows.value = ids.map { id ->
+            val version = requireNotNull(archive.dao.version(id))
+            require(version.publicSource) { "Private evidence cannot enter the public archive comparison" }
+            dev.chungjungsoo.gptmobile.presentation.ui.research.ArticleComparison(requireNotNull(archive.dao.work(version.workId)), version, archive.dao.fields(id), archive.dao.appraisals(id))
+        }
+    }
     private var original: DeepResearchSettings? = null
     private var originalFeature: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings? = null
     private var archiveQuery = ""

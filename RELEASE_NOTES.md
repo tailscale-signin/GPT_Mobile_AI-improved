@@ -1,29 +1,33 @@
-# GPT Mobile AI 0.9.43.0
+# GPT Mobile AI 0.9.51.0
 
-## Local Health Connect history
-- Add local Health Connect imports in Smartwatch settings, with summary ranges from today through five years, subject to the records actually available from Health Connect.
-- Check extended-history support and request the separate Android history permission before multi-year imports. Existing AI health-tool queries remain limited to the last 30 days.
-- Keep the imported snapshot in app-private storage. Importing or viewing health data locally does not grant AI sharing consent or enable profile access.
+## Local AI and model insights
+- Reorganize Local AI into Models, Assist, and Settings, with profile cards, clearer runtime status, marketplace recommendations, and model actions.
+- Add reviewed model imports, persistent progress and cancellation, transactional staging, checksum verification, and runtime-aware deletion. Supported import formats depend on the installed runtime.
+- Show personal benchmark results, optional community results, provider pricing and freshness, and scoped manual price overrides while choosing chat profiles.
+- Add opt-in local summarization and query suggestions over already-authorized, read-only results, with consent and configuration rechecks.
 
-## Encrypted health backup and restore
-- Add an optional Health data section to complete backup and restore. It is excluded from the default selection and requires encryption.
-- Protect health backups with a password or a separate recovery key file. Keep the recovery key safe and separate from the backup; it is required to restore passwordless encrypted archives.
-- Validate restored snapshots and preserve the original imported time range, including multi-year history. A saved snapshot is a summary of the selected range, not a complete raw-record export or a promise that every watch provides five years of data.
-- Retain the existing independent consent controls for AI access and remote sharing.
+## Deep Research reliability
+- Coordinate concurrent discovery and reading through a shared source registry, fair scheduling, durable budget reservations, and checkpoints.
+- Improve connectivity recovery, progress reporting, and partial-result handoffs.
+- Reserve in-flight academic reads against the remaining source goal, preventing concurrent readers from exceeding it and releasing capacity after failures or cancellation.
 
-## Release validation
-- Correct the plaintext-backup ViewModel test to select non-sensitive settings rather than ALL sections, which includes health data, credentials and memory.
-- Add ViewModel regression coverage for health backup with a recovery key, recovery-key cancellation without writing a backup, and password-encrypted health backup.
-- Retain the five-year snapshot codec and archive round-trip coverage introduced by the Health Connect local-import change.
-- The signed-release workflow validates the exact release commit, runs unit tests and Android lint, and checks native packaging, artifact identity and signing-certificate continuity before publication. No test or encryption gate has been disabled.
+## OpenRouter workspace
+- Add Setup, Routing, and Account tabs, with account features unlocked after validation of the current key.
+- Keep routing, pricing, cache controls, batch queues, allowance, and receipts scoped to their connection. Optional management access uses a separate session.
+- Protect credential changes and settings drafts against late responses, and clear stale account state after key rotation.
+- Bypass response caching for benchmarks, correct multi-profile benchmark billing attribution, and keep failed local batches from silently falling back to remote inference.
 
-## Setup and scope
-- Open Settings > Plugins/Tools > Smartwatch Health Connect > Configure to manage permissions and local imports.
-- The watch companion app must share supported records with Health Connect. Availability depends on Android history support, permissions, companion-app sync and retained records.
-- Physical-device multi-year import and clean-device restore testing remain required; this release does not claim watch certification, medical diagnosis or Google Play approval.
-- This publication is a GitHub release, not a Google Play submission.
+## Included from the 0.9.50.0 base
+- Retain local Health Connect history imports, encrypted health backup and restore, and independent AI-sharing consent controls.
+- Include the changes already merged from version-v0.9.50.0 into main.
+
+## Release verification
+- Validate the exact release commit with unit tests, Android lint, and release dependency compatibility checks before building signed artifacts.
+- Check packaged native libraries, telemetry exclusions, application identity, and signing-certificate continuity before publication.
+- Resolve the artifact verifier's Android build-tools version from the app configuration so verification follows SDK upgrades.
+- Publish signed APKs and an Android App Bundle with checksums and source provenance through the existing GitHub release workflow.
 
 ## Release identity
 - Package: dev.melo.gptmobile.improved
-- Version: 0.9.43.0
-- Version code: 112
+- Version: 0.9.51.0
+- Version code: 120

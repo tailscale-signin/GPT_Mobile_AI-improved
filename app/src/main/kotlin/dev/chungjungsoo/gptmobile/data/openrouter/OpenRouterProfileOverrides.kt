@@ -41,7 +41,8 @@ data class OpenRouterProfileOverrides private constructor(val raw: JsonObject) {
                     "max_tokens", "top_k" -> primitive.intOrNull?.let { it >= 0 } == true
                     "seed" -> primitive.intOrNull != null
                     else -> primitive.doubleOrNull?.let { number ->
-                        number.isFinite() && when (field) {
+                        number.isFinite() &&
+                            when (field) {
                             "temperature" -> number in 0.0..2.0
                             "top_p" -> number in 0.0..1.0
                             "repetition_penalty" -> number > 0.0

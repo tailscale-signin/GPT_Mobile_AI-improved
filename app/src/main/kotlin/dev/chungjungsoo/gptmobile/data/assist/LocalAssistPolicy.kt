@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class LocalAssistPolicy(
-    val version: Int = 1,
+    val version: Int = 2,
     val profileUid: String? = null,
     val evidenceSelection: Boolean = true,
     val summarizeRetrievedText: Boolean = false,

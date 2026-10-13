@@ -72,7 +72,8 @@ data class AgentToolResult(
     val toolResultBudgetLimitBytes: Int? = null,
     val retainedContent: ToolResultContent? = null,
     val errorCode: String? = null,
-    val dispatched: Boolean = true
+    val dispatched: Boolean = true,
+    val assistMetadata: List<JsonObject> = emptyList()
 )
 
 sealed interface ToolResultContent {

@@ -363,7 +363,7 @@ class ChatRepositoryImpl(
         )
         val original = dev.chungjungsoo.gptmobile.data.assist.AssistTestFixture.tool()
         val result = coordinator.bind(original).execute(root, JsonObject(emptyMap()))
-        check(result.retainedContent != null && result.content != result.retainedContent) { "Test completed without an accepted selection; original evidence retained. See Local Assist status." }
+        check(result.assistMetadata.isNotEmpty()) { "Test completed without an accepted selection; original evidence retained. See Local Assist status." }
         return "Local Assist passed: exact synthetic records retained, no external tools, invocation ${invocation ?: "unavailable"}."
     }
 
@@ -1850,7 +1850,7 @@ class ChatRepositoryImpl(
             }
             val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                 tools = authorizedBoundedTools,
-                candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() },
+                candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
                 enabled = runFeatures.assistEnabled() && platform.compatibleType != ClientType.LITERT_LM,
                 policy = runFeatures.effectiveAssistPolicy(),
                 goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
@@ -1865,9 +1865,12 @@ class ChatRepositoryImpl(
                             dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(current) == dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(original)
                     }
                 },
-                generate = { target, task, cap -> generateDelegate(target, task, cap, inputCap = 4096, allowTools = false, requestRole = "assist") },
+                generate = { target, task, cap -> generateDelegate(target, task, cap, inputCap = delegationInputBudget(target, cap), allowTools = false, requestRole = "assist") },
                 notice = { emit(ApiState.Notice(it)) },
                 producerInvocationId = { latestAssistInvocationId },
+                contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
+                runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.research.researchHash("${localRuntime.state.value.backend}|${localRuntime.state.value.engineSpec}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}") },
+                status = { emit(ApiState.AssistStatus(it)) },
                 stillEnabled = {
                     val live = settingRepository.getFeatureSettings()
                     live.assistEnabled() && live.effectiveAssistPolicy() == runFeatures.effectiveAssistPolicy() && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)

@@ -1,0 +1,1067 @@
+[
+  {
+    "id": "V01",
+    "title": "Freeze the implementation baseline and version plan",
+    "priority": "P0",
+    "dependencies": [],
+    "status": "IMPLEMENTED",
+    "acceptance_ids": [
+      "IX27",
+      "LA-QA33",
+      "LC-T18"
+    ],
+    "implementation_commits": [],
+    "evidence": [
+      "BASELINE.json"
+    ],
+    "remaining_work": [
+      "Android baseline tests require CI. Device qualification unavailable in this workspace."
+    ]
+  },
+  {
+    "id": "V02",
+    "title": "Turn all three incidents into sanitized regression fixtures",
+    "priority": "P0",
+    "dependencies": [
+      "V01"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA25",
+      "LA-QA26",
+      "LC-T11",
+      "CM-T04",
+      "CM-T06",
+      "CM-T09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V03",
+    "title": "Define one shared execution and evidence contract",
+    "priority": "P0",
+    "dependencies": [
+      "V01"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA21",
+      "LA-QA24",
+      "LC-T08",
+      "IX09",
+      "IX11"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V04",
+    "title": "Add additive persistence and intent-preserving migrations",
+    "priority": "P0",
+    "dependencies": [
+      "V01",
+      "V03"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA30",
+      "LA-QA32",
+      "LA-QA33",
+      "LC-T18",
+      "CM-T24",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V05",
+    "title": "Fix OpenRouter's omitted-field default injection",
+    "priority": "P0",
+    "dependencies": [
+      "V02",
+      "V03"
+    ],
+    "status": "IMPLEMENTED",
+    "acceptance_ids": [
+      "CM-T04",
+      "CM-T05",
+      "IX01",
+      "IX02",
+      "IX03"
+    ],
+    "implementation_commits": [
+      "d259c5a6379306f76e17c2e4fe24df66c793439c"
+    ],
+    "evidence": [
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterPresenceTest.kt"
+    ],
+    "remaining_work": [
+      "Wait for exact-commit CI and resolve review findings."
+    ]
+  },
+  {
+    "id": "V06",
+    "title": "Resolve output and reasoning with auditable precedence",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V05"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T02",
+      "LC-T12",
+      "CM-T04",
+      "CM-T05",
+      "CM-T06",
+      "IX30"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V07",
+    "title": "Discover the capacity of the actual llama.cpp route",
+    "priority": "P0",
+    "dependencies": [
+      "V03"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T03",
+      "LC-T04",
+      "LC-T17",
+      "IX24"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V08",
+    "title": "Count and admit the final immutable request",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V06",
+      "V07"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T01",
+      "LC-T02",
+      "LC-T06",
+      "LC-T07",
+      "LC-T08",
+      "IX13"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V09",
+    "title": "Wire every physical inference route through admission",
+    "priority": "P0",
+    "dependencies": [
+      "V08"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T05",
+      "LC-T06",
+      "LC-T08",
+      "IX10",
+      "IX11",
+      "IX13"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V10",
+    "title": "Make tool exposure and history retention token-aware",
+    "priority": "P1",
+    "dependencies": [
+      "V08",
+      "V09"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T05",
+      "LC-T06",
+      "CM-T02",
+      "LA-QA36"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V11",
+    "title": "Replace the fixed watchdog with observable progress stages",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V07",
+      "V09"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T09",
+      "LC-T10",
+      "LC-T11",
+      "LC-T14"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V12",
+    "title": "Unify backend leases and acknowledged cancellation",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V11"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA13",
+      "LA-QA15",
+      "LA-QA16",
+      "LA-QA17",
+      "LA-QA18",
+      "LC-T14",
+      "LC-T15",
+      "IX09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V13",
+    "title": "Repair continuation and safe generation-stage recovery",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V06",
+      "V09",
+      "V11",
+      "V12"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T13",
+      "LC-T16",
+      "CM-T06",
+      "CM-T07",
+      "CM-T08"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V14",
+    "title": "Resolve Assist policy and separate it from memory learning",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA01",
+      "LA-QA02",
+      "LA-QA03",
+      "LA-QA07",
+      "LA-QA17"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V15",
+    "title": "Persist run-scoped Assist decisions and every exit",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V14"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA01",
+      "LA-QA02",
+      "LA-QA03",
+      "LA-QA30",
+      "LA-QA32",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V16",
+    "title": "Preflight the actual local artifact and backend",
+    "priority": "P0",
+    "dependencies": [
+      "V07",
+      "V12",
+      "V14",
+      "V15"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA04",
+      "LA-QA05",
+      "LA-QA06",
+      "LA-QA18",
+      "LC-T17",
+      "IX17",
+      "IX29"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V17",
+    "title": "Normalize evidence before Assist without breaking adapters",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V15"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA11",
+      "LA-QA12",
+      "LA-QA25",
+      "LA-QA26",
+      "IX28"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V18",
+    "title": "Plan independent Assist tasks and preserve complete goals",
+    "priority": "P1",
+    "dependencies": [
+      "V14",
+      "V15",
+      "V17"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA08",
+      "LA-QA09",
+      "IX04"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V19",
+    "title": "Replace character windows and premature attempt charging",
+    "priority": "P1",
+    "dependencies": [
+      "V08",
+      "V16",
+      "V18"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA09",
+      "LA-QA10",
+      "LA-QA11",
+      "IX05"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V20",
+    "title": "Queue Assist fairly and fix shared cache identity",
+    "priority": "P0",
+    "dependencies": [
+      "V12",
+      "V15",
+      "V18",
+      "V19"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA13",
+      "LA-QA14",
+      "LA-QA15",
+      "LA-QA17",
+      "LA-QA24",
+      "IX06",
+      "IX09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V21",
+    "title": "Validate source-linked handoff and record real inclusion",
+    "priority": "P0",
+    "dependencies": [
+      "V09",
+      "V17",
+      "V19",
+      "V20"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA19",
+      "LA-QA20",
+      "LA-QA21",
+      "LA-QA22",
+      "IX13"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V22",
+    "title": "Account for local usage once and report unknowns honestly",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V15",
+      "V16",
+      "V20",
+      "V21"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA23",
+      "LA-QA24",
+      "LA-QA31",
+      "LC-T18",
+      "IX26"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V23",
+    "title": "Build the Assist settings and expected-helper card",
+    "priority": "P1",
+    "dependencies": [
+      "V14",
+      "V15",
+      "V16",
+      "V21",
+      "V22"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA30",
+      "LA-QA31",
+      "LA-QA34",
+      "LA-QA35",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V24",
+    "title": "Repair search parsing, error classes and truncation truth",
+    "priority": "P0",
+    "dependencies": [
+      "V02",
+      "V17"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA25",
+      "LA-QA26",
+      "LA-QA27",
+      "LA-QA28",
+      "IX28"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V25",
+    "title": "Separate acquisition, retention and delivery budgets",
+    "priority": "P0",
+    "dependencies": [
+      "V08",
+      "V17",
+      "V24"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA26",
+      "LA-QA29",
+      "CM-T11",
+      "IX14",
+      "IX28"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V26",
+    "title": "Keep research/query execution parent-controlled and finite",
+    "priority": "P1",
+    "dependencies": [
+      "V12",
+      "V18",
+      "V24",
+      "V25"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA14",
+      "LA-QA28",
+      "LA-QA29",
+      "LC-T15",
+      "IX09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V27",
+    "title": "Reduce irrelevant memory and context-preparation overhead",
+    "priority": "P1",
+    "dependencies": [
+      "V09",
+      "V10",
+      "V14",
+      "V25"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA36",
+      "LC-T06",
+      "CM-T02",
+      "IX18"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V28",
+    "title": "Freeze full Combined context and explicitly pin the primary",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V09",
+      "V25"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T01",
+      "CM-T02",
+      "CM-T03",
+      "CM-T11",
+      "CM-T17",
+      "IX07"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V29",
+    "title": "Fence one output slot across every synthesis revision",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V12",
+      "V28"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T09",
+      "CM-T10",
+      "CM-T24",
+      "IX08"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V30",
+    "title": "Implement full-input and explicit finite-context workflows",
+    "priority": "P0",
+    "dependencies": [
+      "V08",
+      "V21",
+      "V28",
+      "V29"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T01",
+      "CM-T03",
+      "CM-T26",
+      "LC-T01",
+      "IX14"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V31",
+    "title": "Persist answer segments and protect every committed prefix",
+    "priority": "P0",
+    "dependencies": [
+      "V13",
+      "V29",
+      "V30"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T06",
+      "CM-T07",
+      "CM-T08",
+      "CM-T24",
+      "CM-T26",
+      "IX08"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V32",
+    "title": "Build complete coverage inventories and targeted repair",
+    "priority": "P0",
+    "dependencies": [
+      "V28",
+      "V30",
+      "V31"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T08",
+      "CM-T16",
+      "CM-T26",
+      "IX14"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V33",
+    "title": "Build contribution lineage before assigning ownership",
+    "priority": "P1",
+    "dependencies": [
+      "V21",
+      "V28",
+      "V32"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T11",
+      "CM-T17",
+      "CM-T18",
+      "CM-T21"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V34",
+    "title": "Verify exclusive meaning conservatively and allow abstention",
+    "priority": "P1",
+    "dependencies": [
+      "V09",
+      "V16",
+      "V20",
+      "V33"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T12",
+      "CM-T13",
+      "CM-T14",
+      "CM-T15",
+      "CM-T16",
+      "CM-T18",
+      "IX30"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V35",
+    "title": "Assign stable, accessible profile text colors",
+    "priority": "P1",
+    "dependencies": [
+      "V04",
+      "V33",
+      "V34"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T14",
+      "CM-T20",
+      "LA-QA35"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V36",
+    "title": "Make attribution safe for Markdown, Unicode and streaming",
+    "priority": "P1",
+    "dependencies": [
+      "V31",
+      "V34",
+      "V35"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T19",
+      "CM-T20",
+      "CM-T24"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V37",
+    "title": "Add the contribution legend and sentence inspector",
+    "priority": "P1",
+    "dependencies": [
+      "V23",
+      "V34",
+      "V35",
+      "V36"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T14",
+      "CM-T18",
+      "CM-T20",
+      "CM-T24"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V38",
+    "title": "Create one structured journal without replacing operational state",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V09",
+      "V15",
+      "V29"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA32",
+      "LC-T18",
+      "CM-T23",
+      "IX12",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V39",
+    "title": "Protect diagnostic content before it reaches storage",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V38"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA31",
+      "LA-QA32",
+      "CM-T21",
+      "CM-T22",
+      "CM-T23",
+      "IX15",
+      "IX16"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V40",
+    "title": "Export a consistent v3 bundle with complete dependencies",
+    "priority": "P0",
+    "dependencies": [
+      "V21",
+      "V22",
+      "V31",
+      "V36",
+      "V38",
+      "V39"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA31",
+      "CM-T25",
+      "IX12",
+      "IX13",
+      "IX19"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V41",
+    "title": "Add four-boundary output tracing and offline replay",
+    "priority": "P1",
+    "dependencies": [
+      "V31",
+      "V36",
+      "V38",
+      "V39",
+      "V40"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T07",
+      "CM-T10",
+      "CM-T25",
+      "IX13",
+      "IX19"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V42",
+    "title": "Unify the response diagnostics projection",
+    "priority": "P1",
+    "dependencies": [
+      "V22",
+      "V23",
+      "V32",
+      "V37",
+      "V38",
+      "V40"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA23",
+      "LA-QA30",
+      "LA-QA34",
+      "LA-QA35",
+      "IX18",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V43",
+    "title": "Add focused llama.cpp connection/context diagnostics",
+    "priority": "P1",
+    "dependencies": [
+      "V06",
+      "V07",
+      "V08",
+      "V11",
+      "V42"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T03",
+      "LC-T04",
+      "LC-T12",
+      "LC-T17",
+      "LA-QA35"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V44",
+    "title": "Profile navigation, memory pressure and incremental rendering",
+    "priority": "P1",
+    "dependencies": [
+      "V23",
+      "V27",
+      "V36",
+      "V40",
+      "V42",
+      "V43"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA34",
+      "LA-QA35",
+      "LA-QA36",
+      "CM-T19",
+      "CM-T20",
+      "IX18"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V45",
+    "title": "Ship optional optimizations with measured safeguards",
+    "priority": "P2",
+    "dependencies": [
+      "V19",
+      "V21",
+      "V22",
+      "V30",
+      "V34",
+      "V44"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA10",
+      "LA-QA24",
+      "CM-T01",
+      "IX26"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V46",
+    "title": "Execute the complete cross-mode regression suite",
+    "priority": "P0",
+    "dependencies": [
+      "V05",
+      "V09",
+      "V13",
+      "V20",
+      "V25",
+      "V32",
+      "V37",
+      "V40",
+      "V41",
+      "V43",
+      "V44",
+      "V45"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T01",
+      "LC-T08",
+      "LC-T09",
+      "LC-T14",
+      "CM-T09",
+      "CM-T19",
+      "LA-QA33",
+      "IX11",
+      "IX12"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V47",
+    "title": "Qualify real server and on-device runtime combinations",
+    "priority": "P0",
+    "dependencies": [
+      "V16",
+      "V43",
+      "V44",
+      "V46"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA05",
+      "LA-QA06",
+      "LA-QA16",
+      "LC-T17",
+      "IX21",
+      "IX22",
+      "IX23",
+      "IX24",
+      "IX25",
+      "IX29"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V48",
+    "title": "Close every requirement and gate release on evidence",
+    "priority": "P0",
+    "dependencies": [
+      "V46",
+      "V47"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA33",
+      "LC-T18",
+      "CM-T24",
+      "IX27"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  }
+]

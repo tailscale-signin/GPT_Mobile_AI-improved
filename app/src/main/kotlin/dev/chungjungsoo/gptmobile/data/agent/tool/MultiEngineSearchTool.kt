@@ -357,7 +357,8 @@ class MultiEngineSearchTool(
             toolCallBudgetConfigured = allAttempts.mapNotNull { it.result.toolCallBudgetConfigured }.maxOrNull(),
             toolCallBudgetReserved = allAttempts.mapNotNull { it.result.toolCallBudgetReserved }.maxOrNull(),
             toolResultBudgetUsedBytes = allAttempts.mapNotNull { it.result.toolResultBudgetUsedBytes }.maxOrNull(),
-            toolResultBudgetLimitBytes = allAttempts.mapNotNull { it.result.toolResultBudgetLimitBytes }.maxOrNull()
+            toolResultBudgetLimitBytes = allAttempts.mapNotNull { it.result.toolResultBudgetLimitBytes }.maxOrNull(),
+            assistMetadata = allAttempts.flatMap { it.result.assistMetadata }.distinct()
         )
     }
 

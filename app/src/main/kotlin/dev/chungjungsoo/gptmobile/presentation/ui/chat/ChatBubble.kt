@@ -469,6 +469,7 @@ fun OpponentChatBubble(
                         telemetryNotice = telemetryNotice,
                         notices = (nonTelemetryNotices + contentTimeline.filter { it.type == AssistantTimelineItemType.NOTICE && isContextDiagnostic(it.content) }.map { it.content }).distinct(),
                         invocations = invocations,
+                        assistTasks = contentTimeline.mapNotNull { it.assistDiagnostic },
                         settings = debugSettings,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1000,6 +1001,7 @@ internal fun TelemetryBadge(notice: String, modifier: Modifier = Modifier) {
 internal fun ChatDebugDiagnosticsCard(
     agentRun: AgentRun?,
     telemetryNotice: String?,
+    assistTasks: List<dev.chungjungsoo.gptmobile.data.assist.AssistTaskState> = emptyList(),
     notices: List<String> = emptyList(),
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
     settings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
@@ -1028,6 +1030,7 @@ internal fun ChatDebugDiagnosticsCard(
                 Text(if (running) "Live diagnostics" else "Response diagnostics", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
                 TextButton(onClick = { copyScope.launch { dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(copyContext, dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(report), "Response diagnostics") } }) { Text("Copy") }
             }
+            LocalAssistDiagnosticsCard(assistTasks, invocations.filter { it.kind == "assist" })
             val requests = invocations.distinctBy { it.id }
             if (settings.debugShowTokenComparison && requests.isNotEmpty()) {
                 TokenComparisonPanel(requests)

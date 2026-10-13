@@ -39,9 +39,10 @@ class AssistCoordinatorTest {
     fun selectedRecordsAreCopiedExactlyWithQualifications() = runBlocking {
         val assist = AssistCoordinator("Find evidence", { true }, { "[0,2]" }, {})
         val result = assist.bind(tool()).execute("call", buildJsonObject {})
-        val data = (result.content as ToolResultContent.Json).value as JsonObject
-        assertEquals(JsonArray(listOf(records[0], records[2])), data["results"])
-        assertEquals(payload["notice"], data["notice"])
+        val data = result.assistMetadata.single()
+        assertEquals(payload, (result.content as ToolResultContent.Json).value)
+        assertEquals(JsonArray(listOf(records[0], records[2])), data["assistSelectedRecords"])
+        assertEquals(payload["notice"], ((result.content as ToolResultContent.Json).value as JsonObject)["notice"])
         assertEquals(JsonPrimitive(true), data["assistSelection"])
         assertFalse(result.isError)
     }
@@ -108,10 +109,10 @@ class AssistCoordinatorTest {
         val original = probe.execute("probe", JsonObject(emptyMap()))
         val assist = AssistCoordinator("water bottles", { true }, { "[0,2,4]" }, {})
         val selected = assist.bind(probe).execute("probe", JsonObject(emptyMap()))
-        assertEquals(original.content, selected.retainedContent)
-        val payload = (selected.content as ToolResultContent.Json).value as JsonObject
+        assertEquals(original.content, selected.content)
+        val payload = selected.assistMetadata.single()
         assertEquals(JsonPrimitive(true), payload["assistSelection"])
-        assertEquals(3, (payload["results"] as JsonArray).size)
+        assertEquals(3, (payload["assistSelectedRecords"] as JsonArray).size)
     }
 
     @Test fun cachedSelectionCannotSurviveRuntimeReadinessRevocation() = runBlocking {

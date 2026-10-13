@@ -1,0 +1,1490 @@
+ENGINEERING DESIGN  /  VERSION 2.0
+Unified Reliability &Full-Context Execution
+VERSIONED TECHNICAL DESIGN / IMPLEMENTATION DIRECTIVE
+GPT MOBILE AI
+Local Assist • llama.cpp • Combined ModeExclusive attribution • Research integrity • Deep diagnostics
+Document control
+Value
+Specification
+Version 2.0 · 13 October 2026
+Proposed application release
+0.9.53.0 · versionCode 122 — revalidate before implementation
+Repository
+tailscale-signin/GPT_Mobile_AI-improved
+Rechecked baseline
+main / v0.9.52.0 · build 12125e3c1d6b3ab4f90d1f8e1d6660cf540b98badf7
+Delivery status
+Design completed. Implementation tasks NOT_STARTED; acceptance tests NOT_RUN.
+
+EXECUTION CONTRACT  Implement the complete task graph, preserve the original evidence, test each execution path, and attach proof before marking any task complete. A ready model is not a running model; a completed model call is not a complete answer.
+48 actionable tasks · 110 acceptance cases · 50 source-section mappings80 inherited tests retained + 30 new cross-system tests
+This revision consolidates the three supplied specifications and adds source-traced corrections. It does not modify the repository, build an APK, change the user's server, or authorize a merge or release. [LA; LC; CM; R01–R12]
+
+01  How to execute this specification
+Read this page before assigning work.
+Authority and scope
+Treat this document as the implementation contract for all features and fixes in the three attached designs. Apply its explicit conflict resolutions before the older prose. Retain the originals as evidence references; do not require a coding agent to infer missing actions from them. Unrelated repository redesigns and claims about unreviewed incidents are outside this release.
+Document version 2.0 is fixed. Application version 0.9.53.0 / code 122 is a proposal based on the rechecked 0.9.52.0 / 121 release. Re-read main, tags and release metadata before choosing a code baseline or version; do not overwrite an existing tag. The actual database is schema 39, not the stale 34 in AGENTS.md. Allocate the next schema only after reconciling concurrent migrations. [R01–R03; R12]
+Required operator workflow
+1. Read the recheck findings, shared contracts and all task cards. Start with V01–V04. Each task lists its dependencies, integration seams, actions, tests and completion gate.
+2. Record owner, implementation commit(s), test result and evidence in the supplied manifests. Work in dependency order, using small reviewable commits and tests with each change.
+3. Treat file names marked Proposed as placement suggestions. Re-open existing source on the implementation commit; reuse an equivalent existing component rather than creating a competing runtime, ledger or corpus.
+4. Use NOT_STARTED → IN_PROGRESS → IMPLEMENTED → VERIFIED → DONE. Use BLOCKED with an exact missing capability or failing test. A stub, screenshot, copied design, disabled feature or successful compile is not completion.
+5. Complete all mandatory features, including optional optimizations implemented behind conservative defaults. A P0-only repair can be reported as a partial milestone, never as completion of this full version.
+6. Obtain separate authorization before merge, signing/publication or changing a deployed server. Producing this specification authorizes none of those actions.
+EVIDENCE STANDARD  A source-level finding can be confirmed without proving it caused the incident. A synthetic test demonstrates its fixture, not device qualification. A disabled-by-default feature must still exist and pass its tests.
+Navigation
+Sections 02–10: findings, common architecture and contracts. Section 11: the 48 implementation task cards. Section 12: all 110 tests. Section 13: source-to-task coverage. Section 14: completion and release gates. Section 15: source register. The Word navigation pane follows these headings; the Markdown and JSON pack use the same IDs.
+
+02  Recheck: what is established
+Preserve these causal boundaries in tickets, diagnostics and release notes.
+Area
+Recomputed or inspected result
+Do not claim
+Local Assist
+Two recorded remote invocations; 14,049 input / 636 output tokens. No local invocation or inclusion receipt recorded. Helper was selected; its profile snapshot is absent from export. [I01]
+That the helper was absent from the phone or that no unrecorded native work happened.
+Assist boundary
+The binder wraps individual authorized engine/crawler tools before crawl/aggregate search. Search A is 4,025 UTF-16 units; Search B decoded checkpoint is 28,944 units, 14 results and five page rows. [I01; R05]
+That those exact aggregate sizes were the actual Assist ingress or the first blocker.
+Desktop llama.cpp
+14 joined requests: 13 completed segments, one watchdog failure after 64,029 ms, zero visible bytes and 866 reasoning bytes. [I02]
+A proven 3,000-word context rejection, a total connection failure, or a pure prefill timeout.
+Prompt counts
+43,911 is the failed run's preliminary estimated budget; the catalog then advertises 25 of 76 authorized tools. [I02; LC §1]
+That 43,911 tokens were measured in the final transmitted prompt.
+Combined output
+All three retained contributions match saved originals/revisions: 42,880 characters / 6,157 whitespace words. Final saved text: 4,660 characters / 618 words. [I03]
+That all contributor inputs were summaries, or that the word ratio measures semantic coverage.
+Combined failures
+Two overlapping synthesis runs; requested cap 16,384 becomes 4,096; both initial calls exhaust output with no visible answer. [I03]
+Which exact callback lost the prefix, or what configuration existed at every unrecorded historical stage.
+Local engine
+Five retained tensor-contract failure messages concern on-device inference. [I02]
+That they explain the desktop llama.cpp watchdog event.
+
+All three raw incident files were reopened privately; their SHA-256 values match the source specifications. This review recomputed retained data and inspected the source paths cited below. It did not run the Android application, reproduce native execution, or inspect a complete historical wire capture. Raw logs, personal configuration and memories are not included in this implementation pack.
+
+03  New targeted repairs from the recheck
+Correct the mechanism, not only its visible symptom.
+The 16,384 → 4,096 path is now source-traced
+The retained primary has maxTokens=null and routing-only OpenRouter configuration. OpenRouterPolicy.decodeProfile treats a provider-wrapped object as OpenRouterOptions. That class fills absent max_tokens with 4,096. ProviderAdapters takes the non-null decoded value as a profile override, and RequestConstraints selects the smaller request/profile cap. This is a deterministic source path consistent with the export, not a newly captured wire execution. [I03; R08–R11]
+routing-only JSON: {"provider":{"allow_fallbacks":true,"sort":"throughput"}}        ↓ decoded using a generation-defaults modelabsent max_tokens → 4096        ↓ interpreted as a configured overridemin(planned 16384, decoded 4096) → effective 4096
+V05 must use presence-aware overrides and test absence, explicit null/inherit, valid zero/false, and explicit values. Also cover stream, temperature, top-p, top-k, seed and penalties: routing-only configuration must not inject their defaults. Do not globally remove an explicit user cap. Derive migration intent from raw field presence; already-lost intent requires a review notice, not a guessed backfill. [R08–R11]
+Additional issue
+Required repair
+Assist goal tail and attempt charging
+R04 uses goal.take(1000); derive can reserve an attempt before confirming source spans. Preserve full task requirements and charge a physical attempt only at dispatch. V18–V19.
+Helper cache identity
+The cache key includes policy, but not a separate verified actual model/backend/permission fingerprint. Add scope, revisions and epochs; do not claim a demonstrated cache leak. V20.
+Combined research match
+R07 compares task strings after take(8000). Bind evidence to full task revision/digest, not a colliding prefix. V28.
+Primary selection
+R07 chooses the first eligible ready candidate. Persist explicit primary identity; do not switch silently when it is unavailable. V28.
+Migration baseline
+R12 declares schema 39; R03 still says 34. Fix documentation and coordinate one additive migration. V01/V04.
+Cross-corpus race gap
+A logical key containing corpus digest alone does not protect one answer slot from a different new key. Add output-slot ownership and a monotonic fence across revisions. Design addition: V29.
+Cross-system integration gaps
+One backend lease owner, one admission invariant, separate operational/logging stores and independent schema namespaces. Design additions: V03/V08/V12/V38–V40.
+
+
+04  One execution path, shared by every mode
+No new parallel agent framework, accounting ledger or source store.
+Pinned task + profile + policy + permission revision  → authorized acquisition → typed normalization → retained corpus  → optional Assist task planning / qualified local scheduler  → validated source-linked artifacts  → full primary / Combined context assembly  → capability + output resolution → final encode/count/admit  → immutable dispatch → progress + usage + request inclusion receipts  → fenced answer segments → coverage decision → optional attribution  → scoped response projection + consented diagnostics/export
+Owner
+Required responsibility
+Existing run coordinator
+Run hierarchy, parent cancellation, response lifecycle and background execution. New logical synthesis admission feeds this machinery.
+Shared admission service
+PreparedModelRequest, capacity provenance, final count, output/margin arithmetic and permission validation for every physical call.
+Existing runtime/router + shared leases
+Actual backend selection, readiness, memory/thermal admission, generation, cancel acknowledgment and session quarantine.
+Existing corpus/research stores
+Immutable source artifacts, spans, access policy, retrieval and retained/inspected/delivered coverage.
+Existing invocation ledger
+Physical usage and terminal outcomes once; add nullable observation records and artifact-consumer links, not a second billing total.
+Room-backed operational records
+Assist decisions, synthesis slot ownership, revisions, segments and recovery. Equivalent transient records for temporary chats.
+Structured diagnostic journal
+Opt-in detailed events and separately consented payloads. Journal failure does not erase operational state or original evidence.
+ViewModel / Compose
+Immutable, indexed, lifecycle-scoped projections. No tokenization, source joins, database scans, model loading or network probes in composition.
+
+Invariants that apply across all roles
+Keep the complete current user task and protected requirements. Reduce irrelevant schemas and exact duplication before source detail. Local context capacity never becomes the primary model's capacity. A source artifact remains retrievable with an actual locator and expiry, not merely a string claiming it was retained. Acquire and reuse only within authorized scopes; local-only data stays restricted after summarization. [LA §§5,9–11; LC §§2–6; CM §§4–5]
+Audit primary chat, contributors, Combined final writer, research/delegates, independent reviewer, Local Assist, semantic attribution, title generation, retries, follow-ups, continuations and section repairs. Every model call takes the same admission boundary; deterministic parsing does not create a fake model invocation. [V09; IX11]
+
+05  Canonical identity, records and state
+Implement these contracts before changing execution behavior.
+Record / identity
+Minimum contract
+RunContext
+rootWorkId, parentRunId, chatId, userMessageId/revision, requestRole, profile/model/route snapshot, goalDigest, policyHash, permissionRevision, generationEpoch, processSessionId, persistenceMode.
+PreparedModelRequest
+Immutable encoded body or reproducible immutable DTO; internal payload digest, serializer revision, capability/tokenizer/template revision, final budget, evidence manifest, permission revision, attempt ID.
+Capacity / usage observations
+Verified, declared, stale or unknown capacity with source/expiry. Nullable observed tokens with native/provider/estimate provenance, partial coverage, actual runtime/accelerator and stage timings.
+Source / Assist artifact
+Acquisition and immutable snapshot IDs, MIME/title/URL policy, original artifact reference, exact span locators/hash, producer type/invocation, selected/omitted/unprocessed spans, validation and expiry.
+Request inclusion
+requestAttemptId + artifactId + parentRunId; included span IDs, post-transform body digest, serialization stage, dispatch status and exclusion reason. No inference of semantic use.
+Combined output slot
+Stable slot key (chatId, userMessageId, primaryUid). Logical synthesis key includes revisions, selected configuration and corpus/policy digests. Slot-level monotonic fence guards all writes.
+Combined snapshot / answer
+Frozen primary contribution, full contributor artifacts, context manifest, ordered segments and revision digests; claim inventory/dispositions; profile support sets; answer/corpus/parser-bound attribution.
+Events / export
+Independent schema names and versions, event ID, per-run/per-stream sequence, wall clock plus process-scoped monotonic elapsed time, capture gaps and redaction class.
+
+Assist has three independent state dimensions
+Admission: OFF, CHECKING, ELIGIBLE, INELIGIBLE, UNKNOWN_LEGACY. Execution: NOT_STARTED, QUEUED, PREPARING, RUNNING, COMPLETED, SKIPPED, FAILED, TIMED_OUT, CANCELLED, INTERRUPTED. Artifact delivery: NONE, PRODUCED, VALIDATED, REJECTED, INCLUDED_IN_REQUEST, NOT_INCLUDED, INCLUSION_UNKNOWN. Persist terminal transitions once; a late callback cannot restore RUNNING. [LA §§6–7]
+A completed generation with invalid structured output is COMPLETED + REJECTED. Cache reuse is a link, not new generation. Legacy missing telemetry stays unknown. Keep existing integer reservation fields compatible while storing nullable measured observations separately. Do not reinterpret historical zero as measured zero. [LA §§7,11]
+
+06  Final request admission and effective settings
+One authoritative invariant; no unchecked dispatch after re-planning.
+C = effective verified capacity, or acknowledged declared capacityP = full final prompt tokens, measured or conservatively estimatedO = resolved total generated-token allowance under this routeS = explicit fit margin + any labeled measurement uncertaintyRequire checked Long arithmetic: P + O + S <= C.Also enforce any separate input/output or policy ceilings.Re-encode and re-count after each material change.Dispatch only the admitted body with matching revisions and permissions.
+Future tool-result headroom is a planning allocation, not a second copy of results already in P. Do not add a speculative reserve twice when merging the three original designs. Each later round is independently measured. Template/control tokens, current task, attachments, relevant history, memory, tools and exchanges must be represented. Fragment estimates need an adjustment term; token counts need not be additive. [LC §5; CM §5]
+Capacity and measurement
+Use the configured direct/router/gateway route. Key discovery by connection/credential revision, selected and resolved model, runtime epoch, template/tokenizer and allocation policy. Never infer serving capacity from a catalog alone or blindly divide global context by slot count. Optional llama.cpp endpoints are capability/version-gated; missing /props does not mean chat is offline. A proposed gateway preflight API is a project extension, not an existing llama.cpp API. [LC §§4–5; W01]
+Prefer the serving tokenizer plus matching template. A local tokenizer is exact only after parity tests, including tools, reasoning and special tokens. Otherwise label the estimate and uncertainty. Freeze an internal request digest without logging secrets; exported redacted digests describe that different representation. Gateway transformations must have a separate verification boundary or remain explicitly unverified. [LC §§3–5; CM §11]
+Settings precedence and recovery choices
+First honor destination/privacy constraints and verified runtime limits. Resolve user-explicit maxima and request-role restrictions separately from a desired answer target. An inherited application default cannot masquerade as an explicit user maximum. Null/zero legacy settings mean no extra app cap where that was their prior meaning, never zero output or infinite runtime. Reasoning AUTO/ON/OFF resolves against actual backend/template capability; requested, transmitted and observed states remain separate. [R08–R11; LC §8]
+Remove irrelevant schemas, repeated wrappers and exact duplicates first; then apply the visible retention policy only to lower-priority history. Preserve tool-call/result pairing. If required content or output cannot fit, return a typed shortfall and keep originals unchanged. Offer only an authorized segmented workflow or explicit larger-context selection. No silent primary substitution or cloud fallback. [LC §§5–6; CM §§4–5]
+ADMISSION RECEIPTS  Only final post-transform inclusion counts as request inclusion. Planned inclusion, transport dispatch, provider usage and answer coverage are different facts. Retries and credential rotation create new attempt IDs and new admission evidence.
+
+07  Scheduling, progress and recovery
+A timeout is not proof that native code has stopped.
+Phase
+Required behavior / proposed initial policy
+Resource scheduling
+One owner per resolved backend domain; start at one active generation until concurrency is qualified. Share that owner across Assist, primary, delegates and title work. Fair queues, bounded age/capacity, foreground priority with starvation protection.
+Queue / preparation
+Separate queue, load, prefill, first progress and decode clocks. Preserve existing user limits. For desktop unknown queue/load timing, start with visible 180-second policy; adapt only with observations.
+Prefill / first progress
+Use uncached tokens, measured conservative prefill rate and cold-load overhead where available. LC proposed initial adaptive bounds 60–600 seconds; no-progress fallback 180 seconds. These are calibration values, not guarantees.
+Thinking / generating
+Begin with proposed 90-second meaningful-progress idle allowance; count nonempty reasoning/text or advancing native counters. Ignore pings, repeated stages/counters and empty chunks. Remove unrelated fixed 180-second round cutoff.
+Total run
+Honor the explicit user-configured generation deadline; preserve the existing setting and its migration semantics. A reasoning-only response is active but is not a completed visible answer.
+Cancel / timeout
+Signal actual transport/native cancel, remove queued descendants, persist one terminal outcome, and bound cleanup. Keep native lease until acknowledged stopped or isolated process terminated; quarantine a stuck session.
+Shared work
+Do not cancel physical work still authorized by another subscriber; cancel once all subscribers leave. Release generation permits during external-tool waits; never hold the only permit while waiting for a child needing it.
+
+Separate recovery branches
+Zero-visible output exhausted: restart answer writing from the original frozen corpus and complete outline within authorized settings, not 'continue after the last section.' Partial visible output: continue after committed segments without replacing the prefix. Clean provider stop with missing requirements: coverage repair or explicit incomplete state. Interrupted stream: reconcile saved work; never replay a possibly executed write without status reconciliation. Cancellation/revocation: no automatic retry or fallback. [LC §§7–9; CM §6; W03]
+Persist stage-specific failure codes: CONTEXT_INSUFFICIENT, CONTEXT_UNVERIFIED, OUTPUT_LIMIT_INVALID, MODEL_LOADING, BACKEND_BUSY, GENERATION_STALLED, RUN_DEADLINE_EXCEEDED, STREAM_INTERRUPTED, BACKEND_RESOURCE_EXHAUSTED, LOCAL_ENGINE_INCOMPATIBLE, USER_CANCELLED and PERMISSION_REVOKED. Preserve unknown sanitized provider errors; not every HTTP 400 is a context failure. [LC §9]
+
+08  Assist and research integration rules
+Repair the existing helper path; keep acquisition and source truth independent.
+Admission and task planning
+Resolve one effective Assist policy per run and persist requested/effective settings with reasons. Keep WARM_ONLY unless automatic preparation was authorized; loading may use an imported compatible artifact, never a silent download. Decouple memory learning from explicit Assist permission without broadening existing exclusions. Runtime readiness is current device state, not response history. [LA §§5–6,11,13]
+Plan QUERY_PLAN, SELECT_RECORDS, SELECT_PASSAGES and optional COMPRESS_EVIDENCE independently. Query planning does not require a large prior result. Keep complete goal requirements: do not repeat goal.take(1000), fixed 4096 inputCap or whole-result 4096–12000 character gates. Count template/instructions/metadata/output/uncertainty against the actual local context, split source-linked chunks, and record examined, selected, omitted and unprocessed spans. Count physical attempts only when dispatched. [R04–R05; LA §9]
+Normalization before reduction
+Keep the authorized provider-compatible output for downstream adapters; publish typed immutable evidence alongside it. Parse recognized JSON/checkpoint envelopes, plain text, Markdown and long article fields before Assist. Retain short useful snippets, exact source identity, MIME, offsets, timestamps and stage-specific truncation. Do not flatten arbitrary structures, give error strings source authority, or process the same engine result again at aggregate level. [LA §§5,9,14]
+Research outcomes: SUCCESS, EMPTY_VALID, PARTIAL, AUTH_REQUIRED, RATE_LIMITED, UNAVAILABLE, PARSE_FAILED, CANCELLED. Separate HTTP/transport success from normalized yield. Preserve successful sibling evidence. Authentication and deterministic parsing incompatibility do not warrant blind retry loops. Recognized redirects must pass URL/scope/depth validation. A missing normalized list does not prove nothing was found. [LA §14]
+Source-safe delivery
+Source storage, acquisition requests/time, local task input, final prompt delivery and diagnostic retention are distinct budgets. Exhausted prompt bytes must not erase URLs, source manifests or retained bodies. Use authorized pagination/read-back and per-question coverage; do not impose arbitrary source-count caps to fix a schema/token problem. Local query proposals are suggestions executed only by the parent's existing consent/tool-owner path. [LA §§5,10,14; LC §6]
+Validate IDs, offsets, snapshot membership, size and scope; copy exact retained spans, not rewritten quotations. A failed helper retains original evidence. Shared artifact reuse counts one physical invocation and separate consumer receipts, including a distinct final-Combined receipt. Query-only valid output must not be rejected solely because passage selection is unavailable. [LA §§9–11]
+DIAGNOSTICS REASONS  Use explicit reasons for disabled/missing/changed profile, denied scope, warm model required, unavailable/unqualified runtime, memory/thermal restriction, queue deadline/capacity, unsupported input, insufficient context, user budget, invalid output, parent cancel, policy revocation and process interruption. Legacy unknown is not a guessed reason.
+
+09  Combined completion and attribution
+Preserve depth first. Color is a reversible diagnostic layer.
+Full context and one writer
+Freeze the complete authorized original task, relevant repository history, attachment versions, memory permissions, primary instructions and every contributor's complete original text. Preserve the primary's pre-synthesis contribution independently. Salvage completed validated reads from a failed contributor as PARTIAL_EVIDENCE, not a successful answer. Use the explicitly pinned primary; wait or request approval when unavailable. [CM §§2,4; V28]
+Use FULL_INPUT when all required material fits. Use FULL_CORPUS_MULTIPASS only after the same primary inspects all required chunks across sectioned passes. RETRIEVAL_BACKED means available material may be uninspected. LIMITED means missing/disallowed/excluded material. Retained is not seen; multipass is not simultaneous full context. Do not destroy detail in a final summarize-everything pass. [CM §4]
+transaction:  slot = load outputSlot(chatId, userMessageId, primaryUid)  if active logical key matches: attach to existing attempt  else authorized replacement: increment slot.fence; persist new ownercommit(delta / checkpoint / status / segment / final):  accept only when slot.owner == attemptId    AND slot.fence == suppliedFence    AND task/permission/revision remain current  otherwise reject stale write, even from a different corpus key
+Keep ordered durable segments with hashes, revisions and fences. Commit a stable prefix plus transient current segment; exact overlap removal must be logged. Build a complete paginated section/claim inventory, not only bounded coverage hints. Every required item links to an output span or an explicit disposition; exclusions cannot create a false 100% inclusion score. Revalidate changed sections and provenance after repair. [CM §§6–7]
+Exclusive sentence color
+A selected profile's color means exclusive support in the reviewed pre-synthesis corpus, not causal model reliance, independent verification or truth. The primary's final synthesis, repair and review text cannot enter overlap counting. Delegates/Assist retain source lineage; a shared URL alone does not count as a profile claim. [CM §8]
+Color a whole prose sentence only when every substantive claim, including quantities, negation, dates and qualifiers, has the same sole supporting profile; comparison is complete; and support is validated without unresolved conflict. Shared paraphrases, mixed ownership, new primary inference, missing/redacted competitors, uncertainty and contradictions stay default. Similarity/embeddings propose matches, not proof of exclusivity. [CM §8]
+Persist palette identity by profile UID. Apply native foreground spans through the actual Markdown range map, tied to answer/corpus/parser/policy digests. Preserve code, math, links, citations and selection. Debug off changes no answer bytes, revisions or scroll. Attribute stable sentences in background; verifier failure must not block the answer. Target ≥99% measured precision on held-out labels, with recall/abstention/comparison coverage and a nonzero evaluated labeling sample. [CM §§8–10]
+
+10  UI, logging and compatibility defaults
+Use one response projection; separate display, capture and operational state.
+Surface
+Required layout and behavior
+Local Models → Assist
+Top helper/policy/readiness/test card; Enable & model, Tasks, Preparation, Budget & latency, Privacy & fallback, Diagnostics groups. Help buttons explain effective settings; Prepare/Test never run on navigation.
+Response Diagnosis
+Primary plus persistent expected-helper card even with zero local invocations. Overview / Tasks / Evidence / Runtime tabs; read-only Inspect, redacted Copy and Open Assist settings. Show generation, validation and request inclusion separately.
+llama.cpp settings
+Connection / Context & Output / Diagnostics tabs. Connection test/capability refresh; verified/declared/unknown context; reasoning Auto/On/Off; output and overflow policy; measured budget and precise remedy.
+Combined debug
+Stable profile-colored names/original prose; compact numbered contribution legend; final exclusive sentences only. Tappable shared/default and exclusive sentences open support/excerpt/revision/comparison bottom sheet.
+Accessibility
+Theme-aware roles, ≥4.5:1 normal text contrast, text/icons/numbers, 48 dp targets, TalkBack and focus order, narrow/landscape/200% font tests, reduced motion. Colors are never the only explanation.
+Performance
+Off-main-thread parsing/tokenization/hashing/export/matching; scoped indexed reads; stable keys; stop off-screen/completed polling. Proposed targets: P95 cached back/expand <100 ms, persisted status visible <250 ms, routine UI updates ≤4/s and <5% P95 frame-time regression from attribution.
+
+Capture modes and version namespaces
+Debug display does not enable logging. Logging Off creates no optional journal; essential response/execution state still works. Detailed metadata is the recommended capture after opt-in. Full redacted content requires separate scope/retention consent; returned reasoning text is a separate sensitive class, never hidden unreturned state. Temporary chats use transient operational and diagnostic storage. [LA §15; LC §11; CM §11]
+Conversation-debug v3, event schema 5 (from existing 4), LocalAssistPolicy v2, other nested policies and the next Room schema are separate namespaces. Keep backward readers. Redact before queue/persistence/preview/export, verify protected payload encryption, and separate source retention from logs. Proposed diagnostic defaults are seven days/128 MiB metadata and 24 hours/256 MiB content; user limits still govern. Record drops, evictions and high-watermarks explicitly. [LA §§15,17; LC §§11,14; CM §§10–11]
+Trace visible-output counts/digests at provider → reducer → persisted segments → rendered revision. Export a frozen bundle with dependency closure, permission-scoped payload references and honest capture gaps. Replay parser/reducer/persistence/styling offline; rerunning a model is new inference, not deterministic replay. [CM §11]
+FALLBACK RULES  Attribution failure → ordinary text. Optional Assist failure → original evidence and disclosed primary-only behavior only when policy allows. Mandatory independent review failure → blocked stage. Journal failure → visible capture gap. Operational persistence/ownership failure → no claim of durable complete output.
+
+11  Implementation sequence and task cards
+Execute the dependency graph; do not interpret priority as permission to drop features.
+Phase
+Tasks
+Delivery gate
+A · Baseline and contracts
+V01–V04
+Pinned baseline, sanitized fixtures, shared contracts and additive persistence.
+B · Context and runtime
+V05–V13
+Presence-aware settings, one admission boundary, tool/history planner, adaptive progress, unified leases and recovery.
+C · Local Assist
+V14–V23
+Effective policy, expected-helper state, qualified ingress/runtime, chunked tasks, validated handoff, honest accounting and UI.
+D · Research integrity
+V24–V27
+Parser/source normalization, independent acquisition/delivery budgets, parent-owned execution and efficient context preparation.
+E · Combined integrity
+V28–V37
+Full snapshot, pinned primary, fenced output slot, segments/coverage, source lineage and conservative accessible attribution.
+F · Diagnostics and delivery
+V38–V48
+Structured capture/export/replay, settings/performance, measured optimizations, all regressions, hardware qualification and release closure.
+
+Critical-path review rules
+V05 fixes the newly traced OpenRouter path early. V08/V09 centralize final admission before alternate modes are repaired. V12 owns shared physical backend leases; V20 must not acquire a competing lease around it. V28/V29 establish immutable Combined context and output ownership before V30/V31 change synthesis and continuation. Source lineage and comparison coverage precede V35/V36 colors.
+V46 builds/runs deterministic and integration suites. V47 executes the separately prepared device/server qualification; it cannot be silently folded into mock tests. V48 requires both, including every P1 feature and the implemented/tested P2 controls. P0 milestones may ship only under separately approved reduced scope and cannot be labeled the complete version described here.
+Task proof format
+task_id: Vnnstatus: NOT_STARTED | IN_PROGRESS | IMPLEMENTED | VERIFIED | DONE | BLOCKEDowner: <person or agent>implementation_commits: [<exact commit>]test_results: [{test_id: <ID>, outcome: PASS|FAIL|BLOCKED, evidence: <path>}]manual_or_device_evidence: [<build/config/screenshot/report reference>]remaining_risks: [<specific unresolved item>]completion_decision: <who verified the acceptance condition>
+The supplied JSON files intentionally start with every task NOT_STARTED and every test NOT_RUN. The manifest validator checks completeness and dependencies, not code correctness, test truth or hardware support. Tests must be linked to the exact implementation commit and configuration.
+
+11  Task cards · V01–V02
+A · Baseline and contracts
+V01  Freeze the implementation baseline and version plan
+P0  |  Depends on: None  |  NOT_STARTED
+Integration: AGENTS.md; app/build.gradle.kts; .github/workflows/
+1. Fetch the approved target branch, tags, open pull requests and release metadata. Record the exact commit, clean-worktree state, build variants, installed toolchain and existing test failures before changing code.
+2. Use main at 25e3c1d6b3ab4f90d1f8e1d6660cf540b98badf7 as this review's baseline, not as a permanent implementation target. Propose version 0.9.53.0 / code 122 only while still unused; otherwise allocate the next valid pair and update every release manifest.
+3. Correct the stale schema-34 statement in AGENTS.md after tracing the actual schema-39 database and migration registration. Create a small, reviewable implementation branch only when code implementation is authorized.
+Completion gate: Baseline report identifies actual variants and commands. The implementation branch and release identity are recorded; no existing tag is overwritten.
+Tests: IX27, LA-QA33, LC-T18
+Sources: R01; R02; R03; R12
+V02  Turn all three incidents into sanitized regression fixtures
+P0  |  Depends on: V01  |  NOT_STARTED
+Integration: app/src/test/kotlin/; app/src/androidTest/kotlin/; Proposed: test fixtures and private incident audit
+1. Recompute the three raw-file identities and measurements before extracting fixtures. Keep original exports private; commit only synthetic profile IDs, minimal permitted source content and deterministic protocol events.
+2. Reproduce Assist at the individual engine/crawler boundary as well as aggregate search. Reproduce the llama watchdog stream with reasoning but no visible text. Reproduce four Combined profiles, three full contributions, useful failed-worker evidence, two overlapping synthesis attempts and the 16,384-to-4,096 clamp.
+3. Record which assertions concern transport, retention, source coverage and answer quality. Do not use the historical subject matter as a newly verified factual benchmark.
+Completion gate: Fixtures preserve failure shape without user memories, prompts, credentials or endpoints. Expected pre-fix failures are documented rather than relabeled as passing application tests.
+Tests: LA-QA25, LA-QA26, LC-T11, CM-T04, CM-T06, CM-T09
+Sources: I01; I02; I03; LA §21; LC §1; CM §1
+
+11  Task cards · V03–V04
+A · Baseline and contracts
+V03  Define one shared execution and evidence contract
+P0  |  Depends on: V01  |  NOT_STARTED
+Integration: data/context/; data/agent/; data/accounting/; Proposed: shared contract types via Hilt
+1. Define immutable runtime fingerprints, permission snapshots, root-work IDs, parent runs, logical tasks, physical invocations, request attempts, source snapshots and answer revisions. Give each identifier a single owner.
+2. Use one RequestPreparation/Admission service, existing runtime admission, one invocation ledger and one permission-scoped evidence model. Assist and Combined are clients of these services, not duplicate agent frameworks or databases.
+3. Separate admission, task execution, artifact validation, serialized inclusion, dispatch, visible output, coverage and attribution. Document event transitions and unknown/legacy states before implementing UI labels.
+Completion gate: Contract tests reject invalid transitions and identifier mixing. Physical work and subscriber consumption can be joined without counting one invocation more than once.
+Tests: LA-QA21, LA-QA24, LC-T08, IX09, IX11
+Sources: LA §5; LA §6; LA §7; LC §3; CM §10
+V04  Add additive persistence and intent-preserving migrations
+P0  |  Depends on: V01, V03  |  NOT_STARTED
+Integration: data/database/ChatDatabaseV2.kt; Actual database module and registered migrations; data/database/entity/MessageV2.kt
+1. Inspect all supported upgrade paths and the live schema before reserving a migration; 39-to-40 is only a candidate when 39 is still the target. Add operational entities, indexes, foreign keys and revision references in one coordinated migration plan.
+2. Preserve existing conversations, invocation reservations, settings and research records. Keep old integer accounting fields compatible; add nullable observed usage rather than converting historical zero into a measured result.
+3. Define ephemeral implementations for temporary chats, cascade/refcount cleanup, active-run blob leases, process-recovery reconciliation and policy versions. Never use destructive migration or backfill guessed execution, accelerator, source support or inclusion.
+Completion gate: Supported migrations preserve row counts and content hashes; schemas are exported and registered. Legacy responses stay readable with explicitly unknown diagnostics.
+Tests: LA-QA30, LA-QA32, LA-QA33, LC-T18, CM-T24, IX20
+Sources: R12; LA §7; LA §17; LC §14; CM §10
+
+11  Task cards · V05–V06
+B · Request reliability
+V05  Fix OpenRouter's omitted-field default injection
+P0  |  Depends on: V02, V03  |  NOT_STARTED
+Integration: data/openrouter/OpenRouterAdvancedOptions.kt; data/openrouter/OpenRouterPolicy.kt; data/agent/provider/ProviderAdapters.kt
+1. Introduce a presence-aware profile-override representation. Decoding {"provider":{...}} must not manufacture max_tokens=4096, temperature=0.2, top_p=0.15, top_k=30, seed=42, stream or penalty overrides. UI preset defaults must not double as patch-decoding defaults.
+2. Distinguish absent, explicit null/inherit and explicit values. Honor explicit numeric caps, including 4,096; preserve meaningful zero/false sampling values. Validate malformed types and retain unknown supported routing fields under the existing policy.
+3. Trace raw profile JSON through decodeProfile, effective settings, outputLimit and physical serialization. Migrate from raw field presence, not an already default-filled object; show a review notice when historical user intent is unrecoverable.
+Completion gate: A routing-only object leaves generation preferences inherited. A 16,384 planned request is not clamped by an invented default; genuinely explicit user/provider limits still win.
+Tests: CM-T04, CM-T05, IX01, IX02, IX03
+Sources: R08; R09; R10; R11; I03
+V06  Resolve output and reasoning with auditable precedence
+P0  |  Depends on: V03, V05  |  NOT_STARTED
+Integration: data/agent/provider/RequestConstraints.kt; data/agent/provider/ProviderOutputLimits.kt; Proposed: ResolvedRequestLimits and reasoning policy
+1. Resolve user intent, per-request restrictions, provider/route ceilings, available context and application defaults once per physical request. Record the source of every value and the requested, transmitted and confirmed states.
+2. Treat null/zero legacy app caps as no additional app cap, never zero output or infinite runtime capacity. An application default cannot masquerade as a user maximum. Preserve explicit spending, output and total-run restrictions.
+3. Implement AUTO/ON/OFF reasoning with capability-tested template mappings. A request restriction may only narrow permission. Do not send both thinking and enable_thinking indiscriminately, assume reasoning_effort=none is universal, or count hidden-return reasoning as disabled computation.
+Completion gate: Resolver and serialized request agree. Unsupported strict OFF is explicit; reasoning-only output does not satisfy visible-answer requirements. No output target is silently shrunk into a summary.
+Tests: LC-T02, LC-T12, CM-T04, CM-T05, CM-T06, IX30
+Sources: R08; R11; LC §8; CM §5; W02; W05
+
+11  Task cards · V07–V08
+B · Request reliability
+V07  Discover the capacity of the actual llama.cpp route
+P0  |  Depends on: V03  |  NOT_STARTED
+Integration: data/context/ModelContextDiscovery.kt; data/llama/LlamaRouterClient.kt; Proposed: LlamaCapabilityRepository and endpoint identity
+1. Key capability snapshots by connection, origin/prefix, credential revision, requested and resolved model, runtime epoch, tokenizer/template and allocation policy. Distinguish verified, declared, stale and unknown values.
+2. Capability-probe the configured direct/router/gateway route. Validate model-specific /props data; use tokenizer/template or optional slot/metrics support only when exposed and authorized. Do not bypass a gateway, load a model silently or read another user's slot content.
+3. Use single-flight refresh, a proposed five-minute metadata TTL, short negative endpoint caching and explicit invalidation. Never blindly divide n_ctx by slot count. A declared limit cannot raise a verified maximum; long budget-sensitive work requires verification or acknowledged declaration.
+Completion gate: Model switches and backend reloads cannot reuse stale capacities. Unsupported metadata endpoints degrade discovery without incorrectly declaring chat offline.
+Tests: LC-T03, LC-T04, LC-T17, IX24
+Sources: LC §4; R08; W01
+V08  Count and admit the final immutable request
+P0  |  Depends on: V03, V06, V07  |  NOT_STARTED
+Integration: data/context/ContextBudgetService.kt; Proposed: PreparedModelRequest, RequestTokenCounter, RequestAdmissionPlanner; Provider serializers
+1. After tool selection, history/evidence assembly, settings resolution and provider transforms, measure the entire prompt with the serving tokenizer/template when parity is proven. Otherwise retain an explicit estimate and calibrated uncertainty.
+2. Enforce checked-Long P + O + S <= C and independent provider input/output ceilings. Keep future tool/evidence reserve as planning headroom, not a second charge for content already in P. Re-encode and re-count after each bounded deterministic re-plan.
+3. Freeze the exact payload or reproducible immutable DTO, serializer revision, internal digest, capability and permission revisions. Block post-admission mutation. Record separate authorized-catalog, advertised-request and final-measurement views.
+Completion gate: Exact boundary passes; one-token overflow blocks before inference without losing the task. Redacted export hashes are never presented as secret-bearing wire hashes.
+Tests: LC-T01, LC-T02, LC-T06, LC-T07, LC-T08, IX13
+Sources: LC §3; LC §5; CM §5; LA §9
+
+11  Task cards · V09–V10
+B · Request reliability
+V09  Wire every physical inference route through admission
+P0  |  Depends on: V08  |  NOT_STARTED
+Integration: data/repository/ChatRepositoryImpl.kt; data/agent/provider/ProviderAdapters.kt; All native and gateway dispatch call sites
+1. Inventory every outbound model call: primary, contributor, final synthesis, research/delegate/reviewer, Assist, attribution, title, follow-up, repair, retry and continuation. Replace bypassing arithmetic with the shared contract; retain preliminary planning only as a labeled preview.
+2. Re-enter preparation after credential rotation, discovered tools, appended evidence, model/route changes and output-limit recovery. Recheck permission immediately before dispatch; a changed fingerprint requires new preparation.
+3. Where a gateway adds prompts, implement or consume a capability-gated preflight revision/digest contract and forward progress. Without deployed support, label final-server counts unverified. Treat a new gateway endpoint as project work, not a standard llama.cpp API.
+Completion gate: A role-parameterized contract test proves no generation path bypasses final admission. No tools, memory or prompt text can be appended after the admitted boundary.
+Tests: LC-T05, LC-T06, LC-T08, IX10, IX11, IX13
+Sources: R05; R08; LC §3; LC §5; LC §12; LA §10
+V10  Make tool exposure and history retention token-aware
+P1  |  Depends on: V08, V09  |  NOT_STARTED
+Integration: data/agent/ProgressiveToolCatalog.kt; data/context/ContextBuilder.kt; data/context/ProviderContextPolicy.kt
+1. Evolve the existing catalog rather than adding discovery again. Select relevant authorized schemas by token cost; keep mandatory interfaces intact and re-admit expansions. Zero tools is appropriate for self-contained text; four-to-eight relevant tools is a heuristic, not a cap.
+2. Remove irrelevant schema overhead and exact duplicate evidence before trimming permitted low-priority history. Preserve current instructions, the full fitting current document, pinned constraints and valid tool-call/result pairs.
+3. Remove the llama-specific early character/turn limiter from the repaired path when the token planner supersedes it. Do not change unrelated provider policies without tests. Preserve gateway/client tool owners, duplicate-name rejection and consent.
+Completion gate: Large irrelevant catalogs no longer crowd out fitting task content. Discovery changes model exposure, not execution permissions or research acquisition allowance.
+Tests: LC-T05, LC-T06, CM-T02, LA-QA36
+Sources: LC §6; LA §16; R05
+
+11  Task cards · V11–V12
+B · Request reliability
+V11  Replace the fixed watchdog with observable progress stages
+P0  |  Depends on: V03, V07, V09  |  NOT_STARTED
+Integration: data/agent/ProgressWatchdogSession.kt; Provider event normalization; Proposed: AdaptiveProgressPolicy
+1. Replace the unconditional 180-second round cutoff for repaired routes with phase-specific queue/load, first-progress, meaningful-idle and user total-run deadlines. Preserve explicit user values and keep Assist's shorter task limits role-specific.
+2. Normalize advancing prefill/token counters, nonempty reasoning/text and actual tool/checkpoint transitions. Heartbeats, empty chunks, repeated counters and identical stage labels are not meaningful progress.
+3. Use a single synchronized reducer and monotonic time. Emit one terminal outcome with which deadline fired, last progress, saved-work status and cleanup state. Unknown stages display Waiting for model, not fabricated prefill progress.
+Completion gate: Active streams survive beyond 180 seconds; heartbeat-only stalls terminate under the right deadline. The reasoning-then-stall fixture is not classified as context overflow.
+Tests: LC-T09, LC-T10, LC-T11, LC-T14
+Sources: R06; I02; LC §7; W03
+V12  Unify backend leases and acknowledged cancellation
+P0  |  Depends on: V03, V04, V11  |  NOT_STARTED
+Integration: Existing runtime admission/governor and ProcessLocalRuntime; data/agent/AgentRunCoordinator.kt; Shared backend scheduler seam
+1. Schedule by actual runtime/resource identity, not profile label. Default to one active generation on an unqualified shared native domain; add fair root-work queues, bounded age and foreground/continuation priority.
+2. A parent must release its generation lease before awaiting tools or child inference. Use one resource lease, not nested Assist and primary semaphores. Client-side permits do not replace server admission or imply other clients are absent.
+3. On cancellation, revoke queued subscribers, signal actual transport/native cancellation and retain/quarantine the native lease until stop acknowledgment or isolated-process death. Bound cleanup and publish stopping/failed state without waiting forever in cancelAndJoin.
+Completion gate: No parent-child deadlock or reuse of a still-running native session. Stale callbacks cannot resurrect terminal work; one subscriber cannot cancel work still authorized by another.
+Tests: LA-QA13, LA-QA15, LA-QA16, LA-QA17, LA-QA18, LC-T14, LC-T15, IX09
+Sources: LA §8; LC §7; LC §9; R06; W03
+
+11  Task cards · V13–V14
+B · Request reliability / C · Local Assist
+V13  Repair continuation and safe generation-stage recovery
+P0  |  Depends on: V04, V06, V09, V11, V12  |  NOT_STARTED
+Integration: data/agent/OutputLimitRecoverySession.kt; LongResponsePolicy and existing continuation helpers; Run checkpoint/persistence paths
+1. Branch recovery by cause: length with zero visible text restarts answer writing from the original evidence and outline; length with visible text resumes the committed prefix; a clean stop with missing scope enters coverage repair.
+2. Retain visible drafts, exact original requests, source manifests, completed sections and completed action IDs. Re-admit each continuation; use section checkpoints rather than endlessly resending an ever-growing draft.
+3. Remove only verified literal overlaps, detect repeated/no-new-output loops and honor cancellation/remaining budgets. Never replay successful actions. Reconcile a possibly executed write before a retry; unavailable reconciliation stays uncertain rather than presumed safe.
+Completion gate: Early answer sections survive continuation and interruption. Reasoning bytes do not count as written sections or requested words; recovery never silently reruns all research.
+Tests: LC-T13, LC-T16, CM-T06, CM-T07, CM-T08
+Sources: LC §8; LC §9; CM §6
+V14  Resolve Assist policy and separate it from memory learning
+P0  |  Depends on: V03, V04  |  NOT_STARTED
+Integration: data/assist/LocalAssistPolicy.kt; FeatureSettings assistEnabled/effectiveAssistPolicy; data/assist/LocalAssistToolBinder.kt
+1. Create one versioned effective-policy resolver covering legacy Assist switches, execution-policy flags, helper selection and task options. Store requested/effective values and explanations with each run.
+2. Preserve selected helper, WARM_ONLY, explicit task/load limits and the existing attempt allowance during migration. Do not turn on cold loads, compression, downloads or a cloud destination because several toggles are enabled.
+3. Replace accidental !excludesMemory eligibility coupling with an explicit Assist data-processing permission. Preserve prior exclusions until reviewed. Live changes may narrow/revoke a running policy, not silently broaden destination access.
+Completion gate: Settings and runtime resolve the same policy. Memory-learning off does not itself imply Assist permission; a previously excluded profile does not become eligible without review.
+Tests: LA-QA01, LA-QA02, LA-QA03, LA-QA07, LA-QA17
+Sources: R05; LA §13; LA §17
+
+11  Task cards · V15–V16
+C · Local Assist
+V15  Persist run-scoped Assist decisions and every exit
+P0  |  Depends on: V03, V04, V14  |  NOT_STARTED
+Integration: data/assist/AssistCoordinator.kt; data/assist/AssistReadinessResolver.kt; Proposed: AssistRunStore and typed task outcomes
+1. Create the expected-helper record before tool work. Keep device readiness separate from response admission, task execution and artifact delivery. Publish explicit decisions for no profile, warm-only unavailable, no useful task, unsupported input, pressure, contention and every failure/terminal exit.
+2. Persist monotonic task sequence and compare-and-set terminal transitions. Retry adds a physical attempt rather than overwriting prior evidence; process recovery marks abandoned tasks interrupted.
+3. Render old exports as enabled but execution unrecorded. Keep zero recorded invocations distinct from unknown usage. Current readiness must never change the historical response card.
+Completion gate: Every enabled response has an operational decision record even with zero invocations and optional logging off. No silent early return or false Running/Used state remains.
+Tests: LA-QA01, LA-QA02, LA-QA03, LA-QA30, LA-QA32, IX20
+Sources: R04; LA §6; LA §7; LA §12
+V16  Preflight the actual local artifact and backend
+P0  |  Depends on: V07, V12, V14, V15  |  NOT_STARTED
+Integration: data/localruntime/ existing router, readiness and execution-evidence components; runtimeEligibleForAssist; Local model verification/quarantine
+1. Validate imported artifact readability/identity, format, SDK/build/backend contract, effective context, loaded session, available memory, thermal policy and cancellation health. A LITERT_LM profile label does not prove LiteRT execution or rule out routed GGUF.
+2. WARM_ONLY reuses only a matching ready session. Automatic preparation may load an imported qualified artifact within policy, not download or switch destination. Separate requested backend, chosen backend and observed accelerator.
+3. Quarantine deterministic incompatibility by artifact/runtime/backend fingerprint until a relevant qualified change; do not retry the same failing tensor contract indefinitely. Repair evidenced routing/packaging faults, but never patch tensor shapes blindly or disable a healthy desktop route.
+Completion gate: Optional Assist failure is isolated and explained. A required helper/reviewer is not bypassed. CPU/GPU/NPU labels require execution evidence, not catalog presence.
+Tests: LA-QA04, LA-QA05, LA-QA06, LA-QA18, LC-T17, IX17, IX29
+Sources: I02; LA §11; LC §9; R02
+
+11  Task cards · V17–V18
+C · Local Assist
+V17  Normalize evidence before Assist without breaking adapters
+P0  |  Depends on: V03, V04, V15  |  NOT_STARTED
+Integration: data/assist/LocalAssistToolBinder.kt; ToolResultEnvelope declaration and provider adapters; Proposed: AssistEvidenceNormalizer
+1. Keep the provider-compatible acquisition result intact until its adapter parses it. Publish an immutable typed evidence sidecar after normalization; Assist must not replace raw provider schema before search aggregation consumes it.
+2. Handle supported search records, crawler pages, plain text, Markdown and recognized checkpoint envelopes with bounded wrapper depth. Preserve URL/title/MIME, acquisition identity, timestamps, source offsets, snapshot hash, permission and stage-specific truncation.
+3. Separate engine errors/instructions from source material; retain useful short snippets and split long fields. Deduplicate engine/aggregate events by acquisition and snapshot identity, not by text alone across unrelated scopes.
+Completion gate: Both individual-tool and aggregate replay paths preserve source identity. Unsupported structures fail explicitly and original authorized evidence remains available.
+Tests: LA-QA11, LA-QA12, LA-QA25, LA-QA26, IX28
+Sources: R04; R05; LA §5; LA §9; LA §14
+V18  Plan independent Assist tasks and preserve complete goals
+P1  |  Depends on: V14, V15, V17  |  NOT_STARTED
+Integration: data/assist/AssistCoordinator.kt; Proposed: AssistTaskPlanner; Shared task-requirement representation
+1. Implement QUERY_PLAN, SELECT_RECORDS, SELECT_PASSAGES and separately enabled COMPRESS_EVIDENCE. Task toggles must not be an if/else shortcut that prevents another eligible task when one cannot run.
+2. Remove goal.take(1000) as an invisible loss of instructions. Preserve the complete current task and required constraints in the retained goal; admit a complete task-specific representation or explicitly report/chunk its scope.
+3. Run query planning before evidence exists when useful. Use deterministic forwarding when it already solves the task, with a recorded no-inference outcome. Selection returns source IDs; compression is labeled lossy and off unless explicitly enabled.
+Completion gate: An instruction after character 1,000 survives task planning. Short useful input is not rejected solely for being below 4,096 characters; no model call is forced just to fill diagnostics.
+Tests: LA-QA08, LA-QA09, IX04
+Sources: R04; LA §9; LA §10
+
+11  Task cards · V19–V20
+C · Local Assist
+V19  Replace character windows and premature attempt charging
+P1  |  Depends on: V08, V16, V18  |  NOT_STARTED
+Integration: data/assist/AssistCoordinator.kt; ChatRepositoryImpl generateDelegate inputCap seam; Proposed: token-aware chunk planner
+1. Replace the 4,096-to-12,000 character window and hard-coded Assist inputCap=4096 with the effective local context minus full template/instructions/task metadata/output and uncertainty reserve.
+2. Tokenize the complete serialized local task. Split paragraphs/sentences with deterministic overlap and stable span IDs; record examined, selected, omitted and unprocessed coverage. Never shrink primary context to the helper's window.
+3. Validate normalization, spans and dispatch eligibility before consuming a physical-attempt allowance. Keep queue attempts, planning, chunks, logical tasks and actual retries distinct; migrate maxAttempts conservatively without an accidental unlimited loop.
+Completion gate: Unicode and 3,000-word inputs are correctly chunked or explicitly partial. A no-span/no-dispatch path does not exhaust the physical invocation allowance.
+Tests: LA-QA09, LA-QA10, LA-QA11, IX05
+Sources: R04; R05; LA §8; LA §9
+V20  Queue Assist fairly and fix shared cache identity
+P0  |  Depends on: V12, V15, V18, V19  |  NOT_STARTED
+Integration: data/assist/AssistCoordinator.kt companion caches/mutex; Proposed: AssistTaskScheduler; Existing shared acquisition/artifact store
+1. Replace silent tryLock pass-through with the shared resource scheduler. Persist queue position/wait and exact deadline/capacity rejection; prioritize visible work without starving research enrichment.
+2. Deduplicate only when goal, task type, full source snapshot, helper/model/backend fingerprint, policy, permission scope and generation epoch match. The current cache key lacks an explicit helper fingerprint; revalidate before reuse.
+3. Count shared physical generation once while keeping subscriber/consumer links. Revoke only the affected subscriber, cancel when none remain, and reject late artifacts for already-serialized or superseded requests.
+Completion gate: Concurrent chats and Combined profiles have isolated state and fair execution. Helper/profile/permission changes cannot reuse an incompatible cached artifact.
+Tests: LA-QA13, LA-QA14, LA-QA15, LA-QA17, LA-QA24, IX06, IX09
+Sources: R04; LA §8; LA §10
+
+11  Task cards · V21–V22
+C · Local Assist
+V21  Validate source-linked handoff and record real inclusion
+P0  |  Depends on: V09, V17, V19, V20  |  NOT_STARTED
+Integration: data/assist/AssistHandoff.kt; Provider serialization and compaction seams; Proposed: request inclusion receipt entity
+1. Version artifacts with producer/task/invocation, source snapshot, exact span IDs, validation, coverage, permissions and expiry. Validate membership, hashes, offsets, uniqueness, schema and size; copy exact retained source bytes, not model-rewritten quotations.
+2. When originals fit, send originals and optional nonduplicative index hints. For overflow use a balanced source-linked view and retrievable retained corpus, never a summary-only replacement by default.
+3. After final transforms/compaction, write a per-request-attempt inclusion receipt with exact included IDs and dispatch outcome. Include separate receipts for each contributor, continuation and final Combined request; missing or late handoffs remain Not included with a reason.
+Completion gate: Generated, validated, serialized, dispatched and semantically covered are distinct. consumedAssistInvocationIds is only a compatibility projection, not proof that the answer used every fact.
+Tests: LA-QA19, LA-QA20, LA-QA21, LA-QA22, IX13
+Sources: LA §10; LC §5; CM §5
+V22  Account for local usage once and report unknowns honestly
+P0  |  Depends on: V04, V15, V16, V20, V21  |  NOT_STARTED
+Integration: data/accounting/InvocationLedger.kt; Proposed: InvocationUsageObservation; Scoped run/root DAO queries
+1. Record every actual local generation under the existing ledger with kind=assist, even when cancelled, timed out or rejected. Loading, queueing and deterministic extraction produce timings but no invented model tokens.
+2. Add nullable measured/estimated usage provenance, native counters, requested/observed backend, accelerator, prefill/decode/first-token timing and stop reason. Preserve reservations separately from observed final usage.
+3. Sum physical invocations once; display reuse on consuming profiles without duplicating generated tokens. Report on-device API charge separately from energy/latency. Do not call local tokens cloud savings; measure paired comparisons.
+Completion gate: Historical incident reads zero recorded local calls with usage unrecorded. Failed work remains in efficiency accounting and current response queries do not depend on a global latest-100 window.
+Tests: LA-QA23, LA-QA24, LA-QA31, LC-T18, IX26
+Sources: LA §7; LA §11; LA §16
+
+11  Task cards · V23–V24
+C · Local Assist / D · Research and context preparation
+V23  Build the Assist settings and expected-helper card
+P1  |  Depends on: V14, V15, V16, V21, V22  |  NOT_STARTED
+Integration: presentation/ui/chat/ChatBubble.kt; Proposed: LocalAssistDiagnosticsCard and ResponseDiagnosticsMapper; Existing Local Models / Assist settings
+1. Always show the response-scoped helper card in expanded diagnostics when enabled: selected model snapshot, admission, actual task state, usage provenance, inclusion state and exact reason/remedy. Do not require a local invocation to render it.
+2. Implement Overview, Tasks, Evidence and Runtime tabs, with Inspect, redacted Copy and Open Assist settings. Prepare/Test require deliberate actions; Test uses the real execution path and never rewrites old conversations.
+3. Organize Assist settings into Enable/model, Tasks, Preparation, Budget/latency, Privacy/fallback and Diagnostics. Explain requested versus effective policy with help controls. Use theme roles, icons plus labels, scalable layouts and no inference during navigation.
+Completion gate: Every state and legacy unknown has a readable screen. Collapsed/off-screen cards stop polling; copy/export agrees with the stored projection.
+Tests: LA-QA30, LA-QA31, LA-QA34, LA-QA35, IX20
+Sources: LA §12; LA §13; LA §16
+V24  Repair search parsing, error classes and truncation truth
+P0  |  Depends on: V02, V17  |  NOT_STARTED
+Integration: Existing search/crawler adapters and aggregateWebSearch; SearchCrawlStage and checkpoint normalization; Research normalization event model
+1. Normalize recognized Markdown title/URL/snippet structures before compaction. Resolve known redirect wrappers with bounded decoding, HTTP(S) and destination-policy validation; do not turn arbitrary diagnostic links into evidence.
+2. Use SUCCESS, EMPTY_VALID, PARTIAL, AUTH_REQUIRED, RATE_LIMITED, UNAVAILABLE, PARSE_FAILED and CANCELLED separately from transport completion. Show credential remedies; retain successful siblings and bound only legitimate transient retries.
+3. Repair the retained-leads/empty-results and URLs-lost-in-answer paths. Reconcile text truncation markers with contradictory legacy flags as partial/inconsistent, never full examination. Preserve raw permitted diagnostics separately from factual source rows.
+Completion gate: Search A retains its usable leads or explicit parse limitations; Search B retains 14 rows and five page rows. Parser failure cannot imply no evidence exists.
+Tests: LA-QA25, LA-QA26, LA-QA27, LA-QA28, IX28
+Sources: I01; LA §14
+
+11  Task cards · V25–V26
+D · Research and context preparation
+V25  Separate acquisition, retention and delivery budgets
+P0  |  Depends on: V08, V17, V24  |  NOT_STARTED
+Integration: data/agent/ToolExecutionBudget.kt; Research acquisition limits and retained corpus; Source manifest/read-back integration
+1. Maintain distinct limits for acquisition requests/time/downloads, retained storage, helper prompt input and primary delivery. Audit existing 24,576-byte delivery and generic replay caps; budget exhaustion must not erase normalized source IDs.
+2. Allocate delivery across subquestions and contrary findings. Retain a compact source manifest plus authorized pagination/read-back; record retrieved, parsed, delivered, inspected and missing coverage independently.
+3. Reuse a shared URL/source registry only inside compatible root-work and permission scopes. Keep provider-source occurrences and content versions; canonical URL equality alone does not prove identical content or independent corroboration. Do not reintroduce arbitrary source-count caps.
+Completion gate: Research can remain successfully acquired while final writing is partial. Real memory, storage and user limits are respected without relabeling not-delivered as not-found.
+Tests: LA-QA26, LA-QA29, CM-T11, IX14, IX28
+Sources: R05; LA §14; LC §6; CM §4
+V26  Keep research/query execution parent-controlled and finite
+P1  |  Depends on: V12, V18, V24, V25  |  NOT_STARTED
+Integration: Parent-controlled acquisition executor; Research engine/task scheduler; Existing tool authorization and owner routing
+1. Treat local query proposals as structured suggestions with goal/gap/source lineage. Only the authorized parent executor selects an engine and issues a search or crawl; helpers cannot grant consent or spawn delegates.
+2. Distribute admitted work fairly across available engines/profiles, deduplicate equivalent acquisitions and persist every queued, completed, failed or cancelled engine outcome. Pending cannot survive a terminal parent indefinitely.
+3. Respect user depth and explicit acquisition budgets; disable deterministic auth/configuration failures until remedied, preserve useful siblings and expose partial coverage. Required independent review remains a separate stage, not a success badge inferred from research completion.
+Completion gate: Combined/delegate/Assist sharing causes neither tool storms nor duplicate accounting. Research failure states are actionable and never hidden by a shorter unrequested search.
+Tests: LA-QA14, LA-QA28, LA-QA29, LC-T15, IX09
+Sources: LA §5; LA §14; LC §9
+
+11  Task cards · V27–V28
+D · Research and context preparation / E · Combined integrity and attribution
+V27  Reduce irrelevant memory and context-preparation overhead
+P1  |  Depends on: V09, V10, V14, V25  |  NOT_STARTED
+Integration: data/repository/ChatRepositoryImpl.kt context assembly; Existing memory recall and tool discovery; Run phase instrumentation
+1. Trace source collection, memory recall, tool discovery, readiness, normalization, assembly and serialization separately. The incident's preparation delay and frame stalls are observations, not proof of an Assist cause.
+2. Rank memory against the complete current request, not generic single-word topics; deduplicate injection only after comparing serialized content. Keep memory storage/learning separate from recall and enforce source privacy on derived summaries.
+3. Bound capability discovery and cache with invalidation. Move parsing, joins, hashing and request formatting off the main thread. Preserve user-authored prompts and record conflicts rather than silently overwriting instructions.
+Completion gate: Measured phase timings explain app overhead independently of provider time. Relevant constraints/evidence survive every optimization and unrelated recalled facts do not dominate prompts.
+Tests: LA-QA36, LC-T06, CM-T02, IX18
+Sources: I01; LA §16; LC §6
+V28  Freeze full Combined context and explicitly pin the primary
+P0  |  Depends on: V04, V09, V25  |  NOT_STARTED
+Integration: presentation/ui/chat/ChatViewModel.kt startCombinedSynthesis; Proposed: CombinedSnapshotBuilder; Existing message/revision and attachment repositories
+1. Persist the selected primary UID/configuration and immutable original primary contribution before replacing its visible slot. Do not silently choose the first ready contributor; unavailable, cooling or privacy-ineligible primary requires pause or approved fallback.
+2. Snapshot original task/revision, applicable primary instructions, repository-backed history, authorized memory, immutable attachments, full contributor texts and validated tool evidence from partial/failed profiles. Worker prompts and source instructions remain untrusted data.
+3. Replace truncated task-prefix matching with full task/revision identity plus snapshot digest. Two goals sharing the first 8,000 normalized characters must not share research evidence by accident. Record unsupported multimodal representations and every missing contributor.
+Completion gate: All fitting original context reaches synthesis; failed-worker reads retain partial lineage. The final answer never becomes its own pre-synthesis attribution source.
+Tests: CM-T01, CM-T02, CM-T03, CM-T11, CM-T17, IX07
+Sources: R07; CM §4; LC §6
+
+11  Task cards · V29–V30
+E · Combined integrity and attribution
+V29  Fence one output slot across every synthesis revision
+P0  |  Depends on: V04, V12, V28  |  NOT_STARTED
+Integration: data/agent/AgentRunCoordinator.kt; Proposed: CombinedSynthesisCoordinator and ownership DAO; Every message/segment/status write path
+1. Define a stable output-slot identity for conversation/user-message/primary target, plus a logical synthesis key containing user revision, contributor digest, profile configuration and policy. A changed corpus creates a new logical job but must not create an unfenced competing writer.
+2. Transactionally claim the output slot with a monotonic fence and persisted owner/attempt. Recreated ViewModels and duplicate triggers attach to the current admitted attempt. Authorize takeover explicitly; lease expiry alone must not invent provider death.
+3. Require the current slot fence on stream deltas, checkpoints, segments, statuses and final message writes. Reject all stale callbacks across old logical keys as well as old attempt UUIDs.
+Completion gate: At most one current writer commits to a target slot, including after a source edit or late worker completion. No reopened conversation starts a duplicate physical synthesis.
+Tests: CM-T09, CM-T10, CM-T24, IX08
+Sources: I03; R07; CM §6
+V30  Implement full-input and explicit finite-context workflows
+P0  |  Depends on: V08, V21, V28, V29  |  NOT_STARTED
+Integration: Proposed: CombinedContextPlanner; Shared admission and immutable corpus store; Restricted frozen-corpus read tool
+1. Use FULL_INPUT whenever all required authorized material fits with sufficient answer allowance. Preserve full contributor texts and original constraints; deduplicate exact content while retaining all originating profiles.
+2. For overflow, use same-primary FULL_CORPUS_MULTIPASS with a complete chunk/coverage manifest, or explicitly labeled RETRIEVAL_BACKED/LIMITED workflows. Distinguish retained, available, delivered and actually inspected material.
+3. Write and validate sections against complete relevant chunks, preserve cross-section dependencies/conflicts and assemble without a final detail-destroying summary pass. Restrict final-writer tools to authorized read-only frozen evidence. Never silently change primary, expand permissions or inherit workers' write tools.
+Completion gate: Multipass completes the agreed coverage or reports resumable limitations. Strict single-request policy blocks with a capacity report instead of clipping source tails.
+Tests: CM-T01, CM-T03, CM-T26, LC-T01, IX14
+Sources: CM §4; CM §5; LA §10
+
+11  Task cards · V31–V32
+E · Combined integrity and attribution
+V31  Persist answer segments and protect every committed prefix
+P0  |  Depends on: V13, V29, V30  |  NOT_STARTED
+Integration: data/agent/OutputLimitRecoverySession.kt; Proposed: CombinedAnswerSegment persistence; Message revisions and live rendering overlay
+1. Persist ordered segments with content digest/byte length, revision, source-set digest, continuation parent and output-slot fence. Render a stable committed prefix plus one transient current segment.
+2. Do not truncate the logical answer at the old in-memory buffer limit. Use chunked storage and bounded rendering; retain even short deltas on interruption. Record exact overlap removals and reject stale segment writes.
+3. Accept final completion only with a valid segment chain, current owner and completed coverage decision. A successful provider stop or a completed physical request is not sufficient. Reasoning-only exhaustion returns to full-outline writing.
+Completion gate: Continuation tails cannot replace earlier chapters. Large answers, process recreation and takeover preserve the exact committed chain with explicit partial status when needed.
+Tests: CM-T06, CM-T07, CM-T08, CM-T24, CM-T26, IX08
+Sources: CM §6; LC §8
+V32  Build complete coverage inventories and targeted repair
+P0  |  Depends on: V28, V30, V31  |  NOT_STARTED
+Integration: data/agent/CombinedCoverage.kt; Proposed: CombinedClaimInventory and CombinedCoverageAuditor; Section repair checkpoints
+1. Retain bounded exact-text coverage hints only as a cheap diagnostic. Build a paginated complete section/paragraph inventory, then atomic claims with dates, numbers, qualifiers, exceptions, examples, citations and conflicts; reconcile extraction against source sections.
+2. Assign INCLUDED, MERGED_EQUIVALENT, CONFLICT_EXPLAINED, EXCLUDED_IRRELEVANT, EXCLUDED_UNSUPPORTED, WITHHELD_BY_POLICY or MISSING with output links/reasons. Distinguish included coverage from accounted-for exclusions.
+3. Repair only missing/changed sections using full source excerpts and the original outline; recheck those sections. Preserve requested depth and user-requested brevity. Do not average disagreements, equate repeated claims with independent evidence or manufacture a quality-100 score.
+Completion gate: More than 256 inventory items are processed or explicitly limited. A modern-era-only answer to a full chronology is repaired or marked incomplete.
+Tests: CM-T08, CM-T16, CM-T26, IX14
+Sources: CM §7; CM §14
+
+11  Task cards · V33–V34
+E · Combined integrity and attribution
+V33  Build contribution lineage before assigning ownership
+P1  |  Depends on: V21, V28, V32  |  NOT_STARTED
+Integration: Proposed: CombinedClaimSupport and support resolver; Immutable contribution/evidence records; Assist/delegate producer lineage
+1. Define support against the frozen selected profiles' pre-synthesis corpus, including the primary's original contribution and explicitly contributed validated evidence. Keep origin/support separate from delivered-to, read-by and reviewed-by.
+2. Preserve all source occurrences when exact duplicates are consolidated. Assist summaries and non-selected reviewers do not acquire ownership; a shared URL registry entry alone does not mean a profile made that claim.
+3. Track missing, redacted, stale and unprocessed comparison chunks. Invalid failed-profile control text and private reasoning never become evidence. A missing competitor contribution creates uncertainty, not proof of exclusivity.
+Completion gate: Worker facts do not become primary-owned merely because the primary read them. Every support link resolves to immutable source spans and permissions.
+Tests: CM-T11, CM-T17, CM-T18, CM-T21
+Sources: CM §8; LA §10
+V34  Verify exclusive meaning conservatively and allow abstention
+P1  |  Depends on: V09, V16, V20, V33  |  NOT_STARTED
+Integration: Proposed: CombinedSupportResolver and CombinedProvenanceValidator; Semantic verifier adapter; Versioned attribution benchmark
+1. Split prose sentences into substantive claims with pronoun context, units, quantities, negation, dates and qualifiers. Use lexical/exact overlap cheaply; embeddings or a qualified model propose candidates, not proof that absent matches are exclusive.
+2. Process the entire eligible selected-profile comparison corpus. Verify entailment/equivalence/contradiction against exact spans; color only when every substantive claim has the same sole supporting profile, comparison is complete and no unresolved conflict exists.
+3. Validate model-proposed IDs/sidecars independently. Abstain on mixed, shared, unsupported, new-primary inference, conflicting or uncertain content. Attribution failure cannot block an otherwise valid answer. Remote verification needs existing sharing/cost permission.
+Completion gate: Measure precision, recall, abstention and comparison coverage on held-out human labels. Target at least 99% exclusive-label precision; zero emitted labels alone cannot qualify the feature.
+Tests: CM-T12, CM-T13, CM-T14, CM-T15, CM-T16, CM-T18, IX30
+Sources: CM §8; CM §14
+
+11  Task cards · V35–V36
+E · Combined integrity and attribution
+V35  Assign stable, accessible profile text colors
+P1  |  Depends on: V04, V33, V34  |  NOT_STARTED
+Integration: Proposed: ProfileAttributionPalette; Selected profile response UI; Existing theme configuration
+1. Persist color identity by profile UID, with palette version and theme-specific resolution. Renames, model changes, tab order and completion order must not reassign identity; resolve collisions within the selected set.
+2. In debug mode color profile names and each profile's own response prose. The final primary answer remains normal except validated exclusive sentences. Keep error, code syntax, math and system notices semantically styled.
+3. Validate contrast on actual light/dark/custom surfaces; normal prose targets at least 4.5:1. Add numbered markers, labels and accessible descriptions; do not rely on color or reuse an unreadable fixed RGB palette.
+Completion gate: Real text foreground changes, not just bubbles/status dots. Debug off removes provenance overrides without changing answer content, revision or scroll position.
+Tests: CM-T14, CM-T20, LA-QA35
+Sources: CM §9; W07
+V36  Make attribution safe for Markdown, Unicode and streaming
+P1  |  Depends on: V31, V34, V35  |  NOT_STARTED
+Integration: presentation/chat/util/ChatMarkdownParser.kt; Actual Markdown renderer consumers; Proposed: source-to-rendered range adapter
+1. Preserve stable block IDs and map raw Markdown to rendered UTF-16 ranges through inline-math placeholders, display math and other parser transformations. Store UTF-8 byte offsets separately; never apply raw-source positions directly to transformed display text.
+2. Validate sentence/span bounds, support state, answer/corpus digests, parser version and policy before styling. Stale maps, overlapping invalid spans or digest mismatch fall back to normal text.
+3. Preserve bold/italic, links, lists, tables, citations, selection, code and math. Stream normal text first and validate completed stable sentences in bounded background batches; cancel/invalidate on revision or corpus change, not on every token.
+Completion gate: Emoji, combining marks, RTL, links, tables and math render and select correctly. Styling cannot execute model-supplied HTML or corrupt the stored answer.
+Tests: CM-T19, CM-T20, CM-T24
+Sources: CM §9; CM §10; W08
+
+11  Task cards · V37–V38
+E · Combined integrity and attribution / F · Diagnostics and delivery
+V37  Add the contribution legend and sentence inspector
+P1  |  Depends on: V23, V34, V35, V36  |  NOT_STARTED
+Integration: Proposed: CombinedProvenanceLegend and SentenceAttributionSheet; Chat response details; Existing source/article navigation
+1. Show a compact, wrapping/scrollable legend with numbered colored profile names, contribution status and a distinct primary badge. Do not imply the primary owns every sentence.
+2. Let attributed and default sentences open a themed bottom sheet with support class, source profiles, exact excerpts, source links, contribution revision, compared coverage and warnings. Add Open original contribution and Open evidence actions.
+3. Keep normal citations/article cards available with debug off. Toggle display without re-synthesis, message edits or scroll reset. Plain text/Markdown exports remain clean; optional debug sidecars carry attribution, and any HTML export must escape content.
+Completion gate: Exclusive, shared, mixed, conflicting and unknown cases are inspectable and accessible. Missing/deleted evidence disables the relevant action with a truthful reason.
+Tests: CM-T14, CM-T18, CM-T20, CM-T24
+Sources: CM §9; CM §10
+V38  Create one structured journal without replacing operational state
+P0  |  Depends on: V03, V04, V09, V15, V29  |  NOT_STARTED
+Integration: data/diagnostics/AppLogRecorder.kt; Proposed: RunDiagnosticJournal; Existing runtime/ledger/source event seams
+1. Keep AppLogRecorder lightweight. Write typed schema-versioned events directly rather than reparsing human strings; preserve stable event IDs, run/stream sequences, process sessions, roles, invocations, attempts, source/segment revisions and fences.
+2. Instrument policy, admission, normalized evidence, budgets, queue/load/prefill/reasoning/visible progress, validation, inclusion, recovery, coverage, attribution, persistence, display and retention gaps.
+3. Separate essential generation/ownership/Assist outcome records from opt-in diagnostics. Logging off does not disable accounting or truthful response status; temporary chats use equivalent transient stores. Reserve critical checkpoint capacity and drop high-frequency samples first.
+Completion gate: Every terminal path is correlated and exactly once. Event schema version is independent from conversation export, policy and database versions.
+Tests: LA-QA32, LC-T18, CM-T23, IX12, IX20
+Sources: LA §15; LC §11; CM §11; R06
+
+11  Task cards · V39–V40
+F · Diagnostics and delivery
+V39  Protect diagnostic content before it reaches storage
+P0  |  Depends on: V04, V38  |  NOT_STARTED
+Integration: Proposed: DiagnosticPayloadStore; Shared redaction/privacy policy; Existing key management and app-private storage
+1. Keep Debug display, diagnostic metadata capture and full-content capture separate. Metadata is the recommended level after logging opt-in; raw prompts, memories, evidence and returned reasoning content require separately scoped consent.
+2. Redact before queues, persistence, previews and export using field/allowlist policies plus tests for nested JSON, error text, signed URLs, headers, cookies, secrets and personal data. Derived artifacts inherit source restrictions; phone-only data cannot leak through tokenizer or verifier calls.
+3. Verify encryption/key-management implementation rather than assuming Keystore encrypts files. Separate source-corpus retention from logs, enforce ephemeral deletion and refcounts, and report storage failures. Proposed diagnostic defaults: metadata seven days/128 MiB, content 24 hours/256 MiB, subject to user limits.
+Completion gate: No credentials or unapproved content reaches ordinary logs. Logging failure degrades capture only; loss of operational persistence blocks claims of durable completion.
+Tests: LA-QA31, LA-QA32, CM-T21, CM-T22, CM-T23, IX15, IX16
+Sources: LA §15; LC §11; CM §11; W06
+V40  Export a consistent v3 bundle with complete dependencies
+P0  |  Depends on: V21, V22, V31, V36, V38, V39  |  NOT_STARTED
+Integration: presentation/ui/chat/ChatDebugExport.kt; Proposed: CombinedDebugExporter; Shared export snapshot collector
+1. Use conversation-debug v3 with backwards v2 reading, and independently versioned event schema 5 when current schema is 4. Include nested schema versions and tolerate unknown optional fields without mistaking corruption for absence.
+2. Collect response profiles, selected zero-invocation helpers, actual producers, reused-artifact dependencies, effective settings, capability and context manifests, Assist tasks/inclusions/usage, contribution/provenance and explicit missing/evicted states.
+3. Freeze high-watermarks per run, active-generation flags, capture level and source/export truncation separately. Package manifest.json, conversation.json, events.jsonl, context-manifests.json, provenance.json and permitted payloads. Distinguish capturedFully, replayableReducer and completeProviderWireCapture.
+Completion gate: Export during generation is internally consistent and redacted; UI, Copy and export use the same scoped projection. Retained snapshots never pretend to be a complete wire capture.
+Tests: LA-QA31, CM-T25, IX12, IX13, IX19
+Sources: LA §15; LC §11; CM §11
+
+11  Task cards · V41–V42
+F · Diagnostics and delivery
+V41  Add four-boundary output tracing and offline replay
+P1  |  Depends on: V31, V36, V38, V39, V40  |  NOT_STARTED
+Integration: Provider stream assembler; Run reducer and segment persistence; Markdown rendering and export replay harness
+1. Record visible byte counts and representation-labeled digests at provider deltas, reducer output, committed segments and rendered revision. With content consent, keep the corresponding permitted redacted chunks.
+2. Build deterministic offline replay for parser, reducer, persistence and styling from frozen sequence ranges. Reproduce the missing-prefix and stale-fence fixtures without network or native model calls.
+3. Detect event gaps, duplicate chunks and digest divergence explicitly. Do not call redacted-body hashes wire hashes or promise that rerunning an external model yields identical output/usage.
+Completion gate: Replay locates where text disappeared and reproduces the captured answer revision. Missing capture produces a bounded partial-replay result, not fabricated events.
+Tests: CM-T07, CM-T10, CM-T25, IX13, IX19
+Sources: CM §11; LA §15
+V42  Unify the response diagnostics projection
+P1  |  Depends on: V22, V23, V32, V37, V38, V40  |  NOT_STARTED
+Integration: presentation/ui/chat/ChatBubble.kt; Proposed: ResponseDiagnosticsMapper; Scoped ViewModel/DAO projection
+1. Present Primary, Local Assist, Context and Combined status as coherent response-scoped cards. Show actual location/runtime, unknown versus measured usage, request capacity/provenance, requested/effective output, meaningful phase and coverage independently.
+2. Retain compact Overview/Tasks/Evidence/Runtime detail navigation rather than nesting duplicate tab systems. Surface saved-work status and applicable Retry failed stage, Continue saved answer, Inspect and Settings actions.
+3. Use indexed run/root queries and lazy detail loading; never reconstruct history from a global recent-invocation window. Build copy text on demand. No parsing, tokenization, network calls, DB scans or inference belongs inside composition.
+Completion gate: Legacy and current states agree across cards and exports. Opening details or pressing Back never starts model work or changes generation ownership.
+Tests: LA-QA23, LA-QA30, LA-QA34, LA-QA35, IX18, IX20
+Sources: LA §12; LA §16; LC §10; CM §12
+
+11  Task cards · V43–V44
+F · Diagnostics and delivery
+V43  Add focused llama.cpp connection/context diagnostics
+P1  |  Depends on: V06, V07, V08, V11, V42  |  NOT_STARTED
+Integration: Existing llama.cpp provider/profile settings; Proposed: LlamaContextSettingsPane and LlamaContextDiagnosticsPanel; Existing settings repository
+1. Use Connection, Context & Output and Diagnostics tabs. Show direct/router/gateway identity, connection status, verified/declared/unknown capacity and freshness, allocation policy when known, and Test/Refresh actions.
+2. Expose reasoning Auto/On/Off, output allowance, adaptive waiting and retention/overflow policy with validation and help. Manual capacity is an acknowledged fallback and cannot override a lower verified runtime limit.
+3. Explain prompt/schema/output/margin/headroom and precise failure stage. Unknown capacity shows an unknown value, not a fake percentage. Preserve explicit settings during migration and never auto-restart/reconfigure the user's desktop server.
+Completion gate: Users can distinguish healthy connection, loading, context overflow, stalled generation, output limit and incompatible on-device Assist without dense metadata in the input bar.
+Tests: LC-T03, LC-T04, LC-T12, LC-T17, LA-QA35
+Sources: LC §10; LC §14
+V44  Profile navigation, memory pressure and incremental rendering
+P1  |  Depends on: V23, V27, V36, V40, V42, V43  |  NOT_STARTED
+Integration: Chat/navigation handlers and Compose state; Existing performance instrumentation; New benchmark scenarios
+1. Measure snapshot, tokenization, capability discovery, queue/load/prefill, writer/repair, attribution, journal flush and export separately. Keep disk/network/inference out of Back handlers; cancel UI subscriptions without cancelling independent coordinator work.
+2. Coalesce routine counters to at most four visible updates per second, with immediate terminal-state publication. Use stable lazy keys, immutable artifact references, bounded batches and digest caches; stop off-screen/completed-card hardware polling.
+3. Benchmark the intended phone and a lower-memory device with diagnostics/provenance on and off, cold/warm runs, same refresh/thermal conditions and large conversations. Preserve scroll anchor; test 200% text, narrow/landscape and reduced motion.
+Completion gate: Target p95 cached expand/back under 100 ms, persisted status visible within 250 ms, and under 5% p95 frame-time regression from provenance. Report actual results and app overhead separately from network time.
+Tests: LA-QA34, LA-QA35, LA-QA36, CM-T19, CM-T20, IX18
+Sources: LA §16; LC §10; CM §12; W04
+
+11  Task cards · V45–V46
+F · Diagnostics and delivery
+V45  Ship optional optimizations with measured safeguards
+P2  |  Depends on: V19, V21, V22, V30, V34, V44  |  NOT_STARTED
+Integration: Assist compression policy and task planner; Paired benchmark/statistics integration; Feature flags and optimization settings
+1. Implement optional compression and adaptive scheduling/timing tuning as scoped policies, not mandatory loss of originals. Compression stays off unless explicitly chosen; maximum useful fitting primary context remains the default.
+2. Run paired same-input, same-route Assist-on/off and compression-on/off evaluations. Measure failed work, remote prompt change, output quality/coverage, actual cost where known, latency and available energy/thermal observations.
+3. Publish raw sample counts, uncertainty and context modes. Never infer savings from local output tokens or call fewer answer words an improvement. Qualify semantic verification without loading a cold model merely for colors; abstention remains the safe fallback.
+Completion gate: Features exist and are tested even when disabled by default. No optimization is activated broadly without measured non-regression of required evidence and answer coverage.
+Tests: LA-QA10, LA-QA24, CM-T01, IX26
+Sources: LA §11; LA §17; LC §6; CM §15
+V46  Execute the complete cross-mode regression suite
+P0  |  Depends on: V05, V09, V13, V20, V25, V32, V37, V40, V41, V43, V44, V45  |  NOT_STARTED
+Integration: app/src/test/kotlin/; app/src/androidTest/kotlin/; Controllable HTTP/SSE and coroutine test harnesses
+1. Implement all 80 inherited acceptance cases and 30 added integration/qualification cases in this specification. Preserve IDs in test/report metadata; a test for one mode must not stand in for another physical dispatch path.
+2. Use fake clocks for deadlines, deterministic source fixtures and a controllable server for context errors, reasoning-only streams, heartbeats, slow prefill, retries and interrupted writes. Add migrations, race/property tests, renderer/UI and privacy checks; prepare the real-device suites for V47.
+3. Run the deterministic role matrix across primary, contributor, final writer, research, delegate/reviewer, Assist, attribution, title and continuations. Attach reports for the exact commit; retain device-only cases as pending V47 rather than skipped-as-passed.
+Completion gate: Each required test has an explicit pass/fail/blocked result and evidence. No untested mandatory task can be declared complete merely because compilation succeeds.
+Tests: LC-T01, LC-T08, LC-T09, LC-T14, CM-T09, CM-T19, LA-QA33, IX11, IX12
+Sources: LA §19; LA §20; LC §13; CM §14
+
+11  Task cards · V47–V48
+F · Diagnostics and delivery
+V47  Qualify real server and on-device runtime combinations
+P0  |  Depends on: V16, V43, V44, V46  |  NOT_STARTED
+Integration: Actual Android device/build variants; User-authorized deployed llama.cpp/gateway; Runtime qualification report
+1. Record the actual device/OS, imported artifact/quantization, SDK/build/backend, serving allocation, template and route. Test supported verified 8K/16K/32K cases, single/shared/parallel allocation and delayed/offloaded configurations.
+2. Run separate deterministic 3,000-word input, approximately 3,000-word visible output and combined-input/output suites. Start with three cold and five warm runs per chosen configuration; report this as qualification sampling, not broad reliability proof.
+3. Qualify GGUF/LiteRT/QNN/GenieX only for combinations actually intended and supported. The standard build already references local-gguf-runtime; do not reintroduce the blanket separate-GenieX requirement. Preserve distribution isolation. An intended unavailable helper stays an explicit blocker or approved scope exception, not a fabricated success.
+Completion gate: Real backend evidence proves at least the agreed target Assist path and long-context route. Rejections at a genuine 8K limit pass admission correctness, not long-task completion.
+Tests: LA-QA05, LA-QA06, LA-QA16, LC-T17, IX21, IX22, IX23, IX24, IX25, IX29
+Sources: R02; LA §11; LA §17; LC §13
+V48  Close every requirement and gate release on evidence
+P0  |  Depends on: V46, V47  |  NOT_STARTED
+Integration: Version metadata, changelog and release workflow; Requirement/task/test manifest; AGENTS.md and operator documentation
+1. Audit the source-section coverage map and task DAG: every feature/fix is implemented and tested, or explicitly blocked. Disabled-by-default implementation is not omitted implementation. Do not silently drop P1/P2 requirements to call this complete.
+2. Use independently controlled rollout flags for admission heuristics, catalog, adaptive progress, Assist execution, Combined assembly/ownership/recovery/coverage, attribution and full-content capture. Rollback must preserve hard capacity/privacy checks, source data and readable migrations.
+3. Only after separate merge/publish authorization, update the then-current version, validate the exact merge commit through required CI and signed-release workflow, inspect artifact identity/signature/package and test an upgrade from build 121. Never equate a stale green check with a completed release.
+Completion gate: The final report links commits, all test outcomes, device evidence, unresolved limitations and rollback proof. No merge, publication or code implementation is claimed by producing this design.
+Tests: LA-QA33, LC-T18, CM-T24, IX27
+Sources: LA §17; LA §18; LA §21; LC §13; LC §14; CM §13; CM §15
+
+12  Acceptance suite and evidence rules
+110 explicit cases: 80 inherited requirements plus 30 added integration tests.
+Suite
+Count
+Source / purpose
+LA-QA01–LA-QA36
+36
+Every Local Assist acceptance case retained from LA §§19–20.
+LC-T01–LC-T18
+18
+Every llama.cpp unit/protocol case retained from LC §13.
+CM-T01–CM-T26
+26
+Every Combined context/provenance case retained from CM §14.
+IX01–IX30
+30
+Newly targeted settings, cross-system integration, security, long-task and release qualifications.
+
+Split transport correctness from answer quality
+An exact 3,000-word source fixture must contain at least 12 unique facts spread across beginning, middle and end, with a recorded word count/hash and explicit constraints. Prove complete request inclusion separately from factual recall. Repeat plain text, attachment, prior-history and Combined inputs, plus code/JSON/Unicode. A tokenizer count, not a word count, determines fit. [LC §13; IX21]
+An approximately 3,000-word output fixture uses supplied evidence and a specified outline, initially with short input. Evaluate 2,700–3,300 visible words as the approximate-length band; exclude reasoning, logs and tool JSON. An exact-length task needs its own criterion. Run reasoning off/on when supported and then combine long input plus long output with no/minimal/research tools. [LC §13; IX22–IX23]
+Hardware and statistical boundaries
+Test supported verified 8K/16K/32K runtime allocations, including queueing/parallel/shared-cache or offloaded cases where supported. A safe, non-destructive rejection at 8K is admission correctness, not successful completion of the oversized task. Record device, artifact, quantization, SDK/server build, context allocation, tokenizer/template, route, accelerator evidence and actual app commit. [LC §13; IX24–IX25]
+Start with three cold and five warm runs per chosen acceptance configuration. Report the small sample honestly; it does not establish population reliability or a stable throughput estimate. Native cancellation, tensor compatibility, memory/thermal behavior and actual accelerator labels require real execution. CI green does not demonstrate NPU/GPU support. [LA §§11,17; LC §13]
+Statuses and mandatory proof
+Use NOT_RUN, PASS, FAIL or BLOCKED. A skipped native/device test is BLOCKED with a reason, not PASS. Retain failed-path usage, exact request receipts, migration reports, race traces, privacy tests and screen-state captures. Do not lower acceptance thresholds merely to turn a build green. The scope-complete release gate requires all tests in the declared supported matrix, or a user-approved scope amendment that clearly names what was not delivered.
+ATTRIBUTION EVALUATION  Use held-out human-labeled examples with paraphrase, negation, quantities, mixed sentences and missing comparison data. Report precision, recall, abstention and corpus comparison coverage. An all-abstaining implementation does not qualify the coloring feature. [CM §8; V34]
+
+12  Local Assist · LA-QA01–LA-QA09
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+LA-QA01
+Assist off
+No local dispatch; explicit OFF snapshot and no fake invocation.
+LA-QA02
+Enabled without eligible helper
+Persist the precise selection/readiness reason; primary evidence remains usable.
+LA-QA03
+Helper missing, disabled or changed
+Distinguish reasons; do not substitute an unapproved profile.
+LA-QA04
+Warm-only, unloaded model
+Show WARM_MODEL_REQUIRED; no cold load and no invented usage.
+LA-QA05
+Warm-only, matching session
+Reuse the qualified session and record its actual runtime identity.
+LA-QA06
+Automatic preparation
+One admitted imported-model load; separate loading/inference timings; no silent download.
+LA-QA07
+Memory learning disabled
+Resolve Assist permission independently without broadening old exclusions.
+LA-QA08
+All task toggles on
+Rejected passage selection does not prevent another eligible task.
+LA-QA09
+Character boundary fixtures
+4,095 / 4,096 / 12,000 / 12,001 units do not trigger the old whole-result admission gate.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Local Assist · LA-QA10–LA-QA18
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+LA-QA10
+Unicode and 3,000-word evidence
+Measure bytes, UTF-16 and tokens separately; every local prompt fits its qualified budget.
+LA-QA11
+Long article and short snippet
+Both normalize into useful source-linked passages without arbitrary field-length exclusions.
+LA-QA12
+Text, Markdown and checkpoint JSON
+Recognized envelopes normalize; malformed or over-nested input fails explicitly.
+LA-QA13
+Concurrent tool results
+Queue or persist deadline/capacity outcome; no silent tryLock bypass.
+LA-QA14
+Two chats and Combined profiles
+Fair scheduling and run-state isolation; no helper card overwrites another run.
+LA-QA15
+Shared task subscribers
+One physical invocation and separate reuse links; permission is revalidated.
+LA-QA16
+Timeout with late native callback
+Native acknowledgment precedes lease reuse; terminal task cannot return to Running.
+LA-QA17
+Cancel or revoke Assist
+Queued tasks removed, active work stopped, and no post-revocation handoff.
+LA-QA18
+Native process death
+Interrupted terminal outcome preserves partial usage; require a new runtime session epoch.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Local Assist · LA-QA19–LA-QA27
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+LA-QA19
+Fabricated/repeated span IDs
+Reject artifact, retain original evidence and count real generated usage.
+LA-QA20
+Artifact lost in compaction
+Record NOT_INCLUDED and a reason; never show successful consumption.
+LA-QA21
+Artifact in serialized request
+Receipt binds the exact attempt, representation digest and included span IDs.
+LA-QA22
+Retry and final Combined request
+Distinct attempt receipts; contributor inclusion does not imply final-writer inclusion.
+LA-QA23
+Absent or partial usage
+Unknown/estimated labels remain truthful; no invented zero or throughput.
+LA-QA24
+One call reused twice
+Count physical usage once; show per-consumer reuse without double charging.
+LA-QA25
+Search A incident shape
+Retained Markdown leads normalize or have an explicit parsing limitation.
+LA-QA26
+Search B incident shape
+Fourteen source rows and five page rows retain URLs and coverage through delivery.
+LA-QA27
+Text truncation with false flag
+Canonical result is partial/legacy-inconsistent; never claim complete examination.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Local Assist · LA-QA28–LA-QA36
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+LA-QA28
+Auth or malformed engine response
+Correct actionable engine class, preserved siblings and no unbounded retry.
+LA-QA29
+Delivery budget exhausted
+Source manifest/read-back survives with explicit per-question coverage.
+LA-QA30
+Restart and historical response
+Persisted outcome is stable; legacy history never uses live readiness as evidence.
+LA-QA31
+Export profile dependency closure
+Include configured/actual helper and producer snapshots or missing states; redact secrets/paths.
+LA-QA32
+Temporary chat and logging off
+No unintended durable task/statistics/content records; transient generation still works.
+LA-QA33
+Supported database upgrades
+Preserve conversations/settings/usage with explicit tested migrations.
+LA-QA34
+Expand, collapse and off-screen cards
+No new loads/network calls; polling is scoped and list/task keys stable.
+LA-QA35
+Accessibility variants
+Readable 200%-text/narrow/landscape controls, non-color states and reduced motion.
+LA-QA36
+Context/performance replay
+Phase timings explain overhead while preserving complete current user requirements.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  llama.cpp · LC-T01–LC-T09
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+LC-T01
+Exact context boundary
+P + O + S = C fits; one extra token blocks non-destructively.
+LC-T02
+Unlimited app setting, 8K server
+Enforce the verified runtime limit without sentinel arithmetic overflow.
+LC-T03
+Manual 32K versus verified 8K
+Do not raise the runtime maximum; explain the conflict.
+LC-T04
+Destination/model/template changes
+Invalidate stale capabilities after alias, credentials, reload, template or route changes.
+LC-T05
+76 tools, six advertised, discovery expansion
+Final accounting reflects actual advertised schemas and re-admits each expansion.
+LC-T06
+Later-round payload grows
+Measure new tool results, memory, attachment and follow-up content; no hidden task loss.
+LC-T07
+Tokenizer parity fixtures
+Prose, code, JSON, accents and emoji preserve exact versus estimated measurement truth.
+LC-T08
+Payload mutation after admission
+Changed content or gateway transform invalidates digest/revision and blocks dispatch.
+LC-T09
+Long active stream and slow prefill
+Progressing generation exceeds 180 seconds safely; observed prefill remains distinct.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  llama.cpp · LC-T10–LC-T18
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+LC-T10
+Heartbeats and empty chunks only
+No false progress reset; correct phase/idle timeout fires once.
+LC-T11
+Reasoning then stall versus active reasoning
+Distinguish outcomes; neither is completed visible output or automatic prompt overflow.
+LC-T12
+Reasoning OFF capabilities
+Send only supported mapping or show unsupported strict OFF; no false confirmation.
+LC-T13
+Length, continuation and repetition
+Preserve draft/source coverage, re-admit, and reject duplicate/no-progress continuation loops.
+LC-T14
+Timeout/completion/cancel races
+One terminal event and bounded cleanup even when upstream shutdown blocks.
+LC-T15
+Shared backend parent and child
+Cancellable fair queue with no permit deadlock or duplicate terminal work.
+LC-T16
+Uncertain external write
+Reconcile execution before retry; reuse never expands read/write authority.
+LC-T17
+Bad phone artifact, healthy desktop
+Isolate local incompatibility and honor optional/required preparation policy.
+LC-T18
+Legacy settings/export/privacy/restart
+Intent-preserving migration, compatible readers, redaction and valid checkpoint restoration.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Combined mode · CM-T01–CM-T09
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+CM-T01
+Complete fitting contributors
+Full authorized source texts are represented in sent manifests, not summary replacements.
+CM-T02
+Constraint outside visible history window
+Read authoritative repository history and include the relevant earlier constraint.
+CM-T03
+Current/prior attachments
+Include supported authorized representation; label derived or unsupported modalities.
+CM-T04
+Unset cap, 16,384 synthesis target
+No hidden 4,096 clamp; assert outgoing parameter and provenance.
+CM-T05
+Explicit user cap of 4,096
+Honor the actual restriction and disclose authorized sectioning or incomplete output.
+CM-T06
+Reasoning-only length stop
+Start full-outline answer writing; never continue after nonexistent completed sections.
+CM-T07
+Visible continuation
+Persist ordered early and later segments, preserving prefix and removing only exact overlap.
+CM-T08
+Provider stop misses required topics
+Repair missing coverage or report incomplete, not complete solely on stop.
+CM-T09
+Duplicate synthesis trigger
+One durable logical owner; duplicate observer/recreated ViewModel attaches or is rejected.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Combined mode · CM-T10–CM-T18
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+CM-T10
+Old attempt callback
+Reject stale stream, checkpoint, message and terminal writes after takeover.
+CM-T11
+Useful evidence from failed contributor
+Retain validated authorized reads with partial lineage, excluding error/control text.
+CM-T12
+Exact shared claim
+Default foreground; record both supporters.
+CM-T13
+Shared paraphrase
+Equivalent meaning stays default despite different wording.
+CM-T14
+Genuinely exclusive sentence
+Apply the sole supporting profile's stable color with inspectable source spans.
+CM-T15
+Mixed shared/exclusive sentence
+Whole sentence stays default, including when only one qualifier is unique.
+CM-T16
+Different quantities or negation
+Conflict/default; no similarity-only merge or false corroboration.
+CM-T17
+Primary contribution versus synthesis phase
+Reading contributors does not make their facts primary-owned or shared.
+CM-T18
+Missing/stale/incomplete comparison
+Abstain from exclusive color and explain the unavailable comparison.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Combined mode · CM-T19–CM-T26
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+CM-T19
+Markdown/Unicode/RTL/math
+Stable range mapping, correct selection and no syntax/style corruption.
+CM-T20
+Debug toggle, rename and reorder
+Answer bytes/revision/scroll stay unchanged and profile color identities remain stable.
+CM-T21
+Local-only data and remote verifier
+Prevent leakage through inference, tokenization, sidecars and logs.
+CM-T22
+Nested secret-bearing payloads
+Redact before storage, previews and every export path.
+CM-T23
+Queue or disk pressure
+Responsive UI, explicit dropped ranges and no false complete-capture label.
+CM-T24
+Revision, deletion and resume
+Revision-bound provenance, reference-safe cleanup and durable restart without sensitive orphans.
+CM-T25
+Export while generation runs
+Consistent high-watermarks/active flags; replay matches the captured revision.
+CM-T26
+More than 256 items and long output
+Complete paginated inventory/chunked answer or disclosed limitation, never silent tail clipping.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Cross-system additions · IX01–IX10
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+IX01
+Routing-only OpenRouter configuration
+With only provider routing present, decoding introduces no output override; a fitting 16,384 target stays 16,384.
+IX02
+Absent/null/explicit/zero settings
+Round-trip presence correctly; explicit caps/false/valid zeros survive, absent keys inherit and invalid types fail clearly.
+IX03
+Sampling default injection
+Routing-only JSON does not inject temperature 0.2, top_p 0.15, top_k 30, seed 42, penalties or stream.
+IX04
+Assist goal tail beyond 1,000 characters
+Required tail constraint reaches the admitted task representation or explicit scoped workflow.
+IX05
+No spans before dispatch
+Unsupported/no-op planning does not consume a physical attempt; retries/chunks have separate counters.
+IX06
+Same text, different helper or permissions
+Cache key and reuse validation reject changed model/backend/policy/permission epoch.
+IX07
+Goals share an 8,000-character prefix
+Full task identity prevents incorrect research-snapshot attachment.
+IX08
+New corpus, same final answer slot
+Fence across logical keys prevents an old corpus revision from committing any output/status.
+IX09
+Primary/Assist/delegate/title share resource
+No nested-lease deadlock; foreground fairness and cancellation subscribers behave across roles.
+IX10
+Permission changes between count and send
+Revalidate and block/reprepare; no dispatch or inclusion under a revoked epoch.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Cross-system additions · IX11–IX20
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+IX11
+All physical request roles
+Primary, contributor, writer, research, delegate, reviewer, Assist, attribution, title and recovery use admission.
+IX12
+Independent schema namespaces
+Conversation v3, event v5, policy versions and database migration remain independent; old readers degrade safely.
+IX13
+Internal versus redacted/gateway digests
+Correct representation labels and permission scope; transformed body cannot reuse an incompatible admission receipt.
+IX14
+Same-primary full-corpus multipass
+Every required chunk is inspected/accounted for and unique detail survives assembly without a final lossy summary.
+IX15
+Operational storage failure versus log failure
+Log gaps do not stop healthy generation; lost operational durability blocks a false resumable/complete claim.
+IX16
+Delete/revoke a source during active work
+Revoke access and relevant reuse/styling; cancel affected subscribers and release blobs only when references permit.
+IX17
+Unknown accelerator and permitted fallback
+Show Not reported or actual observed backend; never infer NPU execution or implicit cloud recovery.
+IX18
+Navigation and 4-Hz progress pressure
+Measure p95 back/expand under 100 ms and event visibility under 250 ms; no whole-answer work on UI thread.
+IX19
+Active snapshot export and replay gaps
+Capture fixed high-watermarks; surface dropped sequences; deterministic replay covers only captured transformations.
+IX20
+Diagnostics disabled and temporary sessions
+Essential status still works; optional logs off and ephemeral paths leave no durable sensitive task/statistics/provenance artifacts.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+12  Cross-system additions · IX21–IX30
+All outcomes are NOT_RUN at specification delivery. Attach exact-commit evidence when executing.
+Test ID
+Fixture / action
+Required assertion
+IX21
+3,000-word input comprehension
+Exact hashed 3,000-word synthetic source with at least 12 distributed facts is fully sent when fitting; test recall separately.
+IX22
+Approximately 3,000-word visible answer
+Short input isolates output; 2,700–3,300 visible words is the initial approximate band, excluding reasoning/tool text.
+IX23
+3,000-word input plus long answer
+Run tools-off, minimal-tools and research variants; prove full inclusion plus correct output/recovery under real capacity.
+IX24
+Verified 8K/16K/32K capacity matrix
+Correct non-destructive rejection is a fit-policy pass, not a completion pass; test supported allocation/route variants.
+IX25
+Cold/warm runtime qualification
+Record three cold/five warm samples per chosen actual model/backend/route; no unsupported reliability or accelerator claim.
+IX26
+Paired Assist/compression benchmark
+Measure failed work, context/coverage, cost/latency and uncertainty; local tokens are not automatically cloud tokens saved.
+IX27
+Exact-commit release and upgrade
+Version/tag collision check, all required CI, signature/package/artifacts and upgrade data agree with the released commit.
+IX28
+Engine-to-aggregate typed evidence flow
+Normalization precedes Assist; no schema corruption, duplicate assistance or loss of retained/read-back source identity.
+IX29
+Repeated tensor-contract failure
+Quarantine the exact incompatibility without disabling healthy routes; only relevant qualified changes permit retry.
+IX30
+Attribution/reasoning capability failure
+Unsupported verifier/strict reasoning mapping abstains or reports a restriction without silently changing model/privacy policy.
+
+Task ownership and source references for each case are included in acceptance-tests.json. These cases are requirements, not a report of executed application tests.
+
+13  Coverage of the supplied specifications
+Every substantive source section has an implementation destination.
+Coverage below maps all 50 substantive sections, not merely the defect headlines. LA = Local Assist; LC = llama.cpp; CM = Combined Mode. Reference-register sections are not implementation requirements. Source IDs in task cards use the same naming. A mapping means the work has been assigned, not that it is implemented.
+Source sections
+Required implementation tasks
+LA-01
+V03, V48
+LA-02
+V02, V15
+LA-03
+V15, V16, V17, V19, V20, V21, V22, V24, V25, V27, V40
+LA-04
+V01, V03
+LA-05
+V03, V09, V17, V20
+LA-06
+V15
+LA-07
+V04, V15, V22
+LA-08
+V12, V20
+LA-09
+V17, V18, V19
+LA-10
+V21, V30
+LA-11
+V16, V22, V47
+LA-12
+V23, V42
+LA-13
+V14, V23, V44
+LA-14
+V24, V25, V26
+LA-15
+V38, V39, V40
+LA-16
+V10, V27, V42, V44
+LA-17
+V04, V14, V45, V47, V48
+LA-18
+V01, V46, V48
+LA-19
+V46, V47
+LA-20
+V46, V47
+LA-21
+V02, V46, V48
+
+All 36 Local Assist QA cases are retained in Section 12, including admission, cancellation, source preservation, research errors, usage, temporary-chat privacy, migration, history and UI performance. [LA §§19–20]
+
+13  Context and Combined coverage
+Do not drop source detail while consolidating overlapping requirements.
+Source sections
+Required implementation tasks
+LC-01
+V02, V06, V11, V16
+LC-02
+V03, V08, V09, V48
+LC-03
+V03, V08, V09
+LC-04
+V07, V43
+LC-05
+V08, V09
+LC-06
+V10, V25, V27, V28, V30
+LC-07
+V11, V12
+LC-08
+V06, V13, V31
+LC-09
+V12, V13, V16
+LC-10
+V42, V43, V44
+LC-11
+V22, V38, V39, V40
+LC-12
+V01, V09, V46
+LC-13
+V46, V47, V48
+LC-14
+V04, V43, V48
+
+Source sections
+Required implementation tasks
+CM-01
+V02, V05, V28, V29, V31, V32
+CM-02
+V03, V28, V30, V35, V36, V48
+CM-03
+V01, V03
+CM-04
+V28, V30
+CM-05
+V05, V06, V08, V09
+CM-06
+V13, V29, V31
+CM-07
+V32
+CM-08
+V33, V34
+CM-09
+V35, V36, V37
+CM-10
+V04, V28, V31, V33, V36, V37
+CM-11
+V38, V39, V40, V41
+CM-12
+V44, V45
+CM-13
+V46, V48
+CM-14
+V46, V47, V48
+CM-15
+V45, V48
+
+All 18 llama.cpp cases and all 26 Combined cases are retained, with the long-input/output and cross-system qualification cases made explicit in IX21–IX25. [LC §13; CM §14]
+
+13  Defect closure and added coverage
+Implementation evidence must follow the finding, not only the file that changed.
+Local Assist finding
+Task ownership
+LA-F01
+V15
+LA-F02
+V23, V42
+LA-F03
+V15
+LA-F04
+V18, V19
+LA-F05
+V17
+LA-F06
+V20, V12
+LA-F07
+V14, V16
+LA-F08
+V21, V22
+LA-F09
+V24
+LA-F10
+V25
+LA-F11
+V27, V44
+LA-F12
+V40
+
+New cross-system coverage
+Added risk / requirement
+Cases
+Default injection, explicit intent and sampling drift
+IX01–IX03
+Goal tails, attempt semantics, scoped cache and full task identity
+IX04–IX07
+Cross-corpus fences, shared leases and late permission changes
+IX08–IX10
+Every model role, independent schema versions and digest representations
+IX11–IX13
+Multipass truth, persistence failures, deletion/revocation and accelerator honesty
+IX14–IX17
+Navigation, live export/replay and temporary/logging-off privacy
+IX18–IX20
+Separate long-input, long-output and combined workloads; real allocations
+IX21–IX25
+Measured optimization, exact-commit release, engine/aggregate normalization
+IX26–IX28
+Tensor-contract quarantine and unsupported verifier/reasoning behavior
+IX29–IX30
+
+NO SILENT OMISSION  The JSON coverage map and validator retain all original test IDs. Any later change to scope needs a versioned amendment, a reason and explicit approval; deleting a difficult test or marking it skipped does not close its feature.
+
+14  Definition of done and release gates
+Separate design completeness, implementation completeness and publication.
+Gate
+Required proof
+G1 · Baseline and review
+Pinned implementation commit, resolved version/schema, clean-worktree or preserved local changes, actual build variants and baseline failures.
+G2 · Correctness
+Every physical model dispatch admitted; source/task requirements retained; true output/reasoning precedence; no stale accepted writes; no repeated completed external actions.
+G3 · Assist and research
+Every enabled response has admission/reason, every task terminates, native cancellation precedes reuse, actual local usage counted once, source IDs survive normalization and delivery.
+G4 · Combined / provenance
+Full fitting contributor context, pinned primary, complete segment chain and coverage dispositions; conservative exclusive colors with validated source lineage and debug-off content equivalence.
+G5 · Privacy / migration
+Supported upgrades preserve conversations/settings/usage; no destructive migration; temporary chats remain transient; secrets redacted before persistence; deletion/revocation and rollback verified.
+G6 · Performance and devices
+Actual target runtime/phone qualifications, 3,000-word suites, cancellation and memory/thermal evidence, declared latency/frame targets measured on agreed devices.
+G7 · Scope closure
+All 48 tasks and 110 cases have truthful results. P2 controls implemented/tested even if default-off. No placeholders, silent reductions or unexplained blockers.
+G8 · Release, only when authorized
+Required CI and signed-release workflow on exact merge commit; verified version/package/artifact/signature; upgrade test from build 121; release notes with supported backend matrix and remaining limitations.
+
+Build command discovery
+git status --shortgit rev-parse HEAD./gradlew --version./gradlew tasks --all./gradlew test./gradlew assembleDebug./gradlew connectedAndroidTest
+The build/test command families above come from AGENTS.md. Resolve actual variants, lint workflow and task availability on the implementation branch before execution. Device tests require a configured device/emulator. Do not create a new signing setup, silently restart a server or launch a second process on an occupied port. [R03; LC §§13–14]
+
+14  Rollout, rollback and handover
+A deployment flag may disable behavior; it must not erase evidence or safety checks.
+Controlled rollout
+1. Instrument existing behavior first: scoped decisions, truthful budget phases, cap-origin tracing and terminal outcomes. Do not display shadow decisions as proof of a dispatched request.
+2. Enable final admission and presence-aware settings, then shared scheduling/progress/recovery. Verify every role and exact outgoing request before allowing experimental optimizations.
+3. Enable typed evidence and Assist task execution with original-evidence fallback. Qualify the intended model/backend/device combinations; leave unsupported combinations unavailable with actionable reasons.
+4. Enable Combined full context, slot ownership, durable segments and coverage before color attribution. Run shadow attribution only inside approved data/cost scopes.
+5. Enable detailed diagnostics only after redaction/temporary-chat tests. Full-content capture remains separately consented. Turn on optional compression/adaptive tuning only after paired coverage/cost/latency tests.
+Rollback guarantees
+Independent flags may revert heuristics, Assist execution, Combined assembly, coverage, attribution or content capture. They must not turn off known runtime context ceilings, live permission checks, stable output ownership or honest degraded-state reporting. Keep newly written schemas readable; do not downgrade destructively or delete source artifacts needed by surviving answers. Loss of optional logging is distinct from loss of operational persistence. [LA §17; LC §14; CM §15]
+Required final implementation report
+State the exact branch/commits, version/code, build variants and database schema. For every task, link implementation and test evidence; list any BLOCKED case without euphemism. Report long-input preservation separately from answer recall/length; report attribution precision/recall/abstention and comparison coverage; report measured app overhead separately from provider time.
+Publish the tested hardware/artifact/backend matrix, settings migration behavior, rollback exercise, redaction/export integrity and declared limitations. A failing or unavailable qualification does not become a supported feature because another backend passes. An explicitly approved partial release must name the deferred scope and cannot claim full compliance with version 2.0.
+Implementation pack
+Use TECHNICAL_DESIGN.md as the canonical portable specification and EXECUTION_BRIEF.md as the agent handoff. tasks.json, acceptance-tests.json and requirements-coverage.json carry stable IDs and evidence placeholders. review-audit.json records the sanitized recheck, not application test results. validate_manifest.py checks structural completeness; --require-done additionally requires declared completion evidence. It does not execute or independently validate Android tests.
+CURRENT DELIVERY BOUNDARY  This package contains the complete design/task/test inventory. No repository code was changed, no Android build/device acceptance was run, and no branch was merged or release published during this document task.
+
+15  Source register
+Repository sources are pinned; upstream documentation must be qualified against installed versions.
+LA/LC/CM section references point to the supplied specifications; I01–I03 are the original incident files reopened for private recomputation. R references are the source ranges freshly inspected in this review. Integration files not listed under R are inherited placement seams: re-open them before patching. W references inform platform constraints, not proof of incident causation.
+[LA] Local Assist Reliability & Response Diagnostics, v1.0
+Uploaded DOCX, 24 pages; all substantive sections 1–21 reviewed.
+[LC] llama.cpp Context Reliability, v1.0
+Uploaded DOCX, 18 pages; all substantive sections 1–14 reviewed.
+[CM] Combined Mode: Full Context, Exclusive Attribution & Deep Diagnostics
+Uploaded DOCX, 21 pages; all substantive sections 1–15 reviewed.
+[I01] Local Assist conversation export
+Original file re-opened privately. Hash matches LA §21; /featureSettings, /invocations and /toolEvents recomputed.
+[I02] llama.cpp diagnostic JSONL
+Original file re-opened privately. Hash matches LC §15; 7,740 records; request/finish IDs joined, lines 7434–7493 rechecked.
+[I03] Combined History of France export
+Original file re-opened privately. Hash matches CM §16; full source equality, output counts, cap events and overlapping runs rechecked.
+[R01] main branch and latest release
+Read during this review; main and v0.9.52.0 both point to the pinned baseline.
+[R02] app/build.gradle.kts, lines 1–200
+Version 0.9.52.0 / code 121; standard package, GGUF module, GenieX distribution flag and ABI configuration.
+[R03] AGENTS.md
+Build/test conventions and stale schema-34 architecture note.
+
+15  Source register · continued
+Repository sources are pinned; upstream documentation must be qualified against installed versions.
+[R04] AssistCoordinator.kt, full file
+Silent exits, tryLock, character gates, goal.take(1000), cache key and reserveAttempt ordering.
+[R05] ChatRepositoryImpl.kt, lines 1760–1920
+Assist binds before crawl/aggregation; fixed 4096 helper input; permission filtering; acquisition/delivery budget seams.
+[R06] ProgressWatchdogSession.kt, full file
+60-second first/idle defaults, 180-second round cutoff and cancelAndJoin-before-failure path.
+[R07] ChatViewModel.kt, synthesis section in lines 1850–2250
+In-memory guard, first-ready lead selection, 8,000-character task matching and replacement synthesis input. Relevant synthesis section read; unrelated trailing source was truncated.
+[R08] ProviderAdapters.kt, lines 190–455
+OpenRouter effective settings, request cap resolution and llama reasoning-field construction.
+[R09] OpenRouterPolicy.kt, lines 1–180
+decodeProfile treats provider-wrapped objects as OpenRouterOptions.
+[R10] OpenRouterAdvancedOptions.kt, full file
+OpenRouterOptions supplies maxTokens=4096 and other absent-field generation defaults.
+[R11] data/agent/provider/RequestConstraints.kt, full file
+outputLimit takes the minimum applicable positive request/profile value.
+[R12] ChatDatabaseV2.kt, full displayed file
+@Database version=39 and exportSchema=true.
+
+15  Source register · continued
+Repository sources are pinned; upstream documentation must be qualified against installed versions.
+[W01] llama.cpp server documentation
+Current upstream inspected. Endpoint and allocation behavior must still be qualified against the installed server.
+[W02] OpenRouter API parameters and reasoning tokens
+Reasoning and visible output share generation allowance on most routes; validate actual route behavior.
+[W03] Kotlin coroutine cancellation and withTimeout
+Cancellation is cooperative; native stop needs an explicit bridge and acknowledgment.
+[W04] Android Compose performance best practices
+Minimize work in composition and use stable lazy-layout keys.
+[W05] Official Qwen3.5-9B model card
+Thinking configuration is model/template-dependent; model-card context does not prove serving allocation.
+[W06] OWASP Logging Cheat Sheet
+Exclude sensitive data and protect diagnostic storage; application retention defaults here are proposals.
+[W07] W3C WCAG contrast minimum
+Normal text contrast target; numbering/text labels additionally prevent color-only attribution.
+[W08] Android Compose styled text
+Native spans support multiple text styles; the existing Markdown renderer still needs source-range integration.
+[W09] Android Room migration guidance
+Export schemas and test explicit data-preserving upgrade paths using installed APIs.

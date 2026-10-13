@@ -179,7 +179,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 durationMs = activeAllowance ?: 0,
                 costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" },
                 executionPolicyJson = if (executionPolicy.sharedRunBudget) kotlinx.serialization.json.Json.encodeToString(executionPolicy) else null,
-                consumedAssistInvocationIds = exchanges.flatMap { it.results }.flatMap { dev.chungjungsoo.gptmobile.data.assist.AssistHandoffContract.producerIds(it.content) }.distinct().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) }
+                consumedAssistInvocationIds = exchanges.flatMap { it.results }.flatMap { dev.chungjungsoo.gptmobile.data.assist.AssistHandoffContract.producerIds(it) }.distinct().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) }
             )
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)

@@ -1897,7 +1897,7 @@ class ChatViewModel @Inject constructor(
                             combine(chatRepository.observeMessageWindow(chatId, if (targetMessageId > 0) Int.MAX_VALUE else turns), agentRunCoordinator.streamMessages, chatRepository.observeTurnCount(chatId)) { messages, live, total ->
                                 windowStartId = messages.minOfOrNull { it.id } ?: 0
                                 olderHistoryAvailable.value = total > messages.count { it.platformType == null }
-                                chatId to messages.map { message -> live[message.id]?.takeIf { it.currentRunId == message.currentRunId } ?: message }
+                                chatId to messages.map { message -> live[message.id]?.takeIf { it.currentRunId == message.currentRunId && it.ownershipFence == message.ownershipFence } ?: message }
                             }
                         }
                     } else {
@@ -1997,7 +1997,8 @@ class ChatViewModel @Inject constructor(
     ) {
         val grouped = _groupedMessages.value
         val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
-        val candidates = sources.mapNotNull { source ->
+        val pinnedPrimary = _chatRoom.value.combinedPrimaryUid ?: _chatRoom.value.activePlatform.firstOrNull()
+        val candidates = sources.filter { it.platformUid == pinnedPrimary }.mapNotNull { source ->
             _platformsInApp.value.firstOrNull { it.uid == source.platformUid && it.enabled }
                 ?.let(::resolvePlatformModel)
         }
@@ -2025,7 +2026,7 @@ class ChatViewModel @Inject constructor(
             _attachmentNotice.update {
                 coolingProvider?.let { (provider, retryAt) ->
                     "Combined synthesis is paused because ${provider.displayName} is cooling down. Try again in ${((retryAt - System.currentTimeMillis()).coerceAtLeast(0) + 999) / 1000} seconds; no synthesis request was sent."
-                } ?: "Combined synthesis is unavailable because no participating provider is ready. No synthesis request was sent."
+                } ?: "Combined synthesis is paused because the pinned primary is unavailable. Restore that profile or explicitly choose a new primary; no substitute was dispatched."
             }
             return
         }
@@ -2035,24 +2036,44 @@ class ChatViewModel @Inject constructor(
         if (leadMessage.id <= 0) return
 
         val synthesisRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
+
+        val normalizedResearchTask = dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim())
+        val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
+        val sharedEvidence = researchSessionStore?.exportChat(leadMessage.chatId)
+            ?.lastOrNull { session ->
+                session.turnId == researchTurnId &&
+                    dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == normalizedResearchTask
+            }
+            ?.snapshot
+            ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)
+        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence)
+        val fullHistory = chatRepository.fetchMessagesV2(userMessage.chatId)
+        require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
+        val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
+        val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
+        val synthesisPrompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
+        val synthesisSnapshot = kotlinx.serialization.json.Json.encodeToString(
+            dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+                userMessage = userMessage,
+                history = historicalUsers,
+                replies = historicalReplies,
+                sources = attributedSources,
+                prompt = synthesisPrompt,
+                profileUid = leadPlatform.uid,
+                model = leadPlatform.model,
+                systemPrompt = leadPlatform.systemPrompt.orEmpty(),
+                configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(leadPlatform)
+            )
+        )
         val run = AgentRunDraft(
             runId = synthesisRunId,
             profileUid = leadPlatform.uid,
             providerSnapshot = leadPlatform.compatibleType.name,
             modelSnapshot = leadPlatform.model,
+            synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(synthesisSnapshot),
+            synthesisSnapshot = synthesisSnapshot,
             createdAt = currentTimeStamp
         )
-
-        val normalizedResearchTask = userMessage.content.trim().replace(Regex("\\s+"), " ").take(8_000)
-        val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
-        val sharedEvidence = researchSessionStore?.exportChat(leadMessage.chatId)
-            ?.lastOrNull { session ->
-                session.turnId == researchTurnId &&
-                    session.snapshot.task.trim().replace(Regex("\\s+"), " ").take(8_000).equals(normalizedResearchTask, ignoreCase = true)
-            }
-            ?.snapshot
-            ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)
-        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence)
 
         val persisted = chatRepository.persistAgentRetry(
             PersistAgentRetryRequest(
@@ -2077,16 +2098,16 @@ class ChatViewModel @Inject constructor(
         agentRunCoordinator.start(
             listOf(
                 AgentRunRequest(
-                    runId = synthesisRunId,
+                    runId = persisted.run.runId,
                     chatId = persisted.assistantMessage.chatId,
                     assistantMessage = persisted.assistantMessage,
                     platform = leadPlatform.copy(
-                        systemPrompt = COMBINED_SYNTHESIS_INSTRUCTION,
+                        systemPrompt = listOfNotNull(leadPlatform.systemPrompt, COMBINED_SYNTHESIS_INSTRUCTION).joinToString("\n\n"),
                         disableAllTools = true,
                         disableLocalTools = true
                     ),
-                    userMessages = listOf(userMessage.copy(content = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence), attachments = emptyList())),
-                    assistantMessages = emptyList(),
+                    userMessages = historicalUsers + userMessage.copy(content = synthesisPrompt),
+                    assistantMessages = historicalReplies + listOf(emptyList()),
                     chatToolConfig = _chatToolConfig.value.copy(
                         allToolsDisabled = true,
                         delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false)

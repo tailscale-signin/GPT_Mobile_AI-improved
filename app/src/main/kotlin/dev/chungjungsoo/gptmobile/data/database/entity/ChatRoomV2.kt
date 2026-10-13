@@ -78,7 +78,10 @@ data class ChatRoomV2(
     val parentChatId: Int? = null,
 
     @ColumnInfo(name = "branch_message_id")
-    val branchMessageId: Int? = null
+    val branchMessageId: Int? = null,
+
+    @ColumnInfo(name = "combined_primary_uid")
+    val combinedPrimaryUid: String? = null
 ) : Parcelable
 
 class StringListConverter {

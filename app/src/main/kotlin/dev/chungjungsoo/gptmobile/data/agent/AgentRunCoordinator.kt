@@ -157,7 +157,9 @@ class AgentRunCoordinator @Inject constructor(
                     runCatching {
                         jobs.remove(request.runId)
                         cancellationContexts.remove(request.runId)
-                        _streamMessages.update { it - request.assistantMessage.id }
+                        _streamMessages.update { current ->
+                            if (current[request.assistantMessage.id]?.currentRunId == request.runId) current - request.assistantMessage.id else current
+                        }
                         interruptingRunIds.remove(request.runId)
                         _activeRuns.update { it - request.runId }
                     }
@@ -421,7 +423,10 @@ class AgentRunCoordinator @Inject constructor(
                         thoughts = thoughts,
                         timeline = recoveryMarkers + timeline
                     )
-                    _streamMessages.update { it + (assistantMessage.id to assistantMessage) }
+                    _streamMessages.update { current ->
+                        val owner = current[assistantMessage.id]
+                        if (owner != null && owner.ownershipFence > assistantMessage.ownershipFence) current else current + (assistantMessage.id to assistantMessage)
+                    }
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastCheckpointAt >= 500L) {
                         chatRepository.updateAgentMessage(assistantMessage)

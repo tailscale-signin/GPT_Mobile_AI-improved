@@ -91,7 +91,15 @@ data class AgentRun(
     val outputTokens: Int? = null,
 
     @ColumnInfo(name = "total_tokens")
-    val totalTokens: Int? = null
+    val totalTokens: Int? = null,
+
+    @ColumnInfo(name = "ownership_fence", defaultValue = "0")
+    val ownershipFence: Long = 0,
+
+    @ColumnInfo(name = "synthesis_key")
+    val synthesisKey: String? = null,
+    @ColumnInfo(name = "synthesis_snapshot")
+    val synthesisSnapshot: String? = null
 )
 
 data class AgentRunDraft(
@@ -99,7 +107,9 @@ data class AgentRunDraft(
     val profileUid: String,
     val providerSnapshot: String,
     val modelSnapshot: String,
-    val createdAt: Long = System.currentTimeMillis() / 1000
+    val createdAt: Long = System.currentTimeMillis() / 1000,
+    val synthesisKey: String? = null,
+    val synthesisSnapshot: String? = null
 )
 
 data class PersistAgentTurnRequest(

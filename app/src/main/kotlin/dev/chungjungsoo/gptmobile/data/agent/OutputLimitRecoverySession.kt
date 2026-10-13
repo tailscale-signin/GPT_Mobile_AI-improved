@@ -13,12 +13,19 @@ internal class OutputLimitRecoverySession(
     private val recoverTransientFailures: Boolean = false,
     initialDraft: String = "",
     private var effectiveOutputCap: Int? = null,
+    private val maxAnswerCharacters: Int = 1_048_576,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
     private val continuation: suspend (String, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
     private var continuations = 0
     private var transientRetries = 0
-    private val answer = StringBuilder(initialDraft.take(MAX_ANSWER_CHARACTERS))
+    private val answer = StringBuilder(initialDraft)
+    private val retainedCharacterLimit = maxAnswerCharacters.takeIf { it > 0 } ?: Int.MAX_VALUE
+
+    init {
+        require(initialDraft.length <= retainedCharacterLimit) { "Saved answer exceeds the configured retention allowance; it was not truncated." }
+    }
+
     private var resumePending = initialDraft.isNotBlank()
     override val handlesToolsInternally: Boolean get() = active.handlesToolsInternally
 
@@ -27,7 +34,7 @@ internal class OutputLimitRecoverySession(
             emitAll(active.streamRound(tools, exchanges))
             return@flow
         }
-        val evidence = ToolExchangeCompactor.compact(exchanges, maxReplayTokens = 4_000, maxResultTokens = 512)
+        val evidence = exchanges // Re-admission decides fit; recovery must not silently replace completed evidence with snippets.
         if (resumePending) {
             resumePending = false
             emit(ProviderEvent.TextDelta(answer.toString()))
@@ -62,7 +69,7 @@ internal class OutputLimitRecoverySession(
                             is ProviderEvent.Failed -> failure = event
                             is ProviderEvent.TextDelta -> {
                                 // Bound retained text, including misbehaving providers that ignore output caps.
-                                check(answer.length.toLong() + segment.length + event.text.length <= MAX_ANSWER_CHARACTERS) { "Response exceeded the safe continuation buffer. Partial output is saved." }
+                                check(answer.length.toLong() + segment.length + event.text.length <= retainedCharacterLimit) { "Response exceeded the safe continuation buffer. Partial output is saved." }
                                 segment.append(event.text)
                                 if (!continuing) emit(event)
                                 if (segment.length - savedCharacters >= 4096) {
@@ -112,7 +119,7 @@ internal class OutputLimitRecoverySession(
                 if (completed) emit(ProviderEvent.Completed)
                 return@flow
             }
-            if ((!transientFailure && continuations >= maxContinuations.coerceIn(0, 16)) || answer.length >= MAX_ANSWER_CHARACTERS || (!transientFailure && continuing && novel.isBlank())) {
+            if ((!transientFailure && continuations >= maxContinuations.coerceIn(0, 16)) || answer.length >= retainedCharacterLimit || (!transientFailure && continuing && novel.isBlank())) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
                 emit(
                     ProviderEvent.Failed(
@@ -140,10 +147,6 @@ internal class OutputLimitRecoverySession(
                 return@flow
             }
         }
-    }
-
-    private companion object {
-        const val MAX_ANSWER_CHARACTERS = 160_000
     }
 }
 

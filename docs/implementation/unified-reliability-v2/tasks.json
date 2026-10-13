@@ -65,7 +65,7 @@
       "V01",
       "V03"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA30",
       "LA-QA32",
@@ -76,7 +76,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Additive schema 40 migration and answer segment/ownership fields added; temporary-chat retention and migration verification remain."
+    ]
   },
   {
     "id": "V05",
@@ -261,7 +263,7 @@
       "V11",
       "V12"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LC-T13",
       "LC-T16",
@@ -271,7 +273,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Recovery retains evidence and user response allowance and distinguishes empty first draft; classified recovery/coverage repair remains."
+    ]
   },
   {
     "id": "V14",
@@ -596,7 +600,7 @@
       "V09",
       "V25"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T01",
       "CM-T02",
@@ -607,7 +611,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Frozen synthesis input, full task identity, prior primary history and pinned primary added; full process-resume consumption and explicit primary replacement UI remain."
+    ]
   },
   {
     "id": "V29",
@@ -618,7 +624,7 @@
       "V12",
       "V28"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T09",
       "CM-T10",
@@ -627,7 +633,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Transactional owner fence and same-key deduplication added; race tests pending execution."
+    ]
   },
   {
     "id": "V30",
@@ -660,7 +668,7 @@
       "V29",
       "V30"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T06",
       "CM-T07",
@@ -671,7 +679,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Append-only checked answer segments remove the old 160000-character truncation; full restart recovery verification remains."
+    ]
   },
   {
     "id": "V32",

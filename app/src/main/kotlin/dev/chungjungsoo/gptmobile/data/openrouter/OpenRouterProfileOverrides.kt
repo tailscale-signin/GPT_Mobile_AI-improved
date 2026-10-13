@@ -43,11 +43,11 @@ data class OpenRouterProfileOverrides private constructor(val raw: JsonObject) {
                     else -> primitive.doubleOrNull?.let { number ->
                         number.isFinite() &&
                             when (field) {
-                            "temperature" -> number in 0.0..2.0
-                            "top_p" -> number in 0.0..1.0
-                            "repetition_penalty" -> number > 0.0
-                            else -> number in -2.0..2.0
-                        }
+                                "temperature" -> number in 0.0..2.0
+                                "top_p" -> number in 0.0..1.0
+                                "repetition_penalty" -> number > 0.0
+                                else -> number in -2.0..2.0
+                            }
                     } == true
                 }
                 require(valid) { "Invalid OpenRouter $field override." }

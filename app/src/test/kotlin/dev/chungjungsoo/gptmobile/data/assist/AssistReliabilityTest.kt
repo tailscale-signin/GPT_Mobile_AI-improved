@@ -24,7 +24,10 @@ class AssistReliabilityTest {
         val source = ToolResultContent.Json(JsonObject(mapOf("results" to JsonArray((0..8).map { JsonObject(mapOf("title" to JsonPrimitive("Record $it"))) }))))
         val goal = "prefix ".repeat(300) + "REQUIRED TAIL: preserve 3.5 mg and do not use 3.5 g"
         var sent = ""
-        val assist = AssistCoordinator(goal, { true }, { sent = it; "[2]" }, {})
+        val assist = AssistCoordinator(goal, { true }, {
+            sent = it
+            "[2]"
+        }, {})
         val result = assist.bind(tool(source)).execute("call", JsonObject(emptyMap()))
         assertTrue(sent.contains(goal))
         assertEquals(source, result.content)
@@ -37,7 +40,10 @@ class AssistReliabilityTest {
             var calls = 0
             val states = mutableListOf<AssistTaskState>()
             val source = ToolResultContent.Text("e".repeat(length))
-            val coordinator = AssistCoordinator("goal", { true }, { calls++; "{\"queries\":[\"source evidence\"]}" }, {}, policy = LocalAssistPolicy(evidenceSelection = false, proposeQueries = true), status = { states += it })
+            val coordinator = AssistCoordinator("goal", { true }, {
+                calls++
+                "{\"queries\":[\"source evidence\"]}"
+            }, {}, policy = LocalAssistPolicy(evidenceSelection = false, proposeQueries = true), status = { states += it })
             val result = coordinator.bind(tool(source)).execute("call", JsonObject(emptyMap()))
             assertEquals(1, calls)
             assertEquals(source, result.content)
@@ -48,7 +54,10 @@ class AssistReliabilityTest {
     @Test
     fun ix05NoSpanOrOversizedGoalDoesNotConsumeAttempt() = runBlocking {
         var calls = 0
-        val coordinator = AssistCoordinator("whole task ".repeat(1000), { true }, { calls++; "[]" }, {}, policy = LocalAssistPolicy(summarizeRetrievedText = true), contextTokens = { 1024 })
+        val coordinator = AssistCoordinator("whole task ".repeat(1000), { true }, {
+            calls++
+            "[]"
+        }, {}, policy = LocalAssistPolicy(summarizeRetrievedText = true), contextTokens = { 1024 })
         coordinator.bind(tool(ToolResultContent.Json(JsonObject(emptyMap())))).execute("empty", JsonObject(emptyMap()))
         coordinator.bind(tool(ToolResultContent.Text("short useful snippet"))).execute("too-large", JsonObject(emptyMap()))
         assertEquals(0, calls)
@@ -69,7 +78,10 @@ class AssistReliabilityTest {
         var runtime = "session-a"
         var calls = 0
         val source = ToolResultContent.Json(JsonObject(mapOf("results" to JsonArray((0..8).map { JsonPrimitive("r$it") }))))
-        val coordinator = AssistCoordinator("goal", { true }, { calls++; "[0]" }, {}, turnId = java.util.UUID.randomUUID().toString(), runtimeFingerprint = { runtime })
+        val coordinator = AssistCoordinator("goal", { true }, {
+            calls++
+            "[0]"
+        }, {}, turnId = java.util.UUID.randomUUID().toString(), runtimeFingerprint = { runtime })
         coordinator.bind(tool(source)).execute("one", JsonObject(emptyMap()))
         runtime = "session-b"
         coordinator.bind(tool(source)).execute("two", JsonObject(emptyMap()))

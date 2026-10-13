@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.assist
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.util.UUID
@@ -182,7 +181,7 @@ internal class AssistCoordinator(
                     val valid = parsed?.keys == setOf("queries") && rows != null && rows.size in 1..3 && rows.all { it is JsonPrimitive && it.isString && it.content.length in 1..240 }
                     validate(completed, emptyList(), valid)
                     if (valid) {
-                        queries += rows!!
+                        queries.addAll(rows!!)
                         accepted += AssistHandoff(artifactId = UUID.randomUUID().toString(), rootWorkId = turnId, snapshotHash = snapshot, producerInvocationId = completed.producerInvocationId, selectedIds = emptyList())
                     }
                 }
@@ -194,18 +193,22 @@ internal class AssistCoordinator(
         }
         if (!stillEnabled() || runtimeFingerprint() != fingerprint) return result
         // All provider keys remain intact. Selection is an additive index, not a summary-only replacement.
-        val packet = JsonObject(buildMap {
-            put("assistSelection", JsonPrimitive(true))
-            put("assistHandoff", Json.parseToJsonElement(Json.encodeToString(accepted.first())))
-            put("assistHandoffs", Json.parseToJsonElement(Json.encodeToString(accepted)))
-            if (selectedRecords.isNotEmpty()) put("assistSelectedRecords", JsonArray(selectedRecords.distinct()))
-            if (extracts.isNotEmpty()) put("assistExtracts", Json.parseToJsonElement(Json.encodeToString(extracts.distinctBy { it.id })))
-            if (queries.isNotEmpty()) put("proposedQueries", JsonArray(queries.distinct()))
-        })
+        val packet = JsonObject(
+            buildMap {
+                put("assistSelection", JsonPrimitive(true))
+                put("assistHandoff", Json.parseToJsonElement(Json.encodeToString(accepted.first())))
+                put("assistHandoffs", Json.parseToJsonElement(Json.encodeToString(accepted)))
+                if (selectedRecords.isNotEmpty()) put("assistSelectedRecords", JsonArray(selectedRecords.distinct()))
+                if (extracts.isNotEmpty()) put("assistExtracts", Json.parseToJsonElement(Json.encodeToString(extracts.distinctBy { it.id })))
+                if (queries.isNotEmpty()) put("proposedQueries", JsonArray(queries.distinct()))
+            }
+        )
         val metadata = listOf(packet)
-        if (key != null) synchronized(results) {
-            if (results.size >= 40) results.remove(results.keys.first())
-            results[key] = metadata
+        if (key != null) {
+            synchronized(results) {
+                if (results.size >= 40) results.remove(results.keys.first())
+                results[key] = metadata
+            }
         }
         AssistReadinessResolver.publish(AssistReadiness.SUCCEEDED, "Source-linked assistance validated; request inclusion is not yet confirmed")
         return result.copy(assistMetadata = metadata)

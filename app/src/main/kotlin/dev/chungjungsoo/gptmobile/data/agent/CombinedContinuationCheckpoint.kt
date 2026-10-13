@@ -20,7 +20,7 @@ internal class CombinedContinuationCheckpoint(
     suspend fun restore(): String {
         val saved = workspace?.synthesisCheckpoint(id) ?: return ""
         val reason = (saved["terminalReason"] as? JsonPrimitive)?.content
-        return if (reason in setOf("WRITING", "SEGMENT_COMMITTED", "PARTIAL", "CANCELLED")) (saved["draft"] as? JsonPrimitive)?.content.orEmpty().take(160_000) else ""
+        return if (reason in setOf("WRITING", "SEGMENT_COMMITTED", "PARTIAL", "CANCELLED")) (saved["draft"] as? JsonPrimitive)?.content.orEmpty() else ""
     }
 
     fun continuationContext(draft: String): String = coverage.continuationContext(draft)

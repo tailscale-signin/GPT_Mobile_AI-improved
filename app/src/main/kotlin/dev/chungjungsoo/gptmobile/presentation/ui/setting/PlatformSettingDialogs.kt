@@ -56,7 +56,6 @@ import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
-import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettingsJson
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog

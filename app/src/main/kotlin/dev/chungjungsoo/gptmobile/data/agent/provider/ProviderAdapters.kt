@@ -1217,25 +1217,29 @@ private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Co
 
 private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): String = if (assistMetadata.isNotEmpty()) {
     JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata))).toString()
-} else when (val value = content) {
-    is ToolResultContent.Text -> value.text
-    is ToolResultContent.Json -> value.value.toString()
-    is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
-}.ifBlank { if (isError) "Tool failed without error details." else "Tool returned no content." }
+} else {
+    when (val value = content) {
+        is ToolResultContent.Text -> value.text
+        is ToolResultContent.Json -> value.value.toString()
+        is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
+    }.ifBlank { if (isError) "Tool failed without error details." else "Tool returned no content." }
+}
 
 private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelJson(): JsonObject = if (assistMetadata.isNotEmpty()) {
     JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata)))
-} else when (val value = content) {
-    is ToolResultContent.Json -> value.value.asResponseObject()
+} else {
+    when (val value = content) {
+        is ToolResultContent.Json -> value.value.asResponseObject()
 
-    is ToolResultContent.Text -> buildJsonObject {
-        put("result", value.text)
-        if (isError) put("isError", true)
-    }
+        is ToolResultContent.Text -> buildJsonObject {
+            put("result", value.text)
+            if (isError) put("isError", true)
+        }
 
-    is ToolResultContent.ResourceLinks -> buildJsonObject {
-        put("resources", JsonArray(value.links.map { link -> JsonPrimitive(link.uri) }))
-        if (isError) put("isError", true)
+        is ToolResultContent.ResourceLinks -> buildJsonObject {
+            put("resources", JsonArray(value.links.map { link -> JsonPrimitive(link.uri) }))
+            if (isError) put("isError", true)
+        }
     }
 }
 

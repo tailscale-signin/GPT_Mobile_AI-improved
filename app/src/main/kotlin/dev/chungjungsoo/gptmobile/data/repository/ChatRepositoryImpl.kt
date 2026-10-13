@@ -1434,7 +1434,7 @@ class ChatRepositoryImpl(
             }
             var recovery: dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext? = null
             var contextTurns = withContext(Dispatchers.Default) {
-                buildContextTurns(effectiveUserMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform).also { turns ->
+                buildContextTurns(effectiveUserMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform, preserveAttachments = runId.startsWith("combined-synthesis:")).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
@@ -2266,11 +2266,12 @@ class ChatRepositoryImpl(
             recoverTransientFailures = true,
             initialDraft = restoredDraft,
             effectiveOutputCap = resolvedOutputCap,
+            maxAnswerCharacters = budgetSettings.responseCharacterLimit,
             saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
         ) { draft, exchanges ->
             val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                 contextPlan.turns,
-                "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. " +
+                (if (draft.isBlank()) "\n\nThe previous attempt wrote no visible answer. Write the complete answer from the original task, frozen evidence and full outline, starting with its first section. " else "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. ") +
                     "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
                     (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
                     "If evidence is missing, state the gap. Start with a paragraph break only when the previous paragraph is complete.",
@@ -2570,10 +2571,12 @@ class ChatRepositoryImpl(
     private suspend fun buildContextTurns(
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
-        platform: PlatformV2
+        platform: PlatformV2,
+        preserveAttachments: Boolean = false
     ): List<ConversationTurn> {
         val policy = ProviderContextPolicy.forClientType(platform.compatibleType).copy(
             recentTurnWindow = Int.MAX_VALUE,
+            historicalImageTurnWindow = if (preserveAttachments) Int.MAX_VALUE else ProviderContextPolicy.forClientType(platform.compatibleType).historicalImageTurnWindow,
             maxHistoryCharBudget = Int.MAX_VALUE
         )
         val preparedUsers = userMessages.map { withDocumentContext(it, platform) }

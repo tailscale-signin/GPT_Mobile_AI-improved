@@ -279,4 +279,4 @@ class LocalInferenceService : Service() {
     }
 }
 
-internal fun isInferenceProcess(): Boolean = android.app.Application.getProcessName().endsWith(":local_inference")
+internal fun isInferenceProcess(): Boolean = android.app.Application.getProcessName()?.endsWith(":local_inference") == true

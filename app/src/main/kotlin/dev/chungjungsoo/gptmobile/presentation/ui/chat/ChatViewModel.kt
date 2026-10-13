@@ -102,7 +102,8 @@ class ChatViewModel @Inject constructor(
     private val shareInbox: dev.chungjungsoo.gptmobile.data.sharing.ShareInbox? = null,
     private val factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
     private val researchSessionStore: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
-    private val conversationExitWork: dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork
+    private val conversationExitWork: dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork,
+    @dev.chungjungsoo.gptmobile.di.DefaultDispatcher private val messageGroupingDispatcher: kotlinx.coroutines.CoroutineDispatcher
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -381,6 +382,7 @@ class ChatViewModel @Inject constructor(
     private val combinedSynthesisMessages = mutableSetOf<Int>()
     private val combinedSynthesisAttempts = CombinedSynthesisGate()
     private var pendingRunDispatches = 0
+    private var pendingMessageGrouping = 0
     private val platformMembershipMutex = Mutex()
 
     init {
@@ -498,6 +500,7 @@ class ChatViewModel @Inject constructor(
 
     private fun isGenerationBusy(): Boolean =
         pendingRunDispatches > 0 ||
+            pendingMessageGrouping > 0 ||
             _loadingStates.value.any { it != LoadingState.Idle } ||
             agentRunCoordinator.activeRuns.value.values.any { it.chatId == _chatRoom.value.id }
 
@@ -1466,7 +1469,7 @@ class ChatViewModel @Inject constructor(
                                 }
                             )
                         }
-                        val contextMessages = withContext(Dispatchers.Default) {
+                        val contextMessages = withContext(messageGroupingDispatcher) {
                             groupPersistedMessages(chatRepository.observeMessageWindow(persisted.chatRoom.id, visibleHistoryTurns.value).first(), enabledPlatformsInChat, persisted.chatRoom.id)
                         }
                         agentRunCoordinator.start(
@@ -1904,7 +1907,12 @@ class ChatViewModel @Inject constructor(
                 .collect { (chatId, messages) ->
                     if (chatId <= 0) return@collect
                     val slots = enabledPlatformsInChat.toList()
-                    val groupedMessages = withContext(Dispatchers.Default) { groupPersistedMessages(messages, slots, chatId) }
+                    pendingMessageGrouping += 1
+                    val groupedMessages = try {
+                        withContext(messageGroupingDispatcher) { groupPersistedMessages(messages, slots, chatId) }
+                    } finally {
+                        pendingMessageGrouping -= 1
+                    }
                     _groupedMessages.update { groupedMessages }
                     _indexStates.update { current ->
                         List(groupedMessages.assistantMessages.size) { index -> current.getOrElse(index) { 0 } }
@@ -2195,7 +2203,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun advancePendingGeneration() {
-        if (pendingRunDispatches > 0) return
+        if (pendingRunDispatches > 0 || pendingMessageGrouping > 0) return
         val runs = _agentRunsById.value
         syncLoadingStates(runs)
         if (isGenerationBusy()) return

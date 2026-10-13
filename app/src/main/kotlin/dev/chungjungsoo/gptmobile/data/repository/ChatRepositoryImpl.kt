@@ -1836,7 +1836,7 @@ class ChatRepositoryImpl(
                     if (brief.isNotBlank()) appendPreparedEvidence(brief)
                 }
             }
-            prepareConnectedMemory()
+            if (!resumeWriterOnly) prepareConnectedMemory()
             var preparedEvidenceComplete = false
             var preparedEvidenceReviewed = false
             suspend fun prepareDelegatedEvidence() {
@@ -1943,6 +1943,11 @@ class ChatRepositoryImpl(
                         exposedTools = listOf(recoveryTool) + exposedTools
                         contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
                     }
+                }
+                if (resumeWriterOnly) {
+                    exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
+                    requestPlatform = requestPlatform.copy(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResume final writing from the saved evidence and retained review report. New acquisition or external actions were not requested. Explain unresolved coverage instead of repeating completed work.")
+                    contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
                 }
                 if (localDelegation.researchStopped()) {
                     exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }

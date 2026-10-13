@@ -1131,6 +1131,7 @@ class ChatRepositoryImplTest {
         assertEquals(26, api.streamChatCompletionCalls)
         assertTrue(api.requests.last().toString().contains("Panel finding"))
         assertTrue(api.requests.last().toString().contains("REVIEW_UNAVAILABLE"))
+        assertEquals(listOf("read_recovery_context"), api.requests.last().tools.orEmpty().map { it.function.name })
         assertEquals(24, api.requests.count { it.model == helper.model })
         assertEquals(0, repeatedReads)
     }

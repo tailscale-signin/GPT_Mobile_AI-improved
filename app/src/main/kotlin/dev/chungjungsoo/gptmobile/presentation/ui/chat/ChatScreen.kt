@@ -1215,6 +1215,17 @@ private fun ChatMessagePair(
                         }
                     }
                 }
+                if (hasCombinedTabs && debugMode && selectedProfile == null) {
+                    val synthesis = assistantMessages.getOrNull(combinedSynthesisIndex)
+                    CombinedContributionInspector(
+                        answer = assistantContent,
+                        sources = synthesis?.combinedSources.orEmpty(),
+                        selectedProfileUids = combinedProfiles.map { it.uid },
+                        identities = debugSettings.profileAttributionColors,
+                        primaryUid = synthesis?.platformType,
+                        onOpenContribution = onCombinedProfileClick
+                    )
+                }
                 OpponentChatBubble(
                     modifier = Modifier
                         .fillMaxWidth()

@@ -1070,4 +1070,18 @@
     <string name="connection_wait_round">Total inference round</string>
     <string name="connection_wait_adaptive">Adapt first wait from observed runtime timings</string>
     <string name="connection_wait_save">Save wait limits</string>
+    <string name="combined_inspect_support">Inspect contribution support</string>
+    <string name="combined_inspection_loading">Loading contribution details…</string>
+    <string name="combined_inspection_hint">Select a passage from this snapshot to inspect its support. Reopen to refresh after generation. The primary badge identifies the writer, not ownership of the answer.</string>
+    <string name="combined_inspection_primary">Primary writer</string>
+    <string name="combined_open_contribution">Open original contribution</string>
+    <string name="combined_inspection_no_answer">No visible answer to inspect yet.</string>
+    <string name="combined_inspection_back">All passages</string>
+    <string name="combined_support_class">Support: %1$s</string>
+    <string name="combined_comparison_coverage">Compared source chunks: %1$d / %2$d</string>
+    <string name="combined_support_unknown">Ownership is unknown. Complete, qualified semantic comparison is required before a sentence can receive an exclusive profile color.</string>
+    <string name="combined_evidence_unavailable">Evidence is missing or no longer resolves to this revision.</string>
+    <string name="combined_contribution_revision">Contribution revision: %1$s</string>
+    <string name="combined_open_evidence">Open evidence: %1$s</string>
+    <string name="combined_no_verified_support">No verified source span is attached to this passage.</string>
 </resources>

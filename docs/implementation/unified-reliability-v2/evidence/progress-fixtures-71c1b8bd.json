@@ -1,0 +1,64 @@
+{
+  "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+  "tree": "cbbc54375545b34f84ebab217c54408d51792737",
+  "local_execution_commit": "525700ef91943c0f890ce0c45b44372173b4b2cc",
+  "execution": "JDK 21, Gradle 9.8, Android JVM unit tests with fake-clock progress fixtures. Local and remote source trees matched before publication.",
+  "suite_totals": {
+    "tests": 2798,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suite_outcome": "PASS",
+  "limitations": "GitHub CI pending; no live-server or native-device qualification implied. Cleanup race and device timing acceptance remains separate.",
+  "acceptance_fixtures": {
+    "LC-T09": [
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+        "test": "lc09ActiveReasoningCanExceedOldRoundCutoff",
+        "outcome": "PASS",
+        "seconds": 0.011
+      },
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+        "test": "advancingCountersKeepPrefillAliveButRepeatedCountersDoNot",
+        "outcome": "PASS",
+        "seconds": 0.006
+      }
+    ],
+    "LC-T10": [
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+        "test": "stalledRoundKeepsPartialTextAndStopsDespiteHeartbeats",
+        "outcome": "PASS",
+        "seconds": 0.007
+      },
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+        "test": "repeatedStageLabelsAndAlternatingOldCheckpointsCannotKeepAStallAlive",
+        "outcome": "PASS",
+        "seconds": 0.006
+      },
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+        "test": "latePrefillLabelDoesNotRestartTheFirstProgressDeadline",
+        "outcome": "PASS",
+        "seconds": 0.006
+      }
+    ],
+    "LC-T11": [
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+        "test": "lc11ReasoningThenStallIsNotContextOverflow",
+        "outcome": "PASS",
+        "seconds": 0.009
+      },
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest",
+        "test": "lc09ActiveReasoningCanExceedOldRoundCutoff",
+        "outcome": "PASS",
+        "seconds": 0.011
+      }
+    ]
+  }
+}

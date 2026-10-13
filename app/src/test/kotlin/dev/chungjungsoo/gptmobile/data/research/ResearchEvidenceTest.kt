@@ -11,6 +11,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchEvidenceTest {
+    @Test fun fullGoalSurvivesSnapshotRoundTripIncludingTailConstraints() {
+        val goal = "original constraint 東京 😀 ".repeat(1500) + "Final constraint: never publish."
+        val original = ResearchSnapshot(goal)
+        assertEquals(goal, ResearchSnapshot.parse(original.json())?.task)
+    }
+
     @Test fun quotesMustExistInReadPages() {
         val quote = "The device supports exactly two parallel requests."
         val row = buildJsonObject {

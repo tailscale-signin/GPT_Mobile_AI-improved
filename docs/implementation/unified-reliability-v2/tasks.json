@@ -586,7 +586,7 @@
       "V24",
       "V25"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA14",
       "LA-QA28",
@@ -596,7 +596,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Research and reviewer prompts now retain the complete goal through storage and reject insufficient input capacity before dispatch; evidence excerpts report retained/delivered bytes. Parent-owned acquisition already has durable goal budgets and per-operation cancellation. Structured query lineage, fair engine scheduling and complete terminal engine-outcome persistence remain."
+    ]
   },
   {
     "id": "V27",
@@ -835,7 +837,7 @@
       "V35",
       "V36"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T14",
       "CM-T18",
@@ -844,7 +846,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Added debug-only lazy passage inspector with numbered profile identities, primary badge, immutable original-contribution navigation, exact validated spans, comparison counts, revision and safe evidence links. Absent/stale qualification remains UNKNOWN. Production semantic sidecar persistence, inline sentence activation and device accessibility/selection qualification remain."
+    ]
   },
   {
     "id": "V38",

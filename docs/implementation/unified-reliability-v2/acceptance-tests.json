@@ -363,25 +363,31 @@
     "id": "LC-T09",
     "fixture": "Long active stream and slow prefill",
     "assertion": "Progressing generation exceeds 180 seconds safely; observed prefill remains distinct.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
   },
   {
     "id": "LC-T10",
     "fixture": "Heartbeats and empty chunks only",
     "assertion": "No false progress reset; correct phase/idle timeout fires once.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
   },
   {
     "id": "LC-T11",
     "fixture": "Reasoning then stall versus active reasoning",
     "assertion": "Distinguish outcomes; neither is completed visible output or automatic prompt overflow.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
   },
   {
     "id": "LC-T12",

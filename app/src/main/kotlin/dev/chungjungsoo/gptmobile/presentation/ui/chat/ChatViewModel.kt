@@ -1907,6 +1907,20 @@ class ChatViewModel @Inject constructor(
     private fun fetchEnabledPlatformsInApp() {
         viewModelScope.launch {
             val allPlatforms = settingRepository.fetchPlatformV2s()
+            withContext(Dispatchers.Default) {
+                try {
+                    val palette = settingRepository.getFeatureSettings().profileAttributionColors
+                    if (allPlatforms.any { it.uid !in palette }) {
+                        settingRepository.mutateFeatureSettings { current ->
+                            current.copy(profileAttributionColors = dev.chungjungsoo.gptmobile.data.model.ProfileColorRegistry.ensure(current.profileAttributionColors, allPlatforms.map { it.uid }))
+                        }
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Optional display identity persistence must not block profile loading or generation.
+                }
+            }
             _platformsInApp.update { allPlatforms }
             initializeChatPlatformModels(allPlatforms)
             updateLocalNetworkRequirement(allPlatforms)

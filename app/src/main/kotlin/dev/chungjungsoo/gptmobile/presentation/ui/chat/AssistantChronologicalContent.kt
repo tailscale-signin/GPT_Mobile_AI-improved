@@ -47,6 +47,7 @@ internal fun AssistantChronologicalContent(
     contentIdentity: Any,
     isLoading: Boolean,
     animateResponse: Boolean = true,
+    proseColor: androidx.compose.ui.graphics.Color? = null,
     debugMode: Boolean,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     debugSettings: AppFeatureSettings = AppFeatureSettings(),
@@ -118,11 +119,11 @@ internal fun AssistantChronologicalContent(
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (isLoading) {
-                                    ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                    ChatMarkdown(proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {
                                     val blocks = remember(response) { dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks(response) }
                                     blocks.forEachIndexed { blockIndex, block ->
-                                        ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                        ChatMarkdown(proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                         if (block.citationText.isNotBlank()) articleCards(block.citationText)
                                     }
                                     if (blocks.none { it.citationText.isNotBlank() }) articleCards(citationText)

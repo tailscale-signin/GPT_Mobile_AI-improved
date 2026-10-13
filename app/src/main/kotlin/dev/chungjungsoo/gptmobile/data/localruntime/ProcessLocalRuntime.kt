@@ -36,7 +36,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class ProcessLocalRuntime(private val context: Context, private val settings: SettingRepository) : LocalRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val bindMutex = Mutex()
-    private val readiness = LocalReadinessRegistry()
+    private val readiness = LocalReadinessRegistry(java.io.File(context.noBackupFilesDir, "local-readiness-quarantine"))
     private val pending = ConcurrentHashMap<String, Pending>()
     private val thread = HandlerThread("local-runtime-client").apply { start() }
     private val incoming = Messenger(object : Handler(thread.looper) {
@@ -83,9 +83,13 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = execute("INSPECT", text = modelPath).capabilities
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
-        readiness.reset()
+        val identity = readinessIdentity(spec, settings.getFeatureSettings(), settings.getLocalRuntimeBackend())
         command(RuntimeWire("VERIFY_RESET", UUID.randomUUID().toString(), generation = generation, spec = spec))
+        readiness.reset(identity)
     }
+
+    private suspend fun readinessIdentity(spec: LocalEngineSpec, snapshot: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings, preferred: dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend): String =
+        "${RuntimeEvidenceIdentity.key(context, spec)}|$preferred|${snapshot.localEngineTuning()}"
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         if (isEngineLoaded(spec)) return
@@ -93,7 +97,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val packet = RuntimeWire("LOAD", UUID.randomUUID().toString(), generation = generation, spec = spec, settings = snapshot, preferredBackend = settings.getLocalRuntimeBackend())
         val artifact = java.io.File(spec.modelPath)
         check(artifact.isFile || artifact.isDirectory) { "MISSING_ASSET: Download or relink the selected model before running it." }
-        val identity = "${spec.engineConfiguration()}|${artifact.length()}|${artifact.lastModified()}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${packet.preferredBackend}|${snapshot.localEngineTuning()}"
+        val identity = readinessIdentity(spec, snapshot, requireNotNull(packet.preferredBackend))
         try {
             mutableState.value = state.value.copy(lifecycle = "LOADING")
             readiness.qualify(identity) {

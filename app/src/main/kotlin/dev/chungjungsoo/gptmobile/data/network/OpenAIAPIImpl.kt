@@ -138,7 +138,8 @@ class OpenAIAPIImpl @Inject constructor(
                 val prompt = legacyPollinationsPrompt(preparedRequest)
                 val legacyResponse = pollinationsCompletion {
                     FreeAiRequestLimiter.shared.withRequest(free) {
-                        networkClient().prepareGet(pollinationsPromptUrl(prompt)) {
+                        val admittedUrl = requestPreparation.preparePollinationsGet(prompt, config)
+                        networkClient().prepareGet(admittedUrl) {
                             timeout { requestTimeoutMillis = timeoutSeconds.coerceIn(15, 120) * 1_000L }
                             accept(ContentType.Text.Plain)
                         }.execute { response ->

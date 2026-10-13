@@ -506,19 +506,20 @@ class LiteRtLmAdapter(
                                     )
                                     val estimate = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(frozenInput)
                                     val imageReserve = (inputImageCount.toLong() + history.sumOf { it.imageIds.size.toLong() }) * 256L
+                                    val permissionRevision = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: constraints.permissionRevision
                                     val admitted = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare(
                                         frozenInput,
                                         constraints.requestRole ?: "primary",
                                         dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(identity, loadedSpec.maxTokens.toLong(), provenance = dev.chungjungsoo.gptmobile.data.context.CapacityProvenance.VERIFIED_ROUTE),
                                         estimate.copy(promptTokens = Math.addExact(estimate.promptTokens, imageReserve)),
                                         outputLimit.toLong(),
-                                        constraints.permissionRevision,
+                                        permissionRevision,
                                         requireKnownCapacity = true,
                                         serializerRevision = "native-config-v1"
                                     )
-                                    admitted.dispatchPayload(identity, constraints.permissionRevision)
-                                    kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt)
-                                    dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+                                    admitted.dispatchPayload(identity, permissionRevision)
+                                    val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+                                    kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt.copy(physicalAttemptId = attemptId))
                                 }
                                 while (true) {
                                     var templateFailure: String? = null

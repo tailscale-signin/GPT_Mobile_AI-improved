@@ -46,6 +46,7 @@ import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
+import dev.chungjungsoo.gptmobile.data.context.withRequestAuthorization
 import dev.chungjungsoo.gptmobile.data.conversation.ConversationTitleSummarizer
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
@@ -317,25 +318,37 @@ class ChatRepositoryImpl(
         assistAdmission.rejection(localRuntime.getHardwareState(), dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission.availableMemory(context), 128L * 1024 * 1024, 768L * 1024 * 1024, optional = true)?.let { return status(unavailable, it) }
         val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull()
             ?: return status(unavailable, "Local Assist unavailable: selected model is not installed")
+        val readable = withContext(Dispatchers.IO) { java.io.File(selection.path).let { it.isFile && it.canRead() && it.length() > 0 } }
+        if (!readable) return status(unavailable, "Local Assist unavailable: selected artifact is missing or unreadable")
+        val observed = localRuntime.state.value
+        if (observed.lifecycle in setOf("CANCELLING", "SHUTDOWN")) return status(unavailable, "Local Assist waiting for acknowledged runtime cancellation")
         val record = localRuntime.admittedEngineSpec()
         if (record != null) {
             if (record.modelPath != selection.path || record.accelerator != dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator) || !localRuntime.isEngineLoaded(record)) return status(unavailable, "Local Assist skipped: another runtime configuration is loaded")
-            return status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready")
+            if (observed.lifecycle == "FAILED" || observed.engineSpec == null || observed.backend == null) return status(unavailable, "Local Assist unavailable: loaded session health or execution backend is unverified")
+            return status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready: requested ${record.accelerator}; observed ${observed.engineSpec.accelerator} (${observed.backend.displayName}); context ${observed.engineSpec.maxTokens}")
         }
         if (policy.preparation == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) return status(unavailable, "Local Assist skipped: warm-only policy; model is not loaded")
         status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.PREPARING, "Preparing selected Local Assist model")
         val prepared = try {
             kotlinx.coroutines.withTimeoutOrNull(policy.validated().loadTimeoutSeconds * 1000L) {
                 localRuntime.runExclusive {
-                    val metadata = inspectModel(selection.path)
+                    val metadata = requireNotNull(inspectModel(selection.path)) { "Artifact capabilities are unavailable" }
                     val backend = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)
-                    check(metadata?.backends?.let { backend in it } != false) { "Selected backend is unsupported by this artifact" }
-                    loadEngine(dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selection.path, backend, minOf(metadata?.contextTokens ?: 4096, 4096), workload = "assist", expectedOutputTokens = 128))
+                    check(backend in metadata.backends) { "Selected backend is unsupported or unverified for this artifact" }
+                    val capacity = requireNotNull(metadata.contextTokens?.takeIf { it > 0 }) { "Artifact context capacity is unverified" }
+                    val spec = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selection.path, backend, minOf(capacity, 4096), workload = "assist", expectedOutputTokens = 128)
+                    metadata.validate(spec)
+                    loadEngine(spec)
                     true
                 }
             } == true
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: dev.chungjungsoo.gptmobile.data.localruntime.LocalArtifactIncompatibleException) {
+            return status(unavailable, "Local Assist artifact is quarantined for this runtime/backend; import a compatible export or explicitly Verify it")
+        } catch (_: dev.chungjungsoo.gptmobile.data.localruntime.LocalModelConfigurationException) {
+            return status(unavailable, "Local Assist artifact does not support this device/runtime/backend configuration")
         } catch (_: Exception) {
             false
         }
@@ -2176,6 +2189,7 @@ class ChatRepositoryImpl(
         followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
         previousAnswerWords: Int = 0
     ): Flow<ApiState> = channelFlow {
+        val progressSettings = settingRepository.getFeatureSettings().profileProgressDeadlines[platform.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
         val requestedOutputTokens = contextPlan.outputTokens
         // Delegation saves input/replay tokens. Its brief budget must never cap the
         // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
@@ -2248,7 +2262,12 @@ class ChatRepositoryImpl(
                         }
                     }
             }
-            val guarded = if (platform.compatibleType == ClientType.LLAMA) observed.withProgressWatchdog() else observed
+            val sourceRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(recalled.references.toString() + effectiveTools.map { it.selectionId() }.sorted().joinToString("|"))
+            val authorized = observed.withRequestAuthorization("retained-sources:$sourceRevision") {
+                factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                check(effectiveTools.all { it.canReuseResult?.invoke() != false }) { "SOURCE_PERMISSION_REVOKED: retained evidence cannot be dispatched under changed permissions." }
+            }
+            val guarded = if (platform.compatibleType == ClientType.LLAMA) authorized.withProgressWatchdog(settings = progressSettings) else authorized
             return invocationLedger?.wrap(
                 guarded, runId, turnKey, platform.compatibleType.name, platform.model, kind,
                 costs.total,
@@ -2478,7 +2497,7 @@ class ChatRepositoryImpl(
                         }
                     }
 
-                    is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message))
+                    is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline))
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))
                     is ProviderEvent.PhaseChanged -> {
                         dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.phase(runId, providerEvent.phase.name)

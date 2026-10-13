@@ -196,7 +196,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Final HTTP and initial native DTO admission added. Native internal tool rounds, gateway prompt additions and legacy GET still require final boundary coverage."
+      "Final HTTP/native serialization now records unique physical-attempt IDs only after dispatch authorization and allowance succeed. Retained memory/tool-source permissions are rechecked at primary, continuation and native dispatch; legacy Free GET now also has per-attempt admission with honestly unknown output limits. Configured-profile and all-role policy epochs and native internal tool rounds still need complete coverage."
     ]
   },
   {
@@ -239,7 +239,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Implementation and full acceptance verification in progress; not a completion claim."
+      "Meaningful progress now tracks monotonic native/provider counters and unique tool/checkpoint transitions; observed queue/load phases have separate deadlines. Explicit per-profile deadlines override bounded runtime/prompt-bucket timing observations, with typed terminal metadata retained in the timeline. Connection Doctor edits waits. Full transport phase exposure and device timing/cleanup qualification remain."
     ]
   },
   {
@@ -349,7 +349,7 @@
       "V14",
       "V15"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA04",
       "LA-QA05",
@@ -361,7 +361,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Assist now preflights installed readability, known artifact/backend/context metadata, model configuration and loaded session/cancellation health. Deterministic tensor incompatibility quarantine is durable and reset only for the explicitly verified tuple; identities include artifact bytes, runtime libraries and firmware. Real CPU/GPU/NPU/GGUF device qualification and task-quality observations remain."
+    ]
   },
   {
     "id": "V17",
@@ -765,7 +767,7 @@
       "V20",
       "V33"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T12",
       "CM-T13",
@@ -777,7 +779,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Independent provenance validation now binds every claim to answer/corpus/parser/permission revisions, requires complete per-profile span comparisons, rejects malformed or overlapping evidence and supports shared/mixed/conflicting/unknown abstention. A separately qualified semantic verifier, whole-corpus execution and held-out human precision qualification still remain."
+    ]
   },
   {
     "id": "V35",
@@ -788,7 +792,7 @@
       "V33",
       "V34"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T14",
       "CM-T20",
@@ -796,7 +800,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Profile color identities and numbered markers persist by UID in feature settings; contrast is resolved against actual surfaces; Combined profile names and original prose receive native foreground colors in debug mode. Final verified-sentence integration and device accessibility/theme qualification remain."
+    ]
   },
   {
     "id": "V36",
@@ -807,7 +813,7 @@
       "V34",
       "V35"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T19",
       "CM-T20",
@@ -815,7 +821,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "The actual Markdown parser now emits verbatim source runs through math transformations; renderer consumes validated mapped foreground spans and rejects stale or malformed maps. Stable-sentence background verification, full response-block projection, semantic sidecar persistence and Unicode/device rendering qualification remain."
+    ]
   },
   {
     "id": "V37",

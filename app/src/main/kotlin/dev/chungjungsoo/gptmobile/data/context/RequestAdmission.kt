@@ -55,7 +55,8 @@ data class RequestAdmissionReceipt(
     val capacityProvenance: CapacityProvenance,
     val measurement: TokenMeasurementKind,
     val capacityChecked: Boolean,
-    val reasoning: ReasoningDecision? = null
+    val reasoning: ReasoningDecision? = null,
+    val physicalAttemptId: String? = null
 )
 
 /** Holds the actual admitted bytes. This digest is internal and must never label a redacted export. */

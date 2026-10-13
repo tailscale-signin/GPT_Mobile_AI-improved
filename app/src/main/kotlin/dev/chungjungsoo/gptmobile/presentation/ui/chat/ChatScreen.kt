@@ -1177,6 +1177,8 @@ private fun ChatMessagePair(
                 if (hasCombinedTabs) {
                     CombinedProfileBubbles(
                         profiles = combinedProfiles,
+                        identities = if (debugMode) debugSettings.profileAttributionColors else emptyMap(),
+                        primaryUid = assistantMessages.getOrNull(combinedSynthesisIndex)?.platformType,
                         selectedUid = selectedProfile?.uid,
                         combinedStatus = combinedStatus,
                         animateArrival = isActiveMessage && !isIdle,
@@ -1234,6 +1236,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
+                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { debugMode && isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
                     debugMemorySources = debugMemorySources,

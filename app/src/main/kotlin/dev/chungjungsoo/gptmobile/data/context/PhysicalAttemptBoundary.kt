@@ -12,6 +12,8 @@ internal class PhysicalAttemptBoundary(private val authorize: suspend (String) -
         suspend fun dispatch(): String {
             val context = currentCoroutineContext()
             context.ensureActive()
+            context[RequestAuthorizationGuard]?.validate?.invoke()
+            context.ensureActive()
             val attemptId = UUID.randomUUID().toString()
             context[Key]?.authorize?.invoke(attemptId)
             context.ensureActive()

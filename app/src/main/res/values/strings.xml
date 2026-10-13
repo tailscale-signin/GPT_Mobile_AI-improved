@@ -1061,4 +1061,13 @@
     <string name="assist_preparation_help">Warm only skips unloaded models. Automatic preparation may load your selected model for an eligible task; it never closes an interactive chat. Device pressure and permissions still apply.</string>
     <string name="assist_warm_only">Warm only</string>
     <string name="assist_auto_prepare">Prepare automatically</string>
+    <string name="combined_primary_profile_label">%1$s · Primary</string>
+    <string name="connection_wait_settings_hint">Wait limits in seconds. Blank fields inherit the default; a blank round limit adds no profile cap. Conversation limits still apply.</string>
+    <string name="connection_wait_first">First meaningful progress</string>
+    <string name="connection_wait_idle">Meaningful progress idle</string>
+    <string name="connection_wait_queue">Queue wait</string>
+    <string name="connection_wait_load">Model load</string>
+    <string name="connection_wait_round">Total inference round</string>
+    <string name="connection_wait_adaptive">Adapt first wait from observed runtime timings</string>
+    <string name="connection_wait_save">Save wait limits</string>
 </resources>

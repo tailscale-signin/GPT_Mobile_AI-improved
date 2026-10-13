@@ -59,7 +59,8 @@ data class RunDiagnosticEvent(
     val elapsedMillis: Long? = null,
     val successful: Boolean? = null,
     val measured: Boolean? = null,
-    val phase: PreparationPhase? = null
+    val phase: PreparationPhase? = null,
+    val physicalAttemptId: String? = null
 )
 
 @Serializable
@@ -191,11 +192,12 @@ internal class RunDiagnosticJournal(
         elapsedMillis: Long? = null,
         successful: Boolean? = null,
         measured: Boolean? = null,
-        phase: PreparationPhase? = null
+        phase: PreparationPhase? = null,
+        physicalAttemptId: String? = null
     ) {
         if (!enabled || privateSession) return
         // Identifiers are internally generated IDs. Reject accidental content at the boundary.
-        if (!safeId(runId) || invocationId != null && !safeId(invocationId)) {
+        if (!safeId(runId) || invocationId != null && !safeId(invocationId) || physicalAttemptId != null && !safeId(physicalAttemptId)) {
             dropped.incrementAndGet()
             return
         }
@@ -213,7 +215,7 @@ internal class RunDiagnosticJournal(
             val sequence = prior + 1L
             sequences[runId] = sequence
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
-            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase)
+            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, physicalAttemptId = physicalAttemptId)
             if (pending.size >= 512) {
                 val sample = pending.indexOfFirst { it.kind == RunDiagnosticKind.REDUCER_CHECKPOINT }
                 if (sample >= 0) {

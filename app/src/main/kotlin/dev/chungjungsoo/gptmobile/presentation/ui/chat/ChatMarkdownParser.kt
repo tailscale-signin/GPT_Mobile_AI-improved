@@ -17,7 +17,8 @@ private val markdownParseCache = object : LruCache<String, ParsedChatMarkdown>(2
 
 data class ParsedChatMarkdown(
     val blocks: List<ChatMarkdownBlock>,
-    val inlineMath: List<InlineMathToken>
+    val inlineMath: List<InlineMathToken>,
+    val sourceRuns: List<MarkdownSourceRun> = emptyList()
 )
 
 sealed interface ChatMarkdownBlock {
@@ -37,6 +38,8 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatM
     val blocks = mutableListOf<ChatMarkdownBlock>()
     val inlineMath = mutableListOf<InlineMathToken>()
     val markdownBuffer = StringBuilder()
+    val sourceRuns = mutableListOf<MarkdownSourceRun>()
+    var bufferSourceStart = 0
     var index = 0
 
     while (index < content.length) {
@@ -63,9 +66,10 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatM
 
         val displayMath = detectDisplayMath(content, index)
         if (displayMath != null) {
-            flushMarkdownBuffer(markdownBuffer, blocks, inlineMath)
+            flushMarkdownBuffer(markdownBuffer, blocks, inlineMath, bufferSourceStart, sourceRuns)
             blocks += ChatMarkdownBlock.DisplayMath(displayMath.tex)
             index = displayMath.endExclusive
+            bufferSourceStart = index
             continue
         }
 
@@ -73,8 +77,8 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatM
         index++
     }
 
-    flushMarkdownBuffer(markdownBuffer, blocks, inlineMath)
-    val parsed = ParsedChatMarkdown(blocks = blocks, inlineMath = inlineMath)
+    flushMarkdownBuffer(markdownBuffer, blocks, inlineMath, bufferSourceStart, sourceRuns)
+    val parsed = ParsedChatMarkdown(blocks = blocks, inlineMath = inlineMath, sourceRuns = sourceRuns)
     if (cacheResult && content.length <= 128 * 1024) markdownParseCache.put(content, parsed)
     return parsed
 }
@@ -89,16 +93,23 @@ private data class DisplayMathMatch(
 private fun flushMarkdownBuffer(
     markdownBuffer: StringBuilder,
     blocks: MutableList<ChatMarkdownBlock>,
-    inlineMath: MutableList<InlineMathToken>
+    inlineMath: MutableList<InlineMathToken>,
+    sourceStart: Int,
+    sourceRuns: MutableList<MarkdownSourceRun>
 ) {
     if (markdownBuffer.isEmpty()) return
 
+    val copiedRuns = mutableListOf<MarkdownSourceRun>()
     val replacedContent = replaceInlineMath(
         content = markdownBuffer.toString(),
         startingIndex = inlineMath.size,
-        tokens = inlineMath
+        tokens = inlineMath,
+        onCopied = { start, end, transformedStart ->
+            copiedRuns += MarkdownSourceRun(blocks.size, sourceStart + start, sourceStart + end, transformedStart)
+        }
     )
     if (replacedContent.isNotBlank()) {
+        sourceRuns += copiedRuns
         blocks += ChatMarkdownBlock.Markdown(replacedContent)
     }
     markdownBuffer.clear()
@@ -107,9 +118,25 @@ private fun flushMarkdownBuffer(
 private fun replaceInlineMath(
     content: String,
     startingIndex: Int,
-    tokens: MutableList<InlineMathToken>
+    tokens: MutableList<InlineMathToken>,
+    onCopied: (Int, Int, Int) -> Unit
 ): String {
     val output = StringBuilder()
+    var copiedStart = -1
+    var copiedEnd = -1
+    var copiedOutputStart = -1
+    fun flushCopied() {
+        if (copiedStart >= 0) onCopied(copiedStart, copiedEnd, copiedOutputStart)
+        copiedStart = -1
+    }
+    fun appendCopied(start: Int, end: Int) {
+        if (copiedStart < 0) {
+            copiedStart = start
+            copiedOutputStart = output.length
+        }
+        copiedEnd = end
+        output.append(content, start, end)
+    }
     var inlineMathIndex = startingIndex
     var index = 0
 
@@ -117,7 +144,7 @@ private fun replaceInlineMath(
         val fence = detectFenceDelimiter(content, index)
         if (fence != null && isFenceStart(content, index)) {
             val fenceEnd = findFenceBlockEnd(content, index, fence)
-            output.append(content, index, fenceEnd)
+            appendCopied(index, fenceEnd)
             index = fenceEnd
             continue
         }
@@ -126,10 +153,10 @@ private fun replaceInlineMath(
         if (backtickCount > 0) {
             val codeEnd = findInlineCodeEnd(content, index + backtickCount, backtickCount)
             if (codeEnd == -1) {
-                output.append(content, index, index + backtickCount)
+                appendCopied(index, index + backtickCount)
                 index += backtickCount
             } else {
-                output.append(content, index, codeEnd)
+                appendCopied(index, codeEnd)
                 index = codeEnd
             }
             continue
@@ -141,6 +168,7 @@ private fun replaceInlineMath(
                 val tex = content.substring(index + 2, end)
                 val placeholder = createPlaceholder(inlineMathIndex++)
                 tokens += InlineMathToken(placeholder = placeholder, tex = tex)
+                flushCopied()
                 output.append(placeholder)
                 index = end + 2
                 continue
@@ -157,16 +185,18 @@ private fun replaceInlineMath(
                 val tex = content.substring(index + 1, end)
                 val placeholder = createPlaceholder(inlineMathIndex++)
                 tokens += InlineMathToken(placeholder = placeholder, tex = tex)
+                flushCopied()
                 output.append(placeholder)
                 index = end + 1
                 continue
             }
         }
 
-        output.append(content[index])
+        appendCopied(index, index + 1)
         index++
     }
 
+    flushCopied()
     return output.toString()
 }
 

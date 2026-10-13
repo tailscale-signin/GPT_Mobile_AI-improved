@@ -102,7 +102,8 @@ private val codeHighlightCache = object : LruCache<String, AnnotatedString>(2 * 
 private data class PreparedChatMarkdown(
     val parsed: ParsedChatMarkdown = ParsedChatMarkdown(emptyList(), emptyList()),
     val markdown: String = "",
-    val memoryRanges: List<IntRange> = emptyList()
+    val memoryRanges: List<IntRange> = emptyList(),
+    val profileSpans: List<MappedProfileSpan> = emptyList()
 )
 
 @Composable
@@ -113,6 +114,8 @@ fun ChatMarkdown(
     highlightSentence: String? = null,
     highlightProgress: Float = 0f,
     streaming: Boolean = false,
+    proseColor: Color? = null,
+    provenance: MarkdownProvenancePresentation? = null,
     modifier: Modifier = Modifier
 ) {
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -120,16 +123,20 @@ fun ChatMarkdown(
     val scope = rememberCoroutineScope()
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     var rendered by remember(contentIdentity) { mutableStateOf(PreparedChatMarkdown()) }
-    LaunchedEffect(contentIdentity, content, streaming, memoryValues) {
+    LaunchedEffect(contentIdentity, content, streaming, memoryValues, provenance) {
         // Publish parsing, transformed text and highlight ranges together. Old snapshots
         // stay visible while cancellable preparation runs away from the UI thread.
         rendered = withContext(Dispatchers.Default) {
-            val parsed = parseChatMarkdown(
-                dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content),
-                cacheResult = !streaming
-            )
-            val combined = buildCombinedMarkdown(parsed.blocks, displayMathNonce)
-            PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, memoryValues))
+            val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)
+            val parsed = parseChatMarkdown(visibleSource, cacheResult = !streaming)
+            val mapped = provenance?.let { buildMappedMarkdown(content, visibleSource, parsed, displayMathNonce) }
+            val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
+            val profileSpans = if (provenance != null && mapped != null) {
+                mapped.second.exclusiveSpans(content, combined, provenance.validated, provenance.corpusDigest, provenance.policyRevision)
+            } else {
+                emptyList()
+            }
+            PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, memoryValues), profileSpans)
         }
     }
     val parsed = rendered.parsed
@@ -175,7 +182,7 @@ fun ChatMarkdown(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
-    val annotator = remember(memoryRanges, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
+    val annotator = remember(memoryRanges, rendered.profileSpans, provenance, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)
@@ -186,7 +193,21 @@ fun ChatMarkdown(
             val streamVisibleText = streamVisibleMarkdownTokenText(child.type, text)
 
             val memorySpans = memoryRanges.filter { it.first < child.endOffset && it.last >= child.startOffset }
-            if (!hasMath && streamVisibleText != null && memorySpans.isNotEmpty()) {
+            val profileSpans = rendered.profileSpans.filter { it.start < child.endOffset && it.end > child.startOffset }
+            if (!hasSentenceHighlight && streamVisibleText != null && (proseColor != null || profileSpans.isNotEmpty())) {
+                appendTextWithInlineMath(this, streamVisibleText, inlineMathByPlaceholder) { from, to, outputStart ->
+                    val startOffset = child.startOffset + from
+                    val endOffset = child.startOffset + to
+                    proseColor?.let { addStyle(SpanStyle(color = it), outputStart, outputStart + to - from) }
+                    profileSpans.forEach { span ->
+                        val start = maxOf(startOffset, span.start)
+                        val end = minOf(endOffset, span.end)
+                        val color = provenance?.profileColors?.get(span.profileUid)
+                        if (start < end && color != null) addStyle(SpanStyle(color = color), outputStart + start - startOffset, outputStart + end - startOffset)
+                    }
+                }
+                true
+            } else if (!hasMath && streamVisibleText != null && memorySpans.isNotEmpty()) {
                 val start = length
                 if (hasStreamed) {
                     appendStreamFadedText(streamVisibleText, child.startOffset, arrivalSegments, fadeClock, normalTextColor)
@@ -634,8 +655,14 @@ private fun buildHighlightedAnnotatedString(
 private fun appendTextWithInlineMath(
     builder: androidx.compose.ui.text.AnnotatedString.Builder,
     text: String,
-    inlineMathByPlaceholder: Map<String, InlineMathToken>
+    inlineMathByPlaceholder: Map<String, InlineMathToken>,
+    onTextAppended: ((Int, Int, Int) -> Unit)? = null
 ) {
+    fun appendPlain(start: Int, end: Int) {
+        val outputStart = builder.length
+        builder.append(text.substring(start, end))
+        onTextAppended?.invoke(start, end, outputStart)
+    }
     var cursor = 0
     while (cursor < text.length) {
         val nextToken = inlineMathByPlaceholder.keys
@@ -646,13 +673,13 @@ private fun appendTextWithInlineMath(
             .minByOrNull { it.second }
 
         if (nextToken == null) {
-            builder.append(text.substring(cursor))
+            appendPlain(cursor, text.length)
             return
         }
 
         val (placeholder, start) = nextToken
         if (start > cursor) {
-            builder.append(text.substring(cursor, start))
+            appendPlain(cursor, start)
         }
         builder.appendInlineContent(placeholder, "[math]")
         cursor = start + placeholder.length
@@ -704,12 +731,16 @@ private fun String.containsSuperscriptOrSubscriptMath(): Boolean = contains('^')
 
 internal fun buildCombinedMarkdown(
     blocks: List<ChatMarkdownBlock>,
-    nonce: String = DISPLAY_MATH_PLACEHOLDER_TEST_NONCE
+    nonce: String = DISPLAY_MATH_PLACEHOLDER_TEST_NONCE,
+    onMarkdownBlock: ((Int, Int) -> Unit)? = null
 ): String = buildString {
     var displayMathIndex = 0
-    blocks.forEach { block ->
+    blocks.forEachIndexed { blockIndex, block ->
         when (block) {
-            is ChatMarkdownBlock.Markdown -> append(block.content)
+            is ChatMarkdownBlock.Markdown -> {
+                onMarkdownBlock?.invoke(blockIndex, length)
+                append(block.content)
+            }
 
             is ChatMarkdownBlock.DisplayMath -> appendDisplayMathPlaceholder(
                 createDisplayMathPlaceholder(displayMathIndex++, nonce)

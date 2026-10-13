@@ -38,6 +38,22 @@ class ConnectionDoctorViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
     val detectedContext = MutableStateFlow<Pair<String, Int>?>(null)
+    val deadlineProfile = MutableStateFlow<PlatformV2?>(null)
+    val deadlineSettings = MutableStateFlow(dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings())
+
+    fun saveProgressDeadlines(first: String, idle: String, queue: String, load: String, round: String, adaptive: Boolean) = action {
+        val profile = deadlineProfile.value ?: return@action
+        fun milliseconds(value: String): Long? {
+            if (value.isBlank()) return null
+            val seconds = requireNotNull(value.trim().toLongOrNull()) { "Enter whole seconds or leave the field blank" }
+            require(seconds > 0) { "Deadlines must be positive; leave blank to inherit" }
+            return Math.multiplyExact(seconds, 1000L)
+        }
+        val updated = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(milliseconds(first), milliseconds(idle), milliseconds(queue), milliseconds(load), milliseconds(round), adaptive)
+        settings.mutateFeatureSettings { current -> current.copy(profileProgressDeadlines = current.profileProgressDeadlines + (profile.uid to updated)) }
+        deadlineSettings.value = updated
+        diagnosticReport.value = "Wait settings saved for ${profile.name}. They apply to new requests; the conversation's total generation limit still applies."
+    }
     fun applyDetectedContext() = action {
         val detected = detectedContext.value ?: return@action
         settings.mutateFeatureSettings { current -> current.copy(tokenBudget = current.tokenBudget.copy(profileContextCeilings = current.tokenBudget.profileContextCeilings + detected)) }
@@ -61,6 +77,8 @@ class ConnectionDoctorViewModel @Inject constructor(
     }
     fun inspect(profile: PlatformV2) = action {
         detectedContext.value = null
+        deadlineProfile.value = profile.takeIf { it.compatibleType == ClientType.LLAMA }
+        deadlineSettings.value = settings.getFeatureSettings().profileProgressDeadlines[profile.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
         contextReport.value = "Context details for ${profile.name} are not verified yet."
         diagnosticReport.value = "Checking ${profile.name}. Inspection does not generate an answer or change server configuration."
         val destination = if (profile.compatibleType == ClientType.LITERT_LM) "ON_DEVICE" else endpointLocality(profile.apiUrl).name
@@ -125,11 +143,12 @@ class ConnectionDoctorViewModel @Inject constructor(
                     "Fit requires full prompt + generated-token allowance + safety/uncertainty ≤ serving context. Future tool headroom is planning space, not a second charge for serialized evidence.",
                     "Overflow preserves the current task and returns a shortfall. Increase verified context or choose an explicit segmented workflow."
                 ).joinToString("\n\n")
+                val deadlines = features.profileProgressDeadlines[profile.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
                 diagnosticReport.value = listOf(
                     "Capacity source: ${capacity?.provenance ?: "UNKNOWN"}; metadata refreshed on this check.",
                     "Allocation: ${capacity?.fingerprint?.allocationRevision ?: "unknown"}. Slot count is not used to divide n_ctx.",
                     "Loaded-model context and a model catalog limit are different. Missing or sleeping model metadata remains unknown.",
-                    "Waiting: 180 s to first meaningful progress; 90 s meaningful-progress idle allowance. Pings do not extend the deadline. User total-generation setting: ${features.tokenBudget.generationTimeoutMinutes.takeIf { it > 0 }?.let { "$it minutes" } ?: "no explicit deadline"}.",
+                    "Waiting: first progress ${deadlines.firstProgressMillis?.let { "${it / 1000} s (explicit)" } ?: "180 s baseline; bounded adaptation from admitted runtime observations"}; idle ${(deadlines.meaningfulIdleMillis ?: 90_000) / 1000} s; queue ${deadlines.queueMillis?.let { "${it / 1000} s" } ?: "first-progress allowance"}; load ${deadlines.loadMillis?.let { "${it / 1000} s" } ?: "first-progress allowance"}. Repeated counters and pings do not extend waits. Profile round deadline: ${deadlines.roundDeadlineMillis?.let { "${it / 1000} s" } ?: "none"}. User total-generation setting: ${features.tokenBudget.generationTimeoutMinutes.takeIf { it > 0 }?.let { "$it minutes" } ?: "no explicit deadline"}.",
                     "Connection/authentication failure, unavailable model, context overflow, reasoning-only output, stalled decoding and output-limit exhaustion require different recovery actions. Details and saved evidence remain attached to the response.",
                     "On-device Assist uses its own artifact/backend readiness; a healthy desktop connection does not qualify that runtime."
                 ).joinToString("\n\n")

@@ -152,6 +152,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Error -> {
+                    chunk.progressDeadline?.let(buffer::appendProgressDeadline)
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
                 }
 
@@ -304,6 +305,12 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         if (facts.isEmpty()) return
         timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, recalledFacts = facts)
+        timelineVersion += 1
+    }
+
+    fun appendProgressDeadline(deadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome) {
+        flushTimelineText()
+        timeline.add(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = "${deadline.deadline}: stage ${deadline.stage}; last progress ${deadline.lastProgressAgeMillis} ms ago; cleanup ${deadline.cleanup}.", progressDeadline = deadline))
         timelineVersion += 1
     }
 

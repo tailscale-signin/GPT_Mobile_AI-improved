@@ -16,6 +16,21 @@ import kotlinx.serialization.json.longOrNull
 internal class ModelRequestPreparation(client: NetworkClient) {
     private val llama = LlamaCapacityRepository(client)
 
+    suspend fun preparePollinationsGet(prompt: String, config: ProviderRequestConfig): String {
+        // This transport has no output-limit parameter. Do not report the unused JSON DTO cap as transmitted.
+        val url = pollinationsPromptUrl(prompt)
+        val model = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS.model
+        val context = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()
+        val runtime = RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", "anonymous", model, model, "unverified", "role-labelled-get-v1", "unverified")
+        val capacity = CapacitySnapshot(runtime, context, provenance = if (context == null) CapacityProvenance.UNKNOWN else CapacityProvenance.DECLARED)
+        val permission = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
+        val prepared = RequestAdmission.prepare(url, config.requestRole, capacity, RequestAdmission.estimate(prompt), null, permission, config.requireKnownCapacity, "pollinations-get-v1")
+        val wire = prepared.dispatchPayload(runtime, permission)
+        val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt))
+        return wire
+    }
+
     suspend fun prepare(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
         val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else null
         val catalog = OpenRouterCatalogLimits.forRequest(config.providerType.orEmpty(), config.apiUrl, model)
@@ -41,15 +56,16 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val generation = root["generationConfig"] as? JsonObject
         val transmitted = listOfNotNull(root["max_completion_tokens"], root["max_output_tokens"], root["max_tokens"], generation?.get("maxOutputTokens"))
             .mapNotNull { (it as? JsonPrimitive)?.longOrNull?.takeIf { count -> count > 0 } }.minOrNull() ?: outputTokens?.takeIf { it > 0 }?.toLong()
+        val permissionRevision = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
         val measured = RequestAdmission.estimate(finalPayload)
-        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, transmitted, config.permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning)
+        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, transmitted, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
             "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
         )
-        val wire = prepared.dispatchPayload(snapshot.fingerprint, config.permissionRevision)
-        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt)
-        dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+        val wire = prepared.dispatchPayload(snapshot.fingerprint, permissionRevision)
+        val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))
         return wire
     }
 }

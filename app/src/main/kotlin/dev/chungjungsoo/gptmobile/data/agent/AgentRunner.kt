@@ -204,7 +204,7 @@ class AgentRunner(
                     kotlinx.coroutines.delay(1000)
                     continue
                 }
-                emit(failed(roundFailure))
+                emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline)))
                 return
             }
             round.calls.forEach { emit(AgentRunEvent.Provider(it)) }
@@ -425,7 +425,8 @@ class AgentRunner(
         val textEmitted: Boolean = false,
         val toolDefinitionsRejected: Boolean = false,
         val batchRejected: Boolean = false,
-        val observedCalls: Int = 0
+        val observedCalls: Int = 0,
+        val progressDeadline: ProgressDeadlineOutcome? = null
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -457,6 +458,7 @@ class AgentRunner(
         var batchRejected = false
         var completed = false
         var failure: String? = null
+        var progressDeadline: ProgressDeadlineOutcome? = null
         var textEmitted = false
         var toolDefinitionsRejected = false
         var roundInputTokens = 0L
@@ -553,6 +555,7 @@ class AgentRunner(
 
                 is ProviderEvent.Failed -> {
                     failure = event.message
+                    progressDeadline = event.progressDeadline
                 }
 
                 is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
@@ -598,7 +601,7 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed, progressDeadline)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

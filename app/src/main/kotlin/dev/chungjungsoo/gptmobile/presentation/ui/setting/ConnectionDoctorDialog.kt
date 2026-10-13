@@ -9,6 +9,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -23,6 +24,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel()) {
     val detectedContext by model.detectedContext.collectAsStateWithLifecycle()
+    val deadlineProfile by model.deadlineProfile.collectAsStateWithLifecycle()
+    val deadlineSettings by model.deadlineSettings.collectAsStateWithLifecycle()
     val profiles by model.profiles.collectAsStateWithLifecycle()
     val report by model.report.collectAsStateWithLifecycle()
     val contextReport by model.contextReport.collectAsStateWithLifecycle()
@@ -46,6 +49,25 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
                     androidx.compose.material3.Tab(selected = index == tab, onClick = { tab = index }, text = { Text(label) })
                 }
             }
+            if (tab == 2 && deadlineProfile != null) {
+                var first by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.firstProgressMillis?.div(1000)?.toString().orEmpty()) }
+                var idle by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.meaningfulIdleMillis?.div(1000)?.toString().orEmpty()) }
+                var queue by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.queueMillis?.div(1000)?.toString().orEmpty()) }
+                var load by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.loadMillis?.div(1000)?.toString().orEmpty()) }
+                var round by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.roundDeadlineMillis?.div(1000)?.toString().orEmpty()) }
+                var adaptive by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.adaptiveFirstProgress) }
+                Text(stringResource(R.string.connection_wait_settings_hint), Modifier.padding(top = 12.dp))
+                DeadlineSecondsField(stringResource(R.string.connection_wait_first), first, { first = it }, !busy)
+                DeadlineSecondsField(stringResource(R.string.connection_wait_idle), idle, { idle = it }, !busy)
+                DeadlineSecondsField(stringResource(R.string.connection_wait_queue), queue, { queue = it }, !busy)
+                DeadlineSecondsField(stringResource(R.string.connection_wait_load), load, { load = it }, !busy)
+                DeadlineSecondsField(stringResource(R.string.connection_wait_round), round, { round = it }, !busy)
+                androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text(stringResource(R.string.connection_wait_adaptive), Modifier.weight(1f))
+                    androidx.compose.material3.Switch(checked = adaptive, onCheckedChange = { adaptive = it }, enabled = !busy)
+                }
+                TextButton(enabled = !busy, onClick = { model.saveProgressDeadlines(first, idle, queue, load, round, adaptive) }) { Text(stringResource(R.string.connection_wait_save)) }
+            }
             androidx.compose.foundation.text.selection.SelectionContainer {
                 Text(
                     when (tab) {
@@ -62,4 +84,17 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
             onDismiss()
         }) { Text(stringResource(R.string.connection_doctor_dialog_label_7)) }
     })
+}
+
+@Composable
+private fun DeadlineSecondsField(label: String, value: String, onChange: (String) -> Unit, enabled: Boolean) {
+    androidx.compose.material3.OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        enabled = enabled,
+        singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
 }

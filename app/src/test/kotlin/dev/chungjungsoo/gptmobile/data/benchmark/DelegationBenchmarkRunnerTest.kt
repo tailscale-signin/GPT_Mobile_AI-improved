@@ -125,7 +125,7 @@ class DelegationBenchmarkRunnerTest {
             workerCalls = { 0 }
         )
         val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-research" })
-        assertEquals(result.error, BenchmarkOutcome.ERROR, result.outcome)
+        assertEquals(result.error + "\n" + result.delegation?.diagnosticEvents?.joinToString("\n"), BenchmarkOutcome.ERROR, result.outcome)
         assertTrue(result.error.orEmpty().contains("Unable to resolve host"))
     }
 

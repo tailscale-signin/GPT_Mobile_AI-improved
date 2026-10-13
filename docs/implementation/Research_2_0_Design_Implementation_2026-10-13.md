@@ -1,9 +1,9 @@
 # Research 2.0
 ## Design & Implementation Specification
 
-**Project:** GPT Mobile AI (Improved)  
-**Specification:** 1.0 • 13 October 2026  
-**Integration baseline:** `tailscale-signin/GPT_Mobile_AI-improved`, `main`, commit `1d4dcd8698356abddc5f1be946bb0811017b7d7a`  
+**Project:** GPT Mobile AI (Improved)
+**Specification:** 1.0 • 13 October 2026
+**Integration baseline:** `tailscale-signin/GPT_Mobile_AI-improved`, `main`, commit `1d4dcd8698356abddc5f1be946bb0811017b7d7a`
 **Status:** Proposed implementation; source-inspected, not implemented or device-tested.
 
 > A first-class research workspace: discover evidence, examine original articles, explain scientific limitations, and reuse verified knowledge without losing its provenance.

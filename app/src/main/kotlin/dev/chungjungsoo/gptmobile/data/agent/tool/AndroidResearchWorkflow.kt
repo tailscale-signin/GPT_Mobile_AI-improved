@@ -82,7 +82,7 @@ internal class AndroidResearchWorkflow(
     private fun normalizedTask(value: String) = value.trim().replace(Regex("\\s+"), " ").take(8_000)
 
     private var featurePolicy = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
-    private fun enforcePublicationPolicy(questions: List<ResearchQuestion>) = if (featurePolicy.peerReviewedOnly) questions.map { it.copy(evidenceNeeded = it.evidenceNeeded + "; peer-reviewed publication required") } else questions
+    private fun enforcePublicationPolicy(questions: List<ResearchQuestion>) = if (featurePolicy.peerReviewedOnly) questions.map { if (it.evidenceNeeded.contains("peer-reviewed publication required")) it else it.copy(evidenceNeeded = it.evidenceNeeded + "; peer-reviewed publication required") } else questions
     private fun questions() = enforcePublicationPolicy(state.questionPlan.ifEmpty { state.questions.mapIndexed { index, text -> ResearchQuestion("Q${index + 1}", text) } })
     private fun collectionWorkCount() = sources.values.filter { !featurePolicy.peerReviewedOnly || it.reviewStatus.equals("peer_reviewed", true) && it.isPreprint != true && it.isRetracted != true }.readableWorkCount()
     private fun coverage() = assessResearchCoverage(questions(), state.claims, sources.values.toList())

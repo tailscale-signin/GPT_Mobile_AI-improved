@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "c14ada841ecb155397fafd0f3aac38aa",
+    "identityHash": "4f693447a9299ed8ca38ecc4737448c0",
     "entities": [
       {
         "tableName": "research_works",
@@ -1297,11 +1297,130 @@
             "importId"
           ]
         }
+      },
+      {
+        "tableName": "research_operation_receipts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `engineId` TEXT NOT NULL, `operation` TEXT NOT NULL, `recordedAt` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `outcome` TEXT NOT NULL, `httpCode` INTEGER, `dispatched` INTEGER NOT NULL, `cacheHit` INTEGER NOT NULL, `transportId` TEXT NOT NULL, `owner` TEXT NOT NULL, `schemaVersion` INTEGER NOT NULL, PRIMARY KEY(`eventId`))",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "engineId",
+            "columnName": "engineId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAt",
+            "columnName": "recordedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outcome",
+            "columnName": "outcome",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "httpCode",
+            "columnName": "httpCode",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dispatched",
+            "columnName": "dispatched",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cacheHit",
+            "columnName": "cacheHit",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transportId",
+            "columnName": "transportId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "owner",
+            "columnName": "owner",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_research_operation_receipts_engineId_recordedAt",
+            "unique": false,
+            "columnNames": [
+              "engineId",
+              "recordedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_research_operation_receipts_engineId_recordedAt` ON `${TABLE_NAME}` (`engineId`, `recordedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "research_statistics_epoch",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `clearedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clearedAt",
+            "columnName": "clearedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c14ada841ecb155397fafd0f3aac38aa')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4f693447a9299ed8ca38ecc4737448c0')"
     ]
   }
 }

@@ -1084,4 +1084,6 @@
     <string name="combined_contribution_revision">Contribution revision: %1$s</string>
     <string name="combined_open_evidence">Open evidence: %1$s</string>
     <string name="combined_no_verified_support">No verified source span is attached to this passage.</string>
+    <string name="optional_synthesis_history_compression">Optional history compression</string>
+    <string name="optional_synthesis_history_compression_hint">Off by default. After research, send excerpts of earlier turns to the final writer. Original messages stay saved; the current goal remains complete. Reduced input does not establish lower cost or equal answer quality.</string>
 </resources>

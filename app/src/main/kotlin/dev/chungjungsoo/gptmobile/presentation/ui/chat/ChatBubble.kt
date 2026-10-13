@@ -414,6 +414,7 @@ fun OpponentChatBubble(
                 }
 
                 AssistantChronologicalContent(
+                    outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0") },
                     animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                     proseColor = profileColorIdentity?.takeIf { debugMode }?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
                     toolEvents = toolEvents,

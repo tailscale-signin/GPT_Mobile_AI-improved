@@ -83,13 +83,16 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = execute("INSPECT", text = modelPath).capabilities
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
-        val identity = readinessIdentity(spec, settings.getFeatureSettings(), settings.getLocalRuntimeBackend())
+        val identity = readinessIdentity(spec, settings.getFeatureSettings())
         command(RuntimeWire("VERIFY_RESET", UUID.randomUUID().toString(), generation = generation, spec = spec))
         readiness.reset(identity)
     }
 
-    private suspend fun readinessIdentity(spec: LocalEngineSpec, snapshot: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings, preferred: dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend): String =
-        "${RuntimeEvidenceIdentity.key(context, spec)}|$preferred|${snapshot.localEngineTuning()}"
+    private suspend fun readinessIdentity(spec: LocalEngineSpec, snapshot: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings): String {
+        val tuning = snapshot.localEngineTuning()
+        val effective = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = tuning.speculativeDecoding)
+        return RuntimeEvidenceIdentity.key(context, effective, effective.samplerIdentity, effective.workload).toString()
+    }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         if (isEngineLoaded(spec)) return
@@ -97,7 +100,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val packet = RuntimeWire("LOAD", UUID.randomUUID().toString(), generation = generation, spec = spec, settings = snapshot, preferredBackend = settings.getLocalRuntimeBackend())
         val artifact = java.io.File(spec.modelPath)
         check(artifact.isFile || artifact.isDirectory) { "MISSING_ASSET: Download or relink the selected model before running it." }
-        val identity = readinessIdentity(spec, snapshot, requireNotNull(packet.preferredBackend))
+        val identity = readinessIdentity(spec, snapshot)
         try {
             mutableState.value = state.value.copy(lifecycle = "LOADING")
             readiness.qualify(identity) {

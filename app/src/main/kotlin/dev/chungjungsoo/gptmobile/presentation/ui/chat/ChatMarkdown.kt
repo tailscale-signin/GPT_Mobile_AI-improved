@@ -116,6 +116,7 @@ fun ChatMarkdown(
     streaming: Boolean = false,
     proseColor: Color? = null,
     provenance: MarkdownProvenancePresentation? = null,
+    outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
     modifier: Modifier = Modifier
 ) {
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -123,7 +124,8 @@ fun ChatMarkdown(
     val scope = rememberCoroutineScope()
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     var rendered by remember(contentIdentity) { mutableStateOf(PreparedChatMarkdown()) }
-    LaunchedEffect(contentIdentity, content, streaming, memoryValues, provenance) {
+    var lastTraceAt by remember(contentIdentity) { mutableLongStateOf(0L) }
+    LaunchedEffect(contentIdentity, content, streaming, memoryValues, provenance, outputTrace) {
         // Publish parsing, transformed text and highlight ranges together. Old snapshots
         // stay visible while cancellable preparation runs away from the UI thread.
         rendered = withContext(Dispatchers.Default) {
@@ -137,6 +139,16 @@ fun ChatMarkdown(
                 emptyList()
             }
             PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, memoryValues), profileSpans)
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val traceJournal = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }
+        if (outputTrace != null && traceJournal != null && (!streaming || now - lastTraceAt >= 250)) {
+            lastTraceAt = now
+            val displayed = rendered.markdown
+            withContext(Dispatchers.Default) {
+                traceJournal.traceOutput(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_INPUT, content, fence = outputTrace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = outputTrace.partId)
+                traceJournal.traceOutput(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_TRANSFORM, displayed, fence = outputTrace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.MATH_PLACEHOLDER_MARKDOWN_UTF8, partId = outputTrace.partId)
+            }
         }
     }
     val parsed = rendered.parsed

@@ -84,6 +84,7 @@ class LiteRtLmAdapter(
     private val cpuFallbackByModelAccelerator = mutableSetOf<Pair<String, String>>()
     private var exclusiveToolsByName: Map<String, AgentTool> = emptyMap()
     private var exclusiveToolEventSink: (suspend (ProviderEvent) -> Unit)? = null
+    private var exclusiveRequestAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard? = null
 
     /** Cosmetic progress never mutates native chat state or competes for inference. */
     suspend fun summarizeActivity(activity: String): String? = activity.trim().take(96).takeIf { it.isNotBlank() }
@@ -104,6 +105,7 @@ class LiteRtLmAdapter(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = channelFlow {
+                kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
                 val entries = modelCatalogRepository?.getCachedVisibleEntries().orEmpty()
                 val wantsNpu = LocalAccelerators.normalize(platform.accelerator) == LocalAccelerators.NPU
                 val selection = try {
@@ -129,6 +131,7 @@ class LiteRtLmAdapter(
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
                         flow {
+                            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
                             emit(inspectModel(modelPath))
                         }
                     }.single()
@@ -378,6 +381,8 @@ class LiteRtLmAdapter(
                     ) {
                         flow<Unit> {
                             try {
+                                kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+                                exclusiveRequestAuthority = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
                                 exclusiveToolsByName = runToolsByName
                                 exclusiveToolEventSink = runToolEventSink
                                 if (!isEngineLoaded(requestSpec) && loadingModelNotice.isNotBlank()) {
@@ -432,13 +437,30 @@ class LiteRtLmAdapter(
                                                     if (name.length > 256 || argumentsJson.length > 16 * 1024) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("ARGUMENT_LIMIT")
                                                     val signature = name + argumentsJson.hashCode()
                                                     if ((callbackFailures[signature]?.get() ?: 0) >= 2) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("REPEATED_FAILURE")
-                                                    val response = executeBoundTool(
-                                                        name,
-                                                        argumentsJson,
-                                                        exclusiveToolsByName,
-                                                        exclusiveToolEventSink,
-                                                        modelEvidenceRemaining
-                                                    )
+                                                    // Native callbacks may arrive on an IPC coroutine without the caller's context.
+                                                    // A reused native conversation must use this request's authority, not its creator's.
+                                                    val authority = exclusiveRequestAuthority
+                                                    val response = withContext(authority ?: kotlin.coroutines.EmptyCoroutineContext) {
+                                                        suspend fun validateAuthority() {
+                                                            try {
+                                                                authority?.validate?.invoke()
+                                                            } catch (cancelled: CancellationException) {
+                                                                throw cancelled
+                                                            } catch (_: Exception) {
+                                                                throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("PERMISSION_REVOKED")
+                                                            }
+                                                        }
+                                                        validateAuthority()
+                                                        val result = executeBoundTool(
+                                                            name,
+                                                            argumentsJson,
+                                                            exclusiveToolsByName,
+                                                            exclusiveToolEventSink,
+                                                            modelEvidenceRemaining
+                                                        )
+                                                        validateAuthority()
+                                                        result
+                                                    }
                                                     if ((kotlinx.serialization.json.Json.parseToJsonElement(response) as JsonObject)["status"]?.toString() == "\"error\"") callbackFailures.computeIfAbsent(signature) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet()
                                                     response
                                                 }
@@ -580,6 +602,10 @@ class LiteRtLmAdapter(
                                     send(ProviderEvent.Notice("Rebuilding local conversation state…"))
                                     rebuildConversation()
                                 }
+                                if (terminalToolLimit == "PERMISSION_REVOKED") {
+                                    failed = true
+                                    send(ProviderEvent.Failed("PERMISSION_REVOKED: native tool execution stopped before further evidence delivery or inference. Saved output remains available."))
+                                }
                                 if (terminalToolLimit != null && !failed) {
                                     send(ProviderEvent.Notice("Local tool execution stopped: $terminalToolLimit. Finishing from collected evidence without repeating actions.", persistent = true))
                                     closeConversation()
@@ -652,6 +678,7 @@ class LiteRtLmAdapter(
                                 }
                                 exclusiveToolsByName = emptyMap()
                                 exclusiveToolEventSink = null
+                                exclusiveRequestAuthority = null
                             }
                         }
                     }.collect { }

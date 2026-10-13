@@ -4,6 +4,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ModelDelegationSettingsTest {
+    @Test fun `history compression requires explicit opt in and survives settings serialization`() {
+        assertEquals(false, ModelDelegationSettings().compressRemoteSynthesisHistory)
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        assertEquals(false, json.decodeFromString<ModelDelegationSettings>("{}").compressRemoteSynthesisHistory)
+        val optedIn = ModelDelegationSettings(compressRemoteSynthesisHistory = true)
+        val encoded = json.encodeToString(ModelDelegationSettings.serializer(), optedIn)
+        assertEquals(true, json.decodeFromString<ModelDelegationSettings>(encoded).normalized().compressRemoteSynthesisHistory)
+    }
+
     @Test
     fun normalizedClampsExtendedDelegationControls() {
         val normalized = ModelDelegationSettings(

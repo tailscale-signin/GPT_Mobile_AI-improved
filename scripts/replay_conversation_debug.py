@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import zipfile
 
@@ -134,6 +135,36 @@ def inspect_snapshot(root: dict) -> dict:
         else:
             status = "prefix-divergence"
         replay.append({"runId": run_id, "status": status, "segments": len(ordered), "utf8Bytes": len(body.encode("utf-8")), "sha256": digest(body), "errors": sorted(set(errors))})
+    traces = []
+    trace_errors = []
+    for stream_id, stream_events in streams.items():
+        reduced = {}
+        for sequence, event in sorted(stream_events.items()):
+            fingerprint = event.get("outputFingerprint")
+            if fingerprint is None:
+                continue
+            if not isinstance(fingerprint, dict) or type(fingerprint.get("utf8Bytes")) is not int or fingerprint["utf8Bytes"] < 0 or not isinstance(fingerprint.get("sha256"), str) or re.fullmatch(r"[a-f0-9]{64}", fingerprint["sha256"]) is None:
+                trace_errors.append("invalid-output-fingerprint")
+                continue
+            boundary = event.get("outputBoundary")
+            representation = event.get("outputRepresentation")
+            owner = (event.get("runId"), event.get("fence"), representation)
+            comparison = "not-comparable"
+            if boundary == "REDUCER" and representation == "VISIBLE_UTF8":
+                reduced[owner] = (sequence, fingerprint)
+            if boundary == "COMMITTED" and representation == "VISIBLE_UTF8":
+                prior = reduced.get(owner)
+                comparison = "reducer-checkpoint-unavailable"
+                if prior is not None:
+                    gap = sequence - prior[0] - 1
+                    observed = sum(prior[0] < number < sequence for number in stream_events)
+                    if observed != gap:
+                        comparison = "intervening-capture-gap"
+                    else:
+                        comparison = "matches-reducer" if prior[1] == fingerprint else "reducer-to-commit-divergence"
+                        if comparison == "reducer-to-commit-divergence":
+                            trace_errors.append(comparison)
+            traces.append({"runId": event.get("runId"), "streamId": stream_id, "sequence": sequence, "fence": event.get("fence"), "invocationId": event.get("invocationId"), "partId": event.get("outputPartId"), "boundary": boundary, "representation": representation, "fingerprint": fingerprint, "comparison": comparison})
     return {
         "schema": "gptmobile.offline-replay.v1",
         "scope": "retained-committed-segments",
@@ -143,8 +174,9 @@ def inspect_snapshot(root: dict) -> dict:
         "rendererReplay": "unavailable",
         "completeProviderWireCapture": False,
         "journal": {"events": len(events), "missingSequences": missing, "errors": sorted(set(event_errors)), "captureAvailable": "runJournal" in root},
+        "outputTracing": {"scope": "representation-bound-fingerprints-only", "checkpoints": traces, "errors": sorted(set(trace_errors)), "contentReplayAvailable": False},
         "runs": replay,
-        "result": "partial" if not replay or missing or event_errors or any(row["status"] != "committed-revision-replayed" for row in replay) else "retained-segments-verified",
+        "result": "partial" if not replay or missing or event_errors or trace_errors or any(row["status"] != "committed-revision-replayed" for row in replay) else "retained-segments-verified",
     }
 
 

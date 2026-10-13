@@ -95,8 +95,8 @@ object AppLogRecorder {
                     mutableEntries.value = recent.toList()
                     runCatching { append(batch.joinToString("\n") { it.line() }) }.onFailure { mutableError.value = "Unable to save logs. Check available storage." }
                 }
-                // Publish at most 20 diagnostic snapshots/second, independently of chat streaming.
-                kotlinx.coroutines.delay(50)
+                // Coalesce routine diagnostics to four visible snapshots/second.
+                kotlinx.coroutines.delay(250)
             }
         }
         application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {

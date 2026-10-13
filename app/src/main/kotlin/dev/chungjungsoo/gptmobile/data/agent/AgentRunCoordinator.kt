@@ -408,6 +408,11 @@ class AgentRunCoordinator @Inject constructor(
         var assistantMessage = request.assistantMessage
         val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId }
         var lastCheckpointAt = 0L
+        suspend fun traceReducedOutput(message: MessageV2) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
+                withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
+            }
+        }
         try {
             if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return
             val outcome = chatRepository.completeChat(
@@ -433,6 +438,7 @@ class AgentRunCoordinator @Inject constructor(
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastCheckpointAt >= 500L) {
                         dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REDUCER_CHECKPOINT, fence = assistantMessage.ownershipFence, visibleBytes = content.toByteArray(Charsets.UTF_8).size.toLong(), reasoningBytes = thoughts.toByteArray(Charsets.UTF_8).size.toLong())
+                        traceReducedOutput(assistantMessage)
                         chatRepository.updateAgentMessage(assistantMessage)
                         lastCheckpointAt = now
                     }
@@ -459,6 +465,7 @@ class AgentRunCoordinator @Inject constructor(
             val completedAt = currentEpochSeconds()
             val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error, completedAt)
             val committed = withContext(NonCancellable) {
+                traceReducedOutput(terminalMessage)
                 chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
             }
             if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
@@ -469,6 +476,7 @@ class AgentRunCoordinator @Inject constructor(
                 val completedAt = currentEpochSeconds()
                 runCatching {
                     val isInterrupted = interruptingRunIds.remove(request.runId)
+                    traceReducedOutput(assistantMessage)
                     chatRepository.commitAgentRun(
                         assistantMessage.copy(createdAt = completedAt).resetActiveRevision(),
                         request.runId,
@@ -485,6 +493,7 @@ class AgentRunCoordinator @Inject constructor(
                 val message = error.message ?: "Unknown provider error."
                 runCatching {
                     val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt)
+                    traceReducedOutput(terminalMessage)
                     chatRepository.commitAgentRun(terminalMessage, request.runId, AgentRunStatus.FAILED, completedAt, message)
                 }
             }

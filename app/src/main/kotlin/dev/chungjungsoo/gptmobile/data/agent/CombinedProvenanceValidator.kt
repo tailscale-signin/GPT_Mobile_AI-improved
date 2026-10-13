@@ -58,8 +58,22 @@ data class AttributionVerifierQualification(
         evaluationDigest.matches(Regex("[a-f0-9]{64}")) &&
         emittedExclusiveLabels > 0 &&
         correctExclusiveLabels in 0..emittedExclusiveLabels &&
-        correctExclusiveLabels.toDouble() / emittedExclusiveLabels >= 0.99
+        java.math.BigInteger.valueOf(correctExclusiveLabels) * java.math.BigInteger.valueOf(100) >= java.math.BigInteger.valueOf(emittedExclusiveLabels) * java.math.BigInteger.valueOf(99)
 }
+
+/** Application-issued receipts from completed verifier calls; never deserialize these from model output. */
+data class VerifiedComparisonBatch internal constructor(
+    val answerDigest: String,
+    val corpusDigest: String,
+    val policyRevision: String,
+    val verifierRevision: String,
+    val claimStartUtf16: Int,
+    val claimEndUtf16: Int,
+    val claimDigest: String,
+    val deliveredSpanIds: Set<String>,
+    val physicalAttemptIds: Set<String>,
+    val completed: Boolean
+)
 
 data class ValidatedSentenceAttribution internal constructor(
     val startUtf16: Int,
@@ -98,7 +112,8 @@ object CombinedProvenanceValidator {
         policyRevision: String,
         qualification: AttributionVerifierQualification?,
         allowLocalOnly: Boolean,
-        authorizedProfileUids: Set<String>
+        authorizedProfileUids: Set<String>,
+        comparisonReceipts: List<VerifiedComparisonBatch> = emptyList()
     ): ValidatedCombinedProvenance {
         val answerDigest = researchHash(answer)
         fun invalid(reason: String) = ValidatedCombinedProvenance(answerDigest, lineage.corpusDigest, parserVersion, policyRevision, emptyList(), reason)
@@ -160,15 +175,27 @@ object CombinedProvenanceValidator {
                 claims.all { claim ->
                     val gap = answer.substring(cursor, claim.startUtf16)
                     cursor = claim.endUtf16
-                    !gap.codePoints().anyMatch { Character.isLetterOrDigit(it) }
+                    gap.isBlank()
                 } &&
-                !answer.substring(cursor, sentence.endUtf16).codePoints().anyMatch { Character.isLetterOrDigit(it) }
+                answer.substring(cursor, sentence.endUtf16).isBlank()
             if (!claimsCoverSentence) warning = "Claims do not cover the complete sentence"
             if (!completeCorpus) warning = "A selected contribution is missing, partial or unauthorized"
             if (!semanticQualified) warning = warning ?: "Semantic verifier has not qualified for this revision"
             if (claimsCoverSentence) {
                 claims.forEach { claim ->
                     val claimSupporters = linkedSetOf<String>()
+                    val delivered = comparisonReceipts.filter {
+                        it.completed &&
+                            it.answerDigest == answerDigest &&
+                            it.corpusDigest == lineage.corpusDigest &&
+                            it.policyRevision == policyRevision &&
+                            it.verifierRevision == sidecar.verifierRevision &&
+                            it.claimStartUtf16 == claim.startUtf16 &&
+                            it.claimEndUtf16 == claim.endUtf16 &&
+                            it.claimDigest == claim.textDigest &&
+                            it.physicalAttemptIds.isNotEmpty() &&
+                            it.physicalAttemptIds.all { id -> runCatching { java.util.UUID.fromString(id) }.isSuccess }
+                    }.flatMap { it.deliveredSpanIds }.toSet()
                     if (claim.comparisons.map { it.profileUid }.toSet() != selected || claim.comparisons.size != selected.size) {
                         warning = "Missing or duplicate profile comparison"
                     }
@@ -178,7 +205,8 @@ object CombinedProvenanceValidator {
                         if (comparison.profileUid !in selected || reviewed != required || reviewed.size != comparison.comparedSpanIds.size) {
                             warning = "Comparison does not cover the complete contribution"
                         }
-                        compared += reviewed.intersect(required).size
+                        if (!delivered.containsAll(required)) warning = "Verifier dispatch receipts do not cover the complete comparison corpus"
+                        compared += reviewed.intersect(required).intersect(delivered).size
                         val evidence = comparison.supportSpanIds + comparison.contradictionSpanIds
                         val evidenceValid = comparison.profileUid in authorizedProfileUids &&
                             evidence.all { it in required && it in permittedSpanIds } &&

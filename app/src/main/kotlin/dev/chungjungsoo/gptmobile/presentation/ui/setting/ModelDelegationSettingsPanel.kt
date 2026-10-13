@@ -368,6 +368,8 @@ internal fun ModelDelegationSettingsContent(
                     LocalToolToggle(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_7541a705ae), config.researchEnabled, !busy) { value -> onChange { it.copy(researchEnabled = value) } }
                     LocalToolToggle(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_73f061a743), config.automaticResearch, !busy && config.researchEnabled) { value -> onChange { it.copy(automaticResearch = value) } }
                     LocalToolToggle(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_b8fc6b08a8), config.compactToolResults, !busy) { value -> onChange { it.copy(compactToolResults = value) } }
+                    LocalToolToggle(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.optional_synthesis_history_compression), config.compressRemoteSynthesisHistory, !busy) { value -> onChange { it.copy(compressRemoteSynthesisHistory = value) } }
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.optional_synthesis_history_compression_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_tools_e46bc), style = MaterialTheme.typography.labelLarge)
                         SettingsHelpIcon(

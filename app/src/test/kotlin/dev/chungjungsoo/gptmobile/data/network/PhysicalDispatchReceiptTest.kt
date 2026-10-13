@@ -29,6 +29,21 @@ class PhysicalDispatchReceiptTest {
         assertTrue(recorder.receipts.isEmpty())
     }
 
+    @Test fun revocationBetweenPreparationAndDispatchPreventsCharging() = runBlocking {
+        val recorder = RequestDispatchContext(emptySet())
+        var checks = 0
+        var attempts = 0
+        val result = runCatching {
+            withContext(recorder + PhysicalAttemptBoundary { attempts++ } + RequestAuthorizationGuard("revision") { check(++checks == 1) }) {
+                ModelRequestPreparation(mockk()).prepare(body, config, "test", 128)
+            }
+        }
+        assertTrue(result.isFailure)
+        assertEquals(2, checks)
+        assertEquals(0, attempts)
+        assertTrue(recorder.receipts.isEmpty())
+    }
+
     @Test fun retriesHaveDistinctPhysicalIdsAndTheValidatedPermissionRevision() = runBlocking {
         val recorder = RequestDispatchContext(emptySet())
         val attempts = mutableListOf<String>()
@@ -37,7 +52,7 @@ class PhysicalDispatchReceiptTest {
             val preparation = ModelRequestPreparation(mockk())
             repeat(2) { preparation.prepare(body, config, "test", 128) }
         }
-        assertEquals(2, checks)
+        assertEquals(4, checks)
         assertEquals(attempts, recorder.receipts.map { it.physicalAttemptId })
         assertNotEquals(attempts[0], attempts[1])
         assertTrue(recorder.receipts.all { it.permissionRevision == "revision-1" })

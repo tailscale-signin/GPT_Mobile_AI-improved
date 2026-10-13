@@ -36,7 +36,51 @@ class CombinedProvenanceValidatorTest {
     )
 
     private fun validate(proposal: CombinedProvenanceSidecar = sidecar(), authorized: Set<String> = setOf("a", "b")) =
-        CombinedProvenanceValidator.validate(answer, sources, lineage, proposal, "parser", "policy", qualification, true, authorized)
+        CombinedProvenanceValidator.validate(answer, sources, lineage, proposal, "parser", "policy", qualification, true, authorized, fixtureReceipts(proposal))
+
+    private fun fixtureReceipts(proposal: CombinedProvenanceSidecar) = proposal.sentences.flatMap { it.claims }.map {
+        VerifiedComparisonBatch(proposal.answerDigest, lineage.corpusDigest, "policy", "unit-fixture", it.startUtf16, it.endUtf16, it.textDigest, lineage.spans.map { span -> span.id }.toSet(), setOf("00000000-0000-0000-0000-000000000001"), true)
+    }
+
+    @Test
+    fun `model claims of complete comparison cannot replace actual dispatch receipts`() {
+        val proposal = sidecar()
+        val receipts = fixtureReceipts(proposal)
+        for (incomplete in listOf(emptyList(), receipts.map { it.copy(completed = false) }, receipts.map { it.copy(deliveredSpanIds = lineage.spans.filter { span -> span.profileUid == "a" }.map { span -> span.id }.toSet()) }, receipts.map { it.copy(policyRevision = "old") })) {
+            val result = CombinedProvenanceValidator.validate(answer, sources, lineage, proposal, "parser", "policy", qualification, true, setOf("a", "b"), incomplete)
+            assertEquals(ClaimSupportClass.UNKNOWN, result.sentences.single().supportClass)
+            assertTrue(result.sentences.single().comparedSpans < result.sentences.single().expectedSpans)
+        }
+    }
+
+    @Test
+    fun `omitted numeric signs and percentage qualifiers cannot receive exclusive colors`() {
+        for (text in listOf("-5 degrees.", "≤5 cases.", "5%.")) {
+            val start = text.indexOf('5')
+            val proposal = sidecar().copy(
+                answerDigest = researchHash(text),
+                sentences = listOf(
+                    SentenceAttributionProposal(
+                        0,
+                        text.length,
+                        researchHash(text),
+                        listOf(
+                            AttributionClaim(start, start + 1, researchHash("5"), listOf(comparison("a", true), comparison("b")))
+                        )
+                    )
+                )
+            )
+            val result = CombinedProvenanceValidator.validate(text, sources, lineage, proposal, "parser", "policy", qualification, true, setOf("a", "b"))
+            assertEquals(ClaimSupportClass.UNKNOWN, result.sentences.single().supportClass)
+        }
+    }
+
+    @Test
+    fun `qualification precision is exact even for large reported counts`() {
+        val emitted = 1_000_000_000_000_000_000L
+        assertFalse(qualification.copy(emittedExclusiveLabels = emitted, correctExclusiveLabels = emitted / 100 * 99 - 1).qualified)
+        assertTrue(qualification.copy(emittedExclusiveLabels = emitted, correctExclusiveLabels = emitted / 100 * 99).qualified)
+    }
 
     @Test
     fun `qualified complete comparison can label a sole supporter but shared paraphrase stays default`() {

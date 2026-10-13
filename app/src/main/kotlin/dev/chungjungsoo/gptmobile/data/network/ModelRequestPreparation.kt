@@ -17,6 +17,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
     private val llama = LlamaCapacityRepository(client)
 
     suspend fun preparePollinationsGet(prompt: String, config: ProviderRequestConfig): String {
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         // This transport has no output-limit parameter. Do not report the unused JSON DTO cap as transmitted.
         val url = pollinationsPromptUrl(prompt)
         val model = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS.model
@@ -32,6 +33,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
     }
 
     suspend fun prepare(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else null
         val catalog = OpenRouterCatalogLimits.forRequest(config.providerType.orEmpty(), config.apiUrl, model)
         val declared = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()

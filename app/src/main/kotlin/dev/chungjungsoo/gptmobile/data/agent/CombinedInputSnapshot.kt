@@ -18,6 +18,7 @@ data class CombinedInputSnapshot(
     val systemPrompt: String,
     val configKey: String,
     val lineage: ContributionLineage? = null,
+    val claimInventory: CombinedClaimInventory? = null,
     val resumeFromRunId: String? = null,
     val committedPrefix: String = ""
 )

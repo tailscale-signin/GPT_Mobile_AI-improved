@@ -45,6 +45,24 @@ class ConversationReplayTest(unittest.TestCase):
         self.assertEqual(3, result["journal"]["missingSequences"])
         self.assertIn("divergent-duplicate-event", result["journal"]["errors"])
 
+    def test_fingerprints_locate_reducer_to_commit_loss_without_claiming_content_replay(self):
+        root = self.fixture()
+        def event(sequence, boundary, body, representation="VISIBLE_UTF8"):
+            return dict(eventId=f"event-{sequence}", runId="run", streamId="stream", sequence=sequence, fence=4, outputBoundary=boundary, outputRepresentation=representation, outputFingerprint=dict(utf8Bytes=len(body.encode("utf-8")), sha256=replay.digest(body)))
+        root["runJournal"] = dict(events=[event(1, "REDUCER", "Full answer"), event(2, "COMMITTED", "answer"), event(3, "RENDER_INPUT", "display text", "DISPLAY_FILTERED_MARKDOWN_UTF8")], highWatermarks={"stream": 3})
+        result = replay.inspect_snapshot(root)
+        self.assertEqual("partial", result["result"])
+        self.assertEqual(["reducer-to-commit-divergence"], result["outputTracing"]["errors"])
+        self.assertEqual("not-comparable", result["outputTracing"]["checkpoints"][-1]["comparison"])
+        self.assertFalse(result["outputTracing"]["contentReplayAvailable"])
+        root["runJournal"]["events"][1] = event(2, "COMMITTED", "Full answer")
+        self.assertEqual("matches-reducer", replay.inspect_snapshot(root)["outputTracing"]["checkpoints"][1]["comparison"])
+        root["runJournal"]["events"][1] = event(4, "COMMITTED", "Different")
+        root["runJournal"]["highWatermarks"]["stream"] = 4
+        traced = replay.inspect_snapshot(root)["outputTracing"]
+        self.assertEqual("intervening-capture-gap", traced["checkpoints"][-1]["comparison"])
+        self.assertEqual([], traced["errors"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1907,7 +1907,12 @@ class ChatViewModel @Inject constructor(
     private fun fetchEnabledPlatformsInApp() {
         viewModelScope.launch {
             val allPlatforms = settingRepository.fetchPlatformV2s()
-            withContext(Dispatchers.Default) {
+
+            _platformsInApp.update { allPlatforms }
+            initializeChatPlatformModels(allPlatforms)
+            updateLocalNetworkRequirement(allPlatforms)
+            _enabledPlatformsInApp.update { allPlatforms.filter { it.enabled } }
+            viewModelScope.launch(Dispatchers.Default) {
                 try {
                     val palette = settingRepository.getFeatureSettings().profileAttributionColors
                     if (allPlatforms.any { it.uid !in palette }) {
@@ -1921,10 +1926,6 @@ class ChatViewModel @Inject constructor(
                     // Optional display identity persistence must not block profile loading or generation.
                 }
             }
-            _platformsInApp.update { allPlatforms }
-            initializeChatPlatformModels(allPlatforms)
-            updateLocalNetworkRequirement(allPlatforms)
-            _enabledPlatformsInApp.update { allPlatforms.filter { it.enabled } }
         }
     }
 
@@ -2137,28 +2138,28 @@ class ChatViewModel @Inject constructor(
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
         val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
-        val synthesisPrompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
-        val lineage = withContext(Dispatchers.Default) {
-            dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(
-                grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType },
-                attributedSources
+        val selectedUids = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType }
+        val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
+            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
+            val lineage = dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(selectedUids, attributedSources)
+            val inventory = dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventory.freeze(attributedSources)
+            prompt to kotlinx.serialization.json.Json.encodeToString(
+                dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+                    version = 3,
+                    userMessage = userMessage,
+                    history = historicalUsers,
+                    replies = historicalReplies,
+                    sources = attributedSources,
+                    prompt = prompt,
+                    profileUid = leadPlatform.uid,
+                    model = leadPlatform.model,
+                    systemPrompt = leadPlatform.systemPrompt.orEmpty(),
+                    configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(leadPlatform),
+                    lineage = lineage,
+                    claimInventory = inventory
+                )
             )
         }
-        val synthesisSnapshot = kotlinx.serialization.json.Json.encodeToString(
-            dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
-                version = 2,
-                userMessage = userMessage,
-                history = historicalUsers,
-                replies = historicalReplies,
-                sources = attributedSources,
-                prompt = synthesisPrompt,
-                profileUid = leadPlatform.uid,
-                model = leadPlatform.model,
-                systemPrompt = leadPlatform.systemPrompt.orEmpty(),
-                configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(leadPlatform),
-                lineage = lineage
-            )
-        )
         val run = AgentRunDraft(
             runId = synthesisRunId,
             profileUid = leadPlatform.uid,

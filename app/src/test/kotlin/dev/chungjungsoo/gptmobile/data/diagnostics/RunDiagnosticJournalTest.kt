@@ -10,6 +10,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun outputTracingStoresRepresentationBoundFingerprintsWithoutContentOrPrivateRuns() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", isTemporary = false)
+            setRunPrivacy("private", isTemporary = true)
+        }
+        val body = "private-body-canary 😀"
+        journal.traceOutput("private", OutputTraceBoundary.COMMITTED, body)
+        journal.traceOutput("run", OutputTraceBoundary.COMMITTED, body, fence = 3)
+        journal.record("run", RunDiagnosticKind.OUTPUT_CHECKPOINT, outputBoundary = OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = OutputFingerprint(10, "private-secret"))
+        runCurrent()
+        val snapshot = journal.snapshot(setOf("run", "private"))
+        assertEquals(1, snapshot.events.size)
+        assertEquals(OutputTextRepresentation.VISIBLE_UTF8, snapshot.events.single().outputRepresentation)
+        assertEquals(outputFingerprint(body), snapshot.events.single().outputFingerprint)
+        assertEquals(1L, snapshot.droppedEvents)
+        assertTrue(vault.rows.values.none { it.decodeToString().contains("private-body-canary") || it.decodeToString().contains("private-secret") })
+    }
+
+    @Test fun criticalTerminalAndDeadlineRetainReservedQueueSpace() = runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", isTemporary = false)
+        }
+        repeat(600) { journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED) }
+        journal.record("run", RunDiagnosticKind.PROGRESS_DEADLINE, progressStage = dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.PREFILL, progressDeadline = ProgressDeadlineCode.MODEL_PROGRESS_TIMEOUT)
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL, successful = false)
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL, successful = false)
+        val snapshot = journal.snapshot(setOf("run"))
+        assertEquals(1, snapshot.events.count { it.kind == RunDiagnosticKind.RUN_TERMINAL })
+        assertEquals(ProgressDeadlineCode.MODEL_PROGRESS_TIMEOUT, snapshot.events.single { it.kind == RunDiagnosticKind.PROGRESS_DEADLINE }.progressDeadline)
+        assertEquals(120L, snapshot.droppedEvents)
+        assertEquals(120L, snapshot.missingSequences)
+        assertTrue(snapshot.events.size <= 512)
+    }
+
     @Test fun metadataIsOptInPrivateSessionsDoNotCaptureAndTerminalIsExactlyOnce() = runTest {
         val vault = MemoryVault()
         val journal = RunDiagnosticJournal(vault, backgroundScope)

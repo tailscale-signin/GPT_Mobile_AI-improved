@@ -131,6 +131,7 @@ internal fun AgentProviderSession.withProgressWatchdog(
                                 completedTools = prior.completedTools + if (meaningful && (event is ProviderEvent.ToolResult || event is ProviderEvent.GatewayProgressUpdate && event.progress.event in setOf("tool_completed", "tool_failed"))) 1 else 0
                             )
                             if (observation.compareAndSet(prior, next)) {
+                                if (stage != prior.stage) dispatch?.progress(stage, now - started)
                                 if (event == ProviderEvent.Completed) {
                                     next.firstProgressAt?.let { first -> observationKey()?.let { key -> history.record(key, first - started) } }
                                 }
@@ -175,6 +176,7 @@ internal fun AgentProviderSession.withProgressWatchdog(
                             prior.stage == ObservedProgressStage.LOADING -> "LOAD_DEADLINE_EXCEEDED"
                             else -> "MODEL_PROGRESS_TIMEOUT"
                         }
+                        dispatch?.progress(prior.stage, now - started, dev.chungjungsoo.gptmobile.data.diagnostics.ProgressDeadlineCode.valueOf(reason))
                         send(
                             ProviderEvent.Failed(
                                 "$reason: The model stopped making progress. Partial output and completed tool results are preserved; retry the unfinished stage.",

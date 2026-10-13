@@ -196,7 +196,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Final HTTP/native serialization now records unique physical-attempt IDs only after dispatch authorization and allowance succeed. Retained memory/tool-source permissions are rechecked at primary, continuation and native dispatch; legacy Free GET now also has per-attempt admission with honestly unknown output limits. Configured-profile and all-role policy epochs and native internal tool rounds still need complete coverage."
+      "Final HTTP/native serialization records unique physical-attempt IDs after authorization and allowance. Primary/contributor/Combined/continuation sessions, delegates/reviewers/Assist and titles now capture configured destination and policy fingerprints before preparation and revalidate at physical dispatch, preserving parent authority. Display-only changes do not cancel requests. Legacy Free GET is admitted with honestly unknown output limits. Complete native internal rounds, provider batch routes and acceptance matrix remain."
     ]
   },
   {
@@ -734,7 +734,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Removed lossy inventory/source caps and added pagination and long-Unicode coverage tests. Semantic verification and targeted repair loop remain."
+      "Frozen Combined snapshots now persist a complete paginated source inventory with UTF-16 and UTF-8 ranges, digests and partial contributor occurrences. Proposed atomic-claim dispositions are structurally validated against complete source coverage and exact output links; exclusions cannot inflate inclusion and unprocessed sections suppress a coverage fraction. Model extraction, independent semantic auditing, targeted section repair and completion gating remain."
     ]
   },
   {
@@ -947,7 +947,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Offline v2/v3 inspector verifies bundle integrity, frozen sequences, stale fences and committed prefix divergence using exported redacted segments. Provider-delta, reducer and renderer replay with separately consented chunks remain unavailable and are explicitly reported."
+      "Representation-labeled UTF-8 fingerprints now trace provider-visible streams, reduced output, committed messages and accepted renderer inputs/transforms. Split surrogate pairs remain exact and capture stores no body content. Offline inspection identifies reducer-to-commit digest divergence only across complete matching sequence/fence scopes. Consented content chunks and deterministic provider/reducer/renderer content replay remain unavailable and are explicitly reported."
     ]
   },
   {
@@ -1014,7 +1014,7 @@
       "V42",
       "V43"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA34",
       "LA-QA35",
@@ -1025,7 +1025,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Moved Combined prompt serialization and source hashing off the UI thread. Routine log snapshots and per-invocation usage updates are coalesced to four per second, retaining immediate terminal publication. Full on-device navigation/frame/memory profiling, off-screen polling audit and accessibility matrix remain."
+    ]
   },
   {
     "id": "V45",
@@ -1039,7 +1041,7 @@
       "V34",
       "V44"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA10",
       "LA-QA24",
@@ -1048,7 +1050,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Remote final-writing history compression is now an explicit off-by-default setting, preserving stored originals and the complete current goal. Bounded adaptive progress policy and separate execution controls exist. Paired same-input/route Assist and compression evaluations, quality/cost/latency/thermal observations and rollout qualification remain."
+    ]
   },
   {
     "id": "V46",

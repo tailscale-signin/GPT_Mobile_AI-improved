@@ -22,6 +22,9 @@ internal object CombinedRecoverySnapshot {
         require(snapshot.version in 1..3 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
         require(primaryUid == snapshot.profileUid && platform.enabled && platform.uid == snapshot.profileUid && platform.model == snapshot.model && benchmarkConfigKey(platform) == snapshot.configKey) { "Restore the pinned primary and its saved configuration before resuming." }
         require(snapshot.sources.none { it.localOnly } || platform.compatibleType == ClientType.LITERT_LM) { "Local-only contributions require the original local primary." }
+        snapshot.claimInventory?.let {
+            require(it == CombinedClaimInventory.freeze(snapshot.sources)) { "The saved source inventory failed its integrity check." }
+        }
         val prefix = if (run.status == "COMPLETED") {
             ""
         } else {

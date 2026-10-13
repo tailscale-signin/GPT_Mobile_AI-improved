@@ -55,6 +55,7 @@ internal fun AssistantChronologicalContent(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     isError: Boolean = false,
+    outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
     articleCards: @Composable (String) -> Unit = {}
 ) {
     val events = remember(toolEvents) { toolEvents.associateBy { it.sequence } }
@@ -119,11 +120,11 @@ internal fun AssistantChronologicalContent(
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (isLoading) {
-                                    ChatMarkdown(proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                    ChatMarkdown(outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {
                                     val blocks = remember(response) { dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks(response) }
                                     blocks.forEachIndexed { blockIndex, block ->
-                                        ChatMarkdown(proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                        ChatMarkdown(outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                         if (block.citationText.isNotBlank()) articleCards(block.citationText)
                                     }
                                     if (blocks.none { it.citationText.isNotBlank() }) articleCards(citationText)

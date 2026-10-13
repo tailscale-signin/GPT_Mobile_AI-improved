@@ -21,6 +21,16 @@ class ModelPriceTest {
         assertNull(perMillion("1E-999"))
     }
 
+    @Test fun openRouterRegionsShareBillingIdentityWithoutAdmittingCustomGateways() {
+        val profile = PlatformV2(name = "fixture", compatibleType = ClientType.OPENROUTER)
+        listOf("openrouter.ai", "eu.openrouter.ai", "us.openrouter.ai").forEach { host ->
+            assertEquals("OPENROUTER", billingProvider(profile.copy(apiUrl = "https://$host/api/v1")))
+        }
+        listOf("https://openrouter.ai.example/api/v1", "http://eu.openrouter.ai/api/v1", "https://eu.openrouter.ai/custom", "https://fixture@us.openrouter.ai/api/v1").forEach { endpoint ->
+            assertNull(billingProvider(profile.copy(apiUrl = endpoint)))
+        }
+    }
+
     @Test fun apiFreshnessExpiresWithoutPretendingItIsFree() {
         assertEquals(PriceFreshness.FRESH, price().freshness(now + 3_600_000))
         assertEquals(PriceFreshness.STALE, price().freshness(now + 3_600_001))

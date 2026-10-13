@@ -64,3 +64,18 @@ Official documentation checked during implementation:
 - https://openrouter.ai/docs/batch-quickstart
 
 The supplied design contains the full source register. API compatibility and live regional/account entitlements must be qualified with an authorized test account before release.
+
+## Rebase and integration review — October 12, 2026
+
+Rebased all four feature commits onto the fetched `origin/version-v0.9.50.0` at `51358adff3ba44161de549961fc58a89976c09eb`, incorporating ten newer target commits. Rebase completed without conflicts. Range comparison confirmed that the replay retained the feature changes alongside the target's localization, statistics attribution, read-only delegation admission, benchmark ownership/cleanup and catalog qualification fixes.
+
+The second review fixed:
+
+- An out-of-scope `profile` reference in multi-profile benchmark execution. Each run now records the billing origin of its actual `target`.
+- Regional OpenRouter host recognition in pricing and canonical model identity. Official global/EU/US routes share billing/model identity while retaining separate deployments. Lookalike and custom hosts remain unrecognized.
+- Credential rotation retaining scoped panels or a stuck loading state. Successful identity changes clear eligible catalogs, endpoint comparisons, provider lists, batch jobs and management sessions. Late endpoint failures for the old key cannot mark the new connection as failed.
+- Trailing whitespace in imported design documents, preserving Markdown hard line breaks with explicit backslashes.
+
+Verification on the rebased sources: **115 targeted Kotlin tests pass** (96 core/contract regressions and 19 account/storage/race/batch tests), and **92 repository Python tests pass**. The focused Android 37/Compose compilation passes with Java 21. Changed-source ktlint, 28 resource XML checks, 452 literal regex checks, committed Room schema history, the 31-producer statistics coverage manifest and branch-wide whitespace checks pass. Python native/instrumentation messages are fixture output, not new device execution.
+
+The Java 21 full Android compile attempt still stops before source compilation because `com.android.legacy-kapt:9.4.1` cannot be resolved in this environment. The target branch's prior CI results do not establish full-build success for this feature branch. Full integration and device acceptance remain required. This review does not merge or publish either branch.

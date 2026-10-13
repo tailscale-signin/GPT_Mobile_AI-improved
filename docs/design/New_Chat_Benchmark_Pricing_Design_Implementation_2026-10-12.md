@@ -2,10 +2,10 @@
 
 ## Design and implementation specification
 
-**Project:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Prepared:** October 12, 2026  
-**Baseline:** `main` at `cbd88545dbdd406c6e9f6d61f279ad62e4bd0cc1`  
-**Document version:** 1.0  
+**Project:** `tailscale-signin/GPT_Mobile_AI-improved`\
+**Prepared:** October 12, 2026\
+**Baseline:** `main` at `cbd88545dbdd406c6e9f6d61f279ad62e4bd0cc1`\
+**Document version:** 1.0\
 **Status:** Proposed implementation; no application code, branch, release, or production pricing catalogue was changed for this document.
 
 **Product decision:** Every AI profile in the New Chat popup should identify its selected model, display that model's matching benchmark result, and show its provider's applicable input and output rates in green. Prices refresh from an official structured source when supported; otherwise they come from a dated, source-backed manual catalogue. Missing information must remain visibly unknown, not become a fabricated score or a zero price.

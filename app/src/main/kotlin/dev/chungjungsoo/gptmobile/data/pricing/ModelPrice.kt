@@ -80,7 +80,8 @@ fun billingProvider(profile: PlatformV2): String? {
         ClientType.GOOGLE -> setOf("", "/", "/v1", "/v1/", "/v1beta", "/v1beta/")
         else -> setOf("", "/", "/v1", "/v1/")
     }
-    return profile.compatibleType.name.takeIf { uri.host.equals(defaultHost, true) && uri.path in allowedPaths }
+    val allowedHosts = if (profile.compatibleType == ClientType.OPENROUTER) setOf("openrouter.ai", "eu.openrouter.ai", "us.openrouter.ai") else setOfNotNull(defaultHost)
+    return profile.compatibleType.name.takeIf { allowedHosts.any { uri.host.equals(it, true) } && uri.path in allowedPaths }
 }
 
 /** Local-only scope; no endpoint, credential, or contract note is published. */

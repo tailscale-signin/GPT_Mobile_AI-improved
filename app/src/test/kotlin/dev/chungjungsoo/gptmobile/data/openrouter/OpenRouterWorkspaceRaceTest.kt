@@ -28,11 +28,53 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class, kotlinx.coroutines.DelicateCoroutinesApi::class)
 class OpenRouterWorkspaceRaceTest {
+    @Test fun replacementClearsScopedPanelsAndIgnoresOldEndpointFailures() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        try {
+            fixture { client ->
+                client.vm.editKey("active")
+                client.vm.validate()
+                await { client.vm.state.value.unlocked }
+                client.payload = { path ->
+                    if (path.endsWith("/providers")) """{"data":[{"slug":"old-provider"}]}""" else Fixture.KEY_RESPONSE
+                }
+                client.vm.loadProviders()
+                await { client.vm.state.value.providers.isNotEmpty() }
+                client.response = { key ->
+                    if (key == "active") {
+                        started.countDown()
+                        release.await(5, TimeUnit.SECONDS)
+                        500
+                    } else {
+                        200
+                    }
+                }
+                client.vm.compareProviders("fixture/model")
+                withContext(Dispatchers.IO) { assertTrue(started.await(5, TimeUnit.SECONDS)) }
+                assertTrue(client.vm.state.value.endpointLoading)
+                client.vm.editKey("replacement")
+                client.vm.validate()
+                await { client.credential == "replacement" && !client.vm.state.value.validating }
+                assertTrue(client.vm.state.value.providers.isEmpty())
+                assertFalse(client.vm.state.value.endpointLoading)
+                assertNull(client.vm.state.value.endpoints)
+                release.countDown()
+                delay(30)
+                assertFalse(client.vm.state.value.catalogError)
+                assertTrue(client.vm.state.value.unlocked)
+            }
+        } finally {
+            release.countDown()
+        }
+    }
+
     @Test fun lateValidationCannotReplaceANewerCredential() = runBlocking {
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -112,6 +154,7 @@ class OpenRouterWorkspaceRaceTest {
         var credential = ""
         var lastRequested = ""
         var response: (String) -> Int = { 200 }
+        var payload: (String) -> String = { KEY_RESPONSE }
         var connection = ProviderConnection("fixture", "Fixture", ClientType.OPENROUTER, "https://openrouter.ai/api/v1")
         private val settings = Proxy.newProxyInstance(SettingRepository::class.java.classLoader, arrayOf(SettingRepository::class.java)) { _, method, args ->
             when (method.name) {
@@ -144,9 +187,12 @@ class OpenRouterWorkspaceRaceTest {
                     lastRequested = key
                     return response(key)
                 }
-                override fun getInputStream() = ByteArrayInputStream("""{"data":{"label":"fixture","usage":0,"is_free_tier":false,"is_management_key":false,"limit_remaining":0}}""".toByteArray())
+                override fun getInputStream() = ByteArrayInputStream(payload(url.path).toByteArray())
             }
         }
         val vm = OpenRouterSettingsViewModel(OpenRouterSettingsRepositoryImpl(preferences, settings, vault), settings, client, OpenRouterModelRepository(), OpenRouterReceiptStore(preferences), SavedStateHandle(mapOf("connectionUid" to "fixture")))
+        companion object {
+            const val KEY_RESPONSE = """{"data":{"label":"fixture","usage":0,"is_free_tier":false,"is_management_key":false,"limit_remaining":0}}"""
+        }
     }
 }

@@ -194,14 +194,25 @@ class OpenRouterSettingsViewModel @Inject constructor(
                 if (replacement) committedCredentials = normalizedKey
                 if (connect) _draftKey.value = ""
                 val revision = OpenRouterIdentity.revision(updated.uid, normalizedEndpoint, normalizedKey)
+                val changedIdentity = revision != _state.value.revision
+                if (changedIdentity) {
+                    catalogJob?.cancel()
+                    clearAccountReadSession()
+                }
                 _state.update {
                     it.copy(
                         connection = updated, connections = it.connections.map { old -> if (old.uid == updated.uid) updated else old },
                         revision = revision, access = OpenRouterAccess(revision), snapshot = snapshot, validating = false, stale = false, failure = null,
                         keyCount = ApiCredentialRotator.parseKeys(committedCredentials).size,
                         endpointDraft = if (connect) normalizedEndpoint else it.endpointDraft, settings = it.settings.copy(baseUrl = normalizedEndpoint), draft = it.draft.copy(baseUrl = normalizedEndpoint),
-                        catalog = if (revision == it.revision) it.catalog else emptyList(), catalogAt = if (revision == it.revision) it.catalogAt else null,
-                        endpoints = null
+                        catalog = if (changedIdentity) emptyList() else it.catalog, catalogAt = if (changedIdentity) null else it.catalogAt,
+                        catalogLoading = if (changedIdentity) false else it.catalogLoading, catalogError = if (changedIdentity) false else it.catalogError,
+                        endpoints = if (changedIdentity) null else it.endpoints, endpointLoading = if (changedIdentity) false else it.endpointLoading,
+                        endpointModel = if (changedIdentity) null else it.endpointModel, endpointAt = if (changedIdentity) null else it.endpointAt,
+                        providers = if (changedIdentity) emptyList() else it.providers, providersLoading = if (changedIdentity) false else it.providersLoading,
+                        batches = if (changedIdentity) emptyList() else it.batches, batchLoading = if (changedIdentity) false else it.batchLoading,
+                        batchError = if (changedIdentity) false else it.batchError, batchUpdatedAt = if (changedIdentity) null else it.batchUpdatedAt,
+                        reconciling = if (changedIdentity) false else it.reconciling
                     )
                 }
                 nextRefreshAt = System.nanoTime() + 10_000_000_000L
@@ -332,7 +343,7 @@ class OpenRouterSettingsViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _state.update { it.copy(endpointLoading = false, catalogError = true) }
+                if (_state.value.revision == before.revision) _state.update { it.copy(endpointLoading = false, catalogError = true) }
             }
         }
     }

@@ -1,10 +1,10 @@
 # Local AI Experience Redesign
 ## Product design and repository implementation plan
 
-**Project:** GPT Mobile AI  
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Review date:** October 12, 2026  
-**Inspected baseline:** `main` at `cbd88545dbdd406c6e9f6d61f279ad62e4bd0cc1`  
+**Project:** GPT Mobile AI\
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`\
+**Review date:** October 12, 2026\
+**Inspected baseline:** `main` at `cbd88545dbdd406c6e9f6d61f279ad62e4bd0cc1`\
 **Status:** Design specification. No application changes, builds, merges, or device qualification were performed for this document.
 
 > **The experience:** Three clear tabs — **Models**, **Assist**, and **Settings**. Models is the default landing page. Its content order is always **Local AI Model Marketplace → Import AI Model → Local AI Profiles**. The marketplace opens separately and presents recommendations first, then the other models compatible with the current phone.

@@ -1,12 +1,12 @@
 # OpenRouter Provider Upgrade
 ## Design and implementation specification
 
-**Project:** GPT Mobile AI Improved  
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Requested baseline:** v0.9.50.0  
-**Resolved branch:** `version-v0.9.50.0`  
-**Branch head reported during review:** `8b7c27ef1ee65b6fa38b6f43ac3a8d1b9c5639e5`  
-**Document date:** October 12, 2026  
+**Project:** GPT Mobile AI Improved\
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`\
+**Requested baseline:** v0.9.50.0\
+**Resolved branch:** `version-v0.9.50.0`\
+**Branch head reported during review:** `8b7c27ef1ee65b6fa38b6f43ac3a8d1b9c5639e5`\
+**Document date:** October 12, 2026\
 **Status:** Implementation proposal; repository inspection and documentation research completed. No application changes, authenticated account tests, Android builds, or device acceptance tests were performed for this document.
 
 > **Design decision:** Replace the single scrolling OpenRouter settings page with three persistent top tabs: **Setup · Routing · Account**. Routing and Account are neutral gray, exactly 50% opaque, and non-interactive until the selected connection has a server-validated inference API key. A valid key unlocks the interface even when spending is exhausted; authentication, permission, availability, and billing are separate states.

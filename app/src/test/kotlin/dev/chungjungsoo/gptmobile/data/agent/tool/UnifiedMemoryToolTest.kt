@@ -35,13 +35,36 @@ class UnifiedMemoryToolTest {
     @Test fun unavailableBackendsAreNotAdvertisedOrDispatched() = runTest {
         val tool = UnifiedMemoryTool(repository(), null, null, MessageV2(id = 1, chatId = 1, content = "Remember this", platformType = null), true)
         val actions = tool.definition.inputSchema["properties"]!!.jsonObject["action"]!!.jsonObject["enum"] as JsonArray
-        assertEquals(setOf("capture", "recall", "forget"), actions.map { (it as JsonPrimitive).content }.toSet())
+        assertEquals(setOf("describe", "capture", "recall", "forget"), actions.map { (it as JsonPrimitive).content }.toSet())
         assertTrue(
             tool.execute(
                 "missing",
                 buildJsonObject {
                     put("action", "read_graph")
                     put("input", JsonObject(emptyMap()))
+                }
+            ).isError
+        )
+    }
+
+    @Test fun schemasAreDiscoveredOnlyForAnAvailableAction() = runTest {
+        val tool = UnifiedMemoryTool(repository(), null, null, MessageV2(id = 1, chatId = 1, content = "Remember this", platformType = null), true)
+        assertTrue(tool.definition.description.length < 600)
+        val result = tool.execute(
+            "schema",
+            buildJsonObject {
+                put("action", "describe")
+                put("input", buildJsonObject { put("action", "recall") })
+            }
+        )
+        assertFalse(result.isError)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("inputSchema"))
+        assertTrue(
+            tool.execute(
+                "missing",
+                buildJsonObject {
+                    put("action", "describe")
+                    put("input", buildJsonObject { put("action", "read_document") })
                 }
             ).isError
         )

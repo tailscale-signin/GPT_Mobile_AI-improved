@@ -184,7 +184,7 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "Provider",
                             "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
@@ -194,7 +194,7 @@ class OpenAIAPIImpl @Inject constructor(
                         emit(
                             ChatCompletionChunk(
                                 error = ErrorDetail(
-                                    message = config.readableProviderError(errorMessage, response.status.value.toString()),
+                                    message = if (response.status.value in setOf(401, 402, 403)) errorMessage else config.readableProviderError(errorMessage, response.status.value.toString()),
                                     type = "http_error",
                                     code = response.status.value.toString()
                                 )
@@ -432,14 +432,14 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "Provider",
                             "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
                             "E"
                         )
 
-                        emit(ResponseErrorEvent(message = config.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
+                        emit(ResponseErrorEvent(message = if (response.status.value in setOf(401, 402, 403)) errorMessage else config.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
                         return@execute
                     }
 

@@ -8,5 +8,5 @@ internal fun mergeResearchSnapshots(previous: List<ResearchSnapshot>, incoming: 
         best.copy(engines = versions.flatMap { it.engines }.distinct().take(20))
     }
     val ids = sources.map { it.id }.toSet()
-    return incoming.copy(sources = sources, claims = (previous.flatMap { it.claims } + incoming.claims).filter { it.sourceId in ids }.distinctBy { listOf(it.sourceId, it.text, it.quote) }.take(30), queries = (previous.flatMap { it.queries } + incoming.queries).distinct(), toolEvents = (previous.flatMap { it.toolEvents } + incoming.toolEvents).distinct().sortedBy { it.recordedAt }.takeLast(200))
+    return incoming.copy(sources = sources, claims = (previous.flatMap { it.claims } + incoming.claims).filter { it.sourceId in ids }.associateBy { listOf(it.sourceId, it.text, it.quote) }.values.toList(), queries = (previous.flatMap { it.queries } + incoming.queries).distinct(), toolEvents = (previous.flatMap { it.toolEvents } + incoming.toolEvents).distinct().sortedBy { it.recordedAt }.takeLast(200))
 }

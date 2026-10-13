@@ -167,9 +167,13 @@ class ToolExecutionBudget(
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
                     unknownOutcomes += signature
+                    val cancellationContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
+                    val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "UNKNOWN"
+                    reason = "CANCELED_$origin"
+                    executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.CANCELED
                     AppLogRecorder.record(
                         "Tool",
-                        "${if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "Tool deadline reached" else "Tool operation canceled; origin not reported"} · tool=${tool.definition.name} · call=$callId",
+                        "TOOL_CANCELED · origin=$origin · rootWorkId=${cancellationContext?.rootWorkId ?: "unknown"} · generationId=${cancellationContext?.generationId ?: "unknown"} · completedCalls=${completed.get()} · outcomeKnown=false · tool=${tool.definition.name} · call=$callId",
                         "W"
                     )
                     throw cancellation

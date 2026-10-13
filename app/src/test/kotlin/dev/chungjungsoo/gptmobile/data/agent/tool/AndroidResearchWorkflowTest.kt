@@ -458,7 +458,7 @@ class AndroidResearchWorkflowTest {
         var calls = 0
         val generate: suspend (String, Int) -> String? = { _, _ ->
             calls++
-            """{"queries":[],"questions":[]}"""
+            """{"queries":[],"questions":[],"noResearchNeeded":true}"""
         }
         val result = AndroidResearchWorkflow(config(), emptyList(), generate, journal).run("Explain a simple concept", "direct")
         assertEquals(LocalResearchOutcome.NO_RESEARCH_NEEDED, result.outcome)

@@ -64,11 +64,16 @@ object DelegationPolicyResolver {
                 .thenBy { it.uid }
         )
 
-    fun preview(config: ModelDelegationSettings, profiles: List<PlatformV2>): String {
-        val candidates = ranked(profiles, config)
+    fun preview(config: ModelDelegationSettings, profiles: List<PlatformV2>, primary: PlatformV2? = null): String {
+        val candidates = ranked(profiles, config, primary)
         val selected = if (config.targetProfileUid.isNotBlank()) candidates.find { it.uid == config.targetProfileUid } else candidates.firstOrNull()
         return buildString {
             appendLine("Configuration preview · no requests made")
+            if (primary == null) {
+                appendLine("Primary not selected here; role conflicts and independence must be checked for the actual chat.")
+            } else {
+                appendLine(DelegationAdmissionResolver.resolve(config, profiles, primary).explanation)
+            }
             appendLine(
                 if (!config.enabled) {
                     "Delegation is off."

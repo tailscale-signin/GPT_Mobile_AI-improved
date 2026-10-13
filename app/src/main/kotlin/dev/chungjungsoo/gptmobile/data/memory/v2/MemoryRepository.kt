@@ -3,6 +3,9 @@ package dev.chungjungsoo.gptmobile.data.memory.v2
 import androidx.room.withTransaction
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot
+import dev.chungjungsoo.gptmobile.data.rag.KnowledgeEntity
+import dev.chungjungsoo.gptmobile.data.rag.KnowledgeFact
+import dev.chungjungsoo.gptmobile.data.rag.KnowledgeRelation
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -66,16 +69,40 @@ class MemoryRepository(
     /** Both import and the authority marker commit together; any parity failure rolls back. */
     suspend fun importLegacy(snapshot: FactVaultSnapshot): FactVaultSnapshot = database.withTransaction {
         readLocked()?.let { return@withTransaction it }
-        writeLocked(snapshot, null)
+        val graph = database.memoryGraphDao()
+        // Older versions allowed standalone graph entities with no vault fact. Preserve
+        // their original identity, name, type and provenance before removing plaintext indexes.
+        val standalone = graph.allEntities().filter { it.standalone }.map { row ->
+            val entity = KnowledgeEntity(row.id, row.name, row.entityType, mapOf("legacyNormalizedName" to row.normalizedName))
+            val target = KnowledgeEntity("type:${row.entityType}", row.entityType, "ENTITY_TYPE")
+            VaultFact(
+                id = "legacy-graph:${row.id}",
+                fact = KnowledgeFact(entity, KnowledgeRelation(entity.id, "IS_A", target.id), target),
+                source = "manual", sourceChatId = row.sourceChatId, sourceMessageId = row.sourceMessageId,
+                savedAtMillis = row.createdAt, lastSeenMillis = row.updatedAt, scope = row.scope, memoryType = "NOTE"
+            )
+        }.filterNot { it.id in snapshot.suppressedIds || it.sourceChatId in snapshot.suppressedChats }
+        val combined = snapshot.copy(facts = (snapshot.facts + standalone).distinctBy { it.id })
+        writeLocked(combined, null)
         val imported = requireNotNull(readLocked())
-        check(canonical(imported) == canonical(snapshot)) { "Memory migration parity failed; original data is preserved." }
+        check(canonical(imported) == canonical(combined)) { "Memory migration parity failed; original data is preserved." }
+        graph.clearRelations()
+        graph.clearObservations()
+        graph.clearEntities()
+        val sql = database.openHelper.writableDatabase
+        val hasIndex = sql.query("SELECT name FROM sqlite_master WHERE name='memory_graph_fts'").use { it.moveToFirst() }
+        if (hasIndex) sql.execSQL("DELETE FROM memory_graph_fts")
         imported
     }
 
-    suspend fun commit(snapshot: FactVaultSnapshot, expected: FactVaultSnapshot): FactVaultSnapshot = database.withTransaction {
+    suspend fun commit(snapshot: FactVaultSnapshot, expected: FactVaultSnapshot, discardHistory: Boolean = false): FactVaultSnapshot = database.withTransaction {
         val current = requireNotNull(readLocked())
+        if (canonical(current) == canonical(snapshot) && !discardHistory) return@withTransaction current
         check(canonical(current) == canonical(expected)) { "This memory changed. Review the latest version." }
-        if (canonical(current) == canonical(snapshot)) return@withTransaction current
+        if (discardHistory) {
+            dao.deleteRecords("REVISION")
+            dao.deleteRecords("TOMBSTONE")
+        }
         writeLocked(snapshot, current)
         snapshot
     }
@@ -150,8 +177,14 @@ class MemoryRepository(
         }
         val bytes = json.encodeToString(PortableArchive(snapshot, records)).encodeToByteArray()
         try {
-            bytes.asList().chunked(48 * 1024).mapIndexed { index, part ->
-                "memory-portable-${index.toString().padStart(6, '0')}" to java.util.Base64.getEncoder().encodeToString(part.toByteArray())
+            require(bytes.size <= MAX_ARCHIVE_BYTES) { "Memory backup exceeds the supported archive size." }
+            (bytes.indices step 48 * 1024).mapIndexed { index, offset ->
+                val part = bytes.copyOfRange(offset, minOf(bytes.size, offset + 48 * 1024))
+                try {
+                    "memory-portable-${index.toString().padStart(6, '0')}" to java.util.Base64.getEncoder().encodeToString(part)
+                } finally {
+                    part.fill(0)
+                }
             }.toMap()
         } finally {
             bytes.fill(0)
@@ -163,7 +196,7 @@ class MemoryRepository(
         if (parts.isEmpty() && "fact-vault-v1" !in values) return
         require(parts.keys.withIndex().all { (index, key) -> key == "memory-portable-${index.toString().padStart(6, '0')}" }) { "Memory backup is incomplete." }
         val bytes = if (parts.isNotEmpty()) {
-            parts.values.flatMap { java.util.Base64.getDecoder().decode(it).toList() }.toByteArray()
+            decodeParts(parts.values)
         } else {
             val legacy = java.util.Base64.getDecoder().decode(values.getValue("fact-vault-v1"))
             val root = json.parseToJsonElement(legacy.decodeToString()) as kotlinx.serialization.json.JsonObject
@@ -172,15 +205,17 @@ class MemoryRepository(
             } else {
                 val refs = root.getValue("parts") as kotlinx.serialization.json.JsonArray
                 legacy.fill(0)
-                refs.flatMap { ref ->
-                    val id = (ref as kotlinx.serialization.json.JsonPrimitive).content
-                    require(id.startsWith("memory-part-"))
-                    java.util.Base64.getDecoder().decode(requireNotNull(values[id]) { "Memory backup is incomplete." }).toList()
-                }.toByteArray()
+                decodeParts(
+                    refs.map { ref ->
+                        val id = (ref as kotlinx.serialization.json.JsonPrimitive).content
+                        require(id.startsWith("memory-part-"))
+                        requireNotNull(values[id]) { "Memory backup is incomplete." }
+                    }
+                )
             }
         }
         try {
-            require(bytes.size <= 24 * 1024 * 1024)
+            require(bytes.size <= MAX_ARCHIVE_BYTES)
             val root = json.parseToJsonElement(bytes.decodeToString()) as kotlinx.serialization.json.JsonObject
             val archive = if ("snapshot" in root) json.decodeFromString<PortableArchive>(bytes.decodeToString()) else PortableArchive(json.decodeFromString(bytes.decodeToString()))
             val incoming = archive.snapshot
@@ -192,7 +227,7 @@ class MemoryRepository(
                 suppressedEvidence = evidence,
                 suppressedMessages = messages,
                 suppressedChats = incoming.suppressedChats + protected?.suppressedChats.orEmpty(),
-                facts = incoming.facts.filterNot { it.id in suppressed || "${it.scope}:${it.evidenceHash}" in evidence || "${it.scope}:${it.sourceChatId}:${it.sourceMessageId}" in messages }
+                facts = incoming.facts.filterNot { it.sourceChatId in protected?.suppressedChats.orEmpty() || it.id in suppressed || "${it.scope}:${it.evidenceHash}" in evidence || "${it.scope}:${it.sourceChatId}:${it.sourceMessageId}" in messages }
             )
             database.withTransaction {
                 dao.clearFacts()
@@ -212,6 +247,26 @@ class MemoryRepository(
         } finally {
             bytes.fill(0)
         }
+    }
+
+    private fun decodeParts(parts: Collection<String>): ByteArray {
+        require(parts.size <= 512) { "Memory backup exceeds the supported archive size." }
+        return java.io.ByteArrayOutputStream().apply {
+            parts.forEach { encoded ->
+                require(encoded.length <= 96 * 1024) { "Memory backup part is oversized." }
+                val part = java.util.Base64.getDecoder().decode(encoded)
+                try {
+                    require(size() + part.size <= MAX_ARCHIVE_BYTES) { "Memory backup exceeds the supported archive size." }
+                    write(part)
+                } finally {
+                    part.fill(0)
+                }
+            }
+        }.toByteArray()
+    }
+
+    private companion object {
+        const val MAX_ARCHIVE_BYTES = 24 * 1024 * 1024
     }
 
     private fun canonical(snapshot: FactVaultSnapshot) = snapshot.copy(facts = snapshot.facts.sortedBy { it.id })

@@ -19,6 +19,7 @@ data class ModelDelegationSettings(
     val targetProfileUid: String = "",
     /** Optional second model that independently reviews delegate output before it reaches the primary model. */
     val reviewerEnabled: Boolean = false,
+    val reviewMode: dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode = dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.BEST_EFFORT,
     val reviewerProfileUid: String = "",
     val reviewerOutputTokens: Int = 384,
     /** Minimum review score required for a verified handoff. Rejections trigger delegate correction. */
@@ -209,7 +210,7 @@ data class ModelDelegationSettings(
             processingOwnership = processingOwnership.coerceIn(0, 100),
             automaticResearch = automaticResearch || processingOwnership <= 0,
             researchEnabled = researchEnabled || processingOwnership <= 0,
-            reviewerEnabled = reviewerEnabled || processingOwnership <= 0,
+            reviewerEnabled = (reviewerEnabled || processingOwnership <= 0) && reviewMode != dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF,
             reviewerOutputTokens = reviewerOutputTokens.coerceIn(128, 1024),
             reviewerMinimumScore = reviewerMinimumScore.coerceIn(0, 100),
             reviewerRetryLimit = reviewerRetryLimit.coerceIn(0, 5),

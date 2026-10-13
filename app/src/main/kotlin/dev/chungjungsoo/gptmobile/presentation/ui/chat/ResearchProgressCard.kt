@@ -53,6 +53,9 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                 }}",
                 style = MaterialTheme.typography.bodySmall
             )
+            val coverage = dev.chungjungsoo.gptmobile.data.research.assessResearchCoverage(snapshot.questionPlan, snapshot.claims, snapshot.sources)
+            Text("Question coverage: ${coverage.coveredQuestionIds.size}/${snapshot.questionPlan.size} · ${if (coverage.complete) "Covered by relevant passages" else "Incomplete or unverified"}", style = MaterialTheme.typography.bodySmall)
+            Text("Planning: ${snapshot.planningStatus} · final response delivery is tracked separately", style = MaterialTheme.typography.bodySmall)
             Text(if (snapshot.claims.any { it.verdict == "Supported" }) "Some claims reviewed; see evidence for individual verdicts" else "Unreviewed evidence", style = MaterialTheme.typography.bodySmall)
             val papers = snapshot.sources.filter { it.paperId.isNotBlank() }
             if (papers.isNotEmpty()) Text("${papers.size} academic works · ${papers.flatMap { it.engines }.distinct().size} underlying sources · ${papers.count { it.readable }} passages read", style = MaterialTheme.typography.bodySmall)

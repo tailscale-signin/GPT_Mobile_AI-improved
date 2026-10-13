@@ -17,12 +17,12 @@ internal fun reservedReviewer(config: ModelDelegationSettings, profiles: List<Pl
     if (config.reviewerProfileUid.isNotBlank()) return profiles.firstOrNull { it.uid == config.reviewerProfileUid }
     val worker = profiles.firstOrNull { it.uid == config.targetProfileUid }
         ?: profiles.firstOrNull { reviewerEligible(it, config, source) }
-    return profiles.firstOrNull { reviewerEligible(it, config, source) && !sameDelegationModel(it, worker) }
+    return profiles.firstOrNull { reviewerEligible(it, config, source) && (worker == null || dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(it, worker) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT) }
 }
 
 internal fun reviewerEligible(candidate: PlatformV2, config: ModelDelegationSettings, source: PlatformV2): Boolean =
     candidate.enabled &&
-        !sameDelegationModel(candidate, source) &&
+        dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(candidate, source) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT &&
         candidate.model.isNotBlank() &&
         !candidate.excludesMemory() &&
         (config.remoteWorkersAllowed() || candidate.isPrivateDestination()) &&

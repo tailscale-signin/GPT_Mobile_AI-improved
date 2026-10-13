@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.containsLocalOnlyMemory
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 
@@ -46,7 +47,7 @@ internal fun combinedSynthesisInputs(
             qualityScore = assessment.qualityScore,
             sourceIds = original?.sourceIds.orEmpty(),
             evidenceRefs = original?.evidenceRefs.orEmpty(),
-            localOnly = original?.localOnly == true || message.timeline.any { item -> item.recalledFacts.any { it.localOnly } }
+            localOnly = original?.localOnly == true || message.containsLocalOnlyMemory()
         )
     }
     if (sources.isEmpty()) return null

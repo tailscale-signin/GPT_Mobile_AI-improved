@@ -4,7 +4,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private val eventIdPattern = Regex("(?:^| · )eventId=([a-zA-Z0-9-]+)")
+private val eventIdPattern = Regex("(?:^|: | · )eventId=([a-zA-Z0-9-]+)")
 private val recordPattern = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$")
 private val fieldPattern = Regex("(?:^| · |(?<=\\s))([A-Za-z][A-Za-z0-9_]*)=")
 private val numericFieldPattern = Regex("(?:attempt|attempts|.*(?:Ms|Bytes|Tokens|Count)|input|output|limit|budget|entries|sequence|round|calls|records)", RegexOption.IGNORE_CASE)

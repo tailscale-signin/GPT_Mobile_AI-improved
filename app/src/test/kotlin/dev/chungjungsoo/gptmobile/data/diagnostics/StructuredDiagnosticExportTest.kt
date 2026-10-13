@@ -21,4 +21,14 @@ class StructuredDiagnosticExportTest {
         assertEquals("continuation", Json.parseToJsonElement(record).jsonObject.getValue("kind").jsonPrimitive.content)
         assertFalse(record.contains("secret-value"))
     }
+
+    @Test fun `event identity at message start survives repeated capture`() {
+        val a = "2026-10-10T12:00:00Z E/Runtime: eventId=abc-123 · Initialization failed"
+        val b = "2026-10-10T12:01:00Z E/Runtime: eventId=abc-123 · Initialization failed"
+        assertEquals("abc-123", diagnosticEventIdentity(a))
+        assertEquals(diagnosticEventIdentity(a), diagnosticEventIdentity(b))
+        val continuation = Json.parseToJsonElement(structuredDiagnosticLine("  at runtime()", parentEventId = "abc-123", sequence = 1, captureIdentity = "abc-123:1")).jsonObject
+        assertEquals("abc-123", continuation.getValue("parentEventId").jsonPrimitive.content)
+        assertEquals("false", continuation.getValue("countAsIssue").jsonPrimitive.content)
+    }
 }

@@ -218,6 +218,9 @@ object AppLogRecorder {
         try {
             target.bufferedWriter().use { output ->
                 if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
+                historicalExitMetadata(context).forEach { line ->
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history") else line)
+                }
                 val seen = mutableSetOf<String>()
                 snapshot.forEach { (source, bytes) ->
                     var parent: String? = null
@@ -225,7 +228,7 @@ object AppLogRecorder {
                     bytes.inputStream().bufferedReader().useLines { lines ->
                         lines.forEachIndexed { index, line ->
                             val root = Regex("^\\S+ [VDIWEF]/[^:]+: ").containsMatchIn(line)
-                            val explicit = Regex("(?:^| · )eventId=([a-zA-Z0-9-]+)").find(line)?.groupValues?.get(1)
+                            val explicit = Regex("(?:^|: | · )eventId=([a-zA-Z0-9-]+)").find(line)?.groupValues?.get(1)
                             if (root) {
                                 parent = explicit ?: "$source:$index"
                                 sequence = 0
@@ -242,6 +245,26 @@ object AppLogRecorder {
         } catch (failure: Exception) {
             target.delete()
             throw failure
+        }
+    }
+
+    /** Bounded platform metadata only: never collect trace streams, descriptions, or process names. */
+    private fun historicalExitMetadata(context: Context): List<String> {
+        val prefix = "${Instant.now()} I/ProcessExit: "
+        if (android.os.Build.VERSION.SDK_INT < 30) return listOf(prefix + "coverage=unsupported")
+        return try {
+            val manager = context.getSystemService(android.app.ActivityManager::class.java)
+            val exits = manager?.getHistoricalProcessExitReasons(context.packageName, 0, 8)
+                ?: return listOf(prefix + "coverage=unavailable")
+            if (exits.isEmpty()) {
+                listOf(prefix + "coverage=no_records · reason=unknown")
+            } else {
+                exits.map { exit ->
+                    prefix + "coverage=available · exitTime=${exit.timestamp} · reasonCode=${exit.reason} · statusCode=${exit.status} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}"
+                }
+            }
+        } catch (_: Exception) {
+            listOf(prefix + "coverage=unavailable · reason=unknown")
         }
     }
 

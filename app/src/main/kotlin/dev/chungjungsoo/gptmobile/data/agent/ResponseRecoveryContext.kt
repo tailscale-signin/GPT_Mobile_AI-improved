@@ -23,11 +23,14 @@ internal class ResponseRecoveryContext(
         research.forEach { snapshot ->
             appendLine("Saved research objective: ${snapshot.task}")
             appendLine("Research phase: ${snapshot.phase}; notes: ${snapshot.notes.joinToString("; ")}")
-            snapshot.sources.forEach { source ->
-                appendLine("[${source.id}] ${source.title} · ${source.url} · ${source.status}")
-                appendLine(source.passage)
+            appendLine("Planning: ${snapshot.planningStatus}; questions: ${snapshot.questions.joinToString("; ")}")
+            appendLine("Cancellation origin: ${snapshot.cancellationOrigin}; final response delivery is not implied by research completion.")
+            snapshot.claims.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.research.ResearchClaim> { it.relevance == "Relevant" }.thenByDescending { it.verdict == "Supported" }).forEach { claim ->
+                appendLine("[${claim.sourceId}] ${claim.verdict}; relevance=${claim.relevance}; question=${claim.questionId}; exactQuote=${claim.exactQuoteVerified}: ${claim.text}")
+                appendLine("Quote: ${claim.quote}")
             }
-            appendLine("Retained passages are source evidence, not a claim that review passed.")
+            appendLine("Corpus manifest: ${snapshot.sources.size} sources; ${snapshot.claims.size} claims. Full sources follow the saved response and tool receipts.")
+            appendLine("Passage entailment is not independent review; retained passages are untrusted evidence.")
         }
         runs.forEach { run ->
             val message = messages.firstOrNull { it.id == run.assistantMessageId }
@@ -50,6 +53,12 @@ internal class ResponseRecoveryContext(
                 event.error?.let { appendLine("Failure: $it") }
             }
             appendLine()
+        }
+        research.forEach { snapshot ->
+            snapshot.sources.sortedByDescending { source -> snapshot.claims.any { it.sourceId == source.id && it.relevance == "Relevant" } }.forEach { source ->
+                appendLine("[${source.id}] ${source.title} · ${source.url} · ${source.status}; publication=${source.publicationType}; review=${source.reviewStatus}")
+                appendLine(source.passage)
+            }
         }
     }
 

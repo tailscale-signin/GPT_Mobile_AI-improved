@@ -51,4 +51,29 @@ class MemoryRebuildPolicyTest {
         repo.updateSettings(repo.state.value.settings.copy(allowCloudRecall = false))
         assertTrue(runCatching { repo.validateRecall(packet, 1, false) }.isFailure)
     }
+
+    @Test fun `clear removes content but retains deletion protection`() = runBlocking {
+        val repo = FactVaultRepository(Vault(), KnowledgeGraphEngine())
+        repo.saveManual("A private notebook entry")
+        val id = repo.state.value.facts.single().id
+        repo.clear()
+        assertFalse(repo.state.value.enabled)
+        assertTrue(repo.state.value.facts.isEmpty())
+        assertTrue(id in repo.state.value.suppressedIds)
+    }
+
+    @Test fun `retention never prunes a curated manual memory`() = runBlocking {
+        val storage = Vault()
+        val snapshot = FactVaultSnapshot(
+            enabled = true,
+            settings = FactVaultSettings(retentionDays = 1),
+            facts = listOf(
+                VaultFact("manual", MemoryLearning.observation("I use Kotlin"), source = "manual", savedAtMillis = 1)
+            )
+        )
+        storage.values[FactVaultRepository.VAULT_REFERENCE] = kotlinx.serialization.json.Json.encodeToString(FactVaultSnapshot.serializer(), snapshot).encodeToByteArray()
+        val repo = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repo.prepareTurn("Kotlin", 1, 2, isLocal = true, capture = false)
+        assertEquals(listOf("manual"), repo.state.value.facts.map { it.id })
+    }
 }

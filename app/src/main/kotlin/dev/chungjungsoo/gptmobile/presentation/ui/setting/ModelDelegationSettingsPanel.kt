@@ -270,6 +270,10 @@ internal fun ModelDelegationSettingsContent(
                         SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_25bb8247d7))
                     }
                     if (config.reviewerEnabled) {
+                        LocalToolToggle("Require independent review before preparation", config.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED, !busy) { required ->
+                            onChange { it.copy(reviewMode = if (required) dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED else dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.BEST_EFFORT) }
+                        }
+                        Text("Best effort preserves unverified evidence if review is unavailable. Required review pauses before research.", style = MaterialTheme.typography.bodySmall)
                         DelegateModelDropdown(
                             profiles = profiles,
                             blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config.copy(approvedWorkerUids = null), primary = selectedDelegate).takeIf { it.isNotEmpty() }?.joinToString { it.name.lowercase().replace('_', ' ') } },

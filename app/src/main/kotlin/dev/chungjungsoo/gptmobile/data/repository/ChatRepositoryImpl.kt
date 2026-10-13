@@ -62,6 +62,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.containsLocalOnlyMemory
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
@@ -220,6 +221,7 @@ class ChatRepositoryImpl(
     private val delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore? = null,
     private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null
 ) : ChatRepository {
+    private val writerFailures by lazy { dev.chungjungsoo.gptmobile.data.delegation.KnownWriterFailures(java.io.File(context.filesDir, "writer-readiness")) }
     private val privateMemoryRuns = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
@@ -370,8 +372,11 @@ class ChatRepositoryImpl(
      * model, and most bundled models, silently lose MCP tools.
      */
     private suspend fun localModelSupportsTools(platform: PlatformV2): Boolean = try {
-        localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
-        true
+        val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
+        // An explicit package contract is authoritative; absent metadata preserves legacy support.
+        val supported = localRuntime.inspectModel(selected.path)?.tools != false
+        if (!supported) AppLogRecorder.record("LocalModel", "LOCAL_TOOL_SELECTION · stage=admission · mode=chat_only · schemaConstructionSkipped=true")
+        supported
     } catch (cancellation: CancellationException) {
         throw cancellation
     } catch (_: Exception) {
@@ -763,7 +768,14 @@ class ChatRepositoryImpl(
         // Delegated runs are real child agent runs: they receive the target profile's
         // authorized tools, but never receive delegate_to_model itself. This enables
         // local -> remote tool use and remote -> local tool use without recursion.
+        val helperFeatures = settingRepository.getFeatureSettings()
+        val helperCatalog = if (allowTools && fixtureTools == null && authorizedTools != null && !target.disableAllTools && !chatToolConfig.allToolsDisabled) {
+            agentToolResolver.resolve(target.uid, chatToolConfig).map { it.connectionUid to it.realToolName }.toSet()
+        } else {
+            emptySet()
+        }
         val inheritedTools = authorizedTools.orEmpty()
+            .filter { (it.connectionUid to it.realToolName) in helperCatalog }
             .filterNot { it.realToolName == "delegate_to_model" || !target.isPrivateDestination() && it.realToolName in setOf("memory", "memory_recall", "read_graph", "search_nodes", "open_nodes", "memory_read_document", "memory_search_documents") }
             .distinctBy { it.modelToolName }
             .sortedWith(compareBy<ResolvedAgentTool> { !(isGitHubTask(task) && it.isGitHubTool()) }.thenBy { delegatedToolPriority(it) })
@@ -776,7 +788,16 @@ class ChatRepositoryImpl(
             // already-authorized and already-budgeted tool snapshot instead of resolving
             // a second catalog from the helper profile. This preserves chat-level
             // permissions, native GitHub/MCP access, shared budgets and approval state.
-            inheritedTools.map { it.tool }.toMutableList()
+            inheritedTools.map { inherited ->
+                object : AgentTool by inherited.tool {
+                    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                        val live = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == target.uid }
+                        val features = settingRepository.getFeatureSettings()
+                        check(live == target && features.toolPluginStates == helperFeatures.toolPluginStates && features.profileBehavior[target.uid]?.toolPluginStates == helperFeatures.profileBehavior[target.uid]?.toolPluginStates) { "Helper permissions changed; dispatch stopped." }
+                        return inherited.tool.execute(callId, arguments)
+                    }
+                }
+            }.toMutableList()
         } else {
             resolveDelegatedTools(target, parentRunId, chatToolConfig, task).toMutableList()
         }
@@ -827,7 +848,8 @@ class ChatRepositoryImpl(
         }
         // Gateway-local capabilities are separately configured on the user's server.
         // Keep fixtures/text transforms isolated and never override chat exclusions.
-        val allowGatewayLocalTools = !followingUp &&
+        val allowGatewayLocalTools = authorizedTools == null &&
+            !followingUp &&
             allowTools &&
             fixtureTools == null &&
             target.compatibleType == ClientType.LLAMA &&
@@ -1211,7 +1233,7 @@ class ChatRepositoryImpl(
             val delegateText = StringBuilder()
             var lastDelegateSnapshot = 0L
             try {
-                return delegateToProfile(target, admittedTemplate?.takeIf { requestRole != "reviewer" }?.let { it.description + "\n\n" + task } ?: task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${it.id}" } ?: runId, inputCap, { event ->
+                return delegateToProfile(target, admittedTemplate?.takeIf { requestRole != "reviewer" }?.let { it.description + "\n\n" + task } ?: task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${taskRecovery?.sourceMessageId ?: it.id}" } ?: runId, inputCap, { event ->
                     progress(event)
                     if (event.kind == DelegateProgressKind.TOOL_ACTIVITY) activity.set("Using helper tools")
                     event.textDelta?.let {
@@ -1277,11 +1299,20 @@ class ChatRepositoryImpl(
                     }
                 }
             }
+            if (taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE) writerFailures.recheck(platform)
+            writerFailures.blocked(platform)?.let { failure ->
+                emit(ApiState.Error("Final writer unavailable. ${failure.message()} Saved evidence is retained. Check the connection, then use Retry failed stage for an explicit recheck, or choose an approved writer."))
+                return@channelFlow
+            }
             val recovery = prepareRecoveryContext()
             var contextTurns = withContext(Dispatchers.Default) {
                 buildContextTurns(effectiveUserMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
+            }
+            if (contextTurns.any { it.assistantMessage?.containsLocalOnlyMemory() == true }) {
+                require(platform.compatibleType == ClientType.LITERT_LM) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
+                privateMemoryRuns.add(runId)
             }
             // Use the profile/chat Max tools allowance as the source of truth for both
             // tool-call capacity and model/tool work rounds. This keeps the profile option
@@ -1316,11 +1347,18 @@ class ChatRepositoryImpl(
                 profileBudget
             }
             val turnKey = effectiveUserMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
+            if (taskRecovery != null) researchSessions?.resume(effectiveUserMessages.lastOrNull()?.chatId ?: -1, turnKey, effectiveUserMessages.lastOrNull()?.id ?: 0)
             dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.register(runId)
             val admittedProfiles = settingRepository.fetchPlatformV2s()
             val admittedFeatures = settingRepository.getFeatureSettings()
             val scoped = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.resolve(admittedFeatures, platform.uid, chatToolConfig?.delegation)
             val admittedPolicy = chatToolConfig?.research?.applyTo(scoped) ?: scoped
+            val roleAdmission = dev.chungjungsoo.gptmobile.data.delegation.DelegationAdmissionResolver.resolve(admittedPolicy, admittedProfiles, platform)
+            if (admittedPolicy.enabled && roleAdmission.blocked) {
+                emit(ApiState.Error(roleAdmission.explanation))
+                return@channelFlow
+            }
+            if (admittedPolicy.enabled && roleAdmission.warning != null) emit(ApiState.Notice(roleAdmission.warning, persistent = true))
             admittedTemplate = admittedPolicy.templateRole?.let { dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.from(admittedPolicy) }
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
                 // Ordinary policy is immutable for this turn; revocations can only restrict it.
@@ -1434,11 +1472,12 @@ class ChatRepositoryImpl(
             val resolvedTools = resolveAuthorizedTools()
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = effectiveUserMessages.lastOrNull()
+            val researchTask = taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()
             val routingTask = dev.chungjungsoo.gptmobile.data.agent.tool.repositoryRoutingTask(
                 latestUser?.content.orEmpty(),
                 effectiveUserMessages.dropLast(1).map { it.content }
             )
-            val taskRoutedTools = synthesisSafeTools(
+            var taskRoutedTools = synthesisSafeTools(
                 preferNativeGitHubForTask(
                     resolvedTools,
                     routingTask
@@ -1494,6 +1533,13 @@ class ChatRepositoryImpl(
             }
             val recalled = recallTurnMemory()
             if (recalled.facts.any { it.localOnly }) privateMemoryRuns.add(runId)
+            if (runId in privateMemoryRuns) {
+                // A model can place recalled text in arbitrary tool arguments. Permit only
+                // explicitly local implementations, including local delegate admission below.
+                taskRoutedTools = taskRoutedTools.filter {
+                    it.connectionUid == null && it.realToolName in setOf("memory", "calculate_expression", "delegate_to_model")
+                }
+            }
             val initialDelegationSettings = effectiveDelegationSettings()
             val processingOwnership = initialDelegationSettings.processingOwnership
             val requiresReviewedPreparation = !synthesisRun && initialDelegationSettings.enabled && processingOwnership == 0 && taskRoutedTools.any { it.realToolName == "delegate_to_model" }
@@ -1768,7 +1814,7 @@ class ChatRepositoryImpl(
                                 current.delegationFor(platform.uid).deepResearch.enabled &&
                                 (current.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
                         }
-                    ).run(latestUser.content, "$runId:research-acquisition")
+                    ).run(researchTask, "$runId:research-acquisition")
                     preparedEvidenceComplete = research.pagesRead > 0
                     preparedEvidenceReviewed = false
                     if (research.handoff.isNotBlank()) appendPreparedEvidence(research.handoff)
@@ -1780,7 +1826,7 @@ class ChatRepositoryImpl(
                     val event = trace.start(call)
                     emit(ApiState.ToolCall(event.sequence))
                     val research = try {
-                        localDelegation.prepare(latestUser.content, delegatedTools, call.callId, automatic = true)
+                        localDelegation.prepare(researchTask, delegatedTools, call.callId, automatic = true)
                     } catch (cancelled: CancellationException) {
                         withContext(NonCancellable) {
                             trace.finish(
@@ -1959,8 +2005,8 @@ class ChatRepositoryImpl(
         }
         suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-            if (!platform.isPrivateDestination()) {
-                require(turns.none { turn -> turn.assistantMessage?.timeline?.any { item -> item.recalledFacts.any { it.localOnly } } == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
+            if (platform.compatibleType != ClientType.LITERT_LM) {
+                require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
             }
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints).copy(requestRole = kind)
@@ -1992,7 +2038,22 @@ class ChatRepositoryImpl(
                     fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
                 )
             }
-            val guarded = if (platform.compatibleType == ClientType.LLAMA) raw.withProgressWatchdog() else raw
+            val observed = object : AgentProviderSession by raw {
+                override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
+                    raw.streamRound(tools, exchanges).map { event ->
+                        if (event is ProviderEvent.Failed) {
+                            runCatching { writerFailures.observe(platform, event.message) }
+                            if (researchSessions?.sessions?.value?.get(runId)?.snapshot?.sources?.any { it.readable } == true) {
+                                event.copy(message = "Evidence saved; final writer unavailable. ${event.message} Independent review and delivery have separate outcomes.")
+                            } else {
+                                event
+                            }
+                        } else {
+                            event
+                        }
+                    }
+            }
+            val guarded = if (platform.compatibleType == ClientType.LLAMA) observed.withProgressWatchdog() else observed
             return invocationLedger?.wrap(
                 guarded, runId, turnKey, platform.compatibleType.name, platform.model, kind,
                 costs.total,

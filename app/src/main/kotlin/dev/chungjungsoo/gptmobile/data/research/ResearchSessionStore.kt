@@ -36,8 +36,23 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val taskLocks = Array(64) { Mutex() }
     private val planLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
+    private val stopOrigins = ConcurrentHashMap<String, String>()
     private val stoppedTurns = ConcurrentHashMap.newKeySet<Pair<Int, String>>()
     private val runTurns = ConcurrentHashMap<String, Pair<Int, String>>()
+    private val generations = ConcurrentHashMap<Pair<Int, String>, Long>()
+    private val resumeControls = ConcurrentHashMap<Pair<Int, String>, Int>()
+
+    /** Explicit Continue advances ownership, never resets the original budget or authority. */
+    @Synchronized fun resume(chatId: Int, turnId: String, controlMessageId: Int) {
+        val key = chatId to turnId
+        if (resumeControls.put(key, controlMessageId) == controlMessageId) return
+        generations.compute(key) { _, previous -> (previous ?: 0) + 1 }
+        runTurns.filterValues { it == key }.keys.forEach {
+            stops += it
+            stopOrigins[it] = "SUPERSEDED_GENERATION"
+        }
+        stoppedTurns.remove(key)
+    }
     private data class Lease(val owner: String, val until: Long)
     private val workLeases = ConcurrentHashMap<String, Lease>()
     private val sourceRefs = ConcurrentHashMap<String, Pair<ResearchSource, String>>()
@@ -48,10 +63,12 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     val sessions = mutable.asStateFlow()
 
     fun stop(runId: String) {
+        stopOrigins[runId] = "USER_STOP_RESEARCH_AND_SUMMARIZE"
         stops += runId
         runTurns[runId]?.let { stoppedTurns += it }
     }
     fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true): ResearchJournal = object : ResearchJournal {
+        private val generation = generations[chatId to turnId] ?: 0L
         init {
             runTurns[runId] = chatId to turnId
         }
@@ -155,6 +172,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             ResearchBudget(1, ledger = ledger).also { turnBudgets[key] = System.currentTimeMillis() to it }
         }
+        override fun cancellationOrigin(): String = if (chatId in deletedChats) "CHAT_DELETED" else stopOrigins[runId] ?: "UNKNOWN"
         override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
@@ -213,7 +231,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
-                if (chatId in deletedChats) return@withLock
+                if (chatId in deletedChats || generation != (generations[chatId to turnId] ?: 0L)) return@withLock
                 val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
                 val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
                 val snapshot = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
@@ -229,6 +247,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         put("runId", runId)
                         put("chatId", chatId)
                         put("turnId", turnId)
+                        put("rootWorkId", turnId)
+                        put("generationId", runId)
+                        put("generationFence", generation)
                         put("authority", authority)
                         val sourceRefs = snapshot.sources.map { source ->
                             val cacheKey = "$chatId:$turnId:$authority:${source.id}"

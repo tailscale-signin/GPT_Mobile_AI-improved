@@ -130,13 +130,19 @@ class FactVaultRepository @Inject constructor(
     private fun scheduleIndexes(snapshot: FactVaultSnapshot) {
         indexJob?.cancel()
         indexJob = indexScope.launch {
-            indexMutex.withLock {
-                val generation = durable?.generation() ?: 0
-                do {
-                    refreshDerivedIndexes(snapshot)
-                    kotlinx.coroutines.yield()
-                } while (_state.value == snapshot && semantic?.status?.value?.let { it.available && it.indexed < it.total } == true)
-                if (_state.value == snapshot && _indexWarning.value == null) durable?.acknowledgeIndexes(generation)
+            try {
+                indexMutex.withLock {
+                    val generation = durable?.generation() ?: 0
+                    do {
+                        refreshDerivedIndexes(snapshot)
+                        kotlinx.coroutines.yield()
+                    } while (_state.value == snapshot && semantic?.status?.value?.let { it.available && it.indexed < it.total } == true)
+                    if (_state.value == snapshot && _indexWarning.value == null) durable?.acknowledgeIndexes(generation)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _indexWarning.value = "Memory is saved. Search indexing will retry when memory is opened."
             }
         }
     }
@@ -231,10 +237,25 @@ class FactVaultRepository @Inject constructor(
 
     suspend fun clear() = mutex.withLock {
         if (durable != null) loadLocked()
+        // Keep deletion markers so an older backup cannot silently resurrect erased memory.
+        val previous = _state.value
+        val cleared = FactVaultSnapshot(
+            enabled = false,
+            settings = FactVaultSettings(allowCloudRecall = false),
+            suppressedIds = previous.suppressedIds + previous.facts.map { it.id },
+            suppressedEvidence = previous.suppressedEvidence + previous.facts.filter { it.evidenceHash.isNotBlank() }.map { "${it.scope}:${it.evidenceHash}" },
+            suppressedMessages = previous.suppressedMessages + previous.facts.flatMap { fact -> (fact.evidenceSources + sourceKey(fact.sourceChatId, fact.sourceMessageId)).map { "${fact.scope}:$it" } },
+            suppressedChats = previous.suppressedChats
+        )
         // Legacy recovery permits clearing an unreadable snapshot explicitly.
-        persist(FactVaultSnapshot(enabled = false, settings = FactVaultSettings(allowCloudRecall = false)), allowUnreadablePrevious = true)
+        persist(cleared, allowUnreadablePrevious = true, discardHistory = true)
+        if (durable != null) {
+            // The verified Room authority no longer needs the pre-migration recovery copy.
+            val stale = runCatching { vault.references().filter { it == VAULT_REFERENCE || it.startsWith("memory-part-") } }.getOrDefault(emptyList())
+            stale.forEach { reference -> runCatching { vault.delete(reference) } }
+        }
         indexJob?.cancel()
-        persistentGraph?.replaceFromVault(emptyList())
+        persistentGraph?.clear()
         semantic?.clearFacts()
         enrichedMessages.clear()
     }
@@ -252,7 +273,7 @@ class FactVaultRepository @Inject constructor(
         val settings = original.settings.normalized()
         val now = System.currentTimeMillis()
         val cutoff = if (settings.retentionDays > 0) now - settings.retentionDays * 86_400_000L else 0L
-        var current = original.copy(facts = original.facts.filter { it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff })
+        var current = original.copy(facts = original.facts.filter { it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff })
         if (capture && settings.learningEnabled && chatId !in current.suppressedChats) {
             val automatic = MemoryLearning.extract(query.take(MAX_QUERY_CHARS), settings.captureSensitivity)
             if (settings.learnRecurringTopics) {
@@ -498,7 +519,13 @@ class FactVaultRepository @Inject constructor(
     suspend fun keepBoth(id: String) = mutex.withLock {
         loadLocked()
         require(_state.value.facts.any { it.id == id && it.pendingReplacements.isNotEmpty() }) { "Select a pending change." }
-        require(_state.value.facts.first { it.id == id }.validUntilMillis != null) { "Give this fact a distinct validity period before keeping both." }
+        val proposal = _state.value.facts.first { it.id == id }
+        require(
+            _state.value.facts.filter { it.id in proposal.pendingReplacements }.all { existing ->
+                (proposal.validUntilMillis != null && existing.validFromMillis != null && proposal.validUntilMillis <= existing.validFromMillis) ||
+                    (existing.validUntilMillis != null && proposal.validFromMillis != null && existing.validUntilMillis <= proposal.validFromMillis)
+            }
+        ) { "Give the conflicting facts non-overlapping validity periods before keeping both." }
         persist(reviewedSnapshot(_state.value, setOf(id), enabled = true, replaceExisting = false))
     }
 
@@ -641,7 +668,7 @@ class FactVaultRepository @Inject constructor(
         val current = _state.value
         if (!current.enabled || !current.settings.recallEnabled || (!isLocal && !current.settings.allowCloudRecall)) return@withLock emptyList()
         val cutoff = if (current.settings.retentionDays > 0) System.currentTimeMillis() - current.settings.retentionDays * 86_400_000L else 0L
-        current.facts.filter { (isLocal && includeLocalOnly || !it.localOnly) && (it.validFromMillis == null || it.validFromMillis <= System.currentTimeMillis()) && (it.validUntilMillis == null || it.validUntilMillis > System.currentTimeMillis()) && it.enabled && it.supersededBy == null && !it.awaitingReview && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
+        current.facts.filter { (isLocal && includeLocalOnly || !it.localOnly) && (it.validFromMillis == null || it.validFromMillis <= System.currentTimeMillis()) && (it.validUntilMillis == null || it.validUntilMillis > System.currentTimeMillis()) && it.enabled && it.supersededBy == null && !it.awaitingReview && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
     }
 
     /** Revalidate canonical content and consent at each actual provider dispatch. */
@@ -718,9 +745,9 @@ class FactVaultRepository @Inject constructor(
         }
     }
 
-    private suspend fun persist(snapshot: FactVaultSnapshot, allowUnreadablePrevious: Boolean = false) {
+    private suspend fun persist(snapshot: FactVaultSnapshot, allowUnreadablePrevious: Boolean = false, discardHistory: Boolean = false) {
         if (durable != null) {
-            _state.value = durable.commit(snapshot, _state.value)
+            _state.value = durable.commit(snapshot, _state.value, discardHistory)
             scheduleIndexes(snapshot)
             return
         }
@@ -813,7 +840,7 @@ class FactVaultRepository @Inject constructor(
             0L
         }
         val visible = snapshot.facts.filter {
-            it.enabled && it.supersededBy == null && !it.awaitingReview && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff)
+            it.enabled && it.supersededBy == null && !it.awaitingReview && (it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff)
         }
         val indexed = if (snapshot.settings.semanticRecall) visible else visible.map { it.copy(evidenceHash = "semantic-disabled") }
         if (indexed == indexedFacts && semantic?.status?.value?.let { it.available && it.indexed < it.total } != true) return
@@ -843,7 +870,7 @@ class FactVaultRepository @Inject constructor(
                 val snapshot = _state.value
                 if (!snapshot.enabled || !snapshot.settings.semanticRecall) return@withLock false
                 val cutoff = if (snapshot.settings.retentionDays > 0) System.currentTimeMillis() - snapshot.settings.retentionDays * 86_400_000L else 0L
-                engine.synchronize(snapshot.facts.filter { it.enabled && it.supersededBy == null && !it.awaitingReview && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }, 128)
+                engine.synchronize(snapshot.facts.filter { it.enabled && it.supersededBy == null && !it.awaitingReview && (it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }, 128)
                 engine.status.value.let { it.available && it.indexed < it.total }
             }
             kotlinx.coroutines.yield()

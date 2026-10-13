@@ -143,3 +143,8 @@ fun MessageV2.snapshotLatestAssistantRevision(timestamp: Long = System.currentTi
         timeline = timeline
     )
 }
+
+/** Privacy restrictions survive revision selection, combination, and subsequent turns. */
+fun MessageV2.containsLocalOnlyMemory(): Boolean = combinedSources.any { it.localOnly } ||
+    timeline.any { item -> item.recalledFacts.any { it.localOnly } } ||
+    revisions.any { revision -> revision.timeline.any { item -> item.recalledFacts.any { it.localOnly } } }

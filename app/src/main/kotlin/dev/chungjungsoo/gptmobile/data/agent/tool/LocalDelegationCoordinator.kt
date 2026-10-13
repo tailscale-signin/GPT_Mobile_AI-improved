@@ -180,7 +180,7 @@ internal class LocalDelegationCoordinator(
 
     private suspend fun reviewerTarget(config: ModelDelegationSettings, delegate: PlatformV2): PlatformV2? =
         reservedReviewer(config, profiles(), source)?.takeIf {
-            reviewerEligible(it, config, source) && !sameDelegationModel(delegate, it)
+            reviewerEligible(it, config, source) && dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(delegate, it) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT
         }
 
     /** One independent benchmark assessment; no repairs or candidate rewriting. */
@@ -1538,6 +1538,9 @@ internal class LocalDelegationCoordinator(
         val target = targetOverride ?: localTarget(config) ?: run {
             AppLogRecorder.record("Delegation", "Research skipped · automatic=$automatic · enabled=${config.researchEnabled} · target=null")
             return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
+        }
+        if (config.reviewerEnabled && config.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED && reviewerTarget(config, target) == null) {
+            return LocalResearchResult("[REVIEW_REQUIRED][UNVERIFIED] No eligible independent reviewer. Preparation paused before acquisition; choose an authorized reviewer with a verified distinct model identity.", 0, 0, 0, LocalResearchOutcome.FAILED)
         }
         val effectiveResearchLimit = config.effectiveResearchCalls()
         val requestIndex = requests.getAndIncrement()

@@ -28,8 +28,12 @@ class MemoryDurabilityInstrumentedTest {
             assertFalse(db.memoryV2Dao().fact("stable")!!.payload.decodeToString().contains("Synthetic private fact"))
             val changed = original.copy(facts = listOf(fact.copy(revision = 8, localOnly = true)))
             repository.commit(changed, original)
+            assertEquals(changed, repository.commit(changed, original))
             assertTrue(runCatching { repository.commit(original, original) }.isFailure)
             assertEquals(changed, repository.read())
+            repository.commit(changed.copy(facts = emptyList(), suppressedIds = setOf("stable")), changed, discardHistory = true)
+            assertTrue(db.memoryV2Dao().records("REVISION").isEmpty())
+            assertTrue(repository.read()!!.facts.isEmpty())
         } finally {
             db.close()
         }

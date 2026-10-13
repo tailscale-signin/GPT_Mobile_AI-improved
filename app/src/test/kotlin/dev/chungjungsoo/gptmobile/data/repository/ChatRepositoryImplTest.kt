@@ -1113,7 +1113,7 @@ class ChatRepositoryImplTest {
         rounds.add(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "HTTP 403: access forbidden; specific cause unavailable", code = "403"))))
         rounds.add(chunk("Final answer from saved synthetic evidence, with unavailable independent review."))
         val api = RecordingOpenAIAPI(rounds)
-        val repository = createRepository(openAIAPI = api, agentToolResolver = resolver, settingsOverride = settings, persistenceOverride = persistence, researchOverride = sessions)
+        val repository = createRepository(openAIAPI = api, agentToolResolver = resolver, settingsOverride = settings, persistenceOverride = persistence, researchOverride = sessions, toolEventRecorder = ToolEventRecorder(RecordingToolEventDao().asDao(), proxy()))
         val original = MessageV2(id = 1, chatId = 1, content = task, platformType = null)
         val first = repository.completeChat(listOf(original), emptyList(), primary, "run-a", null).toList()
         assertTrue(first.toString(), first.any { it is ApiState.Error && it.message.contains("403") })
@@ -1154,6 +1154,9 @@ class ChatRepositoryImplTest {
         context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
             override fun getSystemService(name: String): Any? = null
+            override fun getSharedPreferences(name: String, mode: Int): android.content.SharedPreferences = mockk {
+                every { getString(any(), any()) } answers { secondArg() }
+            }
         },
         chatRoomV2Dao = proxy(),
         messageV2Dao = proxy(),

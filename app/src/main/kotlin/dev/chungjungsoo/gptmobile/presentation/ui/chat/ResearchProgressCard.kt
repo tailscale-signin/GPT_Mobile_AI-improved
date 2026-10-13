@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -28,9 +27,9 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.research.ResearchSession
 import dev.chungjungsoo.gptmobile.data.research.readableWorkCount
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds: Set<String>, stop: (String) -> Unit) {
+internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds: Set<String>, stop: (String) -> Unit, writerFailure: String? = null, onRecovery: ((String) -> Unit)? = null) {
     var expanded by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
     val activeSessions = sessions.filter { it.runId in activeRunIds && !it.snapshot.complete }
@@ -59,8 +58,16 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
             Text(if (snapshot.claims.any { it.verdict == "Supported" }) "Some claims reviewed; see evidence for individual verdicts" else "Unreviewed evidence", style = MaterialTheme.typography.bodySmall)
             val papers = snapshot.sources.filter { it.paperId.isNotBlank() }
             if (papers.isNotEmpty()) Text("${papers.size} academic works · ${papers.flatMap { it.engines }.distinct().size} underlying sources · ${papers.count { it.readable }} passages read", style = MaterialTheme.typography.bodySmall)
-            Row {
-                TextButton(onClick = { expanded = true }) { Text("Evidence") }
+            if (!active && writerFailure != null) {
+                Text("Evidence saved; final writer unavailable", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+                Text(writerFailure.take(400), style = MaterialTheme.typography.bodySmall)
+            }
+            androidx.compose.foundation.layout.FlowRow {
+                TextButton(onClick = { expanded = true }) { Text("View saved evidence") }
+                if (!active && writerFailure != null && onRecovery != null) {
+                    TextButton(onClick = { onRecovery("Retry failed stage") }) { Text(if (writerFailure.contains("403")) "Recheck writer and retry" else "Retry unfinished stage") }
+                    TextButton(onClick = { onRecovery("Proceed primary-only") }) { Text("Primary-only recovery") }
+                }
                 if (active) TextButton(onClick = { activeSessions.forEach { stop(it.runId) } }) { Text("Stop and summarize") }
             }
         }

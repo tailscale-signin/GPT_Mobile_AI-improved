@@ -1009,6 +1009,14 @@ class ChatViewModel @Inject constructor(
             ?: return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val runId = UUID.randomUUID().toString()
+        val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
+        val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
+        val recovery = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor(
+            "${userMessage.chatId}:$sourceMessageId",
+            sourceMessageId,
+            runId,
+            if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+        )
         _loadingStates.update { it.toMutableList().apply { this[platformIndex] = LoadingState.Loading } }
 
         viewModelScope.launch {
@@ -1018,6 +1026,7 @@ class ChatViewModel @Inject constructor(
                         PersistAgentRetryRequest(
                             userMessage = userMessage,
                             assistantMessage = currentAssistantMessage.copy(combinedSources = emptyList()),
+                            recovery = recovery,
                             run = AgentRunDraft(
                                 runId = runId,
                                 profileUid = platformWithChatModel.uid,

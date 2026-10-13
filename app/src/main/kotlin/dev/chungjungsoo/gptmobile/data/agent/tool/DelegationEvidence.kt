@@ -106,8 +106,8 @@ internal fun delegationHandoff(summary: String, sources: List<DelegationSource>,
     val important = limitations.distinct().filterNot(::warningOnly).sortedByDescending { "review" in it.lowercase() || "verif" in it.lowercase() }
     val warningNotes = limitations.distinct().filter(::warningOnly)
     val review = if (limitations.any { "review" in it.lowercase() && ("unavailable" in it.lowercase() || "unverified" in it.lowercase()) }) "unavailable" else "see retained report; no independent pass implied"
-    // Whole lines are the semantic units emitted by the research workflow. Never cut a quote.
-    val blocks = summary.lineSequence().filter { it.isNotBlank() }.toList()
+    // Blank-line-separated findings keep each claim with its exact passage. Never cut a quote.
+    val blocks = summary.split(Regex("\\n\\s*\\n")).filter { it.isNotBlank() }
     var omittedFindings = blocks.size
     fun render() = buildJsonObject {
         put("kind", "local_evidence")

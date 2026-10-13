@@ -41,7 +41,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val stoppedTurns = ConcurrentHashMap.newKeySet<Pair<Int, String>>()
     private val runTurns = ConcurrentHashMap<String, Pair<Int, String>>()
     private val generations = ConcurrentHashMap<Pair<Int, String>, Long>()
-    private val resumeControls = ConcurrentHashMap<Pair<Int, String>, Int>()
+    private val resumeControls = ConcurrentHashMap<Pair<Int, String>, String>()
 
     private fun fenceFile(chatId: Int, turnId: String) = File(directory, researchHash("generation:$chatId:$turnId") + ".fence")
 
@@ -57,17 +57,19 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
 
     /** Explicit Continue advances durable ownership without resetting budget or authority. */
-    suspend fun resume(chatId: Int, turnId: String, controlMessageId: Int, persistent: Boolean = true) = withContext(Dispatchers.IO) {
-        lock.withLock { advanceGeneration(chatId, turnId, controlMessageId, persistent) }
+    suspend fun resume(chatId: Int, turnId: String, controlMessageId: Int, persistent: Boolean = true) = resumeGeneration(chatId, turnId, controlMessageId.toString(), persistent)
+
+    suspend fun resumeGeneration(chatId: Int, turnId: String, controlId: String, persistent: Boolean = true) = withContext(Dispatchers.IO) {
+        lock.withLock { advanceGeneration(chatId, turnId, controlId, persistent) }
     }
 
-    @Synchronized private fun advanceGeneration(chatId: Int, turnId: String, controlMessageId: Int, persistent: Boolean) {
+    @Synchronized private fun advanceGeneration(chatId: Int, turnId: String, controlId: String, persistent: Boolean) {
         check(chatId !in deletedChats) { "Conversation was deleted" }
         val key = chatId to turnId
         val current = currentGeneration(chatId, turnId, persistent)
         val file = fenceFile(chatId, turnId)
-        val savedControl = if (persistent && file.isFile) Json.parseToJsonElement(file.readText()).jsonObject.number("controlMessageId") else null
-        if (resumeControls[key] == controlMessageId || savedControl == controlMessageId) return
+        val savedControl = if (persistent && file.isFile) Json.parseToJsonElement(file.readText()).jsonObject.let { it.text("controlId").ifBlank { it.text("controlMessageId") } } else null
+        if (resumeControls[key] == controlId || savedControl == controlId) return
         val next = Math.addExact(current, 1L)
         if (persistent) {
             check(directory.mkdirs() || directory.isDirectory)
@@ -76,12 +78,12 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 buildJsonObject {
                     put("chatId", chatId)
                     put("fence", next)
-                    put("controlMessageId", controlMessageId)
+                    put("controlId", controlId)
                 }.toString().toByteArray()
             )
         }
         generations[key] = next
-        resumeControls[key] = controlMessageId
+        resumeControls[key] = controlId
         runTurns.filterValues { it == key }.keys.forEach {
             stops += it
             stopOrigins[it] = "SUPERSEDED_GENERATION"

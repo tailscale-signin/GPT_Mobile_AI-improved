@@ -300,8 +300,8 @@ internal class AndroidResearchWorkflow(
             checkpoint(if (failure.message?.startsWith("Paused for device resources") == true) "Paused for device resources" else "Failed")
         }
         val assessment = coverage()
-        val findings = assessment.relevantClaims.joinToString("\n") { "[${it.sourceId}] ${it.text}\nPassage: ${it.quote}" }
-            .ifBlank { sources.values.filter { it.readable }.take(8).joinToString("\n") { "[${it.id}] Unreviewed passage: ${it.passage.take(650)}" } }
+        val findings = assessment.relevantClaims.joinToString("\n\n") { "[${it.sourceId}] ${it.text}\nPassage: ${it.quote}" }
+            .ifBlank { sources.values.filter { it.readable }.take(8).joinToString("\n\n") { "[${it.id}] Unreviewed passage: ${it.passage}" } }
         val notes = state.notes.filterNot { it.startsWith("Policy:") }.toMutableList()
         notes += "Question coverage: ${assessment.coveredQuestionIds.size}/${questions().size}; missing=${assessment.missingQuestionIds.joinToString()}. Passage support is separate from independent review."
         notes += "Planning: ${state.planningStatus}. Collection: ${sources.values.readableWorkCount()}/$sourceTarget."
@@ -815,7 +815,7 @@ internal class AndroidResearchWorkflow(
 
     private suspend fun review() {
         checkpoint("Reviewing")
-        for (source in sources.values.filter { it.readable && it.originId.isBlank() }) {
+        for (source in sources.values.filter { it.readable && it.originId.isBlank() }.sortedByDescending { source -> questions().count { dev.chungjungsoo.gptmobile.data.research.researchSourceCanAnswer(it, source) } }) {
             if (stopped() || exhausted || !collecting()) break
             val sourceVersion = "${source.id}:${researchHash(source.versionId + source.passage)}"
             if (sourceVersion !in state.extractedSourceVersions) {

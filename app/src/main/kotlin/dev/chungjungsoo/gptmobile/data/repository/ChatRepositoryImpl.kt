@@ -1158,14 +1158,15 @@ class ChatRepositoryImpl(
         } else {
             userMessages
         }
-        val taskRecovery = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns)
-        if (recoveryAction != null && taskRecovery == null) {
+        val resumeDescriptor = assistantMessages.flatten().firstOrNull { it.currentRunId == runId }?.timeline?.mapNotNull { it.recovery }?.firstOrNull { it.generationId == runId }
+        val taskRecovery = if (resumeDescriptor != null) dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns, resumeDescriptor) else dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns)
+        if ((recoveryAction != null || resumeDescriptor != null) && taskRecovery == null) {
             emit(ApiState.Error("There is no saved task to resume. Send the original request before using Continue or Retry."))
             return@channelFlow
         }
         val effectiveUserMessages = if (taskRecovery != null) {
             AppLogRecorder.record("Recovery", "TASK_ACTION · action=${taskRecovery.action} · sourceMessage=${taskRecovery.sourceMessageId} · primaryOnly=${taskRecovery.primaryOnly} · run=$runId")
-            userMessages.mapIndexed { index, message -> if (index == userMessages.lastIndex) message.copy(content = taskRecovery.prompt()) else message }
+            userMessages.mapIndexed { index, message -> if (index == userMessages.lastIndex) message.copy(content = taskRecovery.originalRequest) else message }
         } else {
             userMessages
         }
@@ -1287,7 +1288,7 @@ class ChatRepositoryImpl(
                     val candidateRuns = (agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds) + completedRecoveryRuns)
                         .filter { it.runId != runId }.distinctBy { it.runId }.sortedBy { it.createdAt }
                     val allowed = allowedTools.map { it.realToolName to it.connectionUid }.toSet()
-                    val savedEvents = agentPersistenceDao.getToolEvents(candidateRuns.map { it.runId })
+                    val savedEvents = if (candidateRuns.isEmpty()) emptyList() else agentPersistenceDao.getToolEvents(candidateRuns.map { it.runId })
                     val deniedRuns = savedEvents.filter { event ->
                         (event.toolName to event.connectionUidSnapshot) !in allowed &&
                             event.toolName != "read_recovery_context" ||
@@ -1366,7 +1367,7 @@ class ChatRepositoryImpl(
             } else {
                 profileBudget
             }
-            val turnKey = dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
+            val turnKey = taskRecovery?.let { "${effectiveUserMessages.lastOrNull()?.chatId}:${it.sourceMessageId}" } ?: dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
             dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.register(runId)
             val admittedProfiles = settingRepository.fetchPlatformV2s()
             val admittedFeatures = settingRepository.getFeatureSettings()
@@ -1389,7 +1390,7 @@ class ChatRepositoryImpl(
             admittedReadOnlyPlan = admittedPolicy.taskPlan.steps.isNotEmpty()
             val researchChatId = effectiveUserMessages.lastOrNull()?.chatId ?: -1
             val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
-            if (taskRecovery != null) researchSessions?.resume(researchChatId, turnKey, effectiveUserMessages.lastOrNull()?.id ?: 0, researchPersistent)
+            if (taskRecovery != null) researchSessions?.resumeGeneration(researchChatId, turnKey, resumeDescriptor?.generationId ?: effectiveUserMessages.lastOrNull()?.id.toString(), researchPersistent)
             delegationActivity?.start(runId, researchChatId, dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(kotlinx.serialization.json.Json.encodeToString(admittedPolicy)), platform.uid, researchPersistent)
             val localDelegation = LocalDelegationCoordinator(
                 platform,
@@ -1463,7 +1464,7 @@ class ChatRepositoryImpl(
                         settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
                     }.getOrDefault(true)
                     val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
-                    agentToolResolver.resolve(platform.uid, chatToolConfig, effectiveUserMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
+                    agentToolResolver.resolve(platform.uid, chatToolConfig, effectiveUserMessages.lastOrNull()?.let { message -> taskRecovery?.let { message.copy(id = it.sourceMessageId, content = it.originalRequest) } ?: message }, { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
                         (taskRecovery?.primaryOnly == true && resolved.realToolName == "delegate_to_model") ||
                             privateConversation &&
                             (
@@ -1519,14 +1520,15 @@ class ChatRepositoryImpl(
                     // profile's ordinary tool-call switches. Disabling tools should not
                     // silently disable the user's Memory setting.
                     val recall = factVault?.prepareTurn(
-                        latestUser.content,
+                        taskRecovery?.originalRequest ?: latestUser.content,
                         latestUser.chatId,
-                        latestUser.id,
+                        taskRecovery?.sourceMessageId ?: latestUser.id,
                         isLocal = platform.isPrivateDestination(),
+                        capture = taskRecovery == null,
                         includeLocalOnly = platform.compatibleType == ClientType.LITERT_LM,
                         previousContext = effectiveUserMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
                     ) ?: FactRecall()
-                    if (factVault?.state?.value?.settings?.localModelLearning == true) {
+                    if (taskRecovery == null && factVault?.state?.value?.settings?.localModelLearning == true) {
                         try {
                             if (!factVault.scopeForChat(latestUser.chatId).isTemporary) {
                                 messageV2Dao.message(latestUser.id)?.let { memoryEnrichment?.enqueue(it) }
@@ -1599,6 +1601,7 @@ class ChatRepositoryImpl(
             val quickRepliesEnabled = responseFeatures.smartSuggestions
             val subjectInstruction = if (responseFeatures.automaticConversationTitles && effectiveUserMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
             fun baseSystemPrompt(): String {
+                val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
                 val progressInstruction = if (resolvedTools.isNotEmpty()) {
                     "\nBefore the first tool call and after every 10 completed tool calls, " +
                         dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION
@@ -1627,7 +1630,7 @@ class ChatRepositoryImpl(
                     platform.systemPrompt,
                     exposedTools.map { it.modelToolName },
                     compact = localResearch || limits.contextTokens < 4096
-                ) + subjectInstruction + (if (quickRepliesEnabled) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction + synthesisInstruction +
+                ) + subjectInstruction + (if (quickRepliesEnabled) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
                     if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
             }
             val memorySettings = factVault?.state?.value

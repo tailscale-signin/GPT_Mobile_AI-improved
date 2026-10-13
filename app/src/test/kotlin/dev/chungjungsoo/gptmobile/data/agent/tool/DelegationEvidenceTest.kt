@@ -76,7 +76,7 @@ class DelegationEvidenceTest {
     @Test fun smallHandoffPreservesReviewStatusAndNeverCutsAClaim() {
         val small = "Measured result [S1]."
         val huge = "Claim starts: " + "multibyte 東京 ".repeat(500) + " claim ends. [S2]"
-        val handoff = delegationHandoff(small + "\n" + huge, listOf(DelegationSource("S1", "https://example.org/1", "Source one"), DelegationSource("S2", "https://example.org/2", "Source two")), listOf("Independent reviewer unavailable."), 512)
+        val handoff = delegationHandoff(small + "\n\n" + huge, listOf(DelegationSource("S1", "https://example.org/1", "Source one"), DelegationSource("S2", "https://example.org/2", "Source two")), listOf("Independent reviewer unavailable."), 512)
         val value = Json.parseToJsonElement(handoff).jsonObject
         assertEquals(small, value.getValue("findings").jsonPrimitive.content)
         assertEquals("unavailable", value.getValue("review").jsonPrimitive.content)

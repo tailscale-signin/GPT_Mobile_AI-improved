@@ -43,7 +43,7 @@ class ResearchRepairContractsTest {
         val source = ResearchSource("S1", "https://example.org", "Fixture accuracy", "Read", "The study measured an accuracy improvement of two percent.")
         val claim = ResearchClaim("Accuracy improves", "S1", source.passage, "Supported", "Q1", "Relevant", true)
         assertFalse(assessResearchCoverage(questions, listOf(claim), listOf(source)).complete)
-        assertTrue(assessResearchCoverage(questions, listOf(claim), listOf(source.copy(reviewStatus = "peer_reviewed"))).complete)
+        assertTrue(assessResearchCoverage(questions, listOf(claim), listOf(source.copy(reviewStatus = "peer_reviewed", publicationType = "controlled study"))).complete)
         assertFalse(assessResearchCoverage(questions, listOf(claim), listOf(source.copy(reviewStatus = "peer_reviewed", isRetracted = true))).complete)
     }
 
@@ -63,5 +63,33 @@ class ResearchRepairContractsTest {
         val quote = "Synthetic passage. ".repeat(100)
         val source = ResearchSource("S1", "https://example.org", "Fixture", "Read", quote)
         assertTrue(validatedResearchClaims(listOf(ResearchClaim("Claim", "S1", quote).json()), listOf(source)).isEmpty())
+    }
+
+    @Test fun empiricalCoverageRejectsKeywordOverlappingNonStudySourcesEvenWhenModelSaysRelevant() {
+        val question = ResearchQuestion("Q1", "Does the accuracy fixture improve outcomes?", "Primary controlled study of measured outcomes")
+        val types = listOf("controlled study", "product pricing", "prevalence study", "review comment", "study protocol", "questionnaire methods")
+        val sources = types.mapIndexed { index, type -> ResearchSource("S$index", "https://example.org/$index", "Accuracy fixture $type", "Read", "A synthetic exact quotation about accuracy fixture outcomes.", publicationType = type) }
+        val claims = sources.map { ResearchClaim("Accuracy fixture outcomes", it.id, it.passage, "Supported", "Q1", "Relevant", true) }
+        val assessment = assessResearchCoverage(listOf(question), claims, sources)
+        assertEquals(listOf("S0"), assessment.relevantClaims.map { it.sourceId })
+    }
+
+    @Test fun expiredSourceInvalidatesOnlyDependentEvidence() {
+        val recent = ResearchSource("S1", "https://example.org/1", "Recent", "Read", "Complete recent passage", retrievedAt = 100000000)
+        val old = recent.copy(id = "S2", retrievedAt = 1)
+        val claims = listOf(recent, old).map { ResearchClaim("Claim", it.id, it.passage, "Supported", "Q1", "Relevant", true) }
+        val refreshed = ResearchSnapshot("Task", complete = true, sources = listOf(recent, old), claims = claims, extractedSourceVersions = setOf("S1:hash", "S2:hash")).withFreshEvidence(100000001)
+        assertTrue(refreshed.sources.first().readable)
+        assertFalse(refreshed.sources.last().readable)
+        assertEquals("Supported", refreshed.claims.first().verdict)
+        assertEquals("Unreviewed", refreshed.claims.last().verdict)
+        assertEquals(setOf("S1:hash"), refreshed.extractedSourceVersions)
+    }
+
+    @Test fun plannerCannotWaiveRequiredEvidenceOrUseUnknownSchema() {
+        val waived = Json.parseToJsonElement("""{"questions":[],"queries":[],"noResearchNeeded":true}""").jsonObject
+        assertTrue(runCatching { ResearchPlanContract.parse(waived, requiresEvidence = true) }.isFailure)
+        val unknown = Json.parseToJsonElement("""{"schemaVersion":999,"questions":["Valid"],"queries":[]}""").jsonObject
+        assertTrue(runCatching { ResearchPlanContract.parse(unknown) }.isFailure)
     }
 }

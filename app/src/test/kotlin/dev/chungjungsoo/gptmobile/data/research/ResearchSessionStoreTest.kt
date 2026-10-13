@@ -239,9 +239,9 @@ class ResearchSessionStoreTest {
         }
         val claims = (1..14).map { index ->
             ResearchClaim(
-                "S${196 + (index - 1) % 12}",
-                "Synthetic claim $index",
-                "Synthetic panel evidence with explicit uncertainty.",
+                text = "Synthetic claim $index",
+                sourceId = "S${196 + (index - 1) % 12}",
+                quote = "Synthetic panel evidence with explicit uncertainty.",
                 verdict = when {
                     index <= 5 -> "Supported"
                     index <= 11 -> "Insufficient"
@@ -263,5 +263,18 @@ class ResearchSessionStoreTest {
         assertEquals(24, resumed.budget(100, 1000000)!!.snapshot().usedLogical)
         assertFalse(checkpoint.complete)
         assertTrue(checkpoint.notes.any { it.contains("reviewer unavailable") })
+    }
+
+    @Test fun repeatedButtonRetriesAdvanceFenceEvenWhenSourceMessageIsUnchanged() = runBlocking {
+        val store = ResearchSessionStore(context)
+        store.resumeGeneration(1, "1:1", "retry-a")
+        val old = store.journal("retry-a", 1, true, "1:1")
+        old.save(ResearchSnapshot("Task", updatedAt = 1))
+        store.resumeGeneration(1, "1:1", "retry-b")
+        assertTrue(old.stopRequested())
+        val current = store.journal("retry-b", 1, true, "1:1")
+        current.save(ResearchSnapshot("Task", phase = "Writing", updatedAt = 2))
+        old.save(ResearchSnapshot("Task", phase = "Stale", updatedAt = 3))
+        assertEquals("Writing", current.load("Task")!!.phase)
     }
 }

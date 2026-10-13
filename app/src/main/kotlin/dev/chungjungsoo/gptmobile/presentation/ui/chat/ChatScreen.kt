@@ -717,7 +717,13 @@ fun ChatScreen(
                 val chatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
                 if (chatResearch.isNotEmpty()) {
                     item(key = "research-progress") {
-                        ResearchProgressCard(chatResearch, activeAgentRuns.keys, chatViewModel::stopResearch)
+                        ResearchProgressCard(
+                            chatResearch,
+                            activeAgentRuns.keys,
+                            chatViewModel::stopResearch,
+                            writerFailure = chatResearch.maxByOrNull { it.snapshot.updatedAt }?.runId?.let { agentRunsById[it] }?.takeIf { it.status == "FAILED" }?.terminalError,
+                            onRecovery = chatViewModel::sendPromptResponse
+                        )
                     }
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->

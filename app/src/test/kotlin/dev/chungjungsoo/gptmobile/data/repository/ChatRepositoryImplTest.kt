@@ -984,7 +984,9 @@ class ChatRepositoryImplTest {
         assertTrue(continued.any { it is ApiState.Error && it.message.contains("Final writer unavailable") })
         assertEquals(1, api.streamChatCompletionCalls)
         assertEquals(afterFailure, toolResolutions)
-        val retry = repository.completeChat(listOf(original, original.copy(id = 5, content = "Retry failed stage")), emptyList(), customPlatform(), "retry", null).toList()
+        val descriptor = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor("0:1", 1, "retry", dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE)
+        val pending = MessageV2(id = 2, chatId = 0, content = "", platformType = customPlatform().uid, currentRunId = "retry", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, recovery = descriptor)))
+        val retry = repository.completeChat(listOf(original), listOf(listOf(pending)), customPlatform(), "retry", null).toList()
         assertTrue(retry.any { it is ApiState.Success && it.textChunk.contains("Resumed final answer") })
         assertEquals(2, api.streamChatCompletionCalls)
     }

@@ -404,6 +404,7 @@ class AgentRunCoordinator @Inject constructor(
     private suspend fun execute(request: AgentRunRequest) {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
+        val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId }
         var lastCheckpointAt = 0L
         try {
             if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return
@@ -418,7 +419,7 @@ class AgentRunCoordinator @Inject constructor(
                     assistantMessage = assistantMessage.copy(
                         content = content,
                         thoughts = thoughts,
-                        timeline = timeline
+                        timeline = recoveryMarkers + timeline
                     )
                     _streamMessages.update { it + (assistantMessage.id to assistantMessage) }
                     val now = SystemClock.elapsedRealtime()

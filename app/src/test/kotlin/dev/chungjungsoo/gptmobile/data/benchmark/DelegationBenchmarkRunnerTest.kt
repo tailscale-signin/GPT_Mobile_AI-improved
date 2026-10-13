@@ -172,7 +172,7 @@ class DelegationBenchmarkRunnerTest {
             val code = Regex("PKG-[a-f0-9]{8}").find(prompt)!!.value
             """{"claims":[{"sourceId":"S1","questionId":"Q1","relevance":"Relevant","text":"Parcel code is $code.","quote":"Parcel code is $code."}]}"""
         }
-        else -> """{"verdict":"Supported"}"""
+        else -> """{"verdict":"Supported","relevance":"Relevant","questionId":"Q1"}"""
     }
 
     private val source = PlatformV2(uid = "primary", name = "Primary", compatibleType = ClientType.OPENAI, model = "gpt-4.1", apiUrl = "https://api.openai.com")
@@ -235,7 +235,7 @@ class DelegationBenchmarkRunnerTest {
             )
             val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-tools" })
             assertEquals(if (valid) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED, result.outcome)
-            assertEquals(2, result.delegation!!.fixtureCalls)
+            assertEquals(1, result.delegation!!.fixtureCalls)
             assertEquals(if (valid) 1 else 0, result.delegation!!.successfulFixtureCalls)
         }
     }

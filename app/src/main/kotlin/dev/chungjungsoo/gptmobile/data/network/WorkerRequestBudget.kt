@@ -11,7 +11,8 @@ internal class WorkerRequestBudget(
     runtimeMillis: Long,
     private val physicalRequests: AtomicInteger,
     private val requestLimit: Int = 48,
-    private val clock: () -> Long = { System.nanoTime() / 1_000_000 }
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val durableReservation: () -> Boolean = { true }
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<WorkerRequestBudget>
     private val deadline = clock() + runtimeMillis
@@ -25,6 +26,7 @@ internal class WorkerRequestBudget(
             val count = physicalRequests.get()
             if (count >= requestLimit) throw IOException("DELEGATE_PHYSICAL_REQUEST_LIMIT: $requestLimit")
             if (physicalRequests.compareAndSet(count, count + 1)) {
+                if (!durableReservation()) throw IOException("DELEGATE_PHYSICAL_REQUEST_LIMIT: original work allowance exhausted")
                 AppLogRecorder.record("Delegation", "HTTP_DISPATCH · providerAttempt=${providerAttempts.incrementAndGet()} · physicalRequest=${count + 1}/$requestLimit · remainingDeadlineMs=${remainingMillis()}")
                 return
             }

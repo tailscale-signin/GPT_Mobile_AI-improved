@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import java.util.Locale
 
+@kotlinx.serialization.Serializable
 enum class TaskRecoveryAction {
     CONTINUE_RUN,
     RETRY_FAILED_STAGE,
@@ -16,6 +17,16 @@ enum class TaskRecoveryAction {
             else -> null
         }
     }
+}
+
+@kotlinx.serialization.Serializable
+data class TaskResumeDescriptor(val rootWorkId: String, val sourceMessageId: Int, val generationId: String, val action: TaskRecoveryAction)
+
+internal fun resolveTaskRecovery(messages: List<MessageV2>, descriptor: TaskResumeDescriptor): ResolvedTaskRecovery? {
+    val latest = messages.lastOrNull() ?: return null
+    val source = messages.firstOrNull { it.id == descriptor.sourceMessageId && it.chatId == latest.chatId && it.platformType == null } ?: return null
+    if (descriptor.rootWorkId != "${source.chatId}:${source.id}" || TaskRecoveryAction.fromText(source.content) != null) return null
+    return ResolvedTaskRecovery(descriptor.action, source.id, source.content, descriptor.action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY)
 }
 
 internal data class ResolvedTaskRecovery(val action: TaskRecoveryAction, val sourceMessageId: Int, val originalRequest: String, val primaryOnly: Boolean) {

@@ -56,4 +56,15 @@ class DelegationRepairContractsTest {
         assertEquals(CancellationOrigin.PERMISSION_REVOKED, context.record!!.origin)
         assertEquals("chat:1", context.record!!.rootWorkId)
     }
+
+    @Test fun unknownPrivateAliasesCannotPassIndependentReviewAndDisableFlagStopsDispatch() {
+        val writer = profile("writer", "openai/gpt-4.1")
+        val worker = profile("helper", "qwen/qwen3-8b")
+        val alias = worker.copy(uid = "reviewer", model = "unresolved-private-alias", compatibleType = ClientType.LLAMA, apiUrl = "https://example.org/private")
+        val config = ModelDelegationSettings(enabled = true, targetProfileUid = worker.uid, reviewerProfileUid = alias.uid, reviewMode = DelegationReviewMode.REQUIRED, allowRemoteWorkers = true, localPlatformsOnly = false)
+        assertTrue(DelegationAdmissionResolver.resolve(config, listOf(writer, worker, alias), writer).blocked)
+        assertFalse(config.copy(orchestrationEnabled = false).normalized().enabled)
+        assertFalse(config.copy(orchestrationVersion = 99).normalized().enabled)
+        assertFalse(config.copy(reviewMode = DelegationReviewMode.OFF).withDelegationAmount(100).normalized().reviewerEnabled)
+    }
 }

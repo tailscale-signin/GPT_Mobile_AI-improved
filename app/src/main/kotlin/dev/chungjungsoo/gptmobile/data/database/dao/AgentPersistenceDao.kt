@@ -282,7 +282,16 @@ interface AgentPersistenceDao {
         val assistantMessage = request.assistantMessage.copy(
             content = "",
             thoughts = "",
-            timeline = emptyList(),
+            timeline = listOfNotNull(
+                request.recovery?.let { descriptor ->
+                    require(descriptor.generationId == request.run.runId && descriptor.rootWorkId == "${request.userMessage.chatId}:${descriptor.sourceMessageId}")
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                        type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                        content = "Resuming unfinished work from saved evidence.",
+                        recovery = descriptor
+                    )
+                }
+            ),
             attachments = emptyList(),
             revisions = previousRevision
                 ?.let { listOf(it) + request.assistantMessage.revisions }

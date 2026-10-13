@@ -516,7 +516,15 @@ internal class LocalDelegationCoordinator(
         )
     }
 
-    private fun reserveWorkerCall(limit: Int): Int? {
+    private val durableBudgetLock = kotlinx.coroutines.sync.Mutex()
+    private var durableBudget: dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
+    private suspend fun sharedLedger(): dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger? = durableBudgetLock.withLock {
+        if (durableBudget == null) durableBudget = researchJournal?.goalBudget(dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(settings().normalized().deepResearch))
+        durableBudget?.ledger
+    }
+
+    private suspend fun reserveWorkerCall(limit: Int): Int? {
+        if (sharedLedger()?.reserveDelegation("worker_calls", java.util.UUID.randomUUID().toString(), limit) == false) return null
         while (true) {
             val current = localCalls.get()
             if (current >= limit) return null
@@ -581,6 +589,8 @@ internal class LocalDelegationCoordinator(
         )
         val permanentlyUnavailable =
             containsAny(
+                "DELEGATE_CALL_LIMIT",
+                "DELEGATE_PHYSICAL_REQUEST_LIMIT",
                 "HTTP 404",
                 "HTTP 410",
                 "model not found",
@@ -843,6 +853,9 @@ internal class LocalDelegationCoordinator(
             return null
         }
         if (!planReservation()) return null
+        val ledger = sharedLedger()
+        val reviewReserve = if (!reviewer && live.reviewerEnabled) 1 else 0
+        check(ledger?.reserveDelegation("model_invocations", stepId, live.effectiveLocalModelCalls(), reviewReserve) != false) { "DELEGATE_CALL_LIMIT: original work model allowance exhausted" }
         // Reviewers never fall back to a callback that can inherit worker tools.
         val progressive = if (reviewer) {
             generateReviewerWithProgress
@@ -868,7 +881,7 @@ internal class LocalDelegationCoordinator(
             // Progressing tool work may extend the adaptive runtime, but never the hard deadline.
             val requestRuntimeSeconds = if (progressive == null) minOf(runtimeSeconds, hardRuntimeSeconds) else hardRuntimeSeconds
             val deferred = async(
-                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests),
+                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests, durableReservation = { ledger?.reserveDelegation("http_attempts", java.util.UUID.randomUUID().toString(), 48, reviewReserve) != false }),
                 start = CoroutineStart.LAZY
             ) {
                 if (progressive == null) {
@@ -1548,7 +1561,7 @@ internal class LocalDelegationCoordinator(
         }
         val effectiveResearchLimit = config.effectiveResearchCalls()
         val requestIndex = requests.getAndIncrement()
-        if (requestIndex >= effectiveResearchLimit) {
+        if (requestIndex >= effectiveResearchLimit || sharedLedger()?.reserveDelegation("research_operations", java.util.UUID.randomUUID().toString(), effectiveResearchLimit) == false) {
             AppLogRecorder.record("Delegation", "Research skipped · request budget exhausted · request=$requestIndex max=$effectiveResearchLimit · configured=${config.maxCallsPerTurn} · ownership=${config.processingOwnership}", "W")
             return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
         }

@@ -41,4 +41,14 @@ class TaskRecoveryActionTest {
         assertEquals("1:7", rootWorkId(continued + user(7, initial.content), "new-task"))
         assertEquals("2:9", rootWorkId(continued + user(9, "Continue").copy(chatId = 2), "different-chat"))
     }
+
+    @Test fun explicitRetryDescriptorPreservesOriginalObjectiveAndRejectsOtherChatOrGuessedRoot() {
+        val original = user(1, "Compare fixture materials")
+        val descriptor = TaskResumeDescriptor("1:1", 1, "new-generation", TaskRecoveryAction.RETRY_FAILED_STAGE)
+        assertEquals(original.content, resolveTaskRecovery(listOf(original), descriptor)!!.originalRequest)
+        assertNull(resolveTaskRecovery(listOf(original.copy(chatId = 2)), descriptor))
+        assertNull(resolveTaskRecovery(listOf(original), descriptor.copy(rootWorkId = "1:other")))
+        val encoded = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), descriptor)
+        assertEquals(descriptor, kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), encoded))
+    }
 }

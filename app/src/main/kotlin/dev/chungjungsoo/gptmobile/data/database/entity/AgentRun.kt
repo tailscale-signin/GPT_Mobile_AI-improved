@@ -121,7 +121,8 @@ data class PersistAgentTurnResult(
 data class PersistAgentRetryRequest(
     val userMessage: MessageV2,
     val assistantMessage: MessageV2,
-    val run: AgentRunDraft
+    val run: AgentRunDraft,
+    val recovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null
 )
 
 data class PersistAgentRetryResult(

@@ -11,14 +11,16 @@ class ResearchRunLedger(
 ) {
     @Serializable
     data class State(
-        val version: Int = 3,
+        val version: Int = 4,
         val fingerprint: String,
         val limits: ResearchUserLimits,
         val logical: Long = 0,
         val physical: Long = 0,
         val downloaded: Long = 0,
         val activeMillis: Long = 0,
-        val limitReason: String? = null
+        val limitReason: String? = null,
+        val delegationLimits: Map<String, Int> = emptyMap(),
+        val delegationReservations: Map<String, Set<String>> = emptyMap()
     )
     private var state = State(fingerprint = fingerprint, limits = limits)
     private var durable = state
@@ -90,17 +92,42 @@ class ResearchRunLedger(
         return true
     }
 
+    /** Distinct logical operations, model sessions and HTTP attempts share the root owner. */
+    @Synchronized fun reserveDelegation(dimension: String, reservationId: String, limit: Int, reserveForReview: Int = 0): Boolean {
+        require(dimension in DELEGATION_DIMENSIONS && reservationId.length in 1..128 && limit in 1..48 && reserveForReview >= 0)
+        val originalLimit = minOf(state.delegationLimits[dimension] ?: limit, limit)
+        val used = state.delegationReservations[dimension].orEmpty()
+        if (reservationId in used) return true
+        if (used.size >= (originalLimit - reserveForReview).coerceAtLeast(0)) return false
+        val next = state.copy(
+            delegationLimits = state.delegationLimits + (dimension to originalLimit),
+            delegationReservations = state.delegationReservations + (dimension to (used + reservationId))
+        )
+        val reserved = durable.copy(delegationLimits = next.delegationLimits, delegationReservations = next.delegationReservations)
+        persist(reserved)
+        durable = reserved
+        state = next
+        return true
+    }
+
     @Synchronized
     fun restore(saved: State) {
         require(saved.limitReason == null || saved.limitReason in setOf("user_request_limit", "user_download_limit", "user_time_limit"))
-        require(saved.version == 3 && saved.fingerprint == fingerprint && saved.limits == limits)
+        require(saved.version in 3..4 && saved.fingerprint == fingerprint && saved.limits == limits)
         require(listOf(saved.logical, saved.physical, saved.downloaded, saved.activeMillis).all { it >= 0 })
         require(limits.maxRequests?.let { saved.physical <= it } != false)
         require(limits.maxDownloadedBytes?.let { saved.downloaded <= it } != false)
         require(limits.maxActiveMillis?.let { saved.activeMillis <= it } != false)
-        state = saved
-        durable = saved
+        require(saved.delegationLimits.keys.all { it in DELEGATION_DIMENSIONS })
+        require(saved.delegationLimits.values.all { it in 1..48 })
+        require(saved.delegationReservations.all { (key, ids) -> key in DELEGATION_DIMENSIONS && ids.size <= (saved.delegationLimits[key] ?: 0) && ids.all { it.length in 1..128 } })
+        state = saved.copy(version = 4)
+        durable = state
     }
 
     @Synchronized fun snapshot() = state
+
+    private companion object {
+        val DELEGATION_DIMENSIONS = setOf("research_operations", "worker_calls", "model_invocations", "http_attempts")
+    }
 }

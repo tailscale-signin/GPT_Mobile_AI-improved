@@ -1,0 +1,56 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "minilm_v2",
+  "assets": [
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/minilm_v2/releases/v0.64.0/minilm_v2-onnx-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/minilm_v2/releases/v0.64.0/minilm_v2-qnn_dlc-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/minilm_v2/releases/v0.64.0/minilm_v2-tflite-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/minilm_v2/releases/v0.64.0/minilm_v2-onnx-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/minilm_v2/releases/v0.64.0/minilm_v2-qnn_dlc-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_W8A8",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/minilm_v2/releases/v0.64.0/minilm_v2-tflite-w8a8.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    }
+  ]
+}

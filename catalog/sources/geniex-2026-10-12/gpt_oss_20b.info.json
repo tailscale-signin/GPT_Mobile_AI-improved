@@ -1,0 +1,98 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "gpt_oss_20b",
+  "name": "GPT-OSS-20B",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "State-of-the-art Mixture of Experts large language model with extended context length for text generation tasks.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "GPT-OSS-20B is a 20.9B parameter Mixture of Experts (MoE) language model with 32 experts (4 active per token). It features an extended 131K context length with YARN rope scaling and uses a GPT-4o compatible tokenizer. The model is quantized to MXFP4 for efficient on-device deployment.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_GENERATIVE_AI",
+    "MODEL_TAG_MOE"
+  ],
+  "applicable_scenarios": [
+    "Dialogue",
+    "Content Generation",
+    "Long Context Tasks"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Active experts per token",
+      "string_value": "4"
+    },
+    {
+      "key": "Model architecture",
+      "string_value": "Mixture of Experts (MoE)"
+    },
+    {
+      "key": "Number of experts",
+      "string_value": "32"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "20.91B"
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "Supported languages",
+      "string_value": "English"
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt."
+    },
+    {
+      "key": "Tokenizer",
+      "string_value": "BPE (GPT-2 style with GPT-4o preprocessing)"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/2508.10925",
+  "research_paper_title": "gpt-oss-120b & gpt-oss-20b Model Card",
+  "source_repo": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF",
+  "license_url": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_DOWNLOAD_AND_VIEW_README",
+    "geniex_llamacpp_compatible": true
+  },
+  "runtime_technical_details": [
+    {
+      "runtime": "RUNTIME_GENIEX_LLAMACPP",
+      "technical_details": [
+        {
+          "key": "Model Size",
+          "string_value": "11.27 GB (GGUF)"
+        },
+        {
+          "key": "Quantization Type",
+          "string_value": "MXFP4 (GGUF)"
+        },
+        {
+          "key": "Supported Input Modalities",
+          "string_value": "text"
+        },
+        {
+          "key": "Supported Output Modalities",
+          "string_value": "text"
+        },
+        {
+          "key": "model_infer_id",
+          "string_value": "unsloth/gpt-oss-20b-GGUF"
+        }
+      ]
+    }
+  ]
+}

@@ -37,6 +37,7 @@ import org.jsoup.Jsoup
 class PublicAirbnbClient internal constructor(private val http: HttpClient) {
     @Inject constructor() : this(
         HttpClient(OkHttp) {
+            install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
             followRedirects = false
             install(HttpTimeout)
         }

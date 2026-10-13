@@ -1,0 +1,55 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "depth_anything_v2",
+  "name": "Depth-Anything-V2",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Deep Convolutional Neural Network model for depth estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Depth Anything is designed for estimating depth at each point in an image.",
+  "use_case": "MODEL_USE_CASE_DEPTH_ESTIMATION",
+  "applicable_scenarios": [
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "midas"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "518x518"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "DepthAnything_V2_Small"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "94.3 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "24.7M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/2406.09414",
+  "research_paper_title": "Depth Anything V2",
+  "source_repo": "https://github.com/huggingface/transformers/tree/main/src/transformers/models/depth_anything",
+  "license_url": "https://github.com/huggingface/transformers/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "nyuv2",
+    "metric_name": "Delta Threshold Accuracy",
+    "value": 97.2,
+    "unit": "\u03b41",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

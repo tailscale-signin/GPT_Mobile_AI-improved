@@ -58,6 +58,14 @@ INSTRUMENTATION_STATUS_CODE: 0
         self.check_output(output)
         self.check_output(output.replace("\n", "\r\n"))
 
+    def test_explicit_acceptance_identity_requires_its_own_packets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "instrumentation.txt")
+            path.write_text((self.START + self.SUCCESS + self.FINISH).replace(smoke.TEST_CLASS, "AcceptanceTest").replace(smoke.TEST_METHOD, "measured"))
+            smoke.check_instrumentation(path, "AcceptanceTest", "measured")
+            with self.assertRaisesRegex(ValueError, "did not execute"):
+                smoke.check_instrumentation(path, "AcceptanceTest", "different")
+
     def test_zero_tests_wrong_test_and_incomplete_crash_cannot_pass(self):
         for output in [self.FINISH, self.START, self.START + self.FINISH, self.START + self.SUCCESS, (self.START + self.SUCCESS + self.FINISH).replace(smoke.TEST_CLASS, "OtherTest")]:
             with self.subTest(output=output), self.assertRaisesRegex(ValueError, "did not execute"):

@@ -1,0 +1,56 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "bevformer",
+  "name": "BEVFormer",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Transform temporal multi-view images into a unified bird's eye scene.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Bevformer is a SOTA model of interest to the Auto BU.",
+  "use_case": "MODEL_USE_CASE_DRIVER_ASSISTANCE",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Object Detection"
+  ],
+  "related_models": [
+    "simple_bev_cam"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input preprocessing",
+      "string_value": "Images must be ImageNet mean/std normalized before inference; the model does not normalize internally."
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "6 x 3 x 480 x 800"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "bevformer_tiny_deformable_optimized_exp_86_epoch_24.pth"
+    },
+    {
+      "key": "Model size",
+      "string_value": "120 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "27M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "nuscenes"
+  ],
+  "research_paper": "https://arxiv.org/abs/2203.17270",
+  "research_paper_title": "BEVFormer: Learning Bird's-Eye-View Representation from Multi-Camera Images via Spatiotemporal Transformers",
+  "source_repo": "https://github.com/fundamentalvision/BEVFormer/",
+  "license_url": "https://github.com/fundamentalvision/BEVFormer/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

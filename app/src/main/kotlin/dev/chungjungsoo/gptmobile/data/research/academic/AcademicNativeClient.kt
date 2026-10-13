@@ -102,6 +102,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         encodeDefaults = true
     }
     private val http = HttpClient(OkHttp) {
+        install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
         followRedirects = false
         install(HttpTimeout) {
             connectTimeoutMillis = 8000

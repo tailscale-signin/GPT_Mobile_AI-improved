@@ -8,6 +8,7 @@ import android.content.Intent
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -27,16 +28,20 @@ class BenchmarkExecutionCoordinatorTest {
     @Test fun workWaitsForForegroundAndFastCompletionStopsOnlyAfterPromotion() = runBlocking {
         var stops = 0
         val stopped = CompletableDeferred<Unit>()
+        lateinit var coordinator: BenchmarkExecutionCoordinator
         val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
             override fun getApplicationContext(): Context = this
             override fun stopService(service: Intent): Boolean {
+                assertTrue(coordinator.isRunning)
+                assertNull(coordinator.launch { error("Cleanup still owns the service") })
+                assertEquals("FINISHED", getSharedPreferences("benchmark_execution_v1", Context.MODE_PRIVATE).getString("status", null))
                 stops++
                 stopped.complete(Unit)
                 return true
             }
         }
         val ran = CompletableDeferred<Unit>()
-        val coordinator = BenchmarkExecutionCoordinator(context, mockk(relaxed = true))
+        coordinator = BenchmarkExecutionCoordinator(context, mockk(relaxed = true))
         val job = requireNotNull(coordinator.launch { ran.complete(Unit) })
         assertNull(withTimeoutOrNull(100) { ran.await() })
         assertFalse(ran.isCompleted)
@@ -47,6 +52,7 @@ class BenchmarkExecutionCoordinatorTest {
         withTimeout(5000) {
             job.join()
             stopped.await()
+            coordinator.sessionId.first { it == null }
         }
         assertTrue(ran.isCompleted)
         assertEquals(1, stops)
@@ -67,7 +73,10 @@ class BenchmarkExecutionCoordinatorTest {
         val first = requireNotNull(coordinator.launch { error("Cancelled work must not execute") })
         val firstId = coordinator.sessionId.value
         coordinator.cancel()
-        withTimeout(5000) { first.join() }
+        withTimeout(5000) {
+            first.join()
+            coordinator.sessionId.first { it == null }
+        }
         assertEquals(0, stops)
         val second = requireNotNull(coordinator.launch { awaitCancellation() })
         assertFalse(coordinator.serviceReady(firstId))
@@ -76,6 +85,7 @@ class BenchmarkExecutionCoordinatorTest {
         withTimeout(5000) {
             second.join()
             stopped.await()
+            coordinator.sessionId.first { it == null }
         }
         assertEquals(1, stops)
     }
@@ -98,13 +108,19 @@ class BenchmarkExecutionCoordinatorTest {
         val first = requireNotNull(coordinator.launch { awaitCancellation() })
         assertNull(coordinator.launch { error("Only one run can own the service") })
         coordinator.cancel()
-        withTimeout(5000) { first.join() }
+        withTimeout(5000) {
+            first.join()
+            coordinator.sessionId.first { it == null }
+        }
         assertNull(coordinator.sessionId.value)
         assertFalse(coordinator.isRunning)
         assertEquals("STOPPED", context.getSharedPreferences("benchmark_execution_v1", Context.MODE_PRIVATE).getString("status", null))
         val second = requireNotNull(coordinator.launch { awaitCancellation() })
         coordinator.cancel()
-        withTimeout(5000) { second.join() }
+        withTimeout(5000) {
+            second.join()
+            coordinator.sessionId.first { it == null }
+        }
         assertNull(coordinator.sessionId.value)
     }
 }

@@ -19,7 +19,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -31,47 +33,49 @@ fun DelegateModelDropdown(
     selectedProfileUid: String,
     enabled: Boolean,
     onSelected: (PlatformV2?) -> Unit,
-    automaticLabel: String = "Automatic",
-    roleLabel: String = "Delegate model",
+    automaticLabel: String = stringResource(R.string.v0950_picker_automatic),
+    roleLabel: String = stringResource(R.string.v0950_picker_delegate),
     scores: Map<String, Int> = emptyMap(),
-    blockedReason: (PlatformV2) -> String? = { if (it.enabled) null else "Profile disabled" }
+    testTag: String = "delegate_model_dropdown",
+    blockedReason: ((PlatformV2) -> String?)? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
-    var destination by remember { mutableStateOf("All") }
+    var destination by remember { mutableStateOf(0) }
     val selected = profiles.firstOrNull { it.uid == selectedProfileUid }
+    val scoreLabel = stringResource(R.string.v0950_picker_score)
     Column {
         Text(roleLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Box(Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = { expanded = true },
                 enabled = enabled,
-                modifier = Modifier.fillMaxWidth().testTag("delegate_model_dropdown")
+                modifier = Modifier.fillMaxWidth().testTag(testTag)
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(selected?.name ?: if (selectedProfileUid.isBlank()) automaticLabel else "Selected model unavailable")
+                    Text(selected?.name ?: if (selectedProfileUid.isBlank()) automaticLabel else stringResource(R.string.v0950_picker_unavailable))
                     selected?.let {
                         Text(
                             buildString {
                                 append(it.model)
-                                scores[it.uid]?.let { score -> append(" · Score $score/100") }
+                                scores[it.uid]?.let { score -> append(" · ").append(scoreLabel.format(score)) }
                             },
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
-                Icon(Icons.Rounded.ArrowDropDown, "Choose $roleLabel")
+                Icon(Icons.Rounded.ArrowDropDown, stringResource(R.string.v0950_picker_choose, roleLabel))
             }
             if (expanded && enabled) {
                 androidx.compose.material3.AlertDialog(
                     onDismissRequest = { expanded = false },
-                    title = { Text("Choose $roleLabel") },
+                    title = { Text(stringResource(R.string.v0950_picker_choose, roleLabel)) },
                     text = {
                         Column {
-                            androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search profiles or models") }, singleLine = true)
+                            androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text(stringResource(R.string.v0950_picker_search)) }, singleLine = true)
                             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
-                                listOf("All", "On device", "Private", "Cloud").forEach { label ->
-                                    androidx.compose.material3.FilterChip(destination == label, { destination = label }, label = { Text(label) })
+                                listOf(R.string.all, R.string.v0950_picker_on_device, R.string.v0950_picker_private, R.string.v0950_picker_cloud).forEachIndexed { index, label ->
+                                    androidx.compose.material3.FilterChip(destination == index, { destination = index }, label = { Text(stringResource(label)) })
                                 }
                             }
                             androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 360.dp)) {
@@ -84,15 +88,21 @@ fun DelegateModelDropdown(
                                 val candidates = profiles.filter { profile ->
                                     (query.isBlank() || "${profile.name} ${profile.model}".contains(query.trim(), true)) &&
                                         when (destination) {
-                                            "On device" -> profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM
-                                            "Private" -> profile.isPrivateDestination() && profile.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM
-                                            "Cloud" -> !profile.isPrivateDestination()
+                                            1 -> profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM
+                                            2 -> profile.isPrivateDestination() && profile.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM
+                                            3 -> !profile.isPrivateDestination()
                                             else -> true
                                         }
                                 }
                                 items(candidates.size, key = { candidates[it].uid }) { index ->
                                     val profile = candidates[index]
-                                    val reason = blockedReason(profile)
+                                    val reason = if (blockedReason != null) {
+                                        blockedReason(profile)
+                                    } else if (profile.enabled) {
+                                        null
+                                    } else {
+                                        stringResource(R.string.v0950_picker_disabled)
+                                    }
                                     DropdownMenuItem(
                                         enabled = reason == null,
                                         text = {
@@ -100,28 +110,28 @@ fun DelegateModelDropdown(
                                                 Text(profile.name)
                                                 Text(profile.model, style = MaterialTheme.typography.bodySmall)
                                                 if (reason != null) Text(reason, style = MaterialTheme.typography.bodySmall)
-                                                scores[profile.uid]?.let { Text("Recorded score $it/100", style = MaterialTheme.typography.bodySmall) }
+                                                scores[profile.uid]?.let { Text(stringResource(R.string.v0950_picker_recorded_score, it), style = MaterialTheme.typography.bodySmall) }
                                             }
                                         },
-                                        leadingIcon = { Icon(if (profile.isPrivateDestination()) Icons.Rounded.Memory else Icons.Rounded.Cloud, if (profile.isPrivateDestination()) "Local or private model" else "Cloud model") },
+                                        leadingIcon = { Icon(if (profile.isPrivateDestination()) Icons.Rounded.Memory else Icons.Rounded.Cloud, stringResource(if (profile.isPrivateDestination()) R.string.v0950_picker_private_model else R.string.v0950_picker_cloud_model)) },
                                         onClick = {
                                             expanded = false
                                             onSelected(profile)
                                         }
                                     )
                                 }
-                                if (candidates.isEmpty()) item { Text("No matching profiles") }
+                                if (candidates.isEmpty()) item { Text(stringResource(R.string.v0950_picker_no_matches)) }
                             }
                         }
                     },
-                    confirmButton = { androidx.compose.material3.TextButton(onClick = { expanded = false }) { Text("Close") } }
+                    confirmButton = { androidx.compose.material3.TextButton(onClick = { expanded = false }) { Text(stringResource(R.string.close)) } }
                 )
             }
         }
         if (profiles.isEmpty()) {
-            Text("Add an enabled AI profile in Settings to choose a helper.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.v0950_picker_add_profile), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else if (selected != null && !selected.isPrivateDestination()) {
-            Text("This online model receives the tasks and tool results you delegate to it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.v0950_picker_cloud_notice), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

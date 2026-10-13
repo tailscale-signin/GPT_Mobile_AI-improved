@@ -1,0 +1,60 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "detr_resnet101_dc5",
+  "name": "DETR-ResNet101-DC5",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Transformer based object detector with ResNet101 backbone (dilated C5 stage).",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "DETR is a machine learning model that can detect objects (trained on COCO dataset).",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "detr_resnet50",
+    "detr_resnet50_dc5",
+    "detr_resnet101"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "480x480"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "ResNet101-DC5"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "232 MB"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "detection-datasets/coco"
+  ],
+  "research_paper": "https://arxiv.org/abs/2005.12872",
+  "research_paper_title": "End-to-End Object Detection with Transformers",
+  "source_repo": "https://github.com/facebookresearch/detr",
+  "license_url": "https://github.com/facebookresearch/detr/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco91class",
+    "metric_name": "Mean Average Precision",
+    "value": 44.9,
+    "unit": "mAP",
+    "source": "https://arxiv.org/abs/2005.12872"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "pointnet",
+  "name": "PointNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Deep learning model for 3D object classification using point cloud data.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "PointNet is a pioneering neural network architecture designed to directly consume unordered point cloud data for tasks such as classification and segmentation. It learns spatial features from raw 3D points without requiring voxelization or image projections.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Scenario detection"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_AUTO"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x3x1024"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "save"
+    },
+    {
+      "key": "Model size",
+      "string_value": "13.2 MB"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "ModelNet10"
+  ],
+  "license_url": "https://github.com/nikitakaraevv/pointnet/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

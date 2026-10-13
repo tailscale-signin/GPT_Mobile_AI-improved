@@ -1,0 +1,52 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "pspnet",
+  "name": "PSPNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Deep learning model for pixel-level semantic segmentation using pyramid pooling.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "PSPNet (Pyramid Scene Parsing Network) is a semantic segmentation model that captures global context information by applying pyramid pooling modules. It is designed to improve scene understanding by aggregating contextual features at multiple scales.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_AUTO"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x3x473x473"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "pspnet101_ade20k.pth"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "251 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "65.7M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "ADE20K",
+    "Cityscapes"
+  ],
+  "license_url": "https://github.com/hszhao/semseg/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "ade20k_10",
+    "metric_name": "Mean Intersection Over Union",
+    "value": 17.5,
+    "unit": "mIOU",
+    "source": "AI Hub Models Reference Eval"
+  },
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

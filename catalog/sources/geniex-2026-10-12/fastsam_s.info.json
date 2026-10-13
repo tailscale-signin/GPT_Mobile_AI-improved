@@ -1,0 +1,58 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "fastsam_s",
+  "name": "FastSam-S",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Generate high quality segmentation mask on device.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "The Fast Segment Anything Model (FastSAM) is a novel, real-time CNN-based solution for the Segment Anything task. This task is designed to segment any object within an image based on various possible user interaction prompts. The model performs competitively despite significantly reduced computation, making it a practical choice for a variety of vision tasks.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "applicable_scenarios": [
+    "Camera",
+    "Photo Editing"
+  ],
+  "related_models": [
+    "fastsam_x"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Inference latency",
+      "string_value": "RealTime"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "640x640"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "fastsam-s.pt"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "45.1 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "11.8M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_AGPL_3_0",
+  "research_paper": "https://arxiv.org/abs/2306.12156",
+  "research_paper_title": "Fast Segment Anything",
+  "source_repo": "https://github.com/CASIA-LMC-Lab/FastSAM",
+  "license_url": "https://github.com/CASIA-LMC-Lab/FastSAM/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "restrict_model_sharing": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Average Recall",
+    "value": 63.7,
+    "unit": "AR@1000",
+    "source": "https://github.com/CASIA-LMC-Lab/FastSAM"
+  }
+}

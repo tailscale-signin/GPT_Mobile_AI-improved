@@ -1,0 +1,73 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "indus_1b",
+  "name": "IndusQ-1.1B",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "State-of-the-art large language model useful on a variety of language understanding and generation tasks.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "Indus is today a 1.2 billion parameter model and has been supervised fine tuned for Hindi and dialects.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_GENERATIVE_AI"
+  ],
+  "applicable_scenarios": [
+    "Dialogue",
+    "Content Generation",
+    "Customer Support"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input sequence length for Prompt Processor",
+      "string_value": "128"
+    },
+    {
+      "key": "Max context length",
+      "string_value": "1024"
+    },
+    {
+      "key": "Minimum QNN SDK version required",
+      "string_value": "2.27.7"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "1B"
+    },
+    {
+      "key": "Precision",
+      "string_value": "w4a16 + w8a16 (few layers)"
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "Supported languages",
+      "string_value": "Hindi and English."
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt. The lower bound is for a short prompt (up to 128 tokens, i.e., one iteration of the prompt processor) and the upper bound is for a prompt using the full context length (1024 tokens)."
+    },
+    {
+      "key": "Use",
+      "string_value": "Initiate conversation with prompt-processor and then token generator for subsequent iterations."
+    }
+  ],
+  "license_type": "MODEL_LICENSE_COMMERCIAL",
+  "model_maker_id": "tech-mahindra",
+  "research_paper": "https://www.techmahindra.com/makers-lab/indus-project/",
+  "research_paper_title": "Project Indus: A Foundational Model for Indian Languages",
+  "source_repo": "https://huggingface.co/nickmalhotra/ProjectIndus",
+  "has_static_banner": true,
+  "restrict_model_sharing": true,
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_CONTACT_FOR_PURCHASE"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "aihm_version": "0.64.0",
+  "model_id": "bevdet",
+  "assets": [
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/bevdet/releases/v0.64.0/bevdet-onnx-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/bevdet/releases/v0.64.0/bevdet-qnn_dlc-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_FLOAT",
+      "runtime": "RUNTIME_TFLITE",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/bevdet/releases/v0.64.0/bevdet-tflite-float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    },
+    {
+      "precision": "PRECISION_MIXED_WITH_FLOAT",
+      "runtime": "RUNTIME_ONNX",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/bevdet/releases/v0.64.0/bevdet-onnx-mixed_with_float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209",
+        "onnx_runtime": "1.30.0"
+      }
+    },
+    {
+      "precision": "PRECISION_MIXED_WITH_FLOAT",
+      "runtime": "RUNTIME_QNN_DLC",
+      "download_url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/bevdet/releases/v0.64.0/bevdet-qnn_dlc-mixed_with_float.zip",
+      "tool_versions": {
+        "qairt": "2.50.0.260828221209"
+      }
+    }
+  ]
+}

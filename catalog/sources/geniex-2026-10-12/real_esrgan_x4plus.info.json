@@ -1,0 +1,60 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "real_esrgan_x4plus",
+  "name": "Real-ESRGAN-x4plus",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Upscale images and remove image noise.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Real-ESRGAN is a machine learning model that upscales an image with minimal loss in quality. The implementation is a derivative of the Real-ESRGAN-x4plus architecture, a larger and more powerful version compared to the Real-ESRGAN-general-x4v3 architecture.",
+  "use_case": "MODEL_USE_CASE_SUPER_RESOLUTION",
+  "applicable_scenarios": [
+    "Virtual Real Estate Tours",
+    "Gaming",
+    "ARVR"
+  ],
+  "related_models": [
+    "esrgan",
+    "real_esrgan_general_x4v3"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "128x128"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "RealESRGAN_x4plus"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "63.9 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "16.7 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "16.7M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "research_paper": "https://arxiv.org/abs/2107.10833",
+  "research_paper_title": "Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data",
+  "source_repo": "https://github.com/xinntao/Real-ESRGAN",
+  "license_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "bsd300",
+    "metric_name": "Peak Signal-to-Noise Ratio (PSNR)",
+    "value": 26.6,
+    "unit": "dB",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "pidnet",
+  "name": "PidNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Segment images or video by class in real-time on device.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "PIDNet (Proportional-Integral-Derivative Network) is a real-time semantic segmentation model based on  PID controllers",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "autonomous driving,medical imaging"
+  ],
+  "related_models": [
+    "ffnet_40s",
+    "ffnet_78s",
+    "fcn_resnet50"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Inference latency",
+      "string_value": "RealTime"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "1024x2048"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "PIDNet_S_Cityscapes_val.pt"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "29.1 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "8.02 MB"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "19"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "8.06M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "cityscapes"
+  ],
+  "research_paper": "https://arxiv.org/abs/2206.02066",
+  "research_paper_title": "PIDNet A Real-time Semantic Segmentation Network Inspired from PID Controller Segmentation of Road Scenes",
+  "source_repo": "https://github.com/XuJiacong/PIDNet",
+  "license_url": "https://github.com/XuJiacong/PIDNet/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "cityscapes",
+    "metric_name": "Mean Intersection Over Union",
+    "value": 78.6,
+    "unit": "mIOU",
+    "source": "https://github.com/XuJiacong/PIDNet"
+  }
+}

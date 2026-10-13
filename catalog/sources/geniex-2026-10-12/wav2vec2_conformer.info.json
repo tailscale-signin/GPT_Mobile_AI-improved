@@ -1,0 +1,62 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "wav2vec2_conformer",
+  "name": "Wav2Vec2-Conformer-Large-960h",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "English speech recognition with Wav2Vec2-Conformer encoder and CTC decoder.",
+  "domain": "MODEL_DOMAIN_AUDIO",
+  "description": "Facebook Wav2Vec2-Conformer-Large is an English ASR model fine-tuned on 960 hours of LibriSpeech. It uses a Conformer encoder with relative-position attention (24 layers, 1024 hidden dim, 16 heads) and a CTC head for decoding. The model accepts raw 16kHz audio and outputs transcribed text via CTC greedy decoding.",
+  "use_case": "MODEL_USE_CASE_SPEECH_RECOGNITION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Smart Home",
+    "Accessibility",
+    "Transcription"
+  ],
+  "related_models": [
+    "whisper_small",
+    "distil_whisper",
+    "huggingface_wavlm_base_plus"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x160000 (10s at 16kHz)"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "facebook/wav2vec2-conformer-rel-pos-large-960h-ft"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "~2.4 GB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "~600M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "librispeech"
+  ],
+  "research_paper": "https://arxiv.org/abs/2006.11477",
+  "research_paper_title": "wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations",
+  "source_repo": "https://huggingface.co/facebook/wav2vec2-conformer-rel-pos-large-960h-ft",
+  "license_url": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+  "has_static_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "librispeech",
+    "metric_name": "Word Error Rate",
+    "value": 1.85,
+    "unit": "WER",
+    "source": "https://huggingface.co/facebook/wav2vec2-conformer-rel-pos-large-960h-ft"
+  }
+}

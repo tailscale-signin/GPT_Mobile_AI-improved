@@ -1,0 +1,73 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "levit",
+  "name": "LeViT",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Imagenet classifier and general purpose backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "LeViT is a vision transformer model that can classify images from the Imagenet dataset.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "efficientvit_b2_cls",
+    "efficientvit_l2_cls",
+    "squeezenet1_1",
+    "densenet121"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "LeViT-128S"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "29.9 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "8.83 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "7.82M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "imagenet-1k"
+  ],
+  "research_paper": "https://arxiv.org/abs/2104.01136",
+  "research_paper_title": "LeViT: a Vision Transformer in ConvNet's Clothing for Faster Inference",
+  "source_repo": "https://github.com/facebookresearch/LeViT",
+  "license_url": "https://github.com/facebookresearch/LeViT?tab=Apache-2.0-1-ov-file",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 76.6,
+    "unit": "%",
+    "source": "https://arxiv.org/abs/2104.01136"
+  },
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

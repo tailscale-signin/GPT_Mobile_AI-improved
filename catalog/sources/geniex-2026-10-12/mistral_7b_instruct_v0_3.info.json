@@ -1,0 +1,105 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "mistral_7b_instruct_v0_3",
+  "name": "Mistral-7B-Instruct-v0.3",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "State-of-the-art large language model useful on a variety of language understanding and generation tasks.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "Mistral AI's first open source dense model released September 2023. Mistral-7B-Instruct-v0.3 Large Language Model (LLM) is an instruct fine\u2011tuned version of the Mistral\u20117B\u2011v0.3. It has an extended vocabulary and supports the v3 Tokenizer, enhancing language understanding and generation. Additionally function calling is enabled.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_GENERATIVE_AI"
+  ],
+  "applicable_scenarios": [
+    "Dialogue",
+    "Content Generation",
+    "Customer Support"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Context length",
+      "string_value": "4096"
+    },
+    {
+      "key": "Information about the model parts",
+      "string_value": "Prompt Processor and Token Generator are split into 4 parts each. Each corresponding Prompt Processor and Token Generator part share weights."
+    },
+    {
+      "key": "Input sequence length for Prompt Processor",
+      "string_value": "128"
+    },
+    {
+      "key": "Minimum QNN SDK version required",
+      "string_value": "2.27.7"
+    },
+    {
+      "key": "Num of key-value heads",
+      "string_value": "8"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "7.3B"
+    },
+    {
+      "key": "Precision",
+      "string_value": "w4a16 + w8a16 (few layers)"
+    },
+    {
+      "key": "Prompt processor input",
+      "string_value": "128 tokens + KVCache initialized with pad token"
+    },
+    {
+      "key": "Prompt processor model size",
+      "string_value": "4.17 GB"
+    },
+    {
+      "key": "Prompt processor output",
+      "string_value": "128 output tokens + KVCache for token generator"
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "Supported languages",
+      "string_value": "English."
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt. The lower bound is for a short prompt (up to 128 tokens, i.e., one iteration of the prompt processor) and the upper bound is for a prompt using the full context length (4096 tokens)."
+    },
+    {
+      "key": "Token generator input",
+      "string_value": "1 input token + past KVCache"
+    },
+    {
+      "key": "Token generator model size",
+      "string_value": "4.17 GB"
+    },
+    {
+      "key": "Token generator output",
+      "string_value": "1 output token + KVCache for next iteration"
+    },
+    {
+      "key": "Use",
+      "string_value": "Initiate conversation with prompt-processor and then token generator for subsequent iterations."
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "model_maker_id": "mistral-ai",
+  "research_paper": "https://arxiv.org/abs/2310.06825",
+  "research_paper_title": "Mistral 7B",
+  "source_repo": "https://github.com/mistralai/mistral-inference",
+  "license_url": "https://github.com/mistralai/mistral-inference/blob/main/LICENSE",
+  "has_static_banner": true,
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_CONTACT_US"
+  }
+}

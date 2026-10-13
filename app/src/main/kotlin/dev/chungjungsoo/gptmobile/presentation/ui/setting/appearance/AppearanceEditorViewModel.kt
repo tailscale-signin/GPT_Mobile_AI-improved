@@ -26,11 +26,12 @@ data class AppearanceDraft(
     val mode: ThemeMode,
     val dynamic: DynamicTheme,
     val primary: Long?,
-    val palette: CustomThemePalette?
+    val palette: CustomThemePalette?,
+    val activeProfileId: String? = null
 ) {
-    fun applyTo(latest: ThemeSetting) = latest.copy(themeMode = mode, dynamicTheme = dynamic, customPrimaryArgb = primary, customPalette = palette)
+    fun applyTo(latest: ThemeSetting) = latest.copy(themeMode = mode, dynamicTheme = dynamic, customPrimaryArgb = primary, customPalette = palette, activeProfileId = activeProfileId)
     companion object {
-        fun from(value: ThemeSetting) = AppearanceDraft(value.themeMode, value.dynamicTheme, value.customPrimaryArgb, value.customPalette)
+        fun from(value: ThemeSetting) = AppearanceDraft(value.themeMode, value.dynamicTheme, value.customPrimaryArgb, value.customPalette, value.activeProfileId)
     }
 }
 
@@ -78,11 +79,13 @@ class AppearanceEditorViewModel @Inject constructor(
 
     fun edit(transform: (AppearanceDraft) -> AppearanceDraft) {
         if (mutable.value.busy) return
-        val draft = transform(mutable.value.draft)
+        val old = mutable.value.draft
+        val transformed = transform(old)
+        val draft = if (transformed.activeProfileId == old.activeProfileId && transformed != old) transformed.copy(activeProfileId = "custom") else transformed
         savedState["appearanceDraft"] = Json.encodeToString(draft)
         mutable.value = mutable.value.copy(draft = draft, message = null)
     }
-    fun select(profile: SavedThemeProfile) = edit { AppearanceDraft(profile.mode, DynamicTheme.OFF, profile.palette.primary, profile.palette) }
+    fun select(profile: SavedThemeProfile) = edit { AppearanceDraft(profile.mode, DynamicTheme.OFF, profile.palette.primary, profile.palette, profile.id) }
     fun discard() {
         savedState.remove<String>("appearanceDraft")
         mutable.value = mutable.value.copy(draft = AppearanceDraft.from(mutable.value.applied), conflict = false, message = null)
@@ -93,15 +96,15 @@ class AppearanceEditorViewModel @Inject constructor(
     fun apply(onSuccess: () -> Unit = {}) = operation {
         val before = AppearanceDraft.from(mutable.value.applied)
         val draft = mutable.value.draft
-        repository.mutateThemes { latest ->
+        val applied = repository.mutateThemes { latest ->
             check(AppearanceDraft.from(latest) == before) { "Appearance changed elsewhere. Reload or keep editing before applying." }
             draft.applyTo(latest)
         }
         savedState.remove<String>("appearanceDraft")
-        mutable.value = mutable.value.copy(applied = draft.applyTo(mutable.value.applied), draft = draft, conflict = false, message = "Theme applied", canUndo = true)
+        mutable.value = mutable.value.copy(applied = applied, draft = AppearanceDraft.from(applied), conflict = false, message = "Theme applied", canUndo = true)
         undo = {
             val restored = repository.mutateThemes { latest ->
-                check(AppearanceDraft.from(latest) == draft) { "Appearance has since changed; Undo expired." }
+                check(AppearanceDraft.from(latest) == AppearanceDraft.from(applied)) { "Appearance has since changed; Undo expired." }
                 before.applyTo(latest)
             }
             mutable.value = mutable.value.copy(applied = restored)

@@ -61,10 +61,10 @@ internal fun DelegationActivityPanel(model: DelegationActivityViewModel = hiltVi
         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_active_responses_30e51))
         active.values.filter { it.runId in controls }.forEach { run ->
             val mode = controls[run.runId]
-            SettingsPanel("Conversation ${run.chatId}") {
-                Text("${mode?.name?.lowercase()?.replace('_', ' ')} · Changes take effect before the next helper request. Completed evidence is retained.")
+            SettingsPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_91cf893d6d, run.chatId)) {
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_210f8b5366, mode?.name?.lowercase()?.replace('_', ' ').orEmpty()))
                 if (mode != dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PRIMARY_ONLY) {
-                    TextButton(onClick = { if (mode == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PAUSED) dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.resume(run.runId) else dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.pause(run.runId) }) { Text(if (mode == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PAUSED) "Resume helper" else "Pause at next request") }
+                    TextButton(onClick = { if (mode == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PAUSED) dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.resume(run.runId) else dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.pause(run.runId) }) { Text(if (mode == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PAUSED) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_210d5ff323) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_65959952b5)) }
                     TextButton(onClick = { dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.primaryOnly(run.runId) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_continue_with_primary_e867e)) }
                 }
                 TextButton(onClick = { model.runs.cancelChat(run.chatId) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_stop_entire_response_57b35)) }
@@ -73,8 +73,13 @@ internal fun DelegationActivityPanel(model: DelegationActivityViewModel = hiltVi
         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_activity_current_session_662fa))
         if (sessions.isEmpty()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_no_runs_in_this_session_open_a_conversation_t_2b7be))
         sessions.values.sortedByDescending { it.snapshot.updatedAt }.take(20).forEach { run ->
-            SettingsPanel(if (run.snapshot.complete) "Completed research" else run.snapshot.phase) {
-                Text("${run.snapshot.sources.size} retained sources · ${run.snapshot.searches} searches · ${run.snapshot.engineFailures} engine failures")
+            SettingsPanel(if (run.snapshot.complete) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_bc0f09a320) else run.snapshot.phase) {
+                run.snapshot.delegationPlan?.let { plan ->
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2e553af1de, plan.steps.count { it.status == dev.chungjungsoo.gptmobile.data.delegation.PlanStepState.COMPLETE }, plan.steps.size, plan.reservedCalls))
+                    plan.steps.forEachIndexed { index, step -> Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_040eadec43, index + 1, step.status.name.lowercase().replace('_', ' '), step.evidenceIds.size, step.reason?.let { " · $it" }.orEmpty())) }
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_9377035ede))
+                }
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_95ae6791cb, run.snapshot.sources.size, run.snapshot.searches, run.snapshot.engineFailures))
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_source_coverage_is_not_a_guarantee_of_accurac_a5c80))
                 if (!run.snapshot.complete) {
                     TextButton(onClick = { model.sessions.stop(run.runId) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_stop_acquisition_keep_completed_evidence_0eca3)) }
@@ -92,16 +97,16 @@ internal fun DelegationActivityPanel(model: DelegationActivityViewModel = hiltVi
         }
         history.values.sortedByDescending { it.startedAt }.take(50).forEach { run ->
             SettingsPanel("${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(run.startedAt))} · ${run.status.name.lowercase().replace('_', ' ')}") {
-                Text("Wall time: ${run.finishedAt?.let { "${(it - run.startedAt).coerceAtLeast(0)} ms" } ?: "In progress"} · Policy ${run.policyRevision.take(12)}")
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f6bf56958c, run.finishedAt?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_27bae32ded, ((it - run.startedAt).coerceAtLeast(0)).toString()) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_217d4d83d3), run.policyRevision.take(12)))
                 val steps = run.events.filter { it.kind == dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind.STEP_FINISHED }
                 dev.chungjungsoo.gptmobile.data.delegation.DelegationRole.entries.filter { role -> steps.any { it.role == role } }.forEach { role ->
                     val roleSteps = steps.filter { it.role == role }
-                    Text("${role.name.lowercase()}: ${roleSteps.size} requests · ${roleSteps.mapNotNull { it.elapsedMs }.sum()} ms summed duration")
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_389569166c, role.name.lowercase(), roleSteps.size, roleSteps.mapNotNull { it.elapsedMs }.sum()))
                     val reported = roleSteps.filter { it.usageProvenance == "provider-reported" }
-                    Text(if (reported.isEmpty()) "Token usage unavailable" else "Provider-reported: ${reported.mapNotNull { it.inputTokens }.sum()} input · ${reported.mapNotNull { it.outputTokens }.sum()} output · ${reported.size}/${roleSteps.size} requests with usage")
+                    Text(if (reported.isEmpty()) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8151fe6b57) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_de8daee534, (reported.mapNotNull { it.inputTokens }.sum()).toString(), (reported.mapNotNull { it.outputTokens }.sum()).toString(), (reported.size).toString(), (roleSteps.size).toString()))
                 }
-                run.events.lastOrNull { it.kind == dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind.REVIEW_FINISHED }?.let { Text("Review: ${it.reviewVerdict} · ${it.reviewScore}/100 · Model assessment") }
-                if (run.omittedEvents > 0) Text("${run.omittedEvents} older events omitted; displayed step totals cover retained events.")
+                run.events.lastOrNull { it.kind == dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind.REVIEW_FINISHED }?.let { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0972b1c463, it.reviewVerdict.orEmpty(), it.reviewScore?.toString().orEmpty())) }
+                if (run.omittedEvents > 0) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1647aa77e5, run.omittedEvents))
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_delegation_output_not_verified))
             }
         }

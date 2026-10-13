@@ -1,0 +1,44 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "centerpoint",
+  "name": "CenterPoint",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "3D object detection model optimized for LiDAR-based autonomous driving scenarios.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "CenterPoint is a LiDAR-based 3D object detection model that detects objects by predicting their centers and regressing other attributes. It is designed for high accuracy and real-time performance in autonomous driving applications.",
+  "use_case": "MODEL_USE_CASE_DRIVER_ASSISTANCE",
+  "applicable_scenarios": [
+    "Self driving cars"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_AUTO"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "5x20x5, 5x4, 5"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "PointPillars"
+    },
+    {
+      "key": "Model size",
+      "string_value": "83.3 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "21.8M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "nuScenes"
+  ],
+  "license_url": "https://github.com/tianweiy/CenterPoint/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

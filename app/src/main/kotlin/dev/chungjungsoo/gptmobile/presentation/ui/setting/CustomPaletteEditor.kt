@@ -77,18 +77,18 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
         val selectedProfile = saved.savedProfiles.firstOrNull { it.palette == current }
             ?: dev.chungjungsoo.gptmobile.data.dto.ThemePresets.profiles.firstOrNull { it.palette == current }
         if (!customizeOnly) {
-            Text("Choose your theme", style = MaterialTheme.typography.titleMedium)
+            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_561982a3ff), style = MaterialTheme.typography.titleMedium)
             Box {
                 OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(selectedProfile?.name ?: if (current == null) "Default" else "Custom palette", modifier = Modifier.weight(1f))
+                    Text(selectedProfile?.name ?: if (current == null) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ca0e0e732) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_031bde43ee), modifier = Modifier.weight(1f))
                     Text("▾")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Default") }, onClick = {
+                    DropdownMenuItem(text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ca0e0e732)) }, onClick = {
                         theme.applyProfile(dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile)
                         menuOpen = false
                     })
-                    Text("Presets", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c87892627e), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
                     dev.chungjungsoo.gptmobile.data.dto.ThemePresets.profiles.forEach { preset ->
                         DropdownMenuItem(text = { Text(preset.name) }, leadingIcon = {
                             Surface(color = Color(preset.palette.primary), shape = MaterialTheme.shapes.small, modifier = Modifier.size(18.dp)) {}
@@ -98,7 +98,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                         })
                     }
                     if (saved.savedProfiles.isNotEmpty()) {
-                        Text("Saved themes", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a9d118dbdc), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
                         saved.savedProfiles.forEach { profile ->
                             DropdownMenuItem(text = { Text(profile.name) }, leadingIcon = {
                                 Surface(color = Color(profile.palette.primary), shape = MaterialTheme.shapes.small, modifier = Modifier.size(18.dp)) {}
@@ -113,7 +113,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
             Surface(shape = MaterialTheme.shapes.large, color = scheme.surfaceContainerHigh) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Surface(color = scheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
-                        Text("Preview", Modifier.padding(12.dp), color = scheme.onPrimaryContainer)
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_20226b68d5), Modifier.padding(12.dp), color = scheme.onPrimaryContainer)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(scheme.primary, scheme.secondary, scheme.background, scheme.surface).forEach { color ->
@@ -123,9 +123,9 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                 }
             }
             selectedProfile?.takeIf { it in saved.savedProfiles }?.let { profile ->
-                TextButton(onClick = { theme.deleteProfile(profile.name) }) { Text("Delete saved theme ${profile.name}") }
+                TextButton(onClick = { theme.deleteProfile(profile.name) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4d6933ca1c, profile.name)) }
             }
-            TextButton(onClick = { customizing = !customizing }) { Text(if (customizing) "Hide custom colours" else "Create a theme") }
+            TextButton(onClick = { customizing = !customizing }) { Text(if (customizing) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_99c604ae83) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fd29cb0d21)) }
         }
         if (customizing) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -135,7 +135,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                     })
                 }
             }
-            OutlinedTextField(value = values[selected], onValueChange = { value -> values = values.toMutableList().apply { set(selected, value.take(7)) } }, label = { Text("${labels[selected]} HEX") }, singleLine = true, isError = colors[selected] == null, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = values[selected], onValueChange = { value -> values = values.toMutableList().apply { set(selected, value.take(7)) } }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ebdd713fde, labels[selected])) }, singleLine = true, isError = colors[selected] == null, modifier = Modifier.fillMaxWidth())
             ColorWheelPicker(color = colors[selected]?.let(::Color) ?: scheme.primary, onColorChange = ::setColor)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("Cyan" to 0xFF00FFDE, "Violet" to 0xFFCC00FF, "Coral" to 0xFFFF8A80, "Mint" to 0xFF80CBC4).forEach { (label, value) ->
@@ -161,7 +161,7 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                 Surface(color = Color(colors[2]!!), shape = MaterialTheme.shapes.large) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Surface(color = Color(colors[3]!!), shape = MaterialTheme.shapes.medium) {
-                            Text("Preview", Modifier.padding(12.dp), color = foreground(colors[3]!!))
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_20226b68d5), Modifier.padding(12.dp), color = foreground(colors[3]!!))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             colors.take(2).forEachIndexed { i, value ->
@@ -171,14 +171,14 @@ fun CustomPaletteEditor(customizeOnly: Boolean = false) {
                     }
                 }
             }
-            Button(onClick = { theme.updateCustomPalette(CustomThemePalette(colors[0]!!, colors[1]!!, colors[2]!!, colors[3]!!)) }, enabled = colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text("Apply") }
-            OutlinedTextField(value = profileName, onValueChange = { profileName = it.take(40) }, label = { Text("Theme name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { theme.updateCustomPalette(CustomThemePalette(colors[0]!!, colors[1]!!, colors[2]!!, colors[3]!!)) }, enabled = colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_417cf9c08b)) }
+            OutlinedTextField(value = profileName, onValueChange = { profileName = it.take(40) }, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_24326077a3)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Button(onClick = {
                 theme.saveProfile(profileName, CustomThemePalette(colors[0]!!, colors[1]!!, colors[2]!!, colors[3]!!))
                 profileName = ""
-            }, enabled = profileName.isNotBlank() && colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text("Save theme") }
+            }, enabled = profileName.isNotBlank() && colors.all { it != null }, modifier = Modifier.fillMaxWidth()) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3bc197b2e5)) }
         }
-        TextButton(onClick = { theme.applyProfile(dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile) }, modifier = Modifier.fillMaxWidth()) { Text("Restore default") }
+        TextButton(onClick = { theme.applyProfile(dev.chungjungsoo.gptmobile.data.dto.ThemePresets.defaultProfile) }, modifier = Modifier.fillMaxWidth()) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_af5ffd5c74)) }
     }
 }
 
@@ -190,6 +190,10 @@ internal fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
             android.graphics.Color.colorToHSV(color.toArgb(), it)
             if (it[1] == 0f || it[2] == 0f) it[0] = rememberedHue
         }
+    }
+    androidx.compose.runtime.LaunchedEffect(color) {
+        val actual = FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) }
+        if (actual[1] > 0f && actual[2] > 0f) rememberedHue = actual[0]
     }
     val currentHsv by rememberUpdatedState(hsv)
     val change by rememberUpdatedState<(Color) -> Unit>({ next ->
@@ -205,6 +209,7 @@ internal fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val delta = position - center
                         val hue = ((Math.toDegrees(atan2(delta.y.toDouble(), delta.x.toDouble())) + 360) % 360).toFloat()
+                        rememberedHue = hue
                         change(Color.hsv(hue, (delta.getDistance() / (size.width / 2f)).coerceIn(0f, 1f), currentHsv[2]))
                     }
                 }
@@ -213,6 +218,7 @@ internal fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
                         event.consume()
                         val delta = event.position - Offset(size.width / 2f, size.height / 2f)
                         val hue = ((Math.toDegrees(atan2(delta.y.toDouble(), delta.x.toDouble())) + 360) % 360).toFloat()
+                        rememberedHue = hue
                         change(Color.hsv(hue, (delta.getDistance() / (size.width / 2f)).coerceIn(0f, 1f), currentHsv[2]))
                     }
                 }
@@ -231,12 +237,12 @@ internal fun ColorWheelPicker(color: Color, onColorChange: (Color) -> Unit) {
             var numeric by rememberSaveable(index, displayed) { mutableStateOf(displayed.toString()) }
             val parsed = numeric.toFloatOrNull()?.takeIf { it in 0f..(if (index == 0) 360f else 100f) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(numeric, { numeric = it }, label = { Text(if (index == 0) "$label degrees" else "$label percent") }, isError = parsed == null, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(numeric, { numeric = it }, label = { Text(if (index == 0) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8855dc288a, (label).toString()) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_298e671db2, (label).toString())) }, isError = parsed == null, singleLine = true, modifier = Modifier.weight(1f))
                 TextButton(enabled = parsed != null, onClick = {
                     val updated = hsv.copyOf().apply { set(index, if (index == 0) parsed!! else parsed!! / 100f) }
                     rememberedHue = updated[0]
                     onColorChange(Color.hsv(updated[0], updated[1], updated[2]))
-                }) { Text("Set") }
+                }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_027c1fe4ec)) }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(label, modifier = Modifier.width(80.dp), style = MaterialTheme.typography.labelMedium)

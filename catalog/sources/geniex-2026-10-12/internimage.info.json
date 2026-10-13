@@ -1,0 +1,54 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "internimage",
+  "name": "InternImage",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "InternImage Large-Scale Vision Foundation Model.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "InternImage employs DCNv3 as its core operator to equips the model with dynamic and effective receptive fields required for downstream tasks like object detection and segmentation, while enabling adaptive spatial aggregation.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Self driving cars"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_AUTO"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x3x224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "internimage_t_1k_224"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "117 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "30.6M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "ImageNet"
+  ],
+  "license_url": "https://github.com/OpenGVLab/InternImage/tree/master?tab=MIT-1-ov-file",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 83.5,
+    "unit": "%",
+    "source": "https://arxiv.org/abs/2211.05778"
+  },
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

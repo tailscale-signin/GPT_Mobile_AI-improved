@@ -17,6 +17,39 @@ import org.junit.Test
 
 class ConfiguredPluginToolAmazonTest {
     @Test
+    fun dispatchedPluginTimeoutStaysUnknownAndBlocksAnUnchangedRepeat() = kotlinx.coroutines.test.runTest {
+        var executions = 0
+        val delegate = object : AgentTool {
+            override val definition = AgentToolDefinition("fixture_write", "Fixture", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                kotlinx.coroutines.delay(10_000)
+                return AgentToolResult(callId, ToolResultContent.Text("done"), false)
+            }
+        }
+        val configured = ConfiguredPluginTool(delegate, PluginExecutionSettings(timeoutSeconds = 5))
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits())
+        val admitted = budget.bind(configured)
+        val result = admitted.execute("first", JsonObject(emptyMap()))
+        assertEquals("TIMEOUT_OUTCOME_UNKNOWN", result.errorCode)
+        assertTrue(result.dispatched)
+        assertEquals("RECONCILIATION_REQUIRED", admitted.execute("retry", JsonObject(emptyMap())).errorCode)
+        assertEquals(1, executions)
+    }
+
+    @Test
+    fun textOutputLimitPreservesRawContentForDeliveryClassification() = runBlocking {
+        val raw = ToolResultContent.Text("fixture ".repeat(500))
+        val delegate = object : AgentTool {
+            override val definition = AgentToolDefinition("fixture_read", "Fixture", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, raw, false)
+        }
+        val result = ConfiguredPluginTool(delegate, PluginExecutionSettings(maxOutputCharacters = 1000)).execute("limited", JsonObject(emptyMap()))
+        assertEquals(raw, result.retainedContent)
+        assertTrue(result.content != raw)
+    }
+
+    @Test
     fun outputLimitRetainsFullRetailFactsForCardsAndProviderAggregation() = runBlocking {
         val products = (1..10).map { index ->
             buildJsonObject {

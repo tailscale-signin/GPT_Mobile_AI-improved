@@ -1,0 +1,93 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "melotts_en",
+  "name": "MeloTTS-EN",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "High-quality text-to-speech for English.",
+  "domain": "MODEL_DOMAIN_AUDIO",
+  "description": "MeloTTS is a high-quality multi-lingual text-to-speech library for English, Chinese and Spanish language.",
+  "use_case": "MODEL_USE_CASE_AUDIO_GENERATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Smart Home",
+    "Accessibility"
+  ],
+  "related_models": [
+    "melotts_es",
+    "melotts_zh",
+    "whisper_small"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Max decoded sequence length",
+      "string_value": "512 tokens"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "myshell-ai/MeloTTS-English"
+    },
+    {
+      "key": "Model size (bert_wrapper) (float)",
+      "string_value": "360 MB"
+    },
+    {
+      "key": "Model size (decoder) (float)",
+      "string_value": "55.5 MB"
+    },
+    {
+      "key": "Model size (encoder) (float)",
+      "string_value": "31.8 MB"
+    },
+    {
+      "key": "Model size (flow) (float)",
+      "string_value": "76.9 MB"
+    },
+    {
+      "key": "Model size (t5_decoder) (float)",
+      "string_value": "21.8 MB"
+    },
+    {
+      "key": "Model size (t5_encoder) (float)",
+      "string_value": "57.5 MB"
+    },
+    {
+      "key": "Number of parameters (bert_wrapper)",
+      "string_value": "94.5M"
+    },
+    {
+      "key": "Number of parameters (decoder)",
+      "string_value": "14.5M"
+    },
+    {
+      "key": "Number of parameters (encoder)",
+      "string_value": "8.30M"
+    },
+    {
+      "key": "Number of parameters (flow)",
+      "string_value": "20.1M"
+    },
+    {
+      "key": "Number of parameters (t5_decoder)",
+      "string_value": "5.72M"
+    },
+    {
+      "key": "Number of parameters (t5_encoder)",
+      "string_value": "15.1M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://github.com/myshell-ai/MeloTTS",
+  "research_paper_title": "MeloTTS High-quality Multi-lingual Multi-accent Text-to-Speech",
+  "source_repo": "https://github.com/myshell-ai/MeloTTS",
+  "license_url": "https://github.com/myshell-ai/MeloTTS/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "voice_ai_sdk": "VOICE_AI_SDK_TTS"
+}

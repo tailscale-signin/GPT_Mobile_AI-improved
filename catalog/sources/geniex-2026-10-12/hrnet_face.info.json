@@ -1,0 +1,60 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "hrnet_face",
+  "name": "HRNetFace",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Comprehensive facial analysis by extracting face features.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Detects attributes (liveness, eye closeness, mask presence, glasses presence, sunglasses presence) that apply to a given face.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Incabinet driver monitoring, phone unlocking, and building access control."
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "256x256"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "HR18-COFW.pth"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "36.87MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "17.7 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "9.68M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "cofw"
+  ],
+  "research_paper": "https://arxiv.org/abs/1908.07919",
+  "research_paper_title": "Deep High-Resolution Representation Learning for Visual Recognition",
+  "source_repo": "https://github.com/HRNet/HRNet-Facial-Landmark-Detection",
+  "license_url": "https://github.com/HRNet/HRNet-Facial-Landmark-Detection/blob/master/LICENCE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "cofw",
+    "metric_name": "Normalized Mean Error",
+    "value": 0.0345,
+    "unit": "NME",
+    "source": "https://github.com/HRNet/HRNet-Facial-Landmark-Detection"
+  }
+}

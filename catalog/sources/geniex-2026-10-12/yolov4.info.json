@@ -1,0 +1,68 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "yolov4",
+  "name": "Yolo-v4",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time object detection optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "YoloV4 is a machine learning model that predicts bounding boxes and classes of objects in an image.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO",
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "yolov6",
+    "yolov7",
+    "yolov8_det"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "416x416"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "YoloV4 Tiny"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "23.1 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "6.07 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "6.06M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/2004.10934",
+  "research_paper_title": "YOLOv4: Optimal Speed and Accuracy of Object Detection",
+  "source_repo": "https://github.com/bubbliiiing/yolov4-tiny-pytorch.git",
+  "license_url": "https://github.com/bubbliiiing/yolov4-tiny-pytorch?tab=MIT-1-ov-file#",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "restrict_model_sharing": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Mean Average Precision",
+    "value": 21.5,
+    "unit": "mAP",
+    "source": "https://github.com/bubbliiiing/yolov4-tiny-pytorch.git"
+  }
+}

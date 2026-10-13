@@ -1,0 +1,60 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "yoloe_seg",
+  "name": "YOLOE-Segmentation",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time object segmentation optimized for mobile and edge by Ultralytics.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Ultralytics YOLOE is a machine learning model that predicts bounding boxes, segmentation masks and classes of objects in an image.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "unet_segmentation",
+    "fastsam_x",
+    "mediapipe_selfie",
+    "yolov8_seg",
+    "yolov11_seg",
+    "ddrnet23_slim"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "640x640"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "YOLOE-v8L-SEG"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "103 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "53.47M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_AGPL_3_0",
+  "dataset": [
+    "coco_seg"
+  ],
+  "research_paper": "https://arxiv.org/abs/2503.07465",
+  "research_paper_title": "YOLOE: Real-Time Seeing Anything",
+  "source_repo": "https://github.com/THU-MIG/yoloe",
+  "license_url": "https://github.com/THU-MIG/yoloe/blob/main/LICENSE",
+  "has_static_banner": true,
+  "restrict_model_sharing": true
+}

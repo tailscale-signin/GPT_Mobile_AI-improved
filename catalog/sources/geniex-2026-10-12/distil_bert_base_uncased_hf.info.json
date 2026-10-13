@@ -1,0 +1,58 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "distil_bert_base_uncased_hf",
+  "name": "Distil-Bert-Base-Uncased-Hf",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Language model for masked language modeling and general-purpose NLP tasks.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "DistilBERT is a lightweight BERT model designed for efficient self-supervised learning of language representations. It can be used for masked language modeling and as a backbone for various NLP tasks.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE"
+  ],
+  "applicable_scenarios": [
+    "Text Classification",
+    "Sentiment Analysis",
+    "Named Entity Recognition"
+  ],
+  "related_models": [
+    "albert_base_v2_hf"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1x384"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "distil_bert_base_uncased_hf"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "43.3 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "11.3M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/1910.01108",
+  "research_paper_title": "DistilBERT, a distilled version of BERT: smaller, faster, cheaper and lighter",
+  "license_url": "https://huggingface.co/distilbert/distilbert-base-uncased/blob/f8354bcfbd3068faf2c5149654881cb4214e931d/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "bert_wikitext_masked",
+    "metric_name": "Top-1 Accuracy",
+    "value": 60.0,
+    "unit": "%",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

@@ -56,6 +56,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
 
     @Volatile private var toolExecutor: LocalToolExecutor? = null
     private var allowedTools: Set<String> = emptySet()
+    private val deliveryReceipts = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDeliveryReceipt>()
     private val toolCalls = ConcurrentHashMap<String, Boolean>()
     private var requestedSpec: LocalEngineSpec? = null
     private var tuning: LocalEngineTuning? = null
@@ -97,6 +98,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         toolExecutor = config.toolExecutor
         allowedTools = config.tools.map { it.name }.toSet()
         toolCalls.clear()
+        deliveryReceipts.clear()
         try {
             command(RuntimeWire("OPEN", UUID.randomUUID().toString(), sessionId, generation, conversation = WireConversation.from(config)))
         } catch (error: Throwable) {
@@ -267,6 +269,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             }
             "METRICS" -> packet.metrics?.let { request.events?.offer(LocalRuntimeEvent.Metrics(it)) }
             "TOOL" -> runTool(request, packet)
+            "TOOL_RECEIVED" -> deliveryReceipts.remove(packet.callId)?.let { receipt -> scope.launch { receipt.acknowledge() } }
             "RESULT", "DONE", "ERROR", "CANCELLED" -> {
                 if (packet.operation == "DONE") request.events?.offer(LocalRuntimeEvent.Done)
                 if (packet.operation == "ERROR" || packet.operation == "CANCELLED") {
@@ -287,7 +290,9 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             }
             mutableState.value = state.value.copy(lifecycle = "WAITING_FOR_TOOL")
             val response = try {
-                val result = withTimeout(120_000) { checkNotNull(toolExecutor).execute(packet.toolName, packet.text) }
+                val receipt = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDeliveryReceipt()
+                deliveryReceipts[packet.callId] = receipt
+                val result = withTimeout(120_000) { withContext(receipt) { checkNotNull(toolExecutor).execute(packet.toolName, packet.text) } }
                 require(result.toByteArray().size <= 512 * 1024) { "Tool result exceeded the IPC budget" }
                 packet.copy(operation = "TOOL_RESULT", text = result)
             } catch (error: LocalToolLimitException) {

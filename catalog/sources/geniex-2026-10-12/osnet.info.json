@@ -1,0 +1,65 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "osnet",
+  "name": "OSNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Omni-scale person re-identification network for robust identity embeddings.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "OSNet is a compact convolutional architecture for person re-identification. It extracts discriminative embeddings that can be compared with cosine similarity for person matching across camera views.",
+  "use_case": "MODEL_USE_CASE_VIDEO_OBJECT_TRACKING",
+  "tags": [
+    "MODEL_TAG_BACKBONE",
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Multi-camera person tracking",
+    "Retail analytics",
+    "Building access and security monitoring"
+  ],
+  "related_models": [
+    "cavaface"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "256x128"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "8.69 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "3.57 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "2.68M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "Market-1501"
+  ],
+  "research_paper": "https://arxiv.org/abs/1905.00953",
+  "research_paper_title": "Omni-Scale Feature Learning for Person Re-Identification",
+  "source_repo": "https://github.com/KaiyangZhou/deep-person-reid",
+  "license_url": "https://github.com/KaiyangZhou/deep-person-reid/blob/master/LICENSE",
+  "has_static_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "Market-1501",
+    "metric_name": "Mean Average Precision",
+    "value": 84.51,
+    "unit": "mAP",
+    "source": "https://github.com/KaiyangZhou/deep-person-reid/blob/master/docs/MODEL_ZOO.md"
+  }
+}

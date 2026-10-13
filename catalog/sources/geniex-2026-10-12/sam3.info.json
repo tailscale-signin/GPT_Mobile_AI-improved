@@ -1,0 +1,61 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "sam3",
+  "name": "Segment-Anything-Model-3",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Open-vocabulary segmentation with text and visual prompts for any concept.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "SAM3 (Segment Anything with Concepts) extends SAM2 with open-vocabulary segmentation, producing bounding boxes and masks for objects matching a natural-language prompt.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_FOUNDATION"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "sam2"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1008x1008"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "sam3"
+    },
+    {
+      "key": "Model size (SAM3Backbone) (float)",
+      "string_value": "128 MB"
+    },
+    {
+      "key": "Model size (SAM3Transformer) (float)",
+      "string_value": "23.7 MB"
+    },
+    {
+      "key": "Number of parameters (SAM3Backbone)",
+      "string_value": "33.5M"
+    },
+    {
+      "key": "Number of parameters (SAM3Transformer)",
+      "string_value": "6.22M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_SAM3",
+  "dataset": [
+    "SA-CO (Segment Anything with Concepts dataset)"
+  ],
+  "research_paper": "https://arxiv.org/abs/2511.16719",
+  "research_paper_title": "SAM 3: Segment Anything with Concepts",
+  "source_repo": "https://github.com/facebookresearch/sam3",
+  "license_url": "https://github.com/facebookresearch/sam3/blob/main/LICENSE",
+  "has_static_banner": true,
+  "restrict_model_sharing": true
+}

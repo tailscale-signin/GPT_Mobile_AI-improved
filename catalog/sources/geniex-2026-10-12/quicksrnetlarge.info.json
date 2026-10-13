@@ -1,0 +1,64 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "quicksrnetlarge",
+  "name": "QuickSRNetLarge",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Upscale images and remove image noise.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "QuickSRNet Large is designed for upscaling images on mobile platforms to sharpen in real-time.",
+  "use_case": "MODEL_USE_CASE_SUPER_RESOLUTION",
+  "applicable_scenarios": [
+    "Virtual Real Estate Tours",
+    "Gaming",
+    "ARVR"
+  ],
+  "related_models": [
+    "xlsr",
+    "esrgan"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "128x128"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "quicksrnet_large_3x_checkpoint"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "1.67 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "462 KB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "436K"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "dataset": [
+    "set14",
+    "bsd300"
+  ],
+  "research_paper": "https://arxiv.org/abs/2303.04336",
+  "research_paper_title": "QuickSRNet: Plain Single-Image Super-Resolution Architecture for Faster Inference on Mobile Platforms",
+  "source_repo": "https://github.com/quic/aimet-model-zoo/tree/develop/aimet_zoo_torch/quicksrnet",
+  "license_url": "https://github.com/quic/aimet-model-zoo/blob/develop/LICENSE.md",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "set14",
+    "metric_name": "Peak Signal-to-Noise Ratio (PSNR)",
+    "value": 33.24,
+    "unit": "dB",
+    "source": "AIMET Model Zoo"
+  }
+}

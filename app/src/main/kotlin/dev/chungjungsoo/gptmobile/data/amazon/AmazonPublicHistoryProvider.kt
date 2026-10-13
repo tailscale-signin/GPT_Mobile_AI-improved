@@ -47,6 +47,7 @@ data class AmazonPublicHistory(
 class AmazonPublicHistoryProvider internal constructor(private val client: HttpClient, private val clock: Clock = Clock.systemUTC()) {
     @Inject constructor() : this(
         HttpClient(OkHttp) {
+            install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
             expectSuccess = false
             followRedirects = false
             install(HttpTimeout)

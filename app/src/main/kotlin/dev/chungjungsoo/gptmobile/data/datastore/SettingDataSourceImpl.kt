@@ -103,6 +103,7 @@ class SettingDataSourceImpl @Inject constructor(
             customPrimaryArgb = pref[customPrimaryArgbKey],
             customPalette = palette,
             savedProfiles = profiles,
+            activeProfileId = pref[stringPreferencesKey("active_theme_profile_id")],
             recoveryWarning = if (malformed) "Some saved appearance data could not be read. Valid themes remain available; the original data is preserved on the next edit." else null
         ).withStableProfileIds()
     }
@@ -124,6 +125,7 @@ class SettingDataSourceImpl @Inject constructor(
             next.customPrimaryArgb?.let { pref[customPrimaryArgbKey] = it } ?: pref.remove(customPrimaryArgbKey)
             next.customPalette?.let { pref[customPaletteKey] = json.encodeToString(it) } ?: pref.remove(customPaletteKey)
             pref[savedThemeProfilesKey] = json.encodeToString(next.savedProfiles)
+            next.activeProfileId?.let { pref[stringPreferencesKey("active_theme_profile_id")] = it } ?: pref.remove(stringPreferencesKey("active_theme_profile_id"))
             result = next
         }
         return checkNotNull(result)

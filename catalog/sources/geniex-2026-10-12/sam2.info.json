@@ -1,0 +1,61 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "sam2",
+  "name": "Segment-Anything-Model-2",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "High-quality segmentation in images and videos with real-time performance and minimal user interaction.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "SAM 2, the successor to Meta's Segment Anything Model (SAM), is a cutting-edge tool designed for comprehensive object segmentation in both images and videos. It excels in handling complex visual data through a unified, promptable model architecture that supports real-time processing and zero-shot generalization.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_FOUNDATION"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "edgetam"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "720p (720x1280)"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "sam2.1_hiera_t"
+    },
+    {
+      "key": "Model size (decoder) (float)",
+      "string_value": "23.7 MB"
+    },
+    {
+      "key": "Model size (encoder) (float)",
+      "string_value": "128 MB"
+    },
+    {
+      "key": "Number of parameters (decoder)",
+      "string_value": "6.22M"
+    },
+    {
+      "key": "Number of parameters (encoder)",
+      "string_value": "33.5M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "SA-V (Segment Anything Video dataset)"
+  ],
+  "research_paper": "https://arxiv.org/abs/2408.00714",
+  "research_paper_title": "SAM 2 Segment Anything in Images and Videos",
+  "source_repo": "https://github.com/facebookresearch/sam2",
+  "license_url": "https://github.com/facebookresearch/sam2/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

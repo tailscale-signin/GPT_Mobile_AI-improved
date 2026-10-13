@@ -79,7 +79,7 @@ class SharedToolCallBroker(
 
             if (existing == null) {
                 try {
-                    val result = execute()
+                    val result = execute().copy(statisticsProducerId = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext]?.invocationId)
                     candidate.completedAtMillis = nowMillis()
                     candidate.result.complete(result)
                     if (result.isError) entries.remove(key, candidate)

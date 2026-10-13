@@ -1,0 +1,81 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "mediapipe_hand_gesture",
+  "name": "MediaPipe-Hand-Gesture-Recognition",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time hand gesture recognition optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "The MediaPipe Gesture Recognizer is a real-time machine learning pipeline that detects hands, predicts 21 hand landmarks, determines handedness (left/right), and classifies gestures from a predefined set",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Gesture Control",
+    "Virtual Reality",
+    "Gaming"
+  ],
+  "related_models": [
+    "mediapipe_face",
+    "mediapipe_pose",
+    "mediapipe_selfie",
+    "mediapipe_hand"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "256x256"
+    },
+    {
+      "key": "Model size (canned_gesture_classifier) (float)",
+      "string_value": "577 KB"
+    },
+    {
+      "key": "Model size (canned_gesture_classifier) (w8a8)",
+      "string_value": "180 KB"
+    },
+    {
+      "key": "Model size (hand_landmark_detector) (float)",
+      "string_value": "10.4 MB"
+    },
+    {
+      "key": "Model size (hand_landmark_detector) (w8a8)",
+      "string_value": "3.12 MB"
+    },
+    {
+      "key": "Model size (palm_detector) (float)",
+      "string_value": "6.75 MB"
+    },
+    {
+      "key": "Model size (palm_detector) (w8a8)",
+      "string_value": "2.05 MB"
+    },
+    {
+      "key": "Number of parameters (canned_gesture_classifier)",
+      "string_value": "143K"
+    },
+    {
+      "key": "Number of parameters (hand_landmark_detector)",
+      "string_value": "2.72M"
+    },
+    {
+      "key": "Number of parameters (palm_detector)",
+      "string_value": "1.76M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "HaGRID"
+  ],
+  "research_paper": "https://arxiv.org/abs/2006.10214",
+  "research_paper_title": "MediaPipe Hands: On-device Real-time Hand Tracking",
+  "source_repo": "https://github.com/google-ai-edge/mediapipe",
+  "license_url": "https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

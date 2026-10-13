@@ -1,0 +1,58 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "detectron2_detection",
+  "name": "Detectron2-Detection",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "A next-generation library for object detection.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Detectron2-Detection is a machine learning model that can detect objects (trained on COCO dataset).",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "detr_resnet50_dc5",
+    "detr_resnet101_dc5",
+    "detr_resnet101"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "800x800"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "faster_rcnn_R_50_C4_1x"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "129 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "33.8M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "detection-datasets/coco"
+  ],
+  "source_repo": "https://github.com/facebookresearch/detectron2/",
+  "license_url": "https://github.com/facebookresearch/detectron2/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Mean Average Precision",
+    "value": 35.7,
+    "unit": "mAP",
+    "source": "https://github.com/facebookresearch/detectron2/blob/main/MODEL_ZOO.md"
+  }
+}

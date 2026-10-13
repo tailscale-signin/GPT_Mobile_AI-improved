@@ -169,7 +169,7 @@ class ModelCatalogRepositoryImpl(
     }
 
     companion object {
-        const val HOSTED_CATALOG_URL = "https://raw.githubusercontent.com/tailscale-signin/GPT_Mobile_AI-improved/main/model_catalog.json"
+        const val HOSTED_CATALOG_URL = "https://raw.githubusercontent.com/tailscale-signin/GPT_Mobile_AI-improved/main/model_catalog_v2.json"
         const val CATALOG_FILE_NAME = "model_catalog.json"
         private const val CATALOG_REQUEST_TIMEOUT_MS = 15_000L
 

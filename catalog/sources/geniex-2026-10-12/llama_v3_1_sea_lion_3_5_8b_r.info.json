@@ -1,0 +1,88 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "llama_v3_1_sea_lion_3_5_8b_r",
+  "name": "Llama-SEA-LION-v3.5-8B-R",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Llama-SEA-LION-v3.5-8B-R is a hybrid model offering versatile functionality, handling both complex reasoning tasks and general text generation, with mode selection managed through the tokenizer's chat template.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "SEA-LION is a collection of Large Language Models (LLMs) which have been pretrained and instruct-tuned for the Southeast Asia (SEA) region. The model is quantized to w4a16 (4-bit weights and 16-bit activations) and part of the model is quantized to w8a16 (8-bit weights and 16-bit activations) making it suitable for on-device deployment. For Prompt and output length specified below, the time to first token is Llama-PromptProcessor-Quantized's latency and average time per addition token is Llama-TokenGenerator-Quantized's latency.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_GENERATIVE_AI"
+  ],
+  "applicable_scenarios": [
+    "Dialogue",
+    "Content Generation",
+    "Customer Support"
+  ],
+  "related_models": [
+    "llama_v3_1_8b_instruct",
+    "llama_v3_8b_instruct",
+    "llama_v3_2_3b_instruct"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Language(s) supported",
+      "string_value": "Burmese, Chinese, English, Filipino, Indonesia, Javanese, Khmer, Lao, Malay, Sundanese, Tamil, Thai, Vietnamese."
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt. The lower bound is for a short prompt (up to 128 tokens, i.e., one iteration of the prompt processor) and the upper bound is for a prompt using the full context length (4096 tokens)."
+    }
+  ],
+  "license_type": "MODEL_LICENSE_LLAMA3",
+  "source_repo": "https://github.com/aisingapore/sealion/blob/main/models/sea-lion-v3.5/llama-sea-lion-v3.5-8B.md",
+  "license_url": "https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "restrict_model_sharing": true,
+  "numerics_benchmark": {
+    "dataset_name": "grace2",
+    "metric_name": "Grace2",
+    "value": 92.9,
+    "unit": "%",
+    "source": "AI Hub Models Reference Eval"
+  },
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_VIEW_README",
+    "genie_compatible": true
+  },
+  "runtime_technical_details": [
+    {
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "technical_details": [
+        {
+          "key": "Input sequence length for Prompt Processor",
+          "string_value": "128"
+        },
+        {
+          "key": "Maximum context length",
+          "string_value": "4096"
+        },
+        {
+          "key": "Quantization Type",
+          "string_value": "w4a16 + w8a16 (few layers)"
+        },
+        {
+          "key": "Supported Input Modalities",
+          "string_value": "text"
+        },
+        {
+          "key": "Supported Output Modalities",
+          "string_value": "text"
+        }
+      ]
+    }
+  ]
+}

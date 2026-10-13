@@ -1,0 +1,61 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "resnet_2plus1d",
+  "name": "ResNet-2Plus1D",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Sports and human action recognition in videos.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "ResNet (2+1)D Convolutions is a network which explicitly factorizes 3D convolution into two separate and successive operations, a 2D spatial convolution and a 1D temporal convolution. It used for video understanding applications.",
+  "use_case": "MODEL_USE_CASE_VIDEO_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE"
+  ],
+  "applicable_scenarios": [
+    "Camera",
+    "Action Recognition"
+  ],
+  "related_models": [
+    "resnet_3d",
+    "resnet_mixed"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "112x112"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Kinetics-400"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "120 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "30.8 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "31.5M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "research_paper": "https://arxiv.org/abs/1711.11248",
+  "research_paper_title": "A Closer Look at Spatiotemporal Convolutions for Action Recognition",
+  "source_repo": "https://github.com/pytorch/vision/blob/main/torchvision/models/video/resnet.py",
+  "license_url": "https://github.com/pytorch/vision/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "kinetics400",
+    "metric_name": "Top-1 Accuracy",
+    "value": 75.0,
+    "unit": "%",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

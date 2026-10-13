@@ -1,0 +1,53 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "cvt",
+  "name": "CVT",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Construct a map view from sensors mounted on a vehicle.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Cross-View Transformer generates real-time bird's-eye view maps from multiple vehicle cameras for autonomous driving.",
+  "use_case": "MODEL_USE_CASE_DRIVER_ASSISTANCE",
+  "applicable_scenarios": [
+    "Object Detection"
+  ],
+  "related_models": [
+    "simple_bev_cam"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Inference latency",
+      "string_value": "RealTime"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "1x6x3x224x480"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "vehicles_50k.pt"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "5.18 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "1.33M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "nuscene"
+  ],
+  "research_paper": "https://arxiv.org/abs/2205.02833",
+  "research_paper_title": "Cross-view Transformers for real-time Map-view Semantic Segmentation",
+  "source_repo": "https://github.com/bradyz/cross_view_transformers",
+  "license_url": "https://github.com/bradyz/cross_view_transformers/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

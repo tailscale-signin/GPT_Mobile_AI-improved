@@ -27,7 +27,7 @@ def check_reports(directory):
     print(f"Native memory smoke: {TEST_CLASS}.{TEST_METHOD} passed on {len(matched)} device(s)")
 
 
-def check_instrumentation(output):
+def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD):
     """Validate raw am instrument packets; adb's exit code is not a test result."""
     packet = {}
     started = False
@@ -44,7 +44,7 @@ def check_instrumentation(output):
             code = int(line.removeprefix("INSTRUMENTATION_STATUS_CODE: "))
             if code < 0:
                 raise ValueError(f"Native smoke failed or was skipped: {packet}")
-            if packet.get("class") == TEST_CLASS and packet.get("test") == TEST_METHOD:
+            if packet.get("class") == test_class and packet.get("test") == test_method:
                 if code == 1:
                     if started or finished:
                         raise ValueError("Native test has duplicate or out-of-order start packets")
@@ -60,7 +60,7 @@ def check_instrumentation(output):
             finished = True
     if not (started and passed and finished):
         raise ValueError("Native encoder/index test did not execute and complete successfully")
-    print(f"Native memory smoke: {TEST_CLASS}.{TEST_METHOD} executed and passed")
+    print(f"Instrumentation: {test_class}.{test_method} executed and passed")
 
 
 def main():

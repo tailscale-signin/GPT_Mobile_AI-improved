@@ -1,0 +1,50 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "stereonet",
+  "name": "StereoNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time stereo matching network for disparity estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "StereoNet is an end-to-end deep architecture for real-time stereo matching that produces high-quality, edge-preserved disparity maps from a rectified stereo image pair.",
+  "use_case": "MODEL_USE_CASE_DEPTH_ESTIMATION",
+  "applicable_scenarios": [
+    "Robotics",
+    "AR/VR",
+    "Autonomous Driving"
+  ],
+  "related_models": [
+    "midas",
+    "depth_anything",
+    "depth_anything_v2"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "786x490"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "KeystoneDepth (epoch=21-step=696366.ckpt)"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "7.41 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "1.94M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/1807.08865",
+  "research_paper_title": "StereoNet: Guided Hierarchical Refinement for Real-Time Edge-Aware Depth Prediction",
+  "source_repo": "https://github.com/andrewlstewart/StereoNet_PyTorch",
+  "license_url": "https://github.com/andrewlstewart/StereoNet_PyTorch/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

@@ -1,0 +1,58 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "gear_guard_net",
+  "name": "PPE-Detection",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Object detection for personal protective equipments (PPE).",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Detect if a person is wearing personal protective equipments (PPE) in real-time.  This model's architecture was developed by Qualcomm. The model was trained by Qualcomm on a proprietary dataset, but can be used on any image.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME",
+    "MODEL_TAG_BU_IOT"
+  ],
+  "applicable_scenarios": [
+    "Protective Gear Detection",
+    "Mask Detection"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Inference latency",
+      "string_value": "RealTime"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "320x192"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "23.6 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "6.65 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "6.23 MB"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "2"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "6.19M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "license_url": "https://github.com/qualcomm/ai-hub-models/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true
+}

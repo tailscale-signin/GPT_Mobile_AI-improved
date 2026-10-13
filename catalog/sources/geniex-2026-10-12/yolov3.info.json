@@ -1,0 +1,71 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "yolov3",
+  "name": "Yolo-v3",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time object detection optimized for mobile and edge.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "YoloV3 is a machine learning model that predicts bounding boxes and classes of objects in an image.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO",
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "yolov6",
+    "yolov8_det",
+    "yolov11_det"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "416p (416x416)"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "YoloV3 Tiny"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "43.9 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "16.9 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "11.5M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_AGPL_3_0",
+  "research_paper": "https://arxiv.org/abs/1804.02767",
+  "research_paper_title": "YOLOv3: An Incremental Improvement",
+  "source_repo": "https://github.com/ultralytics/yolov3/tree/v8",
+  "license_url": "https://github.com/ultralytics/yolov3/blob/v8/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "restrict_model_sharing": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Mean Average Precision",
+    "value": 31.1,
+    "unit": "mAP",
+    "source": "AI Hub Models Reference Eval"
+  },
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

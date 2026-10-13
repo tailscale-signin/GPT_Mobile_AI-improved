@@ -1,0 +1,55 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "rtmpose_body2d",
+  "name": "RTMPose-Body2d",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Human pose estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "RTMPose is a machine learning model that detects human pose and returns a location and confidence for each of 133 joints.",
+  "use_case": "MODEL_USE_CASE_POSE_ESTIMATION",
+  "applicable_scenarios": [
+    "Injury prevention training",
+    "Sports performance analysis",
+    "Posture recognition"
+  ],
+  "related_models": [
+    "hrnet_pose"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "256x192"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "68.5 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "18.2 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "17.9M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/2303.07399",
+  "research_paper_title": "RTMPose: Real-Time Multi-Person Pose Estimation based on MMPose",
+  "source_repo": "https://github.com/open-mmlab/mmpose/tree/main/projects/rtmpose",
+  "license_url": "https://github.com/open-mmlab/mmpose/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "cocowholebody",
+    "metric_name": "Mean Average Precision",
+    "value": 51.7,
+    "unit": "mAP",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

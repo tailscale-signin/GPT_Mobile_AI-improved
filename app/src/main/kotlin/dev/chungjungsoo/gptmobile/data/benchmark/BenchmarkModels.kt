@@ -102,7 +102,8 @@ data class BenchmarkSample(
     val requestedOutputTokens: Int? = null,
     val effectiveRequestOutputTokens: Int? = null,
     val requestedReasoningEffort: String? = null,
-    val intelligenceAnswers: Map<String, Boolean> = emptyMap()
+    val intelligenceAnswers: Map<String, Boolean> = emptyMap(),
+    val pairedComparison: PairedDelegationComparison? = null
 ) {
     val referenceSpeed: Double? get() = firstTextMs?.let { first ->
         val last = lastTextMs ?: return@let null

@@ -78,6 +78,7 @@ class GitHubTool(
 
         private val defaultHttpClient: HttpClient by lazy {
             HttpClient(OkHttp) {
+                install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
                 engine {
                     config {
                         retryOnConnectionFailure(true)

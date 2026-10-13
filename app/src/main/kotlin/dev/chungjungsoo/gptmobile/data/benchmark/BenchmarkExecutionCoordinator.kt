@@ -52,7 +52,9 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         }
     }
 
-    val isRunning: Boolean get() = active?.isCompleted == false
+    // Job completion can be observed before its completion handler finishes.
+    // Keep ownership until status persistence and foreground-service cleanup finish.
+    val isRunning: Boolean get() = active != null
 
     @Synchronized
     fun launch(block: suspend () -> Unit): Job? {
@@ -75,8 +77,6 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         job.invokeOnCompletion { failure ->
             synchronized(this) {
                 if (active === job) {
-                    progressMutable.value = null
-                    sessionMutable.value = null
                     val outcome = when {
                         stopReason != null -> "STOPPED"
                         failure is kotlinx.coroutines.CancellationException -> "INTERRUPTED"
@@ -87,6 +87,9 @@ class BenchmarkExecutionCoordinator @Inject constructor(
                     if (ready.isCompleted) appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
                     foregroundReady = null
                     active = null
+                    progressMutable.value = null
+                    // Publish idle last so observers can read the final outcome.
+                    sessionMutable.value = null
                 }
             }
         }

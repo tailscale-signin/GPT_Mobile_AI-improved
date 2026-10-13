@@ -1,0 +1,63 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "hrnet_pose",
+  "name": "HRNetPose",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Perform accurate human pose estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "HRNet performs pose estimation in high-resolution representations.",
+  "use_case": "MODEL_USE_CASE_POSE_ESTIMATION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Injury prevention training",
+    "Sports performance analysis",
+    "Posture recognition"
+  ],
+  "related_models": [
+    "litehrnet"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "256x192"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "hrnet_posenet_FP32_state_dict"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "109 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "28.1 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "28.5M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://arxiv.org/abs/1902.09212",
+  "research_paper_title": "Deep High-Resolution Representation Learning for Human Pose Estimation",
+  "source_repo": "https://github.com/leoxiaobin/deep-high-resolution-net.pytorch",
+  "license_url": "https://github.com/leoxiaobin/deep-high-resolution-net.pytorch/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "cocobody",
+    "metric_name": "Mean Average Precision",
+    "value": 74.4,
+    "unit": "mAP",
+    "source": "https://github.com/leoxiaobin/deep-high-resolution-net.pytorch"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "qwen2_7b_instruct",
+  "name": "Qwen2-7B-Instruct",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "State-of-the-art large language model useful on a variety of language understanding and generation tasks.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "The Qwen2-7B-Instruct is a state-of-the-art multilingual language model with 7.07 billion parameters, excelling in language understanding, generation, coding, and mathematics.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_GENERATIVE_AI"
+  ],
+  "applicable_scenarios": [
+    "Dialogue",
+    "Content Generation",
+    "Customer Support"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Context length",
+      "string_value": "4096"
+    },
+    {
+      "key": "Information about the model parts",
+      "string_value": "Prompt Processor and Token Generator are split into 5 parts each. Each corresponding Prompt Processor and Token Generator part share weights."
+    },
+    {
+      "key": "Input sequence length for Prompt Processor",
+      "string_value": "128"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "7.07B"
+    },
+    {
+      "key": "Quantization Type",
+      "string_value": "w4a16 + w8a16 (few layers)"
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "Supported languages",
+      "string_value": "English, Chinese, German, French, Spanish, Portuguese, Italian, Dutch, Russian, Czech, Polish, Arabic, Persian, Hebrew, Turkish, Japanese, Korean, Vietnamese, Thai, Indonesian, Malay, Lao, Burmese, Cebuano, Khmer, Tagalog, Hindi, Bengali, Urdu."
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt. The lower bound is for a short prompt (up to 128 tokens, i.e., one iteration of the prompt processor) and the upper bound is for a prompt using the full context length (4096 tokens)."
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/2407.10671v1",
+  "research_paper_title": "Qwen2 Technical Report",
+  "source_repo": "https://github.com/QwenLM/Qwen2.5",
+  "license_url": "https://huggingface.co/Qwen/Qwen2-7B-Instruct/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_VIEW_README",
+    "genie_compatible": true
+  }
+}

@@ -145,10 +145,12 @@ data class ResearchSnapshot(
     val complete: Boolean = false,
     val toolEvents: List<ResearchToolEvent> = emptyList(),
     val targetSources: Int = 0,
-    val frontierCursors: Map<String, String> = emptyMap()
+    val frontierCursors: Map<String, String> = emptyMap(),
+    val delegationPlan: dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint? = null
 ) {
     fun json() = buildJsonObject {
         put("version", 3)
+        delegationPlan?.let { put("delegationPlan", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it)) }
         put("targetSources", targetSources)
         put("frontierCursors", JsonObject(frontierCursors.mapValues { JsonPrimitive(it.value) }))
         put("task", task)
@@ -231,6 +233,7 @@ data class ResearchSnapshot(
                 claim.copy(verdict = verdict)
             }
             ResearchSnapshot(
+                delegationPlan = value["delegationPlan"]?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it) },
                 frontierCursors = (value["frontierCursors"] as? JsonObject)?.mapValues { (_, cursor) -> (cursor as JsonPrimitive).content.also { require(it.toIntOrNull()?.let { page -> page > 0 } == true) } }.orEmpty(),
                 task = value.text("task").take(8000), targetSources = value.number("targetSources").coerceAtLeast(0), phase = value.text("phase").take(40), round = value.number("round").coerceAtLeast(0),
                 searches = value.number("searches").coerceAtLeast(0), attempts = value.number("attempts").coerceAtLeast(0),

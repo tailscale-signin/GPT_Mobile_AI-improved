@@ -1,0 +1,55 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "centernet_2d",
+  "name": "CenterNet-2D",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Object Detection.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "CenterNet-2D is machine learning model that detects objects by finding their center points.",
+  "use_case": "MODEL_USE_CASE_OBJECT_DETECTION",
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1 x 3 x 512 x 512"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "ctdet_coco_dla_2x.pth"
+    },
+    {
+      "key": "Model size",
+      "string_value": "37.6 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "20.2M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "dataset": [
+    "coco"
+  ],
+  "research_paper": "https://arxiv.org/abs/1904.07850",
+  "research_paper_title": "Objects as Points",
+  "source_repo": "https://github.com/xingyizhou/CenterNet",
+  "license_url": "https://github.com/xingyizhou/CenterNet/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "coco",
+    "metric_name": "Mean Average Precision",
+    "value": 37.4,
+    "unit": "mAP",
+    "source": "https://github.com/xingyizhou/CenterNet"
+  }
+}

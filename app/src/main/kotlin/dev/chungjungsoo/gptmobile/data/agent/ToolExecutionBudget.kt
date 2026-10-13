@@ -102,19 +102,22 @@ class ToolExecutionBudget(
                 var deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.FAILED
                 var reason: String? = null
                 var shared = false
+                var producer: String? = null
                 suspend fun invokeObserved(): AgentToolResult {
                     // Admission and semaphore waiting do not count as uses.
-                    statisticsId = statistics?.begin(statisticsIdentity, statisticsProfile, statisticsRoot, executionOwner.name)
+                    val attributedProfile = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsProfile]?.uid ?: statisticsProfile
+                    statisticsId = statistics?.begin(statisticsIdentity, attributedProfile, statisticsRoot, executionOwner.name, callId)
                     startedNanos = System.nanoTime()
                     val recorder = statistics
                     val recordedId = statisticsId
-                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
+                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
                     return result.also { raw ->
                         if (!raw.dispatched) {
                             statistics?.rejectedBeforeDispatch(statisticsId)
                             statisticsId = null
                         }
                         shared = raw.sharedResult
+                        producer = raw.statisticsProducerId
                         executionOutcome = when {
                             raw.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
                             raw.isError -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
@@ -159,7 +162,7 @@ class ToolExecutionBudget(
                     }
                     if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                    deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
+                    deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content || (result.retainedContent != null && result.retainedContent != result.content)) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
@@ -179,6 +182,11 @@ class ToolExecutionBudget(
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {
+                    val receipt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDeliveryReceipt]
+                    if (receipt != null && statisticsId != null && statistics != null && deliveryOutcome == dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED) {
+                        receipt.pending(statisticsId!!, statistics)
+                        deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.PENDING
+                    }
                     withContext(NonCancellable) {
                         statistics?.complete(
                             statisticsId,
@@ -186,7 +194,8 @@ class ToolExecutionBudget(
                             deliveryOutcome,
                             reason,
                             startedNanos.takeIf { it > 0 }?.let { (System.nanoTime() - it) / 1_000_000 },
-                            shared
+                            shared,
+                            producer
                         )
                         onFinished(callId, success)
                     }

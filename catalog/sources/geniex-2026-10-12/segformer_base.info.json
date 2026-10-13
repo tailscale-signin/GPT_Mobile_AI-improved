@@ -1,0 +1,76 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "segformer_base",
+  "name": "Segformer-Base",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Real-time object segmentation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "Segformer Base is a machine learning model that predicts masks and classes of objects in an image.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Factory Automation",
+    "Robotic Navigation",
+    "Camera"
+  ],
+  "related_models": [
+    "unet_segmentation",
+    "fastsam_x",
+    "mediapipe_selfie",
+    "yolov8_seg",
+    "ddrnet23_slim"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "512x512"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "nvidia/segformer-b0-finetuned-ade-512-512"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "14.4 MB"
+    },
+    {
+      "key": "Model size (w8a16)",
+      "string_value": "4.57 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "3.90 MB"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "150"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "3.75M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/2105.15203",
+  "research_paper_title": "SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers",
+  "source_repo": "https://github.com/huggingface/transformers/tree/main/src/transformers/models/segformer",
+  "license_url": "https://github.com/huggingface/transformers/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "ade20k",
+    "metric_name": "Mean Intersection Over Union",
+    "value": 29.1,
+    "unit": "mIOU",
+    "source": "AI Hub Models Reference Eval"
+  }
+}

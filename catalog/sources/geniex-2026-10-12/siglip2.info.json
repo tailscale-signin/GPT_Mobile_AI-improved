@@ -1,0 +1,64 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "siglip2",
+  "name": "SigLIP2",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Zero-shot image-text similarity and classification using SigLIP2.",
+  "domain": "MODEL_DOMAIN_MULTIMODAL",
+  "description": "SigLIP2 (Sigmoid Loss for Language-Image Pre-training 2) is a vision-language model from Google that computes cosine-similarity scores between images and text prompts. It can be used for zero-shot image classification, image search, and content moderation without any task-specific fine-tuning.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_FOUNDATION"
+  ],
+  "applicable_scenarios": [
+    "Image Search",
+    "Content Moderation",
+    "Zero-Shot Classification"
+  ],
+  "related_models": [
+    "openai_clip"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Image input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "google/siglip2-base-patch16-224"
+    },
+    {
+      "key": "Model size (image_encoder) (float)",
+      "string_value": "352 MB"
+    },
+    {
+      "key": "Model size (image_encoder) (w8a16)",
+      "string_value": "92.8 MB"
+    },
+    {
+      "key": "Model size (text_encoder) (float)",
+      "string_value": "1.05 GB"
+    },
+    {
+      "key": "Model size (text_encoder) (w8a16)",
+      "string_value": "461 MB"
+    },
+    {
+      "key": "Text sequence length",
+      "string_value": "64"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "imagenet"
+  ],
+  "research_paper": "https://arxiv.org/abs/2502.14786",
+  "research_paper_title": "SigLIP 2: Multilingual Vision-Language Encoders with Improved Semantic Understanding, Localization, and Dense Features",
+  "source_repo": "https://huggingface.co/google/siglip2-base-patch16-224",
+  "license_url": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+  "has_static_banner": true
+}

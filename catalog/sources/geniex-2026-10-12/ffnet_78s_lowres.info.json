@@ -1,0 +1,71 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "ffnet_78s_lowres",
+  "name": "FFNet-78S-LowRes",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Semantic segmentation for automotive street scenes.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "FFNet-78S-LowRes is a \"fuss-free network\" that segments street scene images with per-pixel classes like road, sidewalk, and pedestrian. Trained on the Cityscapes dataset.",
+  "use_case": "MODEL_USE_CASE_SEMANTIC_SEGMENTATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Automotive",
+    "Autonomous Driving",
+    "Camera"
+  ],
+  "related_models": [
+    "ffnet_122ns_lowres",
+    "ffnet_54s",
+    "unet_segmentation"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "1024x512"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "ffnet78S_BCC_cityscapes_state_dict_quarts_pre_down"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "102 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "26.0 MB"
+    },
+    {
+      "key": "Number of output classes",
+      "string_value": "19"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "26.8M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_BSD_3_CLAUSE",
+  "dataset": [
+    "cityscapes"
+  ],
+  "research_paper": "https://arxiv.org/abs/2206.08236",
+  "research_paper_title": "Simple and Efficient Architectures for Semantic Segmentation",
+  "source_repo": "https://github.com/Qualcomm-AI-research/FFNet",
+  "license_url": "https://github.com/Qualcomm-AI-research/FFNet/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "cityscapes_lowres",
+    "metric_name": "Mean Intersection Over Union",
+    "value": 63.6,
+    "unit": "mIOU",
+    "source": "https://github.com/qcom-ai-hub/tetracode/issues/18303"
+  }
+}

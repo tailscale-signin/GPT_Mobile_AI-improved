@@ -1,0 +1,92 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "pipertts_en",
+  "name": "PiperTTS-EN",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "High-quality text-to-speech for English.",
+  "domain": "MODEL_DOMAIN_AUDIO",
+  "description": "PiperTTS is a high-quality multi-lingual text-to-speech library.",
+  "use_case": "MODEL_USE_CASE_AUDIO_GENERATION",
+  "tags": [
+    "MODEL_TAG_REAL_TIME"
+  ],
+  "applicable_scenarios": [
+    "Smart Home",
+    "Accessibility"
+  ],
+  "related_models": [
+    "melotts_en",
+    "pipertts_de",
+    "pipertts_it"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Max decoded sequence length",
+      "string_value": "64 tokens"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "rhasspy/piper-checkpoints"
+    },
+    {
+      "key": "Model size (decoder) (float)",
+      "string_value": "6.37 MB"
+    },
+    {
+      "key": "Model size (encoder) (float)",
+      "string_value": "28.7 MB"
+    },
+    {
+      "key": "Model size (flow) (float)",
+      "string_value": "28.2 MB"
+    },
+    {
+      "key": "Model size (sdp) (float)",
+      "string_value": "6.61 KB"
+    },
+    {
+      "key": "Model size (t5_decoder) (float)",
+      "string_value": "21.8 MB"
+    },
+    {
+      "key": "Model size (t5_encoder) (float)",
+      "string_value": "57.5 MB"
+    },
+    {
+      "key": "Number of parameters (decoder)",
+      "string_value": "1.66M"
+    },
+    {
+      "key": "Number of parameters (encoder)",
+      "string_value": "7.51M"
+    },
+    {
+      "key": "Number of parameters (flow)",
+      "string_value": "7.39M"
+    },
+    {
+      "key": "Number of parameters (sdp)",
+      "string_value": "1.04K"
+    },
+    {
+      "key": "Number of parameters (t5_decoder)",
+      "string_value": "5.72M"
+    },
+    {
+      "key": "Number of parameters (t5_encoder)",
+      "string_value": "15.1M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_MIT",
+  "research_paper": "https://github.com/rhasspy/piper",
+  "research_paper_title": "PiperTTS High-quality Multi-lingual Multi-accent Text-to-Speech",
+  "source_repo": "https://github.com/rhasspy/piper",
+  "license_url": "https://github.com/rhasspy/piper/blob/master/LICENSE.md",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

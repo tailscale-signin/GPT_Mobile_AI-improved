@@ -1,0 +1,75 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "nasnet",
+  "name": "NASNet",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Imagenet classifier and general purpose backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "NASNet is a CNN-based architecture discovered via Neural Architecture Search (NAS) that can classify images from the Imagenet dataset.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BU_AUTO"
+  ],
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "efficientvit_b2_cls",
+    "efficientvit_l2_cls"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT",
+    "FORM_FACTOR_XR"
+  ],
+  "technical_details": [
+    {
+      "key": "Activations (M)",
+      "string_value": "19.4"
+    },
+    {
+      "key": "GMACs",
+      "string_value": "5.9"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "224x224"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "nasnetalarge.tf_in1k"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "338 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "88.7M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "imagenet-1k"
+  ],
+  "research_paper": "https://arxiv.org/abs/1707.07012",
+  "research_paper_title": "Learning Transferable Architectures for Scalable Image Recognition",
+  "source_repo": "https://github.com/huggingface/pytorch-image-models/tree/main",
+  "license_url": "https://github.com/huggingface/pytorch-image-models?tab=Apache-2.0-1-ov-file",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 82.6,
+    "unit": "%",
+    "source": "https://huggingface.co/timm/nasnetalarge.tf_in1k"
+  },
+  "private_perf_form_factors": [
+    "FORM_FACTOR_AUTO"
+  ]
+}

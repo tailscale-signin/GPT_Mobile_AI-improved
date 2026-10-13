@@ -1,0 +1,60 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "crestereo",
+  "name": "CREStereo",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Cascaded recurrent stereo matching network for high-accuracy disparity estimation.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "CREStereo (Cascaded Recurrent Network with Adaptive Correlation) is a CVPR 2022 Oral paper that achieves state-of-the-art stereo matching accuracy.",
+  "use_case": "MODEL_USE_CASE_DEPTH_ESTIMATION",
+  "applicable_scenarios": [
+    "Robotics",
+    "AR/VR",
+    "Autonomous Driving",
+    "3D Reconstruction"
+  ],
+  "related_models": [
+    "stereonet",
+    "midas",
+    "depth_anything",
+    "depth_anything_v2"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input",
+      "string_value": "Rectified stereo pair \u2014 left and right RGB images"
+    },
+    {
+      "key": "Input resolution",
+      "string_value": "240x320"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "CREStereo ETH3D pretrained (crestereo_eth3d.pt)"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "20.7 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "5.43M"
+    },
+    {
+      "key": "Output",
+      "string_value": "Disparity map"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/2203.11483",
+  "research_paper_title": "Practical Stereo Matching via Cascaded Recurrent Network with Adaptive Correlation",
+  "source_repo": "https://github.com/ibaiGorordo/CREStereo-Pytorch",
+  "license_url": "https://github.com/megvii-research/CREStereo/blob/master/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true
+}

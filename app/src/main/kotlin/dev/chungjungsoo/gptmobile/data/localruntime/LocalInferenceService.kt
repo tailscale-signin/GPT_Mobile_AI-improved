@@ -132,6 +132,7 @@ class LocalInferenceService : Service() {
                                             ownerReply.send("TOOL", text = arguments, callId = callId, toolName = name)
                                             val returned = withTimeout(120_000) { result.await() }
                                             require(owner == generatingRequest) { "Tool callback outlived its request" }
+                                            ownerReply.send("TOOL_RECEIVED", callId = callId)
                                             returned.errorCode?.let { throw LocalToolLimitException(it) }
                                             returned.text
                                         } finally {

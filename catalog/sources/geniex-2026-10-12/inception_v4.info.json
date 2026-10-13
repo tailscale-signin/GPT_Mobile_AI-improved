@@ -1,0 +1,69 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "inception_v4",
+  "name": "Inception-v4",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Imagenet classifier and general purpose backbone.",
+  "domain": "MODEL_DOMAIN_COMPUTER_VISION",
+  "description": "InceptionNetV4 is a machine learning model that can classify images from the Imagenet dataset. It can also be used as a backbone in building more complex models for specific use cases.",
+  "use_case": "MODEL_USE_CASE_IMAGE_CLASSIFICATION",
+  "tags": [
+    "MODEL_TAG_BACKBONE"
+  ],
+  "applicable_scenarios": [
+    "Medical Imaging",
+    "Anomaly Detection",
+    "Inventory Management"
+  ],
+  "related_models": [
+    "mobilenet_v2",
+    "densenet121",
+    "googlenet"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Input resolution",
+      "string_value": "299x299"
+    },
+    {
+      "key": "Model checkpoint",
+      "string_value": "Imagenet"
+    },
+    {
+      "key": "Model size (float)",
+      "string_value": "163 MB"
+    },
+    {
+      "key": "Model size (w8a8)",
+      "string_value": "41.6 MB"
+    },
+    {
+      "key": "Number of parameters",
+      "string_value": "42.6M"
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "dataset": [
+    "imagenet-1k",
+    "imagenet-22k"
+  ],
+  "research_paper": "https://arxiv.org/abs/1602.07261",
+  "research_paper_title": "Inception-v4, Inception-ResNet and the Impact of Residual Connections on Learning",
+  "source_repo": "https://huggingface.co/timm/inception_v4.tf_in1k",
+  "license_url": "https://github.com/huggingface/pytorch-image-models/tree/main?tab=Apache-2.0-1-ov-file",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "imsdk_supported": true,
+  "numerics_benchmark": {
+    "dataset_name": "imagenet",
+    "metric_name": "Top-1 Accuracy",
+    "value": 80.0,
+    "unit": "%",
+    "source": "https://arxiv.org/abs/1602.07261"
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "qwen3_5_2b",
+  "name": "Qwen3.5-2B",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Balanced 2B parameter model from the Qwen3.5 series for on-device inference.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "Qwen3.5 is the latest multilingual language model series from Alibaba Cloud with improved reasoning and instruction-following capabilities over Qwen3.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_VLM",
+    "MODEL_TAG_GENERATIVE_AI"
+  ],
+  "applicable_scenarios": [
+    "Dialogue",
+    "Content Generation"
+  ],
+  "related_models": [
+    "qwen3_5_0_8b",
+    "qwen3_1_7b"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Model architecture",
+      "string_value": "Dense Transformer with Grouped Query Attention (GQA) and SwiGLU activation."
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "Supported languages",
+      "string_value": "100+ languages and dialects"
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt."
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://qwen.ai/blog?id=qwen3.5",
+  "research_paper_title": "Qwen3.5: Towards Native Multimodal Agents",
+  "source_repo": "https://huggingface.co/Qwen/Qwen3.5-2B",
+  "license_url": "https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "grace2",
+    "metric_name": "Grace2",
+    "value": 79.5,
+    "unit": "%",
+    "source": "AI Hub Models Reference Eval"
+  },
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_DOWNLOAD_AND_VIEW_README",
+    "geniex_llamacpp_compatible": true
+  },
+  "runtime_technical_details": [
+    {
+      "runtime": "RUNTIME_GENIEX_LLAMACPP",
+      "technical_details": [
+        {
+          "key": "Model Size",
+          "string_value": "1.21 GB"
+        },
+        {
+          "key": "Quantization Type",
+          "string_value": "Q4_0 (GGUF)"
+        },
+        {
+          "key": "Supported Input Modalities",
+          "string_value": "image, text"
+        },
+        {
+          "key": "Supported Output Modalities",
+          "string_value": "text"
+        },
+        {
+          "key": "model_infer_id",
+          "string_value": "unsloth/Qwen3.5-2B-GGUF"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "aihm_version": "0.64.0",
+  "id": "intern3_5_vl_2b",
+  "name": "Intern3.5-VL-2B",
+  "status": "MODEL_STATUS_PUBLISHED",
+  "headline": "Multimodal 2B vision-language model for text and image understanding.",
+  "domain": "MODEL_DOMAIN_GENERATIVE_AI",
+  "description": "InternVL3.5 is a vision-language model from OpenGVLab capable of understanding both text and images for multimodal reasoning tasks such as visual question answering and image captioning.",
+  "use_case": "MODEL_USE_CASE_TEXT_GENERATION",
+  "tags": [
+    "MODEL_TAG_LLM",
+    "MODEL_TAG_VLM",
+    "MODEL_TAG_GENERATIVE_AI"
+  ],
+  "applicable_scenarios": [
+    "Dialogue",
+    "Content Generation"
+  ],
+  "related_models": [
+    "qwen3_vl_4b_instruct",
+    "qwen3_vl_2b_instruct"
+  ],
+  "form_factors": [
+    "FORM_FACTOR_PHONE",
+    "FORM_FACTOR_TABLET",
+    "FORM_FACTOR_IOT"
+  ],
+  "technical_details": [
+    {
+      "key": "Model architecture",
+      "string_value": "Multimodal Transformer with InternViT Vision Encoder, Qwen-based Large Language Model (LLM) backend, Grouped Query Attention (GQA), and SwiGLU activation. It follows a ViT \u2192 MLP \u2192 LLM design for efficient vision-language understanding and reasoning."
+    },
+    {
+      "key": "Response Rate",
+      "string_value": "Rate of response generation after the first response token."
+    },
+    {
+      "key": "Supported languages",
+      "string_value": "No exact mention"
+    },
+    {
+      "key": "TTFT",
+      "string_value": "Time To First Token is the time it takes to generate the first response token. This is expressed as a range because it varies based on the length of the prompt."
+    }
+  ],
+  "license_type": "MODEL_LICENSE_APACHE_2_0",
+  "research_paper": "https://arxiv.org/abs/2508.18265",
+  "research_paper_title": "InternVL3.5 Advancing Open-Source Multimodal Models in Versatility, Reasoning, and Efficiency",
+  "source_repo": "https://huggingface.co/OpenGVLab/InternVL3_5-2B",
+  "license_url": "https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md",
+  "has_static_banner": true,
+  "has_animated_banner": true,
+  "numerics_benchmark": {
+    "dataset_name": "grace2",
+    "metric_name": "Grace2",
+    "value": 79.6,
+    "unit": "%",
+    "source": "AI Hub Models Reference Eval"
+  },
+  "model_type_llm": true,
+  "llm_details": {
+    "call_to_action": "CALL_TO_ACTION_DOWNLOAD_AND_VIEW_README",
+    "genie_compatible": true
+  },
+  "runtime_technical_details": [
+    {
+      "runtime": "RUNTIME_GENIEX_QAIRT",
+      "technical_details": [
+        {
+          "key": "Context lengths",
+          "string_value": "512, 1024, 2048, 4096"
+        },
+        {
+          "key": "Input sequence length for Prompt Processor",
+          "string_value": "128"
+        },
+        {
+          "key": "Minimum QNN SDK version required",
+          "string_value": "2.45.0"
+        },
+        {
+          "key": "Supported Input Modalities",
+          "string_value": "image, text"
+        },
+        {
+          "key": "Supported Output Modalities",
+          "string_value": "text"
+        },
+        {
+          "key": "model_infer_id",
+          "string_value": "ai-hub-models/Intern3.5-VL-2B"
+        }
+      ]
+    }
+  ]
+}

@@ -186,6 +186,7 @@ class ScoreboardRepository @Inject constructor(
         const val MAX_INDEX_BYTES = 8_000_000
         private val client by lazy {
             HttpClient(OkHttp) {
+                install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
                 followRedirects = false
                 install(HttpTimeout) {
                     requestTimeoutMillis = 30_000

@@ -234,7 +234,7 @@ class ModelCatalogParserTest {
 
     @Test
     fun `hosted catalog snapshot parses to visible local models`() {
-        val hostedJson = readCatalogFile("../model_catalog.json", "model_catalog.json")
+        val hostedJson = readCatalogFile("../model_catalog_v2.json", "model_catalog_v2.json")
         val bundledJson = readCatalogFile(
             "src/main/assets/model_catalog.json",
             "app/src/main/assets/model_catalog.json"
@@ -244,7 +244,11 @@ class ModelCatalogParserTest {
         val catalog = ModelCatalogParser.parse(hostedJson)
         val visible = ModelCatalogParser.visibleEntries(catalog, "0.8.0")
 
-        assertEquals(1, catalog.schemaVersion)
+        assertEquals(2, catalog.schemaVersion)
+        assertEquals(241, catalog.source?.familyCount)
+        assertEquals(1974, catalog.coverage.size)
+        val legacy = ModelCatalogParser.parse(readCatalogFile("../model_catalog.json", "model_catalog.json"))
+        assertEquals(ModelCatalogParser.visibleEntries(legacy, "0.8.0"), visible)
         assertTrue(visible.size in 4..6)
         assertTrue(visible.any { it.isGated && it.displayName.contains("Gemma", ignoreCase = true) })
         assertTrue(visible.any { !it.isGated })

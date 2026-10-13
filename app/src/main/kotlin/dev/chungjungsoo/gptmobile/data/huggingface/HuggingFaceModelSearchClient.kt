@@ -34,7 +34,9 @@ data class HuggingFaceLiteRtResult(
     val downloads: Long,
     val gated: Boolean,
     val tags: List<String>,
-    val sha256: String = ""
+    val sha256: String = "",
+    val discoveryAssets: List<dev.chungjungsoo.gptmobile.data.catalog.CatalogDiscoveryAsset> = emptyList(),
+    val license: String = ""
 ) {
     val fileName: String get() = filePath.substringAfterLast('/')
     val displayName: String get() = repoId.substringAfter('/')
@@ -49,6 +51,21 @@ data class HuggingFaceLiteRtResult(
         val soc = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.npuSoc(filePath)
         val url = "https://huggingface.co/$repoId/resolve/$revision/$encodedPath?download=true"
 
+        if (filePath.endsWith(".gguf", true)) {
+            return CatalogEntry(
+                id = stableId, displayName = "$displayName · $fileName", familyId = repoId,
+                sourceUrl = "https://huggingface.co/$repoId/tree/$revision", upstreamRevision = revision,
+                sizeInBytes = discoveryAssets.sumOf { it.sizeInBytes }.takeIf { it > 0 } ?: sizeInBytes,
+                sha256 = sha256, isGated = gated, minRamGb = estimateMinRamGb(discoveryAssets.sumOf { it.sizeInBytes }),
+                runtimeRequirement = "geniex-0.8.0", manifestVersion = 2, minAppVersion = "0.9.50.0",
+                variantLabel = "GGUF · $fileName", coverageStatus = "missing_artifact_metadata",
+                precision = Regex("(?i)(?:IQ|Q)[0-9]+(?:_[A-Z0-9]+)*").find(fileName)?.value.orEmpty(),
+                discoveryAssets = discoveryAssets,
+                licenseUrl = "https://huggingface.co/$repoId/blob/$revision/README.md",
+                capabilities = CatalogCapabilities(vision = discoveryAssets.any { it.role == "projector_candidate" }),
+                supportedAccelerators = listOf("cpu", "gpu")
+            )
+        }
         return CatalogEntry(
             id = stableId,
             displayName = displayName,
@@ -101,7 +118,7 @@ data class HubSearchOutcome(val results: List<HuggingFaceLiteRtResult>, val noti
 
 /**
  * Searches the Hugging Face Hub using its public model listing API and keeps only
- * repositories that expose LiteRT-LM package files consumable by this app.
+ * LiteRT-LM packages and GGUF/shard/projector inventories. GGUF discovery never authorizes raw installation.
  *
  * The Hub's list-models endpoint supports search/sort/limit and full model data;
  * full data includes repository siblings so the client can identify .litertlm files.
@@ -150,18 +167,14 @@ class HuggingFaceModelSearchClient @Inject constructor(
                 .filter { it.sizeInBytes > 0 && it.sha.matches(Regex("[a-fA-F0-9]{40}")) }
             return HubSearchOutcome(results, "Direct repository lookup; capabilities still require device testing.")
         }
-        val root = requestJson(
-            MODELS_API,
-            token,
-            mapOf(
-                "search" to normalized.ifBlank { DEFAULT_DISCOVERY_QUERY },
-                "sort" to "downloads",
-                "direction" to "-1",
-                "limit" to limit.coerceIn(1, MAX_LIMIT).toString(),
-                "full" to "true"
-            )
-        )
-        val models = root as? JsonArray ?: return HubSearchOutcome(emptyList(), "Hub returned no repository list.")
+        val terms = if (normalized.isBlank()) listOf(DEFAULT_DISCOVERY_QUERY, "GGUF") else listOf(normalized)
+        val models = supervisorScope {
+            terms.map { term ->
+                async {
+                    requestJson(MODELS_API, token, mapOf("search" to term, "sort" to "downloads", "direction" to "-1", "limit" to limit.coerceIn(1, MAX_LIMIT).toString(), "full" to "true")) as? JsonArray ?: JsonArray(emptyList())
+                }
+            }.awaitAll().flatMap { it }.distinctBy { (it as? JsonObject)?.get("id") }
+        }
         val failures = java.util.concurrent.atomic.AtomicInteger()
         // Listing siblings omit sizes. Resolve metadata at the pinned revision before
         // showing a package as suitable for the phone's memory budget.
@@ -203,7 +216,7 @@ class HuggingFaceModelSearchClient @Inject constructor(
         }
     }
 
-    private fun parseCompatibleFiles(element: kotlinx.serialization.json.JsonElement): List<HuggingFaceLiteRtResult> {
+    internal fun parseCompatibleFiles(element: kotlinx.serialization.json.JsonElement): List<HuggingFaceLiteRtResult> {
         val model = element as? JsonObject ?: return emptyList()
         val repoId = model["id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank) ?: return emptyList()
         val sha = model["sha"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -220,8 +233,24 @@ class HuggingFaceModelSearchClient @Inject constructor(
         return siblings.mapNotNull { siblingElement ->
             val sibling = siblingElement as? JsonObject ?: return@mapNotNull null
             val path = sibling["rfilename"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-            if (!path.endsWith(LITERTLM_EXTENSION, ignoreCase = true)) return@mapNotNull null
-            if (!isSupportedHubPackage(repoId, path, tags)) return@mapNotNull null
+            if (!path.endsWith(LITERTLM_EXTENSION, ignoreCase = true) && !path.endsWith(".gguf", true)) return@mapNotNull null
+            val gguf = path.endsWith(".gguf", true)
+            if (!gguf && !isSupportedHubPackage(repoId, path, tags)) return@mapNotNull null
+            if (path.contains("mmproj", true) || path.contains("projector", true)) return@mapNotNull null
+            val shard = Regex("^(.*)-([0-9]{5})-of-([0-9]{5})\\.gguf$", RegexOption.IGNORE_CASE).matchEntire(path)
+            if (shard != null && shard.groupValues[2] != "00001") return@mapNotNull null
+            val assets = if (gguf) {
+                siblings.mapNotNull { element ->
+                    val asset = element as? JsonObject ?: return@mapNotNull null
+                    val name = asset["rfilename"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val candidate = name.substringBeforeLast('/', "") == path.substringBeforeLast('/', "") && name.endsWith(".gguf", true) && (name.contains("mmproj", true) || name.contains("projector", true))
+                    if (name != path && !candidate && !(shard != null && name.startsWith(shard.groupValues[1] + "-") && name.endsWith("-of-" + shard.groupValues[3] + ".gguf", true))) return@mapNotNull null
+                    val lfs = asset["lfs"] as? JsonObject
+                    dev.chungjungsoo.gptmobile.data.catalog.CatalogDiscoveryAsset(name, asset["size"]?.jsonPrimitive?.longOrNull ?: lfs?.get("size")?.jsonPrimitive?.longOrNull ?: 0L, lfs?.get("sha256")?.jsonPrimitive?.contentOrNull?.takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) }.orEmpty(), if (candidate) "projector_candidate" else "model")
+                }.take(256)
+            } else {
+                emptyList()
+            }
 
             val size = sibling["size"]?.jsonPrimitive?.longOrNull
                 ?: (sibling["lfs"] as? JsonObject)?.get("size")?.jsonPrimitive?.longOrNull
@@ -235,6 +264,8 @@ class HuggingFaceModelSearchClient @Inject constructor(
                 downloads = downloads,
                 gated = gated,
                 tags = tags,
+                discoveryAssets = assets,
+                license = tags.firstOrNull { it.startsWith("license:") }?.removePrefix("license:").orEmpty(),
                 sha256 = (sibling["lfs"] as? JsonObject)?.get("sha256")?.jsonPrimitive?.contentOrNull
                     ?.takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) }.orEmpty()
             )

@@ -82,6 +82,7 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.rag.FactRecall
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
+import dev.chungjungsoo.gptmobile.data.telemetry.tool.forStatisticsProfile
 import dev.chungjungsoo.gptmobile.util.DocumentTextExtractor
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
@@ -729,8 +730,12 @@ class ChatRepositoryImpl(
     internal suspend fun resolveDelegatedTools(target: PlatformV2, parentRunId: String, chatToolConfig: ChatMcpToolConfig, task: String = ""): List<AgentTool> {
         if (target.disableAllTools || chatToolConfig.allToolsDisabled) return emptyList()
         val invocation = "delegate:${UUID.randomUUID()}"
+        val inheritedStatistics = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext]
         val budget = ToolExecutionBudget(
-            agentRunnerForPlatform(target, runOverride = minOf(target.maxToolCalls, chatToolConfig.maxToolCalls ?: Int.MAX_VALUE).coerceAtLeast(0)).limits
+            agentRunnerForPlatform(target, runOverride = minOf(target.maxToolCalls, chatToolConfig.maxToolCalls ?: Int.MAX_VALUE).coerceAtLeast(0)).limits,
+            statistics = inheritedStatistics?.repository,
+            statisticsProfile = target.uid,
+            statisticsRoot = parentRunId
         )
         return agentToolResolver.resolve(target.uid, chatToolConfig, userMessage = null, delegate = null)
             .sortedWith(compareBy<ResolvedAgentTool> { !(isGitHubTask(task) && it.isGitHubTool()) }.thenBy { delegatedToolPriority(it) }.thenBy { it.modelToolName })
@@ -771,6 +776,9 @@ class ChatRepositoryImpl(
             inheritedTools.map { it.tool }.toMutableList()
         } else {
             resolveDelegatedTools(target, parentRunId, chatToolConfig, task).toMutableList()
+        }
+        if (fixtureTools == null) {
+            for (index in childTools.indices) childTools[index] = childTools[index].forStatisticsProfile(target.uid)
         }
         val childToolSource = when {
             !allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled -> "disabled"
@@ -1181,6 +1189,7 @@ class ChatRepositoryImpl(
             }
         }
         var admittedTemplate: dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate? = null
+        var admittedReadOnlyPlan = false
         var delegationControlJob: kotlinx.coroutines.Job? = null
         var delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.INTERRUPTED
         suspend fun generateDelegate(
@@ -1211,7 +1220,7 @@ class ChatRepositoryImpl(
                             trySend(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
                         }
                     }
-                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools.filter { admittedTemplate == null || it.shareableReadOnly } else emptyList(), requestRole = requestRole)
+                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools.filter { (admittedTemplate == null && !admittedReadOnlyPlan) || it.shareableReadOnly } else emptyList(), requestRole = requestRole)
             } finally {
                 // A final suspending snapshot recovers any intermediate UI update
                 // skipped while the channel was busy. It is never the primary answer.
@@ -1317,6 +1326,7 @@ class ChatRepositoryImpl(
                     .withRemoteWorkersAllowed(admittedPolicy.remoteWorkersAllowed() && live.remoteWorkersAllowed())
                 return if (taskRecovery?.primaryOnly == true) resolved.copy(enabled = false, automaticResearch = false, researchEnabled = false, reviewerEnabled = false, processingOwnership = 100) else resolved
             }
+            admittedReadOnlyPlan = admittedPolicy.taskPlan.steps.isNotEmpty()
             val researchChatId = effectiveUserMessages.lastOrNull()?.chatId ?: -1
             val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
             delegationActivity?.start(runId, researchChatId, dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(kotlinx.serialization.json.Json.encodeToString(admittedPolicy)), platform.uid, researchPersistent)

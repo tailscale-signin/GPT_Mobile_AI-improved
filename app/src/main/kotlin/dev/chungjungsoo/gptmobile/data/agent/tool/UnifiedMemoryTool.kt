@@ -76,7 +76,8 @@ class UnifiedMemoryTool(
                         put("description", described.definition.description)
                         put("inputSchema", described.definition.inputSchema)
                     }.toString()
-                )
+                ),
+                isError = false
             )
         }
         val tool = actions[action] ?: return AgentToolResult(callId, ToolResultContent.Text("Choose a supported memory action."), true)

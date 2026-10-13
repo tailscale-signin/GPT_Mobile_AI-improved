@@ -894,7 +894,8 @@ class ChatRepositoryImpl(
             session, parentRunId, turnKey, target.compatibleType.name, target.model, requestRole,
             estimatedRequestInputTokens, maxTokens,
             settingRepository.getFeatureSettings().tokenBudget.normalized().totalRunTokens,
-            profileUid = target.uid
+            profileUid = target.uid,
+            onInvocation = { id -> onProgress(DelegateProgress(DelegateProgressKind.INVOCATION_LINKED, invocationId = id, attemptId = attemptId, rootWorkId = turnKey)) }
         ) ?: session
         val childToolLimit = minOf(target.maxToolCalls, chatToolConfig.maxToolCalls ?: Int.MAX_VALUE).coerceAtLeast(0)
         val childLimits = agentRunnerForPlatform(bounded, runOverride = childToolLimit).limits
@@ -1285,7 +1286,7 @@ class ChatRepositoryImpl(
                         .filter { it.runId != runId }.distinctBy { it.runId }.sortedBy { it.createdAt }
                     researchSessions?.loadChat(latest.chatId)
                     val retainedResearch = researchSessions?.sessions?.value?.values.orEmpty().filter {
-                        it.chatId == latest.chatId && (it.runId in runs.map { run -> run.runId } || taskRecovery?.originalRequest?.let { request -> it.snapshot.task.endsWith(request) } == true)
+                        it.chatId == latest.chatId && (it.runId in runs.map { run -> run.runId } || taskRecovery?.let { recovery -> it.turnId == "${latest.chatId}:${recovery.sourceMessageId}" && it.authority.endsWith(":${platform.uid}") } == true)
                     }.map { it.snapshot }
                     if (runs.isEmpty() && retainedResearch.isEmpty()) {
                         null
@@ -1299,7 +1300,8 @@ class ChatRepositoryImpl(
                     }
                 }
             }
-            if (taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE) writerFailures.recheck(platform)
+            val resumeWriterOnly = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE && writerFailures.blocked(platform) != null
+            if (resumeWriterOnly) writerFailures.recheck(platform)
             writerFailures.blocked(platform)?.let { failure ->
                 emit(ApiState.Error("Final writer unavailable. ${failure.message()} Saved evidence is retained. Check the connection, then use Retry failed stage for an explicit recheck, or choose an approved writer."))
                 return@channelFlow
@@ -1354,18 +1356,18 @@ class ChatRepositoryImpl(
             val scoped = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.resolve(admittedFeatures, platform.uid, chatToolConfig?.delegation)
             val admittedPolicy = chatToolConfig?.research?.applyTo(scoped) ?: scoped
             val roleAdmission = dev.chungjungsoo.gptmobile.data.delegation.DelegationAdmissionResolver.resolve(admittedPolicy, admittedProfiles, platform)
-            if (admittedPolicy.enabled && roleAdmission.blocked) {
+            if (admittedPolicy.enabled && taskRecovery?.primaryOnly != true && !resumeWriterOnly && roleAdmission.blocked) {
                 emit(ApiState.Error(roleAdmission.explanation))
                 return@channelFlow
             }
-            if (admittedPolicy.enabled && roleAdmission.warning != null) emit(ApiState.Notice(roleAdmission.warning, persistent = true))
+            if (admittedPolicy.enabled && taskRecovery?.primaryOnly != true && !resumeWriterOnly && roleAdmission.warning != null) emit(ApiState.Notice(roleAdmission.warning, persistent = true))
             admittedTemplate = admittedPolicy.templateRole?.let { dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.from(admittedPolicy) }
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
                 // Ordinary policy is immutable for this turn; revocations can only restrict it.
                 val live = settingRepository.getFeatureSettings().delegationFor(platform.uid).normalized()
                 val resolved = admittedPolicy.copy(enabled = admittedPolicy.enabled && live.enabled)
                     .withRemoteWorkersAllowed(admittedPolicy.remoteWorkersAllowed() && live.remoteWorkersAllowed())
-                return if (taskRecovery?.primaryOnly == true) resolved.copy(enabled = false, automaticResearch = false, researchEnabled = false, reviewerEnabled = false, processingOwnership = 100) else resolved
+                return if (taskRecovery?.primaryOnly == true || resumeWriterOnly) resolved.copy(enabled = false, automaticResearch = false, researchEnabled = false, reviewerEnabled = false, processingOwnership = 100) else resolved
             }
             admittedReadOnlyPlan = admittedPolicy.taskPlan.steps.isNotEmpty()
             val researchChatId = effectiveUserMessages.lastOrNull()?.chatId ?: -1
@@ -1374,7 +1376,7 @@ class ChatRepositoryImpl(
             val localDelegation = LocalDelegationCoordinator(
                 platform,
                 onEvent = { event -> delegationActivity?.record(runId, event) },
-                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls),
+                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls, ownerScope = platform.uid),
                 beforeDispatch = { dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.awaitDispatch(runId) && effectiveDelegationSettings().enabled },
                 settings = { effectiveDelegationSettings() },
                 profiles = {
@@ -1665,16 +1667,18 @@ class ChatRepositoryImpl(
             )
             val toolBudget = ToolExecutionBudget(toolBudgetLimits, statistics = toolStatistics.takeIf { researchPersistent }, statisticsProfile = platform.uid, statisticsRoot = runId)
             val explicitResearchSelection = chatToolConfig?.research
-            val explicitResearch = explicitResearchSelection?.let { selection ->
-                selection.researchToggle &&
-                    selection.depth > 0 &&
-                    initialDelegationSettings.deepResearch.enabled &&
-                    runFeatures.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                    runFeatures.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                    !platform.disableAllTools &&
-                    !platform.disableRemoteTools &&
-                    !synthesisRun
-            } == true
+            val explicitResearch = !resumeWriterOnly &&
+                taskRecovery?.primaryOnly != true &&
+                explicitResearchSelection?.let { selection ->
+                    selection.researchToggle &&
+                        selection.depth > 0 &&
+                        initialDelegationSettings.deepResearch.enabled &&
+                        runFeatures.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                        runFeatures.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                        !platform.disableAllTools &&
+                        !platform.disableRemoteTools &&
+                        !synthesisRun
+                } == true
             val acquisitionBudget = if (explicitResearch || (localResearch && initialDelegationSettings.deepResearch.schemaVersion >= 2)) {
                 ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.researchAcquisitionLimits(toolBudgetLimits, initialDelegationSettings.deepResearch), statistics = toolStatistics.takeIf { researchPersistent }, statisticsProfile = platform.uid, statisticsRoot = runId)
             } else {
@@ -1806,7 +1810,7 @@ class ChatRepositoryImpl(
                         directConfig,
                         delegatedTools,
                         generate = { _, _ -> null },
-                        journal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls),
+                        journal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls, ownerScope = platform.uid),
                         stillEnabled = {
                             val current = settingRepository.getFeatureSettings()
                             current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&

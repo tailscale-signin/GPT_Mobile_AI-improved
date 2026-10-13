@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.delegation
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class DelegationEventKind { POLICY_RESOLVED, STEP_QUEUED, REQUEST_STARTED, OUTPUT_OBSERVED, TOOL_STARTED, REVIEW_FINISHED, FALLBACK_CHOSEN, STEP_FINISHED, RUN_TERMINAL }
+enum class DelegationEventKind { INVOCATION_LINKED, POLICY_RESOLVED, STEP_QUEUED, REQUEST_STARTED, OUTPUT_OBSERVED, TOOL_STARTED, REVIEW_FINISHED, FALLBACK_CHOSEN, STEP_FINISHED, RUN_TERMINAL }
 
 @Serializable
 enum class DelegationRole { PRIMARY, HELPER, REVIEWER }
@@ -27,12 +27,15 @@ data class DelegationEvent(
     val outputTokens: Long? = null,
     val usageProvenance: String = "unavailable",
     val reviewScore: Int? = null,
-    val reviewVerdict: String? = null
+    val reviewVerdict: String? = null,
+    val invocationId: String? = null,
+    val attemptId: String? = null,
+    val rootWorkId: String? = null
 )
 
 @Serializable
 data class DelegationActivity(
-    val schema: Int = 1,
+    val schema: Int = 2,
     val runId: String,
     val chatId: Int,
     val policyRevision: String,

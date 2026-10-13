@@ -177,7 +177,7 @@ internal class AndroidResearchWorkflow(
             it.copy(complete = it.complete && (it.phase == "Not needed" || assessResearchCoverage(it.questionPlan, it.claims, it.sources).complete))
         }
         // A sibling task shares evidence, never another task's questions or completion.
-        state = saved ?: ResearchSnapshot(task.take(8000), sources = retained?.sources.orEmpty(), claims = retained?.claims.orEmpty(), queries = retained?.queries.orEmpty(), notes = listOf("Policy:$policy"))
+        state = saved ?: ResearchSnapshot(task.take(8000), sources = retained?.sources.orEmpty(), claims = retained?.claims.orEmpty().map { it.copy(relevance = "Unknown", questionId = "") }, queries = retained?.queries.orEmpty(), notes = listOf("Policy:$policy"))
         readAttempts.set(state.attempts.coerceAtLeast(0))
         var noResearchNeeded = saved?.phase == "Not needed"
         state.sources.filter {

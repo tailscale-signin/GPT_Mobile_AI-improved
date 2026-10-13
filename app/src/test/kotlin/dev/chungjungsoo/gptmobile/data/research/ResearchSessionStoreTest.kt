@@ -165,4 +165,35 @@ class ResearchSessionStoreTest {
         assertTrue(b.load("third")!!.sources.single().readable)
         assertEquals(source.id, b.sourceId("url", "S2"))
     }
+
+    @Test fun recoveryKeepsPrivateOwnerAuthorityAndRejectsAnotherOwner() = runBlocking {
+        val first = ResearchSessionStore(context).journal("first", 1, true, "1:original", ownerScope = "profile-a").scoped("policy", false)
+        first.save(ResearchSnapshot("Original task", questions = listOf("Question")))
+        val restored = ResearchSessionStore(context)
+        assertEquals("Original task", restored.journal("continue", 1, true, "1:original", ownerScope = "profile-a").scoped("policy", false).load("Original task")!!.task)
+        assertNull(restored.journal("other", 1, true, "1:original", ownerScope = "profile-b").scoped("policy", false).load("Original task"))
+    }
+
+    @Test fun newGenerationFencesLateSavesButKeepsCheckpoint() = runBlocking {
+        val store = ResearchSessionStore(context)
+        val original = store.journal("first", 1, true, "root").scoped("same", true)
+        original.save(ResearchSnapshot("Original task", notes = listOf("saved evidence")))
+        store.resume(1, "root", 7)
+        val resumed = store.journal("second", 1, true, "root").scoped("same", true)
+        assertEquals(listOf("saved evidence"), resumed.load("Original task")!!.notes)
+        resumed.save(ResearchSnapshot("Original task", notes = listOf("new owner")))
+        original.save(ResearchSnapshot("Original task", notes = listOf("late stale write")))
+        assertEquals(listOf("new owner"), resumed.load("Original task")!!.notes)
+    }
+
+    @Test fun pagedClaimsSurviveManifestLimitRestartAndDeletion() = runBlocking {
+        val passage = "Synthetic quotation retained exactly for source verification."
+        val source = ResearchSource("S1", "https://example.org", "Fixture", "Read", passage)
+        val claims = (1..1500).map { ResearchClaim("Claim $it " + "x".repeat(500), "S1", passage) }
+        ResearchSessionStore(context).journal("many", 1, true, "root").save(ResearchSnapshot("Task", sources = listOf(source), claims = claims))
+        val store = ResearchSessionStore(context)
+        assertEquals(1500, store.journal("new", 1, true, "root").load("Task")!!.claims.size)
+        store.deleteChat(1)
+        assertTrue(java.io.File(context.filesDir, "research-history").listFiles().orEmpty().none { it.extension == "claim" })
+    }
 }

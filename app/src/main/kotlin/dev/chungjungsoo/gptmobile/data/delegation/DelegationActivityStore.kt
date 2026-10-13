@@ -50,7 +50,7 @@ class DelegationActivityStore @Inject constructor(@ApplicationContext context: C
                     val loaded = directory.listFiles().orEmpty().filter { it.extension == "json" }.sortedByDescending { it.lastModified() }.take(200).mapNotNull { file ->
                         if (file.length() > 262144) return@mapNotNull null
                         runCatching { Json.decodeFromString<DelegationActivity>(AtomicFile(file).openRead().bufferedReader().use { it.readText() }) }.getOrNull()
-                            ?.takeIf { it.schema == 1 && it.startedAt >= cutoff && it.events.size <= 200 && it.chatId !in deletedChats }
+                            ?.takeIf { it.schema in 1..2 && it.startedAt >= cutoff && it.events.size <= 200 && it.chatId !in deletedChats }
                             ?.let { if (it.status == DelegationStepStatus.RUNNING) it.append(DelegationEvent(DelegationEventKind.RUN_TERMINAL, status = DelegationStepStatus.INTERRUPTED)) else it }
                     }
                     persistent.addAll(loaded.map { it.runId })

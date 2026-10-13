@@ -30,7 +30,7 @@ internal fun buildChatDebugExport(
     json: Json
 ): String {
     val raw = buildJsonObject {
-        put("schema", "gptmobile.conversation.debug.v1")
+        put("schema", "gptmobile.conversation.debug.v2")
         put("exportedAt", java.time.Instant.now().toString())
         put("version", BuildConfig.VERSION_NAME)
         put("build", BuildConfig.VERSION_CODE)

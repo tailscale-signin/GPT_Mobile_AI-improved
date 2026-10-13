@@ -33,7 +33,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
-internal enum class DelegateProgressKind { REQUEST_STARTED, OUTPUT, TOOL_ACTIVITY, USAGE, REPAIR_WASTE }
+internal enum class DelegateProgressKind { INVOCATION_LINKED, REQUEST_STARTED, OUTPUT, TOOL_ACTIVITY, USAGE, REPAIR_WASTE }
 
 internal data class DelegateProgress(
     val kind: DelegateProgressKind,
@@ -42,7 +42,10 @@ internal data class DelegateProgress(
     val totalTokens: Long? = null,
     val textDelta: String? = null,
     val decodeTokensPerSecond: Double? = null,
-    val wastedMillis: Long = 0
+    val wastedMillis: Long = 0,
+    val invocationId: String? = null,
+    val attemptId: String? = null,
+    val rootWorkId: String? = null
 )
 
 private fun estimatedDelegateTokens(text: String): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(text).coerceAtLeast(1)
@@ -903,6 +906,7 @@ internal class LocalDelegationCoordinator(
                                 error("DELEGATE_WASTE_BUDGET_EXHAUSTED: stop repair before spending another request.")
                             }
                         }
+                        DelegateProgressKind.INVOCATION_LINKED -> observe(DelegationEvent(DelegationEventKind.INVOCATION_LINKED, stepId = stepId, role = role, profileUid = profile.uid, invocationId = progress.invocationId, attemptId = progress.attemptId, rootWorkId = progress.rootWorkId))
                         DelegateProgressKind.REQUEST_STARTED -> Unit
                     }
                 }

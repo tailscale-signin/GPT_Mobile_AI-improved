@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -67,12 +68,12 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stops += runId
         runTurns[runId]?.let { stoppedTurns += it }
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId): ResearchJournal = object : ResearchJournal {
         private val generation = generations[chatId to turnId] ?: 0L
         init {
             runTurns[runId] = chatId to turnId
         }
-        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$runId", shareEnabled)
+        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope)
         override fun sourceId(identity: String, fallback: String) = "S" + researchHash(identity).take(16)
         private fun workKey(key: String) = "$chatId:$turnId:$authority:$key"
         override fun claimWork(key: String, leaseMillis: Long): Boolean {
@@ -188,6 +189,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val inMemory = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
                 val pointer = File(directory, researchHash("turn:$chatId:$turnId:$authority") + ".cursor")
                 val pointed = if (persistent && pointer.isFile) runCatching { read(file(Json.parseToJsonElement(pointer.readText()).jsonObject.text("runId"))) }.getOrNull() else null
+                check(!persistent || !pointer.isFile || pointed != null) { "Saved research checkpoint is corrupt or incomplete. Evidence is preserved; review the saved run before restarting acquisition." }
                 val persisted = if (pointed != null) {
                     listOf(pointed)
                 } else if (persistent && inMemory.isEmpty()) {
@@ -273,8 +275,17 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             this@ResearchSessionStore.sourceRefs[cacheKey] = source to name
                             JsonPrimitive(name)
                         }
-                        put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.copy(sources = emptyList(), queries = emptyList()).json() - "sources"))
-                        put("storageVersion", 3)
+                        val claimRefs = snapshot.claims.map { claim ->
+                            val bytes = claim.json().toString().toByteArray()
+                            require(bytes.size <= 16 * 1024) { "Research claim is oversized" }
+                            val name = researchHash(bytes.decodeToString()) + ".claim"
+                            val destination = File(directory, name)
+                            if (!destination.isFile) writeAtomic(destination, bytes)
+                            JsonPrimitive(name)
+                        }
+                        put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.copy(sources = emptyList(), queries = emptyList(), claims = emptyList()).json() - "sources" - "claims"))
+                        put("storageVersion", 4)
+                        put("claimPages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(claimRefs)))))
                         put("sourcePages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(sourceRefs)))))
                         put("queryPages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(snapshot.queries.map(::JsonPrimitive))))))
                     }.toString().toByteArray()
@@ -406,6 +417,13 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 runCatching { references(Json.parseToJsonElement(file.readText()).jsonObject).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
             }.toSet()
             directory.listFiles().orEmpty().filter { it.extension == "source" && it.name !in retained }.forEach { AtomicFile(it).delete() }
+            val retainedClaims = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { manifest ->
+                runCatching {
+                    val value = Json.parseToJsonElement(manifest.readText()).jsonObject
+                    (value["claimPages"] as? JsonArray).orEmpty().flatMap { readReferenceTree((it as JsonPrimitive).content) }.map { it.content }
+                }.getOrDefault(emptyList())
+            }.toSet()
+            directory.listFiles().orEmpty().filter { it.extension == "claim" && it.name !in retainedClaims }.forEach { AtomicFile(it).delete() }
             val retainedIndexes = mutableSetOf<String>()
             fun markIndex(name: String) {
                 if (!name.matches(Regex("[a-f0-9]{64}\\.index")) || !retainedIndexes.add(name)) return
@@ -414,7 +432,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             directory.listFiles().orEmpty().filter { it.extension == "json" }.forEach { manifest ->
                 val value = Json.parseToJsonElement(manifest.readText()).jsonObject
-                listOf("sourcePages", "queryPages").forEach { field -> (value[field] as? JsonArray).orEmpty().forEach { markIndex((it as JsonPrimitive).content) } }
+                listOf("sourcePages", "queryPages", "claimPages").forEach { field -> (value[field] as? JsonArray).orEmpty().forEach { markIndex((it as JsonPrimitive).content) } }
             }
             directory.listFiles().orEmpty().filter { it.extension == "index" && it.name !in retainedIndexes }.forEach { AtomicFile(it).delete() }
             val retainedChunks = retained.flatMap { name ->
@@ -463,7 +481,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
     private fun references(value: kotlinx.serialization.json.JsonObject): JsonArray? {
         val pages = value["sourcePages"] as? JsonArray ?: return value["sourceRefs"] as? JsonArray
-        require(value.number("storageVersion") == 3)
+        require(value.number("storageVersion") in 3..4)
         return JsonArray(pages.flatMap { readReferenceTree((it as JsonPrimitive).content) })
     }
 
@@ -478,7 +496,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         val runId = value.text("runId")
         val metadata = requireNotNull(value["snapshot"]).jsonObject
         val queryPages = value["queryPages"] as? JsonArray
-        val raw = if (queryPages == null) metadata else kotlinx.serialization.json.JsonObject(metadata + ("queries" to JsonArray(queryPages.flatMap { readReferenceTree((it as JsonPrimitive).content) })))
+        val claimPages = value["claimPages"] as? JsonArray
+        val claimRows = claimPages?.flatMap { readReferenceTree((it as JsonPrimitive).content) }?.map { ref ->
+            val name = ref.content
+            require(name.matches(Regex("[a-f0-9]{64}\\.claim")))
+            val record = File(directory, name)
+            require(record.length() in 1..16 * 1024)
+            val text = AtomicFile(record).openRead().use { it.readBytes() }.decodeToString()
+            require(researchHash(text) + ".claim" == name)
+            Json.parseToJsonElement(text).jsonObject
+        }
+        val claimMetadata = if (claimRows == null) metadata else JsonObject(metadata + ("claims" to JsonArray(claimRows)))
+        val raw = if (queryPages == null) claimMetadata else kotlinx.serialization.json.JsonObject(claimMetadata + ("queries" to JsonArray(queryPages.flatMap { readReferenceTree((it as JsonPrimitive).content) })))
         val references = references(value)
         val restored = if (references == null) {
             raw

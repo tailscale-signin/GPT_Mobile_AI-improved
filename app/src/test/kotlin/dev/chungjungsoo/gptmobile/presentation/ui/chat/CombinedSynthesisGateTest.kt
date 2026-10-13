@@ -20,11 +20,11 @@ class CombinedSynthesisGateTest {
     }
 
     @Test fun `persisted row follows its identity when the history window moves`() {
-        val optimistic = MessageV2(id = 0, chatId = 7, content = "new")
+        val optimistic = MessageV2(id = 0, chatId = 7, platformType = null, content = "new")
         val saved = optimistic.copy(id = 30)
         assertNull(persistedTurnIndex(emptyList(), optimistic, saved))
         assertEquals(0, persistedTurnIndex(listOf(saved), optimistic, saved))
-        assertEquals(1, persistedTurnIndex(listOf(MessageV2(id = 20, chatId = 7, content = "older"), optimistic), optimistic, saved))
-        assertNull(persistedTurnIndex(listOf(MessageV2(id = 40, chatId = 7, content = "different")), optimistic, saved))
+        assertEquals(1, persistedTurnIndex(listOf(optimistic.copy(id = 20, content = "older"), optimistic), optimistic, saved))
+        assertNull(persistedTurnIndex(listOf(optimistic.copy(id = 40, content = "different")), optimistic, saved))
     }
 }

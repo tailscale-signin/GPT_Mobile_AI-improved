@@ -470,7 +470,8 @@ class ChatPromptQueueTest {
             ),
             generationCompletionStore = dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore(
                 ApplicationProvider.getApplicationContext()
-            )
+            ),
+            conversationExitWork = mockk(relaxed = true)
         ).also { store.put("chat", it) }
     }
 }

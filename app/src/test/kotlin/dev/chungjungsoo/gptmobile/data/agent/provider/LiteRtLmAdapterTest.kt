@@ -615,6 +615,17 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `text-only request to a vision capable model does not initialize the vision executor`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("hello"), LocalRuntimeEvent.Done))
+        }
+        adapter(runtime, catalog = visionCatalog()).openSession(listOf(pendingTurn("hello")), visionPlatform())
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(false, runtime.loadEngineCalls.single().isVisionEnabled)
+        assertTrue(runtime.sendMessageImages.single().isEmpty())
+    }
+
+    @Test
     fun `vision model forwards image bytes without a notice`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("a cat"), LocalRuntimeEvent.Done))

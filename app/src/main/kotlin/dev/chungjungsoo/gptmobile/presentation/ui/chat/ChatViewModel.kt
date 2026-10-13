@@ -69,6 +69,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -1466,7 +1467,7 @@ class ChatViewModel @Inject constructor(
                             )
                         }
                         val contextMessages = withContext(Dispatchers.Default) {
-                            groupPersistedMessages(chatRepository.fetchMessagesV2(persisted.chatRoom.id), enabledPlatformsInChat, persisted.chatRoom.id)
+                            groupPersistedMessages(chatRepository.observeMessageWindow(persisted.chatRoom.id, visibleHistoryTurns.value).first(), enabledPlatformsInChat, persisted.chatRoom.id)
                         }
                         agentRunCoordinator.start(
                             platforms.mapIndexed { runIndex, (_, platform) ->

@@ -46,8 +46,11 @@ import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class LiteRtLmAdapter(
     private val localRuntime: LocalRuntime,
@@ -197,7 +200,7 @@ class LiteRtLmAdapter(
                 }
                 val effectiveContextTokens = if (assistWarmSpec != null) minOf(resolvedMaxTokens, assistWarmSpec.maxTokens) else resolvedMaxTokens
                 val requestedOutputLimit = constraints.outputLimit(platform.maxTokens)
-                val outputLimit = minOf(requestedOutputLimit ?: 512, maxOf(1, effectiveContextTokens / 4))
+                val outputLimit = requestedOutputLimit ?: minOf(512, maxOf(1, effectiveContextTokens / 4))
                 if (requestedOutputLimit != outputLimit) {
                     send(ProviderEvent.Notice("Local reply budget: $outputLimit tokens, reserving room for instructions, history and tool results in this export's $resolvedMaxTokens-token context."))
                 }
@@ -478,6 +481,49 @@ class LiteRtLmAdapter(
                                 while (true) {
                                     var templateFailure: String? = null
                                     yield()
+                                    val frozenInput = kotlinx.serialization.json.buildJsonObject {
+                                        put("system", conversationSystemPrompt.orEmpty())
+                                        put(
+                                            "messages",
+                                            JsonArray(
+                                                history.map { message ->
+                                                    kotlinx.serialization.json.buildJsonObject {
+                                                        put("role", message.role.name)
+                                                        put("text", message.text)
+                                                        put("imageIds", JsonArray(message.imageIds.map(::JsonPrimitive)))
+                                                    }
+                                                }
+                                            )
+                                        )
+                                        put("tools", Json.parseToJsonElement(Json.encodeToString(descriptors)))
+                                        put("input", latestUserText)
+                                        put("maxOutputTokens", outputLimit)
+                                        put("thinking", thinkingEnabled)
+                                    }.toString()
+                                    val identity = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint(
+                                        platform.uid,
+                                        "on-device",
+                                        "local",
+                                        platform.model,
+                                        loadedSpec.modelPath,
+                                        dev.chungjungsoo.gptmobile.data.research.researchHash(loadedSpec.toString()),
+                                        "native-template-unverified",
+                                        "context=${loadedSpec.maxTokens}"
+                                    )
+                                    val estimate = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(frozenInput)
+                                    val imageReserve = (latestImages.size.toLong() + history.sumOf { it.imageIds.size.toLong() }) * 256L
+                                    val admitted = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare(
+                                        frozenInput,
+                                        constraints.requestRole ?: "primary",
+                                        dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(identity, loadedSpec.maxTokens.toLong(), provenance = dev.chungjungsoo.gptmobile.data.context.CapacityProvenance.VERIFIED_ROUTE),
+                                        estimate.copy(promptTokens = Math.addExact(estimate.promptTokens, imageReserve)),
+                                        outputLimit.toLong(),
+                                        constraints.permissionRevision,
+                                        requireKnownCapacity = true,
+                                        serializerRevision = "native-config-v1"
+                                    )
+                                    admitted.dispatchPayload(identity, constraints.permissionRevision)
+                                    kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt)
                                     sendMessage(latestUserText, latestImages)
                                         .catch { error ->
                                             if (error is CancellationException) throw error

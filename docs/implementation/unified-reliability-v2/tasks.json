@@ -25,7 +25,7 @@
     "dependencies": [
       "V01"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA25",
       "LA-QA26",
@@ -36,7 +36,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "All three source exports located and privately hash-verified. Synthetic incident shapes and parser replay tests added; complete sanitized model/transport fixture replay and evidence linking remain."
+    ]
   },
   {
     "id": "V03",
@@ -79,7 +81,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Additive schema 40 migration and answer segment/ownership fields added; temporary-chat retention and migration verification remain."
+      "KSP-generated schema 40 added. Migration/backup fixture verification running; temporary-chat retention review remains."
     ]
   },
   {
@@ -148,7 +150,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Route-preserving, non-autoloading props discovery added, with short negative cache and metadata TTL. Per-key single-flight, runtime epoch invalidation and actual router/gateway qualification remain."
+      "Scoped per-route single-flight cache, short negative TTL and invalidation epoch added. Actual runtime reload notification and router/gateway qualification remain."
     ]
   },
   {
@@ -194,7 +196,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Remote HTTP retries pass through final preparation. Native, gateway-added prompts and legacy GET still require unified final boundary coverage."
+      "Final HTTP and initial native DTO admission added. Native internal tool rounds, gateway prompt additions and legacy GET still require final boundary coverage."
     ]
   },
   {
@@ -295,7 +297,7 @@
       "V03",
       "V04"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA01",
       "LA-QA02",
@@ -305,7 +307,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "One requested/effective policy resolver now feeds settings and response snapshots. Explicit per-helper processing permission preserves old exclusions on migration. Full live-revocation and migration matrix qualification remain."
+    ]
   },
   {
     "id": "V15",
@@ -529,7 +533,7 @@
       "V02",
       "V17"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA25",
       "LA-QA26",
@@ -539,7 +543,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Incident Markdown fields, bounded known redirect decoding, checkpoint payloads, source/error separation and typed evidence outcomes added. Provider matrix and full acquisition cancellation outcomes remain."
+    ]
   },
   {
     "id": "V25",
@@ -550,7 +556,7 @@
       "V17",
       "V24"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA26",
       "LA-QA29",
@@ -560,7 +566,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Search aggregation reads retained acquisition payloads, preserves all retained candidates separately from selected delivery and preserves full crawler text. Scoped source read-back and separate bounded retention policy remain."
+    ]
   },
   {
     "id": "V26",
@@ -706,7 +714,7 @@
       "V30",
       "V31"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T08",
       "CM-T16",
@@ -715,7 +723,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Removed lossy inventory/source caps and added pagination and long-Unicode coverage tests. Semantic verification and targeted repair loop remain."
+    ]
   },
   {
     "id": "V33",

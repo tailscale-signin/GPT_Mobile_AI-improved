@@ -448,7 +448,7 @@ class ProviderAdaptersTest {
             events
         )
         assertNull(api.responseRequests.single().tools)
-        assertEquals(ProviderRequestConfig("https://provider.example/v1", "secret"), api.configs.single())
+        assertEquals(ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "OPENAI"), api.configs.single())
     }
 
     @Test
@@ -608,8 +608,8 @@ class ProviderAdaptersTest {
         assertEquals("call_exact", continuation[1].toolCallId)
         assertEquals(
             listOf(
-                ProviderRequestConfig("https://provider.example/v1", "secret"),
-                ProviderRequestConfig("https://provider.example/v1", "secret")
+                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ"),
+                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ")
             ),
             groq.configs
         )

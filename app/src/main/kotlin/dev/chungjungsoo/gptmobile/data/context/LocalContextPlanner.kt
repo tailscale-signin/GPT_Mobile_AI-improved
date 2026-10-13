@@ -31,7 +31,7 @@ internal object LocalContextPlanner {
         historyImageCount: (ConversationTurn) -> Int = { 0 }
     ): LocalContextPlan {
         require(contextTokens > 0)
-        val outputReserve = minOf(outputLimit?.takeIf { it > 0 } ?: 1024, maxOf(1, contextTokens / 4))
+        val outputReserve = outputLimit?.takeIf { it > 0 } ?: minOf(1024, maxOf(1, contextTokens / 4))
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.

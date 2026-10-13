@@ -57,6 +57,13 @@ class LocalContextPlannerTest {
     }
 
     @Test
+    fun explicitOutputReserveIsNeverSilentlyReducedToAQuarterOfContext() {
+        val plan = LocalContextPlanner.plan(emptyList(), "Full task", "", emptyList(), 8192, 4096)
+        assertEquals(4096, plan.outputReserveTokens)
+        assertThrows(IllegalArgumentException::class.java) { LocalContextPlanner.plan(emptyList(), "Full task", "", emptyList(), 8192, 16384) }
+    }
+
+    @Test
     fun `output preference never becomes the engine context size`() {
         val plan = LocalContextPlanner.plan(listOf(turn("x".repeat(2000))), "Hi", "", emptyList(), 8192, 100)
         assertFalse(plan.priorTurns.isEmpty())

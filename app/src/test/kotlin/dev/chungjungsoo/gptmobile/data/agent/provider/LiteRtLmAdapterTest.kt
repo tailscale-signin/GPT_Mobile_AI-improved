@@ -665,7 +665,7 @@ class LiteRtLmAdapterTest {
         val adapter = adapter(runtime, catalog = catalog, deviceSocModel = "SM8750")
         adapter.openSession(
             listOf(pendingTurn("describe this", listOf(imageAttachment()))),
-            visionPlatform().copy(accelerator = "npu")
+            visionPlatform().copy(accelerator = "npu", maxTokens = 320)
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals("npu", runtime.loadEngineCalls.single().accelerator)
@@ -1425,6 +1425,16 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `explicit output larger than context fails before model dispatch`() = runBlocking {
+        val runtime = FakeLocalRuntime()
+        val events = adapter(runtime).openSession(turns("hello"), localPlatform().copy(maxTokens = 8192))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.Failed && it.message.contains("context") })
+        assertTrue(runtime.sendMessageCalls.isEmpty())
+        assertTrue(runtime.createConversationCalls.isEmpty())
+    }
+
+    @Test
     fun `NPU context and reply budget respect the matching SOC variant`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
@@ -1447,7 +1457,7 @@ class LiteRtLmAdapterTest {
 
         adapter.openSession(
             turns("hello"),
-            localPlatform().copy(accelerator = LocalAccelerators.NPU, maxTokens = 4096)
+            localPlatform().copy(accelerator = LocalAccelerators.NPU, maxTokens = null)
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(1280, runtime.loadEngineCalls.single().maxTokens)
@@ -1465,7 +1475,7 @@ class LiteRtLmAdapterTest {
 
         adapter.openSession(
             turns("hello"),
-            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192)
+            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 512)
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(8192, runtime.loadEngineCalls.single().maxTokens)
@@ -1486,7 +1496,7 @@ class LiteRtLmAdapterTest {
 
         adapter.openSession(
             turns("hello"),
-            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192, topK = 40)
+            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 512, topK = 40)
         ).streamRound(emptyList(), emptyList()).toList()
 
         // Production admission rejects unsafe work; the adapter preserves quality settings.
@@ -1507,7 +1517,7 @@ class LiteRtLmAdapterTest {
         }
         val adapter = adapter(runtime)
         // Admission and thermal policy must not silently shrink the requested history budget.
-        val platform = localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192)
+        val platform = localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 512)
 
         val anchor = completedTurn("Anchor turn prompt setup", "Anchor reply")
         // Create 20 historical turns with 300 chars each (~6000 chars total, which exceeds 1024 tokens / ~4096 chars)
@@ -1553,7 +1563,7 @@ class LiteRtLmAdapterTest {
 
         adapter.openSession(
             turns("hello"),
-            localPlatform().copy(accelerator = LocalAccelerators.NPU, maxTokens = 8192)
+            localPlatform().copy(accelerator = LocalAccelerators.NPU, maxTokens = 320)
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(1280, runtime.loadEngineCalls.single().maxTokens)

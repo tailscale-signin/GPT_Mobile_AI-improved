@@ -40,14 +40,14 @@ internal object SearchResultMerger {
         val duplicatesByOwner = mutableMapOf<Int, Int>()
         fun labels(candidate: SearchCandidate): List<JsonPrimitive> =
             ((candidate.source["engines"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>() + listOfNotNull(candidate.source["engine"] as? JsonPrimitive, JsonPrimitive(candidate.providerLabel))).distinct()
-        for (candidate in candidates.take(policy.maxCandidates)) {
+        for (candidate in candidates) {
             checkActive()
             var reason = "url"
             var score: Double? = null
             var group = byUrl[candidate.url.key].takeIf { policy.dedupeUrls }
             if (group != null) {
                 urlDuplicates++
-            } else if (policy.contentMode != SearchContentMode.OFF) {
+            } else if (policy.contentMode != SearchContentMode.OFF && groups.size < policy.maxCandidates) {
                 for (existing in groups) {
                     if (comparisons >= policy.maxContentComparisons) {
                         degraded = true
@@ -100,6 +100,6 @@ internal object SearchResultMerger {
             put("similarSourceCount", group.aliases.mapNotNull { (it["url"] as? JsonPrimitive)?.content }.distinct().count { it != group.representative.url.navigationUrl })
             if (retain && group.aliases.isNotEmpty()) put("similarSources", JsonArray(group.aliases))
         }
-        return SearchMergeResult(selected.map { payload(it, false) }, selected.map { payload(it, true) }, selected.groupingBy { it.representative.ownerIndex }.eachCount(), groups.groupingBy { it.representative.ownerIndex }.eachCount(), duplicatesByOwner, candidates.size, urlDuplicates, contentDuplicates, shadowDuplicates, degraded)
+        return SearchMergeResult(selected.map { payload(it, false) }, groups.map { payload(it, true) }, selected.groupingBy { it.representative.ownerIndex }.eachCount(), groups.groupingBy { it.representative.ownerIndex }.eachCount(), duplicatesByOwner, candidates.size, urlDuplicates, contentDuplicates, shadowDuplicates, degraded)
     }
 }

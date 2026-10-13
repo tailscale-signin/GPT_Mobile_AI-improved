@@ -9,8 +9,6 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import java.net.URI
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -21,38 +19,34 @@ import kotlinx.serialization.json.longOrNull
 
 /** Metadata stays on the configured route, with autoload disabled. No slot contents are requested. */
 internal class LlamaCapacityRepository(private val client: NetworkClient, private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
-    private data class Cached(val snapshot: CapacitySnapshot?, val expires: Long)
-    private val cache = linkedMapOf<String, Cached>()
-    private val mutex = Mutex()
+    private val cache = RouteCapabilityCache<CapacitySnapshot>(now)
 
-    suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? = mutex.withLock {
+    suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? {
         val route = config.apiUrl.trim().trimEnd('/')
-        val identity = researchHash("$route|${researchHash(config.token.orEmpty())}|$model")
-        cache[identity]?.takeIf { it.expires > now() }?.let { return@withLock it.snapshot }
-        val result = try {
-            withTimeoutOrNull(5000L) {
-                val uri = URI(route)
-                require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
-                val endpoint = route.removeSuffix("/v1") + "/props"
-                val response = client().get(endpoint) {
-                    config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
-                    parameter("model", model)
-                    parameter("autoload", "false")
+        val identity = researchHash("${config.profileUid}|$route|${researchHash(config.token.orEmpty())}|$model")
+        return cache.getOrLoad(identity) {
+            try {
+                withTimeoutOrNull(5000L) {
+                    val uri = URI(route)
+                    require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
+                    val endpoint = route.removeSuffix("/v1") + "/props"
+                    val response = client().get(endpoint) {
+                        config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                        parameter("model", model)
+                        parameter("autoload", "false")
+                    }
+                    if (response.status.value != 200) return@withTimeoutOrNull null
+                    parseLlamaCapacity(response.body(), config, model, now())
                 }
-                if (response.status.value != 200) return@withTimeoutOrNull null
-                parseLlamaCapacity(response.body(), config, model, now())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            null
         }
-        if (cache.size >= 128) cache.remove(cache.keys.first())
-        cache[identity] = Cached(result, now() + if (result == null) 15_000 else 300_000)
-        result
     }
 
-    suspend fun invalidate() = mutex.withLock { cache.clear() }
+    fun invalidate() = cache.invalidate()
 }
 
 /** n_ctx is the generation allocation in /props; never divide it by total_slots. */

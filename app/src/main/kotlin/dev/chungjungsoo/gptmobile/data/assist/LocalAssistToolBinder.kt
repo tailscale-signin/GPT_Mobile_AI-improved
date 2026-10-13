@@ -21,9 +21,10 @@ internal object LocalAssistToolBinder {
         producerInvocationId: () -> String? = { null },
         contextTokens: () -> Int = { 16_384 },
         runtimeFingerprint: () -> String = { "unverified" },
-        status: suspend (AssistTaskState) -> Unit = {}
+        status: suspend (AssistTaskState) -> Unit = {},
+        policySnapshot: EffectiveAssistPolicy? = null
     ): List<ResolvedAgentTool> {
-        val expected = AssistTaskState(taskId = "expected:$turnId", profileUid = policy.profileUid)
+        val expected = AssistTaskState(taskId = "expected:$turnId", profileUid = policy.profileUid, policySnapshot = policySnapshot)
         if (!enabled) {
             status(expected.copy(admission = AssistAdmission.OFF, execution = AssistExecution.SKIPPED, reason = "ASSIST_OFF"))
             return tools
@@ -40,7 +41,7 @@ internal object LocalAssistToolBinder {
             val ready = profileAllowed(target) && eligible(target)
             if (!ready) notice(AssistReadinessResolver.state.value.reason)
             ready
-        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model)) })
+        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) })
         return tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
     }
 }

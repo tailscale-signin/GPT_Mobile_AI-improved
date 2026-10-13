@@ -41,6 +41,8 @@ import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
 import dev.chungjungsoo.gptmobile.data.agent.withRunContext
 import dev.chungjungsoo.gptmobile.data.agent.withToolCatalog
+import dev.chungjungsoo.gptmobile.data.assist.allowsProcessing
+import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
@@ -345,7 +347,7 @@ class ChatRepositoryImpl(
         val features = settingRepository.getFeatureSettings()
         check(features.assistEnabled()) { "Enable Local Assist before testing it" }
         val policy = features.effectiveAssistPolicy()
-        val profiles = settingRepository.fetchPlatformV2s().filter { it.enabled && it.compatibleType == ClientType.LITERT_LM && !it.excludesMemory() }
+        val profiles = settingRepository.fetchPlatformV2s().filter { policy.allowsProcessing(it) }
         val candidates = profiles.filter { policy.profileUid == null || it.uid == policy.profileUid }
         val target = candidates.firstOrNull { runtimeEligibleForAssist(it, policy) }
             ?: error(dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.state.value.reason)
@@ -1853,6 +1855,7 @@ class ChatRepositoryImpl(
                 candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
                 enabled = runFeatures.assistEnabled() && platform.compatibleType != ClientType.LITERT_LM,
                 policy = runFeatures.effectiveAssistPolicy(),
+                policySnapshot = runFeatures.resolveAssistPolicy(),
                 goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                 turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
                 eligible = { runtimeEligibleForAssist(it, runFeatures.effectiveAssistPolicy()) },
@@ -1860,7 +1863,8 @@ class ChatRepositoryImpl(
                     settingRepository.fetchPlatformV2s().any { current ->
                         current.uid == original.uid &&
                             current.enabled &&
-                            !current.excludesMemory() &&
+                            runFeatures.effectiveAssistPolicy().allowsProcessing(original) &&
+                            settingRepository.getFeatureSettings().effectiveAssistPolicy().allowsProcessing(current) &&
                             current.compatibleType == ClientType.LITERT_LM &&
                             dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(current) == dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(original)
                     }

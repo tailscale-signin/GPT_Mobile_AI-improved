@@ -15,8 +15,8 @@ internal fun combinedSourcesWithEvidence(
 ): List<CombinedModelResponse> = sources.map { source ->
     val cited = sharedEvidence?.citedSources(source.content).orEmpty()
     source.copy(
-        sourceIds = (source.sourceIds + cited.map { it.id }).distinct().take(900),
-        evidenceRefs = (source.evidenceRefs + cited.map { it.canonicalUrl }).distinct().take(900)
+        sourceIds = (source.sourceIds + cited.map { it.id }).distinct(),
+        evidenceRefs = (source.evidenceRefs + cited.map { it.canonicalUrl }).distinct()
     )
 }
 
@@ -38,8 +38,8 @@ internal fun combinedSynthesisPrompt(
                     put("model", source.modelName)
                     put("completion_status", source.completionStatus)
                     put("quality_score", source.qualityScore.coerceIn(0, 100))
-                    put("source_ids", JsonArray(source.sourceIds.distinct().take(900).map(::JsonPrimitive)))
-                    put("evidence_refs", JsonArray(source.evidenceRefs.distinct().take(900).map(::JsonPrimitive)))
+                    put("source_ids", JsonArray(source.sourceIds.distinct().map(::JsonPrimitive)))
+                    put("evidence_refs", JsonArray(source.evidenceRefs.distinct().map(::JsonPrimitive)))
                     put("response", ConversationSubject.withoutMetadata(stripAssistantErrorNote(source.content)).trim())
                 }
             }

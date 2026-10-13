@@ -278,6 +278,14 @@ class MultiEngineSearchTool(
                 put("tool", selected[index].realToolName)
                 put("status", if (response.result.isError) "unavailable" else "completed")
                 put("outcome", response.outcome)
+                val partial = response.result.outputBudgetExhausted || evidenceHasTruncation(resultPayload(response.result))
+                val normalized = evidenceOutcome(response.outcome, buckets[index].isNotEmpty(), partial)
+                put("evidenceOutcome", normalized.name)
+                put("transportCompleted", response.result.dispatched)
+                put("parsedSources", buckets[index].size)
+                put("partial", normalized == SearchEvidenceOutcome.PARTIAL)
+                if (normalized == SearchEvidenceOutcome.AUTH_REQUIRED) put("remedy", "Open Manage connection and reconnect or update the credential.")
+                if (normalized == SearchEvidenceOutcome.PARSE_FAILED) put("remedy", "Provider content was retained, but its source structure could not be parsed.")
                 put("results", buckets[index].size)
                 put("requestedCount", policy.fetchLimitPerEngine)
                 put("effectiveCount", response.effectiveCount)
@@ -336,8 +344,10 @@ class MultiEngineSearchTool(
                     put("shadowContentDuplicates", merged.shadowContentDuplicates)
                     put("contentMode", policy.contentMode.name.lowercase())
                     put("degradedContentChecking", merged.degradedContentChecking)
-                    put("returnedCount", merged.sources.size)
-                    put("partial", allAttempts.any { it.result.isError || it.outcome == "partial_success" || it.result.outputBudgetExhausted || it.result.toolCallBudgetExhausted })
+                    put("returnedCount", sources.size)
+                    put("retainedCount", merged.retainedSources.size)
+                    put("deliveryLimited", sources.size < merged.retainedSources.size)
+                    put("partial", allAttempts.any { it.result.isError || it.outcome in setOf("partial_success", "unstructured") || evidenceHasTruncation(resultPayload(it.result)) || it.result.outputBudgetExhausted || it.result.toolCallBudgetExhausted })
                     put("searchDurationMs", searchDuration)
                     put("crawlDurationMs", crawlDuration)
                 }
@@ -372,7 +382,7 @@ class MultiEngineSearchTool(
         is ToolResultContent.Json -> value.value.toString()
         is ToolResultContent.ResourceLinks -> value.links.joinToString { it.uri }
     }
-    private fun resultPayload(result: AgentToolResult): JsonElement = when (val value = result.content) {
+    private fun resultPayload(result: AgentToolResult): JsonElement = when (val value = result.retainedContent ?: result.content) {
         is ToolResultContent.Json -> value.value
         is ToolResultContent.Text -> parseSearchPayload(value.text)
         is ToolResultContent.ResourceLinks -> JsonArray(
@@ -391,7 +401,7 @@ class MultiEngineSearchTool(
         val sources = resultSources(result)
         if (sources.isNotEmpty()) {
             return if (sources.any { SearchUrlIdentity.parse((it["url"] as? JsonPrimitive)?.contentOrNull.orEmpty()) != null }) {
-                if ((providerPayload(result)?.get("errors") as? JsonObject)?.isNotEmpty() == true) "partial_success" else "success"
+                if ((providerPayload(result)?.get("errors") as? JsonObject)?.isNotEmpty() == true || evidenceHasTruncation(resultPayload(result))) "partial_success" else "success"
             } else {
                 "malformed_response"
             }

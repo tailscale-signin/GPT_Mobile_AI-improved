@@ -12,8 +12,20 @@ class CombinedCoverageTest {
         val url = "https://example.com/" + "a".repeat(300)
         val coverage = CombinedCoverage("""{"contributions":[{"response":"Source $url"}]}""")
         val manifest = coverage.manifest("").toString()
-        assertTrue(manifest.contains("\"urls\":[]"))
-        assertTrue(manifest.contains("\"omittedSourceReferenceCount\":1"))
+        assertTrue(manifest.contains(url))
+        assertTrue(manifest.contains("\"omittedSourceReferenceCount\":0"))
+    }
+
+    @Test fun cmT15InventoryIncludesTailBeyondTheOld256ItemLimit() {
+        val source = (1..700).joinToString("\n") { "Fact $it: " + "long explanation ".repeat(100) }
+        val envelope = kotlinx.serialization.json.buildJsonObject {
+            put("contributions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.buildJsonObject { put("response", kotlinx.serialization.json.JsonPrimitive(source)) })))
+        }.toString()
+        val coverage = CombinedCoverage(envelope)
+        val lastPage = coverage.manifest("", offset = 650, pageSize = 50).toString()
+        assertTrue(lastPage.contains("C1:P700"))
+        assertTrue(lastPage.contains("\"remainingItems\":0"))
+        assertTrue(!coverage.inventoryTruncated)
     }
 
     @Test fun cancellationPreservesShortUncommittedTextAndPropagates() = runBlocking {

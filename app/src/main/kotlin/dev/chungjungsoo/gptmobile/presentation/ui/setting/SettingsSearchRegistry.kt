@@ -32,6 +32,7 @@ internal data class SettingsSearchEntry(
 /** Stable keys and concrete route/tab targets. Dynamic profiles are supplied by the owner. */
 internal object SettingsSearchRegistry {
     fun group(feature: AppFeature): String = when (feature) {
+        AppFeature.NEW_CHAT_SCORES, AppFeature.NEW_CHAT_PRICES, AppFeature.NEW_CHAT_PRICE_REFRESH, AppFeature.NEW_CHAT_COMMUNITY, AppFeature.NEW_CHAT_BACKGROUND_PRICES -> "New Chat — Scores & Prices"
         AppFeature.COMPACT_CHAT_LIST, AppFeature.SMOOTH_STREAMING, AppFeature.CENTER_UNREAD, AppFeature.RESPONSE_ANIMATION,
         AppFeature.EDGE_FADES, AppFeature.MESSAGE_TIMESTAMPS, AppFeature.ARCHIVE_OLDER_REPLIES,
         AppFeature.SHOW_REASONING, AppFeature.SMART_SUGGESTIONS, AppFeature.AUTOMATIC_TITLES -> "Reading & Motion"

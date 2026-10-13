@@ -194,7 +194,7 @@ object BenchmarkScoreboard {
         .sortedWith(compareByDescending<ScoreboardEntry> { it.score }.thenByDescending { it.submission.startedAt }.thenBy { it.submission.id })
         .distinctBy { it.submission.key }
 
-    private fun usedModel(provider: String, model: String): String = model.trim().let { if (provider == "OPENROUTER") it.removeSuffix(":batch") else it }
+    fun usedModel(provider: String, model: String): String = model.trim().let { if (provider == "OPENROUTER") it.removeSuffix(":batch") else it }
     private fun validModel(value: String?): Boolean = value != null && value.length in 1..200 && value == value.trim() && value.none { it.isISOControl() } && "://" !in value && !value.startsWith("/") && '\\' !in value
     private fun median(values: List<Double>): Double? = values.sorted().takeIf { it.isNotEmpty() }?.let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
 }

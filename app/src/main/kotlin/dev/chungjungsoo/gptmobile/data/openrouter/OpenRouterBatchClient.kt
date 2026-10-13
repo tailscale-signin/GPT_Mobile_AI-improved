@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.data.openrouter
 
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.service.BatchResult
-import java.net.URI
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -21,31 +20,26 @@ class OpenRouterBatchClient(
     private val maxConcurrentRequests: Int = 10,
     private val retryDelayMs: Long = 1000,
     private val timeoutMs: Long = 30000,
-    private val baseUrl: String = "https://openrouter.ai/api/v1"
+    private val baseUrl: String = "https://openrouter.ai/api/v1",
+    private val policy: OpenRouterProviderRouting = OpenRouterProviderRouting(),
+    private val noRemoteStorage: Boolean = false
 ) {
 
-    private val safeTimeoutMs = timeoutMs.coerceAtMost(Int.MAX_VALUE.toLong())
-    private val client = OkHttpClient.Builder()
+    private val safeTimeoutMs = timeoutMs.coerceIn(1000, Int.MAX_VALUE.toLong())
+    private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
         .readTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
         .writeTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
         .build()
 
-    fun batchesUrl(): String = try {
-        val uri = URI(baseUrl)
-        val scheme = uri.scheme ?: "https"
-        val host = uri.host ?: "openrouter.ai"
-        val port = if (uri.port != -1) ":${uri.port}" else ""
-        "$scheme://$host$port/api/v1/batches"
-    } catch (e: Exception) {
-        "https://openrouter.ai/api/v1/batches"
-    }
+    fun batchesUrl(): String = "${dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.endpoint(baseUrl)}/batches"
 
     /**
      * Serializes payload guaranteeing strict field order:
      * 1. endpoint
      * 2. model
-     * 3. requests
+     * 3. supported provider policy (if set)
+     * 4. requests
      *
      * OpenRouter's stream-parser requires this order and returns 400 if wrong.
      */
@@ -54,10 +48,14 @@ class OpenRouterBatchClient(
         model: String,
         requests: List<NativeBatchRequest>
     ): String {
+        require(model.isNotBlank() && requests.isNotEmpty())
+        require(requests.none { it.body.has("provider") }) { "Batch routing must be declared in the supported envelope." }
         val sb = StringBuilder()
         sb.append("{")
         sb.append("\"endpoint\":").append(JSONObject.quote(endpoint)).append(",")
         sb.append("\"model\":").append(JSONObject.quote(model)).append(",")
+        val batchPolicy = OpenRouterPolicy.batch(policy, noRemoteStorage)
+        if (batchPolicy.isNotEmpty()) sb.append("\"provider\":").append(batchPolicy.toString()).append(",")
         sb.append("\"requests\":[")
         requests.forEachIndexed { index, req ->
             if (index > 0) sb.append(",")
@@ -86,20 +84,14 @@ class OpenRouterBatchClient(
             .post(requestBody)
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
+            .addHeader("X-OpenRouter-Cache", "false")
             .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val responseBody = response.use { it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty() }
 
         if (!response.isSuccessful) {
-            val errorMsg = try {
-                val json = JSONObject(responseBody)
-                val err = json.optJSONObject("error")
-                err?.optString("message", responseBody) ?: json.optString("message", responseBody)
-            } catch (_: Exception) {
-                responseBody
-            }
-            throw Exception("Batch submission failed (${response.code}): $errorMsg")
+            throw BatchHttpException(response.code)
         }
 
         parseBatchMeta(responseBody)
@@ -117,11 +109,11 @@ class OpenRouterBatchClient(
             .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val responseBody = response.use { it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty() }
 
         if (!response.isSuccessful) {
             if (response.code == 404) throw Exception("Batch not found ($batchId)")
-            throw Exception("Status check failed (${response.code}): $responseBody")
+            throw BatchHttpException(response.code)
         }
 
         parseBatchStatus(responseBody)
@@ -138,10 +130,10 @@ class OpenRouterBatchClient(
             .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val responseBody = response.use { it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty() }
 
         if (!response.isSuccessful) {
-            throw Exception("List batches failed (${response.code}): $responseBody")
+            throw BatchHttpException(response.code)
         }
 
         val json = JSONObject(responseBody)
@@ -166,10 +158,13 @@ class OpenRouterBatchClient(
             .addHeader("Authorization", "Bearer $apiKey")
             .build()
 
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw Exception("Cancel failed (${response.code})")
-        }
+        client.newCall(request).execute().use { response -> if (!response.isSuccessful) throw BatchHttpException(response.code) }
+    }
+
+    suspend fun delete(batchId: String): Unit = withContext(Dispatchers.IO) {
+        val id = URLEncoder.encode(batchId, "UTF-8")
+        val request = Request.Builder().url("${batchesUrl()}/$id").delete().addHeader("Authorization", "Bearer $apiKey").build()
+        client.newCall(request).execute().use { if (!it.isSuccessful) throw BatchHttpException(it.code) }
     }
 
     fun parseBatchMeta(jsonString: String): BatchMeta {
@@ -229,6 +224,7 @@ class OpenRouterBatchClient(
                     val response = processSingleRequest(request)
                     results.add(BatchResult.Success(index, response))
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     results.add(BatchResult.Failure(index, e.message ?: "Unknown error"))
                 }
             }
@@ -237,15 +233,18 @@ class OpenRouterBatchClient(
         onComplete(results)
     }
 
-    suspend fun processRequest(request: BatchRequest): String = processSingleRequest(request)
+    suspend fun processRequest(request: BatchRequest): String = withContext(Dispatchers.IO) { processSingleRequest(request) }
 
     private fun processSingleRequest(request: BatchRequest): String {
+        require(request.model.isNotBlank()) { "Choose an explicit model for queued work." }
+        OpenRouterPolicy.validate(policy)
         val messages = listOf(
             JSONObject().put("role", "user").put("content", request.prompt)
         )
 
         val body = JSONObject()
-            .put("model", "meta-llama/Meta-Llama-3.1-8B-Instruct")
+            .put("model", request.model)
+            .put("provider", JSONObject(kotlinx.serialization.json.Json.encodeToString(policy.normalized())))
             .put("messages", JSONArray(messages))
             .put("temperature", request.temperature.toDouble())
             .put("max_tokens", request.maxTokens)
@@ -254,26 +253,22 @@ class OpenRouterBatchClient(
             "application/json".toMediaTypeOrNull()
         )
 
-        val chatUrl = if (baseUrl.endsWith("/chat/completions")) {
-            baseUrl
-        } else {
-            "${baseUrl.removeSuffix("/")}/chat/completions"
-        }
+        val chatUrl = "${dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.endpoint(baseUrl)}/chat/completions"
 
         val requestObj = Request.Builder()
             .url(chatUrl)
             .post(requestBody)
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
+            .addHeader("X-OpenRouter-Cache", "false")
             .build()
 
         val response = client.newCall(requestObj).execute()
 
-        if (!response.isSuccessful) {
-            throw Exception("OpenRouter API error: ${response.code} - ${response.body?.string()}")
+        return response.use {
+            if (!it.isSuccessful) throw BatchHttpException(it.code)
+            it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty()
         }
-
-        return response.body?.string() ?: ""
     }
 }
 
@@ -303,3 +298,5 @@ data class BatchResultEntry(
     val response: String? = null,
     val error: String? = null
 )
+
+class BatchHttpException(val status: Int) : java.io.IOException("OpenRouter batch request failed: HTTP $status")

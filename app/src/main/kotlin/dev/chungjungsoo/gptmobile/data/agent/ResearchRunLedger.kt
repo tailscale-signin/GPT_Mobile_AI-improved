@@ -21,6 +21,35 @@ class ResearchRunLedger(
         val limitReason: String? = null
     )
     private var state = State(fingerprint = fingerprint, limits = limits)
+    private var durable = state
+    private var activeUsers = 0
+    private var lastTick: Long? = null
+
+    @Synchronized fun beginActive(now: Long) {
+        if (activeUsers++ == 0) lastTick = now
+    }
+
+    @Synchronized fun endActive(now: Long) {
+        try {
+            tick(now)
+        } finally {
+            activeUsers = (activeUsers - 1).coerceAtLeast(0)
+            if (activeUsers == 0) lastTick = null
+        }
+    }
+
+    @Synchronized fun tick(now: Long): Boolean {
+        val previous = lastTick
+        if (activeUsers == 0 || previous == null) return state.limitReason == null
+        val elapsed = (now - previous).coerceAtLeast(0)
+        val allowed = charge(activeMillis = elapsed)
+        if (now > previous) lastTick = now
+        return allowed
+    }
+    private fun reserve(value: Long, chunk: Long, limit: Long?): Long {
+        val extra = (chunk - value % chunk) % chunk
+        return minOf(if (value > Long.MAX_VALUE - extra) Long.MAX_VALUE else value + extra, limit ?: Long.MAX_VALUE)
+    }
 
     init {
         limits.validate()
@@ -44,12 +73,19 @@ class ResearchRunLedger(
         }
         if (reason != null) {
             val stopped = state.copy(limitReason = reason)
-            persist(stopped)
+            persist(durable.copy(limitReason = reason))
             state = stopped
             return false
         }
         // Persist the reservation before dispatch; a crash cannot refund dispatched work.
-        persist(next)
+        if (next.logical > durable.logical || next.physical > durable.physical || next.downloaded > durable.downloaded || next.activeMillis > durable.activeMillis) {
+            val reservation = next.copy(
+                downloaded = maxOf(durable.downloaded, reserve(next.downloaded, 256 * 1024, limits.maxDownloadedBytes)),
+                activeMillis = maxOf(durable.activeMillis, reserve(next.activeMillis, 1000, limits.maxActiveMillis))
+            )
+            persist(reservation)
+            durable = reservation
+        }
         state = next
         return true
     }
@@ -63,6 +99,7 @@ class ResearchRunLedger(
         require(limits.maxDownloadedBytes?.let { saved.downloaded <= it } != false)
         require(limits.maxActiveMillis?.let { saved.activeMillis <= it } != false)
         state = saved
+        durable = saved
     }
 
     @Synchronized fun snapshot() = state

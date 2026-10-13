@@ -6,18 +6,19 @@ import kotlinx.serialization.Serializable
 data class BatchRequest(
     val prompt: String,
     val maxTokens: Int = 1024,
-    val temperature: Float = 0.7f
+    val temperature: Float = 0.7f,
+    val model: String = ""
 )
 
 @Serializable
 data class BatchConfig(
     val platform: PlatformType,
     val apiKey: String,
-    val batchKey: String? = null, // NEW field for batch operations
-    
+    val batchKey: String? = null,
+
     // OpenRouter parallel batching settings
     val openRouter: OpenRouterBatchSettings = OpenRouterBatchSettings(),
-    
+
     // Llama.cpp batch endpoint settings
     val llama: LlamaBatchSettings = LlamaBatchSettings()
 )
@@ -33,7 +34,7 @@ data class OpenRouterBatchSettings(
 data class LlamaBatchSettings(
     val serverUrl: String = "http://localhost:8080",
     val batchSize: Int = 50,
-    val jsonlPath: String? = null // Optional temp file path
+    val jsonlPath: String? = null
 )
 
 enum class PlatformType {

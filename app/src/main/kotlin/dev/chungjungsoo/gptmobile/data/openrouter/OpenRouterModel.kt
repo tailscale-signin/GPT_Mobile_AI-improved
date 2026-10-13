@@ -17,13 +17,23 @@ data class OpenRouterModelItem(
     val contextLength: Int? = null,
     val pricing: OpenRouterPricing? = null,
     @SerialName("top_provider")
-    val topProvider: OpenRouterTopProvider? = null
+    val topProvider: OpenRouterTopProvider? = null,
+    @SerialName("canonical_slug") val canonicalSlug: String? = null,
+    @SerialName("supported_parameters") val supportedParameters: List<String>? = null,
+    val architecture: kotlinx.serialization.json.JsonObject? = null,
+    @SerialName("per_request_limits") val perRequestLimits: kotlinx.serialization.json.JsonObject? = null
 )
 
 @Serializable
 data class OpenRouterPricing(
     val prompt: String? = null,
-    val completion: String? = null
+    val completion: String? = null,
+    @SerialName("input_cache_read") val inputCacheRead: String? = null,
+    @SerialName("input_cache_write") val inputCacheWrite: String? = null,
+    val overrides: kotlinx.serialization.json.JsonArray? = null,
+    val request: String? = null,
+    val image: String? = null,
+    @SerialName("web_search") val webSearch: String? = null
 )
 
 @Serializable

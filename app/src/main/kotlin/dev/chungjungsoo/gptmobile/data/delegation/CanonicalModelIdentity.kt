@@ -15,7 +15,7 @@ data class CanonicalModelIdentity(val canonical: String?, val deployment: String
                 "api.openai.com" -> "openai"
                 "api.anthropic.com" -> "anthropic"
                 "generativelanguage.googleapis.com" -> "google"
-                "openrouter.ai", "api.groq.com", "integrate.api.nvidia.com" -> "router"
+                "openrouter.ai", "eu.openrouter.ai", "us.openrouter.ai", "api.groq.com", "integrate.api.nvidia.com" -> "router"
                 else -> if (profile.apiUrl.isBlank()) {
                     when (profile.compatibleType) {
                         ClientType.OPENAI -> "openai"

@@ -87,8 +87,9 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     private val quotaLocks = ConcurrentHashMap<String, Mutex>()
     private val statuses = ConcurrentHashMap<String, AcademicProviderStatus>()
     private val telemetry = dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore(File(context.filesDir, "research-telemetry"))
-    private data class Cached(val at: Long, val papers: List<AcademicPaper>)
-    private val cache = ConcurrentHashMap<String, Cached>()
+    private val cache = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, List<AcademicPaper>>(30 * 60_000L, 64)
+    private val connectivity = ResearchConnectivityGate.shared
+    private val searchRotation = java.util.concurrent.atomic.AtomicInteger()
     private val papers = ConcurrentHashMap<String, AcademicPaper>()
     private val transientEvidence = ConcurrentHashMap<String, AcademicEvidence>()
     private val cursors = ConcurrentHashMap<String, String>()
@@ -124,7 +125,10 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         }
     }
 
-    fun status(): List<AcademicProviderStatus> = (CORE + "opencitations").map { id -> (statuses[id] ?: AcademicProviderStatus(id, "unknown", limitation = if (id == "arxiv") "Preprints; PDF reading requires the gateway" else "Public metadata; anonymous quotas apply")).copy(requests = telemetry.rollup(id).attempts, successes = telemetry.rollup(id).successes, failures = telemetry.rollup(id).failures) }
+    fun status(): List<AcademicProviderStatus> = (CORE + "opencitations").map { id ->
+        val stats = telemetry.rollup(id)
+        (statuses[id] ?: AcademicProviderStatus(id, "unknown", limitation = if (id == "arxiv") "Preprints; PDF reading requires an authorized PDF reader" else "Public metadata; provider limits and local policy are separate")).copy(requests = stats.attempts, successes = stats.successes, failures = stats.failures)
+    }
 
     internal suspend fun search(request: AcademicSearchRequest, selection: MultiSearchResearchSelection, allowed: suspend () -> Boolean): AcademicSearchResult = coroutineScope {
         require(request.query.length in 1..500 && request.maxResults in 1..50 && request.page > 0)
@@ -136,20 +140,31 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             Regex("gpu|npu|android|transformer|physics|learning|cryptograph|algorithm").containsMatchIn(query) -> listOf("arxiv", "openalex", "crossref")
             else -> listOf("openalex", "crossref", "datacite")
         }
-        val planned = (routed + CORE).distinct()
+        val rotation = Math.floorMod(searchRotation.getAndIncrement(), CORE.size)
+        val rotated = CORE.drop(rotation) + CORE.take(rotation)
+        val planned = (routed.take(1) + rotated + routed).distinct()
             .filter { selection.enabledProviders.isEmpty() || it in selection.enabledProviders }.take(if (selection.depth == 100) CORE.size else request.maxProviderCalls.coerceIn(1, CORE.size))
         val results = planned.map { provider ->
             async(Dispatchers.IO) {
                 val receipt = UUID.randomUUID().toString()
-                val key = researchHash("$provider|$request")
+                val key = researchHash("$provider|${request.copy(query = request.query.trim().replace(Regex("\\s+"), " "), maxProviderCalls = 1)}")
+                var cacheHit = false
+                var dispatched = false
+                val started = System.nanoTime()
                 try {
                     check(allowed()) { "permission_denied" }
                     currentCoroutineContext().ensureActive()
-                    val saved = cache[key]?.takeIf { System.currentTimeMillis() - it.at < 30 * 60_000 }
-                    val papers = saved?.papers ?: permits.getValue(provider).withPermit {
+                    val saved = cache[key]
+                    cacheHit = saved != null
+                    val papers = saved ?: permits.getValue(provider).withPermit {
+                        cache[key]?.let {
+                            cacheHit = true
+                            return@withPermit it
+                        }
                         run {
                             reserve(provider, allowed)
                             check(allowed()) { "permission_denied" }
+                            dispatched = true
                             val body = fetch(searchUrl(provider, request), request.includeDomains, request.excludeDomains, allowed, provider).first
                             if (provider in setOf("europepmc", "pubmed")) {
                                 val cursor = json.parseToJsonElement(body).jsonObject.string("nextCursorMark")
@@ -158,11 +173,8 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                                     saveCursor(request, request.page + 1, cursor)
                                 }
                             }
-                            parseSearch(provider, body)
+                            parseSearch(provider, body).also { cache[key] = it }
                         }
-                    }.also {
-                        if (cache.size >= 64) cache.keys.firstOrNull()?.let(cache::remove)
-                        cache[key] = Cached(System.currentTimeMillis(), it)
                     }
                     val filtered = papers.filter { paper ->
                         researchDomainAllowed(paper.openAccessUrl?.takeIf(String::isNotBlank) ?: paper.canonicalUrl, request.includeDomains, request.excludeDomains) &&
@@ -170,16 +182,25 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                             (request.toYear == null || paper.year?.let { it <= request.toYear } == true) &&
                             (request.reviewStatus == "any" || paper.reviewStatus == request.reviewStatus)
                     }.map { remember(it.copy(sourceProviders = listOf(provider), providerReceipts = listOf(receipt))) }
-                    val state = AcademicProviderStatus(provider, if (filtered.isEmpty()) "empty" else "success", filtered.size, saved != null, receiptId = receipt)
+                    currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.AcademicDiscoveryObserver]?.accept?.invoke(
+                        filtered.map { json.encodeToJsonElement(AcademicPaper.serializer(), it).jsonObject }
+                    )
+                    val state = AcademicProviderStatus(provider, if (filtered.isEmpty()) "empty" else "success", filtered.size, cacheHit, receiptId = receipt)
                     statuses[provider] = state
+                    telemetry.record(dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(receipt, provider, "search", System.currentTimeMillis(), outcome = if (filtered.isEmpty()) "EMPTY" else "SUCCESS", cacheHit = cacheHit, dispatched = dispatched, durationMs = (System.nanoTime() - started) / 1_000_000))
                     filtered to state
                 } catch (cancelled: CancellationException) {
+                    telemetry.record(dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(receipt, provider, "search", System.currentTimeMillis(), outcome = "CANCELLED", dispatched = dispatched, cacheHit = cacheHit, durationMs = (System.nanoTime() - started) / 1_000_000))
                     throw cancelled
                 } catch (failure: Exception) {
+                    telemetry.record(dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(receipt, provider, "search", System.currentTimeMillis(), outcome = "FAILED", dispatched = dispatched, cacheHit = cacheHit, durationMs = (System.nanoTime() - started) / 1_000_000))
                     val state = AcademicProviderStatus(
                         provider,
                         when {
                             failure is AcademicHttpFailure && failure.status == 429 -> "rate_limited"
+                            failure is AcademicHttpFailure && failure.status in setOf(401, 403) -> "authentication_required"
+                            failure.message == "local_daily_policy" -> "local_policy_limit"
+                            failure.message == "network_recovery" -> "waiting_for_network"
                             failure.message == "permission_denied" -> "permission_denied"
                             else -> "unavailable"
                         },
@@ -245,56 +266,76 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
 
     internal suspend fun read(paper: AcademicPaper, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), persistent: Boolean = true): AcademicEvidence = withContext(Dispatchers.IO) {
         check(allowed()) { "permission_denied" }
-        val pmc = paper.identifiers["pmcid"].orEmpty()
-        val arxiv = paper.identifiers["arxiv"].orEmpty()
-        val url = when {
-            pmc.matches(Regex("PMC[0-9]+")) -> "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/fullTextXML"
-            arxiv.isNotBlank() -> "https://arxiv.org/html/$arxiv"
-            else -> paper.openAccessUrl.orEmpty()
+        fun recorded(evidence: AcademicEvidence): AcademicEvidence {
+            telemetry.record(
+                dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(
+                    UUID.randomUUID().toString(),
+                    paper.sourceProviders.firstOrNull() ?: "academic-reader",
+                    "read",
+                    System.currentTimeMillis(),
+                    outcome = if (evidence.retrievalStatus in setOf("read", "partially_read")) "SUCCESS" else "EMPTY"
+                )
+            )
+            return evidence
         }
-        if (url.isBlank()) return@withContext AcademicEvidence(paper.paperId, paper.versionId, paper.canonicalUrl, System.currentTimeMillis(), "", "", "metadata_only")
-        if (url.substringBefore('?').endsWith(".pdf", true)) return@withContext AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway")
-        val provider = if (pmc.isNotBlank()) {
-            "europepmc"
-        } else if (arxiv.isNotBlank()) {
-            "arxiv"
-        } else {
-            paper.sourceProviders.firstOrNull() ?: "crossref"
-        }
-        require(policy.allows(provider)) { "Academic provider disabled" }
-        val readerIdentity = if (pmc.isNotBlank() || arxiv.isNotBlank()) provider else "source:${URI(url).host.orEmpty().lowercase()}"
-        val readerPermit = permits[readerIdentity] ?: sourcePermits[(readerIdentity.hashCode() and Int.MAX_VALUE) % sourcePermits.size]
-        val body = readerPermit.withPermit {
-            reserve(readerIdentity, allowed)
-            fetch(url, policy.included, policy.excluded, allowed, readerIdentity, sourceDocument = pmc.isBlank())
-        }
-        if (body.second.contains("pdf", true) || body.first.startsWith("%PDF")) return@withContext AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway")
-        val document = Jsoup.parse(body.first, "", if (pmc.isNotBlank()) Parser.xmlParser() else Parser.htmlParser())
-        document.select("script,style,nav,form,header,footer").remove()
-        val fullText = (if (pmc.isNotBlank()) document.selectFirst("body")?.text() else (document.selectFirst("article") ?: document.selectFirst("main") ?: document.selectFirst(".ltx_document"))?.text()).orEmpty()
-        val challenge = Regex("(?i)verify you are human|enable javascript and cookies|access denied|captcha").containsMatchIn(fullText.take(1000))
-        val text = fullText.take(24000)
-        val evidence = AcademicEvidence(
-            paper.paperId, paper.versionId + ":" + researchHash(body.first), url, System.currentTimeMillis(), researchHash(text), text,
-            if (challenge || text.length < 500) {
-                "unavailable"
-            } else if (fullText.length > text.length) {
-                "partially_read"
-            } else {
-                "read"
-            },
-            contentLicense = paper.contentLicense, providerReceipts = paper.providerReceipts, canonicalUrl = paper.canonicalUrl
-        )
-        if (evidence.retrievalStatus in setOf("read", "partially_read")) {
-            if (persistent) {
-                save(evidence)
-            } else {
-                val runtime = Runtime.getRuntime()
-                check(runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() >= 16L * 1024 * 1024) { "Paused for device resources: temporary memory pressure" }
-                transientEvidence[researchHash("${evidence.paperId}|${evidence.versionId}")] = evidence
+        try {
+            val pmc = paper.identifiers["pmcid"].orEmpty()
+            val arxiv = paper.identifiers["arxiv"].orEmpty()
+            val url = when {
+                pmc.matches(Regex("PMC[0-9]+")) -> "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/fullTextXML"
+                arxiv.isNotBlank() -> "https://arxiv.org/html/$arxiv"
+                else -> paper.openAccessUrl.orEmpty()
             }
+            if (url.isBlank()) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, paper.canonicalUrl, System.currentTimeMillis(), "", "", "metadata_only"))
+            if (url.substringBefore('?').endsWith(".pdf", true)) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway"))
+            val provider = if (pmc.isNotBlank()) {
+                "europepmc"
+            } else if (arxiv.isNotBlank()) {
+                "arxiv"
+            } else {
+                paper.sourceProviders.firstOrNull() ?: "crossref"
+            }
+            require(policy.allows(provider)) { "Academic provider disabled" }
+            val readerIdentity = if (pmc.isNotBlank() || arxiv.isNotBlank()) provider else "source:${URI(url).host.orEmpty().lowercase()}"
+            val readerPermit = permits[readerIdentity] ?: sourcePermits[(readerIdentity.hashCode() and Int.MAX_VALUE) % sourcePermits.size]
+            val body = readerPermit.withPermit {
+                reserve(readerIdentity, allowed)
+                fetch(url, policy.included, policy.excluded, allowed, readerIdentity, sourceDocument = pmc.isBlank())
+            }
+            if (body.second.contains("pdf", true) || body.first.startsWith("%PDF")) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway"))
+            val document = Jsoup.parse(body.first, "", if (pmc.isNotBlank()) Parser.xmlParser() else Parser.htmlParser())
+            document.select("script,style,nav,form,header,footer").remove()
+            val fullText = (if (pmc.isNotBlank()) document.selectFirst("body")?.text() else (document.selectFirst("article") ?: document.selectFirst("main") ?: document.selectFirst(".ltx_document"))?.text()).orEmpty()
+            val challenge = Regex("(?i)verify you are human|enable javascript and cookies|access denied|captcha").containsMatchIn(fullText.take(1000))
+            val text = fullText.take(24000)
+            val evidence = AcademicEvidence(
+                paper.paperId, paper.versionId + ":" + researchHash(body.first), url, System.currentTimeMillis(), researchHash(text), text,
+                if (challenge || text.length < 500) {
+                    "unavailable"
+                } else if (fullText.length > text.length) {
+                    "partially_read"
+                } else {
+                    "read"
+                },
+                contentLicense = paper.contentLicense, providerReceipts = paper.providerReceipts, canonicalUrl = paper.canonicalUrl
+            )
+            if (evidence.retrievalStatus in setOf("read", "partially_read")) {
+                if (persistent) {
+                    save(evidence)
+                } else {
+                    val runtime = Runtime.getRuntime()
+                    check(runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() >= 16L * 1024 * 1024) { "Paused for device resources: temporary memory pressure" }
+                    transientEvidence[researchHash("${evidence.paperId}|${evidence.versionId}")] = evidence
+                }
+            }
+            return@withContext recorded(evidence)
+        } catch (cancelled: CancellationException) {
+            telemetry.record(dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(UUID.randomUUID().toString(), paper.sourceProviders.firstOrNull() ?: "academic-reader", "read", System.currentTimeMillis(), outcome = "CANCELLED"))
+            throw cancelled
+        } catch (failure: Exception) {
+            telemetry.record(dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(UUID.randomUUID().toString(), paper.sourceProviders.firstOrNull() ?: "academic-reader", "read", System.currentTimeMillis(), outcome = "FAILED"))
+            throw failure
         }
-        return@withContext evidence
     }
 
     internal suspend fun citations(doi: String, direction: String, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy()): JsonObject = withContext(Dispatchers.IO) {
@@ -357,7 +398,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         val day = System.currentTimeMillis() / 86_400_000
         val count = if (preferences.getLong("$provider:day", -1) == day) preferences.getInt("$provider:count", 0) else 0
         val maximum = if (provider == "openalex") 50 else 500
-        if (count >= maximum) throw AcademicHttpFailure(429, (day + 1) * 86_400_000)
+        check(count < maximum) { "local_daily_policy" }
         withContext(Dispatchers.IO) { check(preferences.edit().putLong("$provider:day", day).putInt("$provider:count", count + 1).putLong("$provider:last", System.currentTimeMillis()).commit()) }
     }
 
@@ -365,11 +406,14 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         var last: Exception? = null
         repeat(3) { attempt ->
             try {
+                check(connectivity.available()) { "network_recovery" }
                 if (attempt > 0) reserve(provider, allowed)
                 return fetchOnce(url, included, excluded, allowed, provider, sourceDocument)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                connectivity.failed(URI(url).host.orEmpty(), failure)
+                if (!connectivity.available()) throw IllegalStateException("network_recovery", failure)
                 val retryable = (failure is AcademicHttpFailure && failure.status in 500..599) || failure is java.io.IOException || failure is io.ktor.client.plugins.HttpRequestTimeoutException
                 if (!retryable || attempt == 2) throw failure
                 last = failure
@@ -434,6 +478,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                             }
                         }
                         successful = true
+                        connectivity.success()
                         download.readText(Charsets.UTF_8) to response.headers["Content-Type"].orEmpty()
                     } finally {
                         download.delete()
@@ -444,15 +489,17 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(
                         eventId = eventId,
                         engineId = provider,
-                        operation = if (sourceDocument) "read" else "lookup_search",
+                        operation = if (sourceDocument) "transport_read" else "transport_lookup",
                         recordedAt = System.currentTimeMillis(),
                         durationMs = (System.nanoTime() - started) / 1_000_000,
                         outcome = if (!currentCoroutineContext().isActive) {
-                            "CANCELLED"
-                        } else if (successful || responseCode?.let { it in 300..399 } == true) {
-                            "SUCCESS"
+                            "TRANSPORT_CANCELLED"
+                        } else if (responseCode?.let { it in 300..399 } == true) {
+                            "REDIRECT"
+                        } else if (successful) {
+                            "TRANSPORT_SUCCESS"
                         } else {
-                            "FAILED"
+                            "TRANSPORT_FAILED"
                         },
                         httpCode = responseCode
                     )

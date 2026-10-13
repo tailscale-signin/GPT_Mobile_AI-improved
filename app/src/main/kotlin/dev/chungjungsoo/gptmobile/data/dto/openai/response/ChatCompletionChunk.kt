@@ -19,6 +19,8 @@ data class ChatCompletionChunk(
 
     @SerialName("model")
     val model: String? = null,
+    val provider: String? = null,
+    @Transient val cacheStatus: String? = null,
 
     @SerialName("choices")
     val choices: List<Choice>? = null,
@@ -54,7 +56,11 @@ data class ChatCompletionUsage(
     val completionTokens: Int? = null,
 
     @SerialName("total_tokens")
-    val totalTokens: Int? = null
+    val totalTokens: Int? = null,
+    val cost: kotlinx.serialization.json.JsonPrimitive? = null,
+    @SerialName("cost_details") val costDetails: JsonObject? = null,
+    @SerialName("prompt_tokens_details") val promptTokensDetails: JsonObject? = null,
+    @SerialName("completion_tokens_details") val completionTokensDetails: JsonObject? = null
 )
 
 @Serializable

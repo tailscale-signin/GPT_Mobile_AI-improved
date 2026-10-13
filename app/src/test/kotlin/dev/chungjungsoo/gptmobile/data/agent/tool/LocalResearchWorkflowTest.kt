@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -169,7 +170,14 @@ class LocalResearchWorkflowTest {
         assertEquals(0, reads)
     }
 
-    private val config = ModelDelegationSettings(enabled = true, maxPages = 2, crawlDepth = 1, maxSearchQueries = 1)
+    // These contracts exercise the retained legacy path; deep research uses the shared orchestrator.
+    private val config = ModelDelegationSettings(
+        enabled = true,
+        maxPages = 2,
+        crawlDepth = 1,
+        maxSearchQueries = 1,
+        deepResearch = DeepResearchSettings(enabled = false)
+    )
     private fun tool(name: String, action: suspend (String, JsonObject) -> AgentToolResult): ResolvedAgentTool {
         val tool = object : AgentTool {
             override val definition = AgentToolDefinition(name, "", Json.parseToJsonElement(if (name == "read_url") """{"properties":{"url":{"type":"string"},"includeLinks":{"type":"boolean"}},"required":["url"]}""" else """{"properties":{"query":{"type":"string"}},"required":["query"]}""").jsonObject)

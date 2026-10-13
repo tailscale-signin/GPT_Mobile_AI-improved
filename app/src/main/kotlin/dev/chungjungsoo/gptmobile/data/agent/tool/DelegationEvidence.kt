@@ -93,7 +93,7 @@ internal fun delegationHandoff(summary: String, sources: List<DelegationSource>,
     val maxBytes = tokenBudget.coerceIn(128, 4096) * 3
     val kept = mutableListOf<DelegationSource>()
     val sourceRows = mutableListOf<JsonObject>()
-    val citedIds = Regex("\\bS\\d+\\b").findAll(summary).map { it.value }.toSet()
+    val citedIds = Regex("\\bS(?:[a-f0-9]{16}|\\d+)\\b").findAll(summary).map { it.value }.toSet()
     val prioritizedSources = sources.sortedWith(
         compareByDescending<DelegationSource> { it.id in citedIds }
             .thenByDescending { it.pageRead }
@@ -135,7 +135,7 @@ internal fun delegationHandoff(summary: String, sources: List<DelegationSource>,
     var findings = Regex("https?://[^\\s<>\"')]+", RegexOption.IGNORE_CASE).replace(summary) { match ->
         kept.firstOrNull { canonicalSearchUrl(it.url) == canonicalSearchUrl(match.value.trimEnd('.', ',', ';')) }?.let { "[${it.id}]" } ?: "[unverified URL omitted]"
     }
-    findings = Regex("\\bS\\d+\\b").replace(findings) { if (it.value in knownIds) it.value else "source omitted" }
+    findings = Regex("\\bS(?:[a-f0-9]{16}|\\d+)\\b").replace(findings) { if (it.value in knownIds) it.value else "source omitted" }
     var findingsTruncated = false
     fun render() = buildJsonObject {
         val truncationLimitations =

@@ -43,4 +43,41 @@ class ResearchRunLedgerTest {
         assertTrue(runCatching { ledger.charge(physical = 1) }.isFailure)
         assertEquals(0L, ledger.snapshot().physical)
     }
+
+    @Test fun byteChunksReserveAheadWithoutWritingEveryRead() {
+        val writes = mutableListOf<ResearchRunLedger.State>()
+        val ledger = ResearchRunLedger("p", ResearchUserLimits(), writes::add)
+        repeat(100) { assertTrue(ledger.charge(downloaded = 1024)) }
+        assertEquals(1, writes.size)
+        assertEquals(102400L, ledger.snapshot().downloaded)
+        assertEquals(262144L, writes.last().downloaded)
+        val restored = ResearchRunLedger("p", ResearchUserLimits())
+        restored.restore(writes.last())
+        assertEquals(262144L, restored.snapshot().downloaded)
+    }
+
+    @Test fun overlappingWorkersChargeElapsedWallTimeOnce() {
+        val ledger = ResearchRunLedger("p", ResearchUserLimits())
+        ledger.beginActive(100)
+        ledger.beginActive(100)
+        ledger.tick(200)
+        ledger.tick(200)
+        ledger.tick(150)
+        ledger.endActive(300)
+        ledger.endActive(400)
+        assertEquals(300L, ledger.snapshot().activeMillis)
+        ledger.beginActive(1000)
+        ledger.endActive(1100)
+        assertEquals(400L, ledger.snapshot().activeMillis)
+    }
+
+    @Test fun reservationNeverExceedsUserLimitAndStopDoesNotRefundIt() {
+        val writes = mutableListOf<ResearchRunLedger.State>()
+        val ledger = ResearchRunLedger("p", ResearchUserLimits(maxDownloadedBytes = 10000), writes::add)
+        assertTrue(ledger.charge(downloaded = 100))
+        assertEquals(10000L, writes.last().downloaded)
+        assertFalse(ledger.charge(downloaded = 10000))
+        assertEquals(10000L, writes.last().downloaded)
+        assertEquals("user_download_limit", writes.last().limitReason)
+    }
 }

@@ -57,7 +57,7 @@ data class ModelArtifactManifest(
     val evidence: ArtifactEvidence = ArtifactEvidence.DISCOVERED,
     val validations: List<ArtifactValidation> = emptyList()
 ) {
-    fun validate(root: File, backend: String? = null, deviceSoc: String? = null) {
+    fun validate(root: File, backend: String? = null, deviceSoc: String? = null, checkCurrent: () -> Unit = {}) {
         require(schemaVersion in 1..2) { "Unsupported artifact manifest version $schemaVersion" }
         require(familyId.isNotBlank() && artifactId.isNotBlank() && contextTokens > 0)
         require(files.isNotEmpty() && files.size <= 256)
@@ -81,10 +81,11 @@ data class ModelArtifactManifest(
         }
         require(evidence !in setOf(ArtifactEvidence.INCOMPATIBLE, ArtifactEvidence.QUARANTINED)) { "Artifact is quarantined or incompatible" }
         files.forEach { item ->
+            checkCurrent()
             val file = safeFile(root, item.path)
             require(item.sizeBytes > 0 && file.isFile && file.length() == item.sizeBytes) { "Missing or truncated asset: ${item.path}" }
             require(item.sha256.matches(Regex("[a-fA-F0-9]{64}"))) { "Missing SHA-256: ${item.path}" }
-            PackageDigest.verify(file, item.sha256)
+            PackageDigest.verify(file, item.sha256, checkCurrent)
         }
         if (runtime == ArtifactRuntime.GENIEX_LLAMA_CPP) {
             val magic = safeFile(root, entryFile).inputStream().use { stream -> ByteArray(4).also { require(stream.read(it) == 4) } }

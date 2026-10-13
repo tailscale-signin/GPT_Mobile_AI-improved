@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "revision": "review-2026-10-12.1",
+  "entries": [
+    {
+      "provider": "OPENAI",
+      "model": "gpt-4.1",
+      "inputPerMillion": "2.00",
+      "outputPerMillion": "8.00",
+      "cachedInputPerMillion": "0.50",
+      "currency": "USD",
+      "source": "REVIEWED",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-4.1",
+      "reviewedOn": "2026-10-12"
+    },
+    {
+      "provider": "OPENAI",
+      "model": "gpt-4.1-2025-04-14",
+      "inputPerMillion": "2.00",
+      "outputPerMillion": "8.00",
+      "cachedInputPerMillion": "0.50",
+      "currency": "USD",
+      "source": "REVIEWED",
+      "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-4.1",
+      "reviewedOn": "2026-10-12"
+    }
+  ]
+}

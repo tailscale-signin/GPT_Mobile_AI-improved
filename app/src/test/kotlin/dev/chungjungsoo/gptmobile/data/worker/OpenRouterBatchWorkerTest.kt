@@ -83,9 +83,13 @@ class OpenRouterBatchWorkerTest {
                 context = context,
                 requestId = "req-12345",
                 prompt = "Test prompt",
-                apiKey = "sk-or-dummy-key"
+                connectionUid = "fixture-connection",
+                credentialRevision = "fixture-revision",
+                model = "fixture/model"
             )
             io.mockk.verify { manager.enqueue(capture(request)) }
+            org.junit.Assert.assertNull(request.captured.workSpec.input.getString(OpenRouterBatchWorker.KEY_API_KEY))
+            org.junit.Assert.assertEquals("fixture-connection", request.captured.workSpec.input.getString(OpenRouterBatchWorker.KEY_CONNECTION_UID))
             org.junit.Assert.assertEquals("req-12345", request.captured.workSpec.input.getString(OpenRouterBatchWorker.KEY_REQUEST_ID))
             org.junit.Assert.assertEquals(androidx.work.NetworkType.CONNECTED, request.captured.workSpec.constraints.requiredNetworkType)
         } finally {

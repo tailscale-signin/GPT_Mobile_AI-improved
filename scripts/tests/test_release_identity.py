@@ -10,6 +10,15 @@ spec.loader.exec_module(release_identity)
 
 
 class ReleaseIdentityTest(unittest.TestCase):
+    def test_build_tools_version_follows_the_application(self):
+        for version in ("37.0.0", "38.0.0"):
+            with self.subTest(version=version):
+                self.assertEqual(version, release_identity.release_build_tools_version(f'buildToolsVersion = "{version}"'))
+
+    def test_missing_build_tools_version_fails_clearly(self):
+        with self.assertRaisesRegex(ValueError, "Could not resolve buildToolsVersion"):
+            release_identity.release_build_tools_version("android { }")
+
     def test_conditional_uses_regular_release_application_id(self):
         build = 'applicationId = if (geniexRuntime) "dev.example.preview" else "dev.example"'
         self.assertEqual("dev.example", release_identity.release_application_id(build))

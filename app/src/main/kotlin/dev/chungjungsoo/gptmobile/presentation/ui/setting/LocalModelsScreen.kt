@@ -41,7 +41,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -64,9 +63,9 @@ import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadS
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelRequirements
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun LocalModelsScreen(
+internal fun LocalMarketplaceScreen(
     startInMarketplace: Boolean = false,
     startInDelegation: Boolean = false,
     modifier: Modifier = Modifier,
@@ -83,8 +82,6 @@ fun LocalModelsScreen(
     val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
     val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
     val context = LocalContext.current
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    var settingsOpen by rememberSaveable { mutableStateOf(startInDelegation) }
     var filtersOpen by rememberSaveable { mutableStateOf(false) }
     var runtime by rememberSaveable { mutableStateOf("All") }
     var processor by rememberSaveable { mutableStateOf("Any") }
@@ -97,12 +94,10 @@ fun LocalModelsScreen(
     fun isGenieX(item: LocalModelListItem) = item.entry.variantLabel.startsWith("GENIEX_") || item.entry.runtimeRequirement.contains("geniex", true) || item.entry.downloadUrl.substringBefore('?').endsWith(".gguf", true)
     val recommended = remember(uiState.allItems, geniex) { dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogRecommendationPolicy.recommend(uiState.allItems.map { it.entry }, geniex, runtimeViewModel.soc, runtimeViewModel.ramGb).map { it.id }.toSet() }
     val visible = uiState.items.filter { item ->
-        val selectedTab = when (tab) {
-            0 -> item.entry.id in recommended
-            2 -> item.status != LocalModelItemStatus.NOT_DOWNLOADED
-            else -> everyModel || support(item).reasons.isEmpty()
-        }
-        selectedTab &&
+        val compatible = item.status == LocalModelItemStatus.READY ||
+            everyModel ||
+            (support(item).reasons.isEmpty() && (runtimeViewModel.ramGb == null || item.entry.minRamGb <= runtimeViewModel.ramGb!!))
+        compatible &&
             (runtime == "All" || (runtime == "GenieX") == isGenieX(item)) &&
             (processor == "Any" || item.entry.supportedAccelerators.any { it.equals(processor, true) }) &&
             when (capability) {
@@ -113,27 +108,16 @@ fun LocalModelsScreen(
                 else -> true
             }
     }
-    val families = visible.groupBy { it.entry.familyId.ifBlank { it.entry.id } }
-    val downloadPreferences = remember { context.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE) }
-    var wifiOnly by remember { mutableStateOf(downloadPreferences.getBoolean("wifiOnly", false)) }
+    val families = visible.groupBy { it.entry.familyId.ifBlank { it.entry.id } }.entries.sortedBy { (_, variants) -> if (variants.any { it.entry.id in recommended }) 0 else 1 }.associate { it.key to it.value }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.importCustomModel(context.contentResolver, uri) }
     Scaffold(modifier = modifier, topBar = {
         androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_models_8e4bf)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
-            IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Rounded.Memory, "Local runtime settings") }
             IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.Add, "Import a local model") }
             IconButton(onClick = viewModel::refreshCatalog) { Icon(Icons.Rounded.Refresh, "Refresh catalog") }
         })
     }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets)) {
             OutlinedTextField(uiState.searchQuery, viewModel::updateSearchQuery, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_search_models_10421)) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), singleLine = true, trailingIcon = { TextButton(onClick = { filtersOpen = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_filters_546eb)) } })
-            androidx.compose.material3.ScrollableTabRow(tab, edgePadding = 8.dp) {
-                listOf("Recommended", "All models", "Installed").forEachIndexed { index, title ->
-                    androidx.compose.material3.Tab(tab == index, {
-                        tab = index
-                        viewModel.updateFilter(LocalModelFilter.ALL)
-                    }, text = { Text(title) })
-                }
-            }
             LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 catalogStatus?.let { snapshot ->
                     item {
@@ -142,48 +126,41 @@ fun LocalModelsScreen(
                         snapshot.refreshError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
-                if (tab == 0) {
-                    item {
-                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_curated_candidates_for_this_device_75abc), style = MaterialTheme.typography.titleMedium)
-                        TextButton(onClick = { why = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_why_these_models_6954d)) }
+
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_show_every_listed_model_355b0), Modifier.weight(1f))
+                        androidx.compose.material3.Switch(everyModel, { everyModel = it })
                     }
                 }
-                if (tab == 1) {
+                item { Row { LocalModelSource.entries.forEach { source -> FilterChip(uiState.source == source, { viewModel.updateModelSource(source) }, label = { Text(source.title) }) } } }
+                if (uiState.source == LocalModelSource.HUGGING_FACE) {
                     item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_show_every_listed_model_355b0), Modifier.weight(1f))
-                            androidx.compose.material3.Switch(everyModel, { everyModel = it })
-                        }
-                    }
-                    item { Row { LocalModelSource.entries.forEach { source -> FilterChip(uiState.source == source, { viewModel.updateModelSource(source) }, label = { Text(source.title) }) } } }
-                    if (uiState.source == LocalModelSource.HUGGING_FACE) {
-                        item {
-                            HuggingFaceAccountSection(hasToken = uiState.hasHuggingFaceToken, onAddToken = viewModel::openAccessTokenDialog, onRemoveToken = viewModel::removeHuggingFaceAccessToken)
-                            uiState.huggingFaceSearchError?.let { Text(it) }
-                        }
+                        HuggingFaceAccountSection(hasToken = uiState.hasHuggingFaceToken, onAddToken = viewModel::openAccessTokenDialog, onRemoveToken = viewModel::removeHuggingFaceAccessToken)
+                        uiState.huggingFaceSearchError?.let { Text(it) }
                     }
                 }
+
                 val active = uiState.allItems.count { it.status == LocalModelItemStatus.DOWNLOADING }
                 if (active > 0) {
                     item {
                         TextButton(onClick = {
-                            tab = 2
                             viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
                         }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_002601a45f, active)) }
                     }
                 }
-                if (tab == 2) {
-                    item {
-                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6e1ee292ad, ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)))
-                        Row { listOf(LocalModelFilter.ALL, LocalModelFilter.DOWNLOADING, LocalModelFilter.FAILED).forEach { value -> TextButton(onClick = { viewModel.updateFilter(value) }) { Text(value.title) } } }
-                    }
+
+                item {
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6e1ee292ad, ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)))
+                    androidx.compose.foundation.layout.FlowRow { LocalModelFilter.entries.forEach { value -> TextButton(onClick = { viewModel.updateFilter(value) }) { Text(value.title) } } }
                 }
+
                 if (uiState.isLoading) item { CircularProgressIndicator() }
                 if (!uiState.isLoading && families.isEmpty()) {
                     item {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_no_models_match_these_filters_c5178))
                         TextButton(onClick = {
-                            tab = 1
+                            viewModel.updateFilter(LocalModelFilter.ALL)
                             everyModel = true
                             runtime = "All"
                             processor = "Any"
@@ -192,7 +169,11 @@ fun LocalModelsScreen(
                     }
                 }
                 items(families.entries.toList(), key = { it.key }) { (key, variants) ->
-                    val item = variants.first()
+                    val firstRecommended = families.entries.firstOrNull { (_, values) -> values.any { it.entry.id in recommended } }?.key
+                    val firstOther = families.entries.firstOrNull { (_, values) -> values.none { it.entry.id in recommended } }?.key
+                    if (key == firstRecommended) Text(stringResource(R.string.local_ai_recommended), style = MaterialTheme.typography.titleLarge)
+                    if (key == firstOther) Text(stringResource(if (everyModel) R.string.local_ai_discovery else R.string.local_ai_other), style = MaterialTheme.typography.titleLarge)
+                    val item = variants.firstOrNull { it.entry.id in recommended } ?: variants.minWith(compareBy<LocalModelListItem> { support(it).reasons.size }.thenBy { it.entry.minRamGb }.thenBy { if (it.downloadSizeBytes > 0) it.downloadSizeBytes else Long.MAX_VALUE })
                     Card(onClick = { family = key }, modifier = Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(item.entry.displayName, style = MaterialTheme.typography.titleLarge)
@@ -215,26 +196,6 @@ fun LocalModelsScreen(
             }
         }
     }
-    if (settingsOpen) {
-        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { settingsOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-            Scaffold(topBar = { androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_runtime_settings_7fbc0)) }, navigationIcon = { IconButton(onClick = { settingsOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
-                LazyColumn(Modifier.padding(insets)) {
-                    item { LocalRuntimeSettingsCard(runtimeViewModel) }
-                    item { LocalAssistToggle(runtimeSettings.localAssist, { runtimeViewModel.updateTuning(assist = it) }, Modifier.padding(16.dp), enabled = !runtimeBusy) }
-                    item {
-                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_wi_fi_only_downloads_497e4), Modifier.weight(1f))
-                            androidx.compose.material3.Switch(wifiOnly, {
-                                wifiOnly = it
-                                downloadPreferences.edit().putBoolean("wifiOnly", it).apply()
-                            })
-                        }
-                    }
-                    item { HuggingFaceAccountSection(hasToken = uiState.hasHuggingFaceToken, onAddToken = viewModel::openAccessTokenDialog, onRemoveToken = viewModel::removeHuggingFaceAccessToken) }
-                }
-            }
-        }
-    }
     family?.let { selectedFamily ->
         val variants = (uiState.allItems + uiState.huggingFaceItems).distinctBy { it.entry.id }.filter { it.entry.familyId.ifBlank { it.entry.id } == selectedFamily }
         dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { family = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
@@ -251,6 +212,10 @@ fun LocalModelsScreen(
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2ffd1f3e99, item.entry.maxContextTokens.takeIf { it > 0 } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_14c4849191), item.entry.minRamGb.takeIf { it > 0 }?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e5f04740a4, (it).toString()) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_14c4849191)))
                         if (decision.reasons.isNotEmpty()) {
                             decision.reasons.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+                            if (item.status == LocalModelItemStatus.READY && item.entry.supportedAccelerators.isEmpty()) {
+                                TextButton(onClick = { runtimeViewModel.createProfile(item.entry, onOpenProfile) }) { Text(stringResource(R.string.local_ai_needs_verification)) }
+                                TextButton(onClick = { viewModel.onDeleteClick(item.entry) }) { Text(stringResource(R.string.delete)) }
+                            }
                             if (decision.action == dev.chungjungsoo.gptmobile.data.catalog.CatalogAction.VIEW_BUILD) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_the_geniex_apk_is_a_separate_installation_its_dedfc))
                         } else {
                             LocalModelItem(
@@ -304,7 +269,7 @@ fun LocalModelsScreen(
         androidx.compose.material3.AlertDialog(onDismissRequest = { why = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_why_these_models_6954d)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_these_are_curated_evaluation_candidates_with__5dd8b)) }, confirmButton = {
             TextButton(onClick = {
                 why = false
-                tab = 1
+                everyModel = true
             }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_all_models_0f589)) }
         })
     }
@@ -312,7 +277,7 @@ fun LocalModelsScreen(
         dialog = uiState.dialog,
         onConfirmRamWarning = viewModel::confirmRamWarning,
         onConfirmMeteredDownload = viewModel::confirmMeteredDownload,
-        onConfirmDelete = viewModel::confirmDelete,
+        onConfirmDelete = { viewModel.confirmDeleteWith(runtimeViewModel::deleteModelSafely) },
         onDismissDialog = viewModel::dismissDialog,
         onStartSignIn = viewModel::startHuggingFaceSignIn,
         onAuthActivityResult = viewModel::onAuthActivityResult,
@@ -323,7 +288,7 @@ fun LocalModelsScreen(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun LocalModelsTopBar(
     scrollBehavior: TopAppBarScrollBehavior,
@@ -520,7 +485,7 @@ private fun ModelCatalogSearch(
 }
 
 @Composable
-private fun HuggingFaceAccountSection(
+internal fun HuggingFaceAccountSection(
     hasToken: Boolean,
     onAddToken: () -> Unit,
     onRemoveToken: () -> Unit

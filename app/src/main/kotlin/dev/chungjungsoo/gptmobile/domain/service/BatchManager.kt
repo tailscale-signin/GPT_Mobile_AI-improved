@@ -51,6 +51,7 @@ class BatchManager(
                     val response = openRouterClient.processRequest(request)
                     results.add(BatchResult.Success(index, response))
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     results.add(BatchResult.Failure(index, e.message ?: "Unknown error"))
                 }
             }
@@ -72,18 +73,16 @@ class BatchManager(
             val results = llamaClient.parseLlamaResponse(response, requests.size)
             onComplete(results)
         } catch (e: Exception) {
-            // Fallback to individual requests if batch fails
-            processOpenRouterBatch(requests, onComplete)
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            onComplete(requests.indices.map { BatchResult.Failure(it, "Local batch failed. Retry with the selected local connection.") })
         }
     }
 
-    private fun escapeJson(input: String): String {
-        return input.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-    }
+    private fun escapeJson(input: String): String = input.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
 }
 
 sealed class BatchResult {

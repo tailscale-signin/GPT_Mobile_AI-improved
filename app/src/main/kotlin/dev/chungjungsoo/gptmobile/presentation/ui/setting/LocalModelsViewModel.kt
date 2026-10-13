@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -11,7 +10,6 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceModelSearchClient
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
 import dev.chungjungsoo.gptmobile.data.localmodel.GatedDownloadCoordinator
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
@@ -40,7 +38,8 @@ class LocalModelsViewModel @Inject constructor(
     private val downloadGuards: LocalDownloadGuards,
     huggingFaceAuthClient: HuggingFaceAuthClient,
     @param:DeviceSocModel private val deviceSocModel: String,
-    private val huggingFaceModelSearchClient: HuggingFaceModelSearchClient? = null
+    private val huggingFaceModelSearchClient: HuggingFaceModelSearchClient? = null,
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val importContext: android.content.Context? = null
 ) : ViewModel() {
 
     private val downloadActions = LocalModelDownloadActions(
@@ -172,6 +171,8 @@ class LocalModelsViewModel @Inject constructor(
             val snapshot = modelCatalogRepository.getSnapshot()
             mutableCatalogStatus.value = snapshot
             catalogEntries.value = snapshot.entries
+            var storageIdentity: List<String>? = null
+            var measuredStorage = 0L
             combine(
                 catalogEntries,
                 localModelRepository.observeAll(),
@@ -184,10 +185,15 @@ class LocalModelsViewModel @Inject constructor(
                     localModels.associate { it.catalogEntryId to localModelRepository.diskPartialBytes(it) },
                     deviceSocModel = deviceSocModel
                 )
-                val storage = localModels
-                    .filter { it.status == LocalModelStatus.READY }
-                    .sumOf { it.totalBytes }
-                items to storage
+                val identity = localModels.filter { it.status == LocalModelStatus.READY }
+                    .map { "${it.catalogEntryId}:${it.commitHash}:${it.updatedAt}" }.sorted()
+                if (storageIdentity != identity) {
+                    // Bundle rows track manifest length for integrity checks, not the
+                    // multi-file installation size. Scan on install/delete, not progress.
+                    measuredStorage = localModelRepository.totalStorageUsed()
+                    storageIdentity = identity
+                }
+                items to measuredStorage
             }.collect { (items, storage) ->
                 val scores = localBenchmarkScores(benchmarkStore.history.value)
                 localListState.update {
@@ -271,10 +277,20 @@ class LocalModelsViewModel @Inject constructor(
         customDialogState.value = LocalModelsDialog.DeleteConfirm(entry)
     }
 
-    fun confirmDelete() {
+    fun confirmDelete() = confirmDeleteWith { localModelRepository.deleteModel(it) }
+
+    fun confirmDeleteWith(delete: suspend (String) -> Unit) {
         val entry = (customDialogState.value as? LocalModelsDialog.DeleteConfirm)?.entry ?: return
         customDialogState.value = LocalModelsDialog.Hidden
-        viewModelScope.launch { localModelRepository.deleteModel(entry.id) }
+        viewModelScope.launch {
+            try {
+                delete(entry.id)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                customDialogState.value = LocalModelsDialog.ImportFailed(error.message ?: "Model files could not be deleted", "Model deletion paused")
+            }
+        }
     }
 
     fun cancelDownload(entry: CatalogEntry) {
@@ -289,35 +305,96 @@ class LocalModelsViewModel @Inject constructor(
         }
     }
 
-    fun importCustomModel(contentResolver: ContentResolver, uri: Uri) {
-        viewModelScope.launch {
-            val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "custom.litertlm"
-            val inputStream = runCatching { contentResolver.openInputStream(uri) }.getOrNull()
-            if (inputStream == null) {
-                customDialogState.value = LocalModelsDialog.ImportFailed("Could not open file stream.")
-                return@launch
-            }
-            val result = localModelRepository.importCustomModel(inputStream, fileName)
-            if (result is LocalModelImportResult.Failure) {
-                customDialogState.value = LocalModelsDialog.ImportFailed(result.message)
-            }
-        }
-    }
+    val importStatus = MutableStateFlow<String?>(null)
+    val importActive = MutableStateFlow(false)
+    val importedModelId = MutableStateFlow<String?>(null)
 
-    private fun queryDisplayName(contentResolver: ContentResolver, uri: Uri): String? {
-        if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
-            runCatching {
-                contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIndex != -1) {
-                            return cursor.getString(nameIndex)
+    suspend fun inspectImport(uri: Uri, folder: Boolean): dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val resolver = checkNotNull(importContext).contentResolver
+        var name = uri.lastPathSegment.orEmpty()
+        var size: Long? = null
+        val source = if (folder) {
+            val parent = android.provider.DocumentsContract.getTreeDocumentId(uri)
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(uri, parent)
+            val matches = resolver.query(children, arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
+                buildList {
+                    var count = 0
+                    while (cursor.moveToNext()) {
+                        require(++count <= 1024) { "Folder contains too many entries" }
+                        if (cursor.getString(1) == "manifest.json") add(cursor.getString(0))
+                    }
+                }
+            }.orEmpty()
+            require(matches.size == 1) { "Choose a model folder containing one manifest.json file." }
+            android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, matches.single())
+        } else {
+            resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    name = cursor.getString(0) ?: name
+                    size = if (cursor.isNull(1)) null else cursor.getLong(1).takeIf { it >= 0 }
+                }
+            }
+            uri
+        }
+        val input = resolver.openInputStream(source) ?: error("Source cannot be read; select it again.")
+        dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview.inspect(input, name, size, dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED, folder)
+    }
+    init {
+        importContext?.let { context ->
+            viewModelScope.launch {
+                androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK).collect { jobs ->
+                    val preferences = context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE)
+                    val latest = preferences.getString("latest", null)
+                    val worker = jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.id.toString() == latest }
+                    if (worker?.state?.isFinished == true && worker.id.toString() == latest && preferences.getBoolean("ownsGrant", false)) {
+                        preferences.getString("source", null)?.let { source -> runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(source), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+                        preferences.edit().putBoolean("ownsGrant", false).apply()
+                    }
+                    if (worker?.state == androidx.work.WorkInfo.State.SUCCEEDED) catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
+                    importedModelId.value = worker?.takeIf { it.state == androidx.work.WorkInfo.State.SUCCEEDED }?.outputData?.getString("modelId")
+                    importActive.value = worker != null && !worker.state.isFinished
+                    importStatus.value = worker?.let {
+                        when (it.state) {
+                            androidx.work.WorkInfo.State.RUNNING -> "Copying and verifying · ${it.progress.getLong("bytes", 0) / (1024 * 1024)} MB"
+                            androidx.work.WorkInfo.State.ENQUEUED, androidx.work.WorkInfo.State.BLOCKED -> "Import queued; it will restart safely if Android interrupts it."
+                            androidx.work.WorkInfo.State.CANCELLED -> "Import canceled. Choose the source again to retry."
+                            else -> it.outputData.getString("message") ?: "Import interrupted. Choose the source again to retry."
                         }
                     }
                 }
             }
         }
-        return uri.path?.substringAfterLast('/')
+    }
+    fun cancelImport() {
+        importContext?.let { androidx.work.WorkManager.getInstance(it).cancelUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK) }
+    }
+
+    fun importCustomModel(contentResolver: ContentResolver, uri: Uri, folder: Boolean = false) {
+        val context = importContext ?: return
+        if (importActive.value) return
+        val ownsGrant = contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }
+        runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }.onFailure {
+            importStatus.value = "This source cannot grant durable read access. Copy it to Documents and choose it again."
+            return
+        }
+        val request = androidx.work.OneTimeWorkRequestBuilder<dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker>()
+            .setInputData(androidx.work.Data.Builder().putString("source", uri.toString()).putBoolean("folder", folder).build()).build()
+        importActive.value = true
+        importedModelId.value = null
+        context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).edit().putString("latest", request.id.toString()).putString("source", uri.toString()).putBoolean("ownsGrant", ownsGrant).apply()
+        viewModelScope.launch {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK, androidx.work.ExistingWorkPolicy.KEEP, request).result.get()
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                importActive.value = false
+                if (ownsGrant) runCatching { contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                customDialogState.value = LocalModelsDialog.ImportFailed("Import could not be queued. Choose the source again.")
+            }
+        }
     }
 
     fun startHuggingFaceSignIn(): Intent? = downloadActions.startHuggingFaceSignIn()

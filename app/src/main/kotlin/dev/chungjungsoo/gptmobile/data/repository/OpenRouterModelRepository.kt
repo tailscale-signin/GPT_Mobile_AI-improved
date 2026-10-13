@@ -25,12 +25,15 @@ class OpenRouterModelRepository @Inject constructor() {
 
     private val mutex = kotlinx.coroutines.sync.Mutex()
     private var cachedAt = 0L
+
+    @Volatile var sourceValidatedAt: Long = 0L
+        private set
     private var failedAt = Long.MIN_VALUE
 
     suspend fun fetchModels(forceRefresh: Boolean = false): Result<List<OpenRouterModelItem>> = withContext(Dispatchers.IO) {
         mutex.withLock {
             val now = System.nanoTime() / 1_000_000
-            cachedModels?.takeIf { !forceRefresh && now - cachedAt in 0..3_600_000 }?.let {
+            cachedModels?.takeIf { now - cachedAt in 0..(if (forceRefresh) 30_000 else 3_600_000) }?.let {
                 return@withLock Result.success(it)
             }
 
@@ -40,6 +43,7 @@ class OpenRouterModelRepository @Inject constructor() {
             runCatching {
                 val connection = (URL(MODELS_URL).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
+                    instanceFollowRedirects = false
                     connectTimeout = 4000
                     readTimeout = 4000
                     setRequestProperty("Accept", "application/json")
@@ -57,7 +61,9 @@ class OpenRouterModelRepository @Inject constructor() {
                         .data
                         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name ?: it.id })
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    check(sorted.isNotEmpty()) { "Empty OpenRouter catalogue; previous prices retained." }
                     cachedModels = sorted
+                    sourceValidatedAt = System.currentTimeMillis()
                     cachedAt = System.nanoTime() / 1_000_000
                     failedAt = Long.MIN_VALUE
                     dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.remember(sorted)
@@ -69,6 +75,30 @@ class OpenRouterModelRepository @Inject constructor() {
                 if (error is kotlinx.coroutines.CancellationException) throw error
                 failedAt = System.nanoTime() / 1_000_000
             }
+        }
+    }
+
+    private data class UserCatalog(val models: List<OpenRouterModelItem>, val observedAt: Long, val monotonicAt: Long)
+    private val userCatalogs = linkedMapOf<String, UserCatalog>()
+    private val userLock = kotlinx.coroutines.sync.Mutex()
+    suspend fun fetchUserModels(connectionUid: String, endpoint: String, credential: String, forceRefresh: Boolean = false): Result<Pair<List<OpenRouterModelItem>, Long>> = userLock.withLock {
+        val identity = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.revision(connectionUid, endpoint, credential)
+        val now = System.nanoTime()
+        userCatalogs[identity]?.takeIf { now - it.monotonicAt in 0..(if (forceRefresh) 10_000_000_000L else 900_000_000_000L) }?.let {
+            return@withLock Result.success(it.models to it.observedAt)
+        }
+        try {
+            val body = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterAccountClient().get(endpoint, credential, "models/user")
+            val models = json.decodeFromString<OpenRouterModelsResponse>(body).data.sortedBy { it.name ?: it.id }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val entry = UserCatalog(models, System.currentTimeMillis(), System.nanoTime())
+            userCatalogs[identity] = entry
+            while (userCatalogs.size > 8) userCatalogs.remove(userCatalogs.keys.first())
+            Result.success(models to entry.observedAt)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

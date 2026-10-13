@@ -111,6 +111,66 @@ class AndroidResearchWorkflowTest {
         else -> """{"verdict":"Supported"}"""
     }
 
+    @Test fun academicReadersReserveRemainingGoalAndReleaseFailedRead() = runBlocking {
+        val journal = Journal()
+        var reads = 0
+        val papers = tool("deep_research_search_papers") { id, _ ->
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put(
+                            "papers",
+                            JsonArray(
+                                (1..3).map { index ->
+                                    buildJsonObject {
+                                        put("paperId", "doi:10.1234/fixture$index")
+                                        put("doi", "10.1234/fixture$index")
+                                        put("canonicalUrl", "https://example.org/paper/$index")
+                                        put("title", "Research paper $index")
+                                    }
+                                }
+                            )
+                        )
+                    }
+                ),
+                false
+            )
+        }
+        val paperReader = tool("deep_research_read_paper") { id, _ ->
+            reads++
+            val fail = reads == 1
+            delay(10)
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("retrievalStatus", if (fail) "failed" else "read")
+                        put("text", if (fail) "" else passage)
+                    }
+                ),
+                fail
+            )
+        }
+        val settings = config(1).let { it.copy(deepResearch = it.deepResearch.copy(academicSources = true, reviewEvidence = false, concurrency = 4)) }
+        val result = AndroidResearchWorkflow(settings, listOf(papers, paperReader), ::model, journal)
+            .run("Research request limits", "academic-goal")
+        assertEquals(2, reads)
+        assertEquals(1, result.pagesRead)
+        assertEquals(1, journal.snapshot!!.sources.count { it.readable })
+    }
+
+    @Test fun localWorkerUsesSharedOrchestratorWhenDeepResearchIsEnabled() = runBlocking {
+        val journal = Journal()
+        val settings = config(1)
+        assertTrue(settings.deepResearch.enabled)
+        val result = LocalResearchWorkflow(settings, listOf(search(), reader()), ::model, journal = journal)
+            .run("Research request limits", "local-worker")
+        assertEquals(1, result.pagesRead)
+        assertEquals("Supported", journal.snapshot!!.claims.single().verdict)
+        assertTrue(journal.snapshot!!.toolEvents.any { it.reader == "read_url" && it.outcome == "SUCCESS" })
+    }
+
     @Test fun readsSourcesBeforeReviewingAndRejectsInventedQuotes() = runBlocking {
         val journal = Journal()
         val result = AndroidResearchWorkflow(config(), listOf(search(), reader()), ::model, journal).run("Research request limits", "run")
@@ -459,5 +519,69 @@ class AndroidResearchWorkflowTest {
         AndroidResearchWorkflow(settings, listOf(search, reader()), ::model, journal).run("Research", "domains")
         assertEquals(listOf("https://example.org/research"), journal.snapshot!!.sources.map { it.url })
         assertEquals(1, journal.snapshot!!.sources.count { it.readable })
+    }
+
+    @Test fun fastPaperStartsReadingBeforeSlowProviderFinishes() = runBlocking {
+        val firstRead = CompletableDeferred<Unit>()
+        val paper = buildJsonObject {
+            put("paperId", "doi:10.1000/stream")
+            put("canonicalUrl", "https://example.org/stream")
+            put("title", "Streaming evidence")
+        }
+        val search = tool("deep_research_search_papers") { id, _ ->
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.AcademicDiscoveryObserver]!!.accept(listOf(paper))
+            withTimeout(2000) { firstRead.await() }
+            AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("papers", JsonArray(listOf(paper))) }), false)
+        }
+        val read = tool("deep_research_read_paper") { id, _ ->
+            firstRead.complete(Unit)
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("text", passage)
+                        put("retrievalStatus", "read")
+                    }
+                ),
+                false
+            )
+        }
+        val settings = config(1).let { it.copy(deepResearch = it.deepResearch.copy(academicSources = true, reviewEvidence = false)) }
+        val result = withTimeout(5000) { AndroidResearchWorkflow(settings, listOf(search, read), generate = { _, _ -> null }, journal = Journal()).run("Documented device request limits", "stream") }
+        assertEquals(1, result.pagesRead)
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+    }
+
+    @Test fun siblingTaskReusesSourcesButPlansItsOwnQuestions() = runBlocking {
+        val journal = Journal().apply {
+            snapshot = ResearchSnapshot(
+                "Earlier sibling task",
+                complete = true,
+                questions = listOf("Earlier question"),
+                sources = listOf(
+                    dev.chungjungsoo.gptmobile.data.research.ResearchSource(
+                        "S9",
+                        "https://example.org/retained",
+                        "Retained source",
+                        status = "Read",
+                        passage = passage,
+                        retrievedAt = System.currentTimeMillis()
+                    )
+                )
+            )
+        }
+        var planned = 0
+        AndroidResearchWorkflow(config(2), listOf(search(), reader()), { prompt, tokens ->
+            if (prompt.startsWith("Plan")) {
+                planned++
+                assertTrue(prompt.contains("New sibling question"))
+            }
+            model(prompt, tokens)
+        }, journal).run("New sibling question", "sibling")
+        assertEquals(1, planned)
+        assertEquals("New sibling question", journal.snapshot!!.task)
+        assertFalse(journal.snapshot!!.questions.contains("Earlier question"))
+        assertTrue(journal.snapshot!!.sources.any { it.id == "S9" && it.readable })
+        assertEquals(2, journal.snapshot!!.sources.count { it.readable })
     }
 }

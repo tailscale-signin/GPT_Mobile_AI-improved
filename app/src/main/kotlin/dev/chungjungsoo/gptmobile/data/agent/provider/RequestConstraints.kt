@@ -7,7 +7,8 @@ data class RequestConstraints(
     val allowReasoning: Boolean = true,
     val allowGatewayLocalTools: Boolean = false,
     val requestRole: String? = null,
-    val attemptId: String? = null
+    val attemptId: String? = null,
+    val freshResponse: Boolean = false
 ) {
     init {
         require(maxOutputTokens == null || maxOutputTokens > 0)

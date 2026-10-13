@@ -63,4 +63,43 @@ class AssistCoordinatorTest {
         assist.bind(tool()).execute("call", buildJsonObject {})
         assertEquals(0, workerCalls)
     }
+
+    @Test fun combinedProfilesShareOnlySameAuthorityAndCurrentTurnResults() = runBlocking {
+        var generated = 0
+        val turn = java.util.UUID.randomUUID().toString()
+        fun coordinator() = AssistCoordinator("same goal", { true }, {
+            generated++
+            "[0,2]"
+        }, {}, turnId = turn)
+        val first = coordinator().bind(tool(), "account-a").execute("first", buildJsonObject {})
+        val second = coordinator().bind(tool(), "account-a").execute("second", buildJsonObject {})
+        assertEquals(first.content, second.content)
+        assertEquals("second", second.callId)
+        assertEquals(1, generated)
+        coordinator().bind(tool(), "account-b").execute("private", buildJsonObject {})
+        assertEquals(2, generated)
+    }
+
+    @Test fun revocationDuringInferencePreservesOriginalContent() = runBlocking {
+        var enabled = true
+        val assist = AssistCoordinator("goal", { true }, {
+            enabled = false
+            "[0]"
+        }, {}, stillEnabled = { enabled })
+        val result = assist.bind(tool()).execute("call", buildJsonObject {})
+        assertEquals(ToolResultContent.Json(payload), result.content)
+    }
+
+    @Test fun oneTurnSharesTheAttemptLimitAcrossCoordinators() = runBlocking {
+        var generated = 0
+        val turn = java.util.UUID.randomUUID().toString()
+        repeat(3) { index ->
+            val assist = AssistCoordinator("goal $index", { true }, {
+                generated++
+                "[0]"
+            }, {}, policy = LocalAssistPolicy(maxAttempts = 1), turnId = turn)
+            assist.bind(tool()).execute("call$index", buildJsonObject {})
+        }
+        assertEquals(1, generated)
+    }
 }

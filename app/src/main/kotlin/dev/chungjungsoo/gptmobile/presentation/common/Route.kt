@@ -30,6 +30,7 @@ object Route {
     const val ADD_PLATFORM = "add_platform"
     const val LOCAL_MODELS = "local_models"
     const val OPENROUTER_SETTINGS = "openrouter_settings"
+    const val OPENROUTER_CONNECTION = "openrouter_settings/{connectionUid}?tab={tab}"
     const val BACKUP_RESTORE = "backup_restore"
     const val WORKSPACES = "workspaces?chatId={chatId}&tab={tab}&runId={runId}"
     const val FACT_VAULT = "fact_vault"

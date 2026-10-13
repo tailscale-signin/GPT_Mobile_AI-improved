@@ -217,12 +217,13 @@ class ChatRepositoryImpl(
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val openRouterModelRepository: OpenRouterModelRepository? = null,
     private val toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
-    private val delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore? = null
+    private val delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore? = null,
+    private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null
 ) : ChatRepository {
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
-    private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder)
+    private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder, openRouterSettingsRepository)
     private val anthropicMessagesAdapter = AnthropicMessagesAdapter(anthropicAPI, providerAttachmentEncoder)
     private val geminiAdapter = GeminiAdapter(googleAPI, providerAttachmentEncoder)
     private val sharedToolCallBroker = SharedToolCallBroker()
@@ -384,7 +385,7 @@ class ChatRepositoryImpl(
         benchmarkCategory: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
         val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
-        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
+        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY, freshResponse = true, requestRole = "benchmark")
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory)
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
@@ -1333,7 +1334,7 @@ class ChatRepositoryImpl(
             val localDelegation = LocalDelegationCoordinator(
                 platform,
                 onEvent = { event -> delegationActivity?.record(runId, event) },
-                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey),
+                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls),
                 beforeDispatch = { dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.awaitDispatch(runId) && effectiveDelegationSettings().enabled },
                 settings = { effectiveDelegationSettings() },
                 profiles = {
@@ -1656,20 +1657,30 @@ class ChatRepositoryImpl(
                     }
                 )
             }
-            val assistTarget = settingRepository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() }
-            val assist = if (runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM && assistTarget != null) {
-                dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
-                    goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
-                    warmEligible = { runtimeEligibleForAssist(assistTarget) },
-                    selectEvidence = { task -> delegateToProfile(assistTarget, task, 128, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
-                    notice = { emit(ApiState.Notice(it)) }
-                )
-            } else {
-                null
-            }
-            val boundedTools = authorizedBoundedTools.map { resolved ->
-                if (assist != null && resolved.shareableReadOnly) resolved.copy(tool = assist.bind(resolved.tool)) else resolved
-            }
+            val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
+                tools = authorizedBoundedTools,
+                candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() },
+                enabled = runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM,
+                policy = runFeatures.localAssistPolicy,
+                goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
+                turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
+                eligible = { runtimeEligibleForAssist(it) },
+                profileAllowed = { original ->
+                    settingRepository.fetchPlatformV2s().any { current ->
+                        current.uid == original.uid &&
+                            current.enabled &&
+                            !current.excludesMemory() &&
+                            current.compatibleType == ClientType.LITERT_LM &&
+                            dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(current) == dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(original)
+                    }
+                },
+                generate = { target, task, cap -> delegateToProfile(target, task, cap, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
+                notice = { emit(ApiState.Notice(it)) },
+                stillEnabled = {
+                    val live = settingRepository.getFeatureSettings()
+                    live.localAssist && live.localAssistPolicy == runFeatures.localAssistPolicy && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
+                }
+            )
             val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
             val delegationConfig = effectiveDelegationSettings()
             val crawlStage = if (behavior.crawlersEnabled && !(localResearch && delegationConfig.deepResearch.enabled)) {
@@ -1746,7 +1757,7 @@ class ChatRepositoryImpl(
                         directConfig,
                         delegatedTools,
                         generate = { _, _ -> null },
-                        journal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey),
+                        journal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls),
                         stillEnabled = {
                             val current = settingRepository.getFeatureSettings()
                             current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
@@ -1943,7 +1954,7 @@ class ChatRepositoryImpl(
             )
         }
         suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
-            val constraints = if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints
+            val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints).copy(requestRole = kind)
             workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan.copy(tools = if (textOnly) emptyList() else contextPlan.tools), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
             try {
                 workspace?.recordDebugRequest(latestUser?.chatId ?: 0, runId, kind, requestPlatform, turns, if (textOnly) emptyList() else contextPlan.tools, constraints)

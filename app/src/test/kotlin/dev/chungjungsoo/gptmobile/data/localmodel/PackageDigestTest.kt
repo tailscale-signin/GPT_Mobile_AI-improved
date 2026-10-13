@@ -24,4 +24,20 @@ class PackageDigestTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test fun verificationStopsBetweenChunksWhenImportIsCanceled() {
+        val root = kotlin.io.path.createTempDirectory("cancel-digest").toFile()
+        try {
+            val file = File(root, "model.bin").apply { writeBytes(ByteArray(3 * 1024 * 1024)) }
+            var checks = 0
+            assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+                PackageDigest.verify(file, "") {
+                    if (++checks == 2) throw kotlinx.coroutines.CancellationException("cancel")
+                }
+            }
+            assertEquals(2, checks)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }

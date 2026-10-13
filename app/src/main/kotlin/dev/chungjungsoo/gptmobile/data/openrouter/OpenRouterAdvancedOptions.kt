@@ -34,9 +34,34 @@ data class OpenRouterProviderRouting(
 
     @SerialName("z_weight")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val zWeight: Float? = null
+    val zWeight: Float? = null,
+
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val order: List<String>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val only: List<String>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val zdr: Boolean? = null,
+    @SerialName("enforce_distillable_text")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val enforceDistillableText: Boolean? = null,
+    @SerialName("max_price")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val maxPrice: OpenRouterMaxPrice? = null,
+    @SerialName("preferred_min_throughput")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val preferredMinThroughput: kotlinx.serialization.json.JsonElement? = null,
+    @SerialName("preferred_max_latency")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val preferredMaxLatency: kotlinx.serialization.json.JsonElement? = null
 ) {
     fun normalized(): OpenRouterProviderRouting = copy(
+        zWeight = null,
+        order = order?.takeIf { it.isNotEmpty() },
+        only = only?.takeIf { it.isNotEmpty() },
+        ignore = ignore?.takeIf { it.isNotEmpty() },
+        quantizations = quantizations?.takeIf { it.isNotEmpty() },
+        maxPrice = maxPrice?.takeUnless { it.prompt == null && it.completion == null && it.image == null && it.request == null },
         sort = when (sort) {
             "price-asc" -> "price"
             else -> sort

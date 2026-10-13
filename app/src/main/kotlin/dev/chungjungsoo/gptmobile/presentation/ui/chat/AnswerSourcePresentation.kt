@@ -1,10 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 private val sourceHeading = Regex("^\\s*(?:#{1,6}\\s*)?(?:\\*\\*)?(?:sources?|references?|citations?|bibliography|source links)\\s*:?(?:\\*\\*)?\\s*:?\\s*$", RegexOption.IGNORE_CASE)
-private val citationMarker = Regex("(?<![\\w`])\\[(?:S\\d+|\\d+(?:\\s*[–-]\\s*\\d+)?)\\](?!\\()", RegexOption.IGNORE_CASE)
-private val explicitCitationMarker = Regex("(?<![\\w`])\\[S\\d+](?!\\()", RegexOption.IGNORE_CASE)
+private val citationMarker = Regex("(?<![\\w`])\\[(?:S(?:[a-f0-9]{16}|\\d+)|\\d+(?:\\s*[–-]\\s*\\d+)?)\\](?!\\()", RegexOption.IGNORE_CASE)
+private val explicitCitationMarker = Regex("(?<![\\w`])\\[S(?:[a-f0-9]{16}|\\d+)](?!\\()", RegexOption.IGNORE_CASE)
 private val sourceLabel = Regex("^\\s*(?:[-*+]\\s*)?(?:\\*\\*)?(?:sources?|references?|citations?)(?:\\*\\*)?\\s*:", RegexOption.IGNORE_CASE)
-private val citationLink = Regex("\\[(?:S\\d+|\\d+(?:\\s*[,–-]\\s*\\d+)*)]\\(https?://[^\\s)]+\\)", RegexOption.IGNORE_CASE)
+private val citationLink = Regex("\\[(?:S(?:[a-f0-9]{16}|\\d+)|\\d+(?:\\s*[,–-]\\s*\\d+)*)]\\(https?://[^\\s)]+\\)", RegexOption.IGNORE_CASE)
 private val markdownSourceLink = Regex("\\[([^]\\n]+)]\\(https?://[^\\s)]+\\)")
 private val sourceUrl = Regex("<?https?://[^\\s<>]+>?")
 private val punctuationSpace = Regex(" +([.,;:!?])")

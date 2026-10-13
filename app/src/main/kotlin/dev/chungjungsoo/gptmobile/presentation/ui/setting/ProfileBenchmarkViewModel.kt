@@ -283,7 +283,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
             var run = BenchmarkRun(
                 UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
                 profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
-                mode, System.currentTimeMillis(), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
+                mode, System.currentTimeMillis(), billingOrigin = dev.chungjungsoo.gptmobile.data.pricing.billingProvider(profile), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
                 plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                 engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
@@ -379,7 +379,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                     var run = BenchmarkRun(
                         UUID.randomUUID().toString(), target.uid, target.name, target.compatibleType.name,
                         target.model, benchmarkConfigKey(target, localEnvironment.value), target.compatibleType == ClientType.LITERT_LM,
-                        mode, System.currentTimeMillis(), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
+                        mode, System.currentTimeMillis(), billingOrigin = dev.chungjungsoo.gptmobile.data.pricing.billingProvider(target), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
                         plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
                         device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                         engineWasLoaded = target.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null

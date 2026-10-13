@@ -100,6 +100,11 @@ class GPTMobileApp :
             toolApprovals.get().recover()
             invocationLedger.get().recover()
             startup.pendingLocalPlatformActivator().start()
+            applicationScope.launch {
+                kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
+                    settings to profiles.any { dev.chungjungsoo.gptmobile.data.pricing.billingProvider(it) == "OPENROUTER" }
+                }.collect { (settings, eligible) -> dev.chungjungsoo.gptmobile.data.pricing.PricingRefreshSchedule.reconcile(this@GPTMobileApp, settings, eligible) }
+            }
             secretMigrationErrors = runStartupMaintenance(
                 interruptPersistedWork = {
                     val interruptedAt = System.currentTimeMillis() / 1000

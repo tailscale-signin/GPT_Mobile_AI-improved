@@ -68,6 +68,7 @@ interface SettingRepository {
     suspend fun getProviderCredentials(uid: String): String? = null
     suspend fun addProviderConnection(connection: ProviderConnection, credential: String? = null): ProviderConnection
     suspend fun updateProviderConnection(connection: ProviderConnection, credential: String? = null): ProviderConnection
+    suspend fun replaceProviderCredential(uid: String, expectedEndpoint: String, expectedCredentials: String, endpoint: String, credential: String?): ProviderConnection = error("Atomic credential replacement unavailable")
     suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean
 
     // Backup & Restore

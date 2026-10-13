@@ -132,4 +132,37 @@ class ResearchSessionStoreTest {
         val restored = ResearchSessionStore(context).journal("b", 1, true, "long-turn").goalBudget(plan)
         assertEquals(first.ledger.snapshot(), restored.ledger!!.snapshot())
     }
+
+    @Test fun privateAuthorityAndSharingOptOutIsolateCorpora() = runBlocking {
+        val store = ResearchSessionStore(context)
+        val a = store.journal("a", 1, true, "turn", shareEnabled = false).scoped("policy", true)
+        a.save(ResearchSnapshot("private", sources = listOf(ResearchSource("S1", "https://example.org", "private"))))
+        val b = store.journal("b", 1, true, "turn").scoped("policy", true)
+        assertNull(b.load("sibling"))
+        assertNull(store.journal("a", 1, true, "turn").scoped("other-policy", true).load())
+        assertNull(store.journal("c", 1, true, "turn").scoped("other-policy", true).load("sibling"))
+    }
+
+    @Test fun leasesExcludeSiblingsAndTurnStopPropagates() {
+        val store = ResearchSessionStore(context)
+        val a = store.journal("a", 1, false, "turn").scoped("same", true)
+        val b = store.journal("b", 1, false, "turn").scoped("same", true)
+        assertTrue(a.claimWork("source", 10000))
+        assertFalse(b.claimWork("source", 10000))
+        a.releaseWork("source")
+        assertTrue(b.claimWork("source", 10000))
+        store.stop("a")
+        assertTrue(b.stopRequested())
+    }
+
+    @Test fun lateFailureCannotOverwriteReadableSiblingEvidence() = runBlocking {
+        val store = ResearchSessionStore(context)
+        val a = store.journal("a", 1, true, "turn").scoped("same", true)
+        val b = store.journal("b", 1, true, "turn").scoped("same", true)
+        val source = ResearchSource(a.sourceId("url", "S1"), "https://example.org", "source", status = "Read", passage = "Retained readable evidence")
+        a.save(ResearchSnapshot("one", sources = listOf(source)))
+        b.save(ResearchSnapshot("two", sources = listOf(source.copy(status = "Failed", passage = "", retrievalQuality = "EMPTY", retrievedAt = 99))))
+        assertTrue(b.load("third")!!.sources.single().readable)
+        assertEquals(source.id, b.sourceId("url", "S2"))
+    }
 }

@@ -20,12 +20,31 @@ import dev.chungjungsoo.gptmobile.data.research.engine.ResearchEngineRegistry
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
 internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet(), onEngineEnabled: ((String, Boolean) -> Unit)? = null) {
     val context = LocalContext.current
     val store = remember(context) { ResearchTelemetryStore(File(context.filesDir, "research-telemetry")) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var exportStatus by remember { mutableStateOf<String?>(null) }
+    val export = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            scope.launch {
+                exportStatus = try {
+                    withContext(Dispatchers.IO) { store.writeExport(requireNotNull(context.contentResolver.openOutputStream(uri))) }
+                    "Native engine events exported. No queries or source text are included."
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    "Export could not finish. Choose a writable destination and retry."
+                }
+            }
+        }
+    }
+    TextButton(onClick = { export.launch("research-engine-events.json") }) { Text("Export native engine events") }
+    exportStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     var since by remember { mutableStateOf(0L) }
     var rollups by remember { mutableStateOf(emptyMap<String, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchEngineRollup>()) }
     var pending by remember { mutableStateOf(false) }
@@ -51,7 +70,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         TextButton(onClick = { retry++ }) { Text("Retry") }
     }
     Row {
-        TextButton(onClick = { since = 0 }) { Text("Lifetime") }
+        TextButton(onClick = { since = 0 }) { Text("Retained history") }
         TextButton(onClick = { since = System.currentTimeMillis() - 86_400_000 }) { Text("24 hours") }
         TextButton(onClick = { since = System.currentTimeMillis() - 7 * 86_400_000L }) { Text("7 days") }
         TextButton(onClick = { since = System.currentTimeMillis() - 30 * 86_400_000L }) { Text("30 days") }
@@ -70,16 +89,16 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
                 if (health == null || health.attempts == 0) {
                     "Unknown · No requests yet"
                 } else {
-                    "${health.successes}/${health.attempts} successful HTTP attempts · ${health.failures} failures${if (health.lowSample) " · Low sample" else ""}"
+                    "${health.successes}/${health.attempts} useful outcomes · ${health.empty} empty · ${health.canceled} canceled · ${health.failures} failures · ${health.transportSuccesses} HTTP completions · ${health.transportFailures} HTTP failures · ${health.transportCanceled} transport cancellations${if (health.lowSample) " · Low sample" else ""}"
                 },
                 style = MaterialTheme.typography.bodySmall
             )
             Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
         }
-        TextButton(onClick = { pending = !pending }) { Text(if (pending) "Hide pending engines" else "Excluded & pending engines") }
+        TextButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
         if (pending) {
             ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
-                Text("${engine.name} · Pending", style = MaterialTheme.typography.labelLarge)
+                Text("${engine.name} · Adapter not ready", style = MaterialTheme.typography.labelLarge)
                 Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
             }
         }

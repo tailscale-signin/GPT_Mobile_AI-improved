@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from release_identity import release_application_id
+from release_identity import release_application_id, release_build_tools_version
 
 artifacts = Path(sys.argv[1])
 sha = sys.argv[2]
@@ -16,7 +16,7 @@ build = Path("app/build.gradle.kts").read_text()
 expected_id = release_application_id(build)
 expected_code = re.search(r'versionCode = (\d+)', build).group(1)
 expected_name = re.search(r'versionName = "([^"]+)"', build).group(1)
-aapt = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0/aapt2"
+aapt = Path(os.environ["ANDROID_HOME"]) / "build-tools" / release_build_tools_version(build) / "aapt2"
 apks = list(artifacts.glob("*.apk"))
 if not apks:
     raise SystemExit("No APKs to verify")

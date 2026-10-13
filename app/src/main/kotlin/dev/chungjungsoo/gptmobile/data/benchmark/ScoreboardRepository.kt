@@ -75,6 +75,18 @@ class ScoreboardRepository @Inject constructor(
     private val mutableState = MutableStateFlow(OnlineScoreboardState())
     val state = mutableState.asStateFlow()
 
+    suspend fun hydrate() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (!mutableState.value.hasSnapshot) {
+                preferences.getString("index", null)?.let { raw ->
+                    runCatching { ScoreboardFeed.decode(raw) }.getOrNull()?.let { saved ->
+                        mutableState.value = OnlineScoreboardState(BenchmarkScoreboard.best(saved.entries), updatedAt = saved.updatedAt, cached = true, hasSnapshot = true)
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun refresh() = withContext(Dispatchers.IO) {
         mutex.withLock {
             val saved = preferences.getString("index", null)?.let { raw ->

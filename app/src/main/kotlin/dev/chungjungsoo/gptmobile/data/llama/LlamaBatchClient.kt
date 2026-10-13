@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.llama
 
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.service.BatchResult
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -9,7 +10,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 class LlamaBatchClient(
     private val serverUrl: String = "http://localhost:8080",
@@ -36,8 +36,8 @@ class LlamaBatchClient(
             val results = parseLlamaResponse(response, requests.size)
             onComplete(results)
         } catch (e: Exception) {
-            // Fallback to individual requests if batch fails
-            processOpenRouterFallback(requests, onComplete)
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            onComplete(requests.indices.map { BatchResult.Failure(it, "Local batch failed. Retry with the selected local connection.") })
         }
     }
 
@@ -93,19 +93,9 @@ class LlamaBatchClient(
         return results
     }
 
-    private suspend fun processOpenRouterFallback(
-        requests: List<BatchRequest>,
-        onComplete: (List<BatchResult>) -> Unit
-    ) {
-        val openRouterClient = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterBatchClient(apiKey ?: "", 10, 1000, 30000)
-        openRouterClient.processBatch(requests, onComplete)
-    }
-
-    private fun escapeJson(input: String): String {
-        return input.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-    }
+    private fun escapeJson(input: String): String = input.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
 }

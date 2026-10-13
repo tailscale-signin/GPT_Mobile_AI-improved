@@ -28,7 +28,7 @@ jobs:
       - name: Verify and apply exact source edits
         run: |
           python3 - <<'PY'
-          import base64, hashlib, json, lzma, pathlib, subprocess
+          import base64, hashlib, json, lzma, pathlib
           root = pathlib.Path.cwd()
           manifest = json.loads((root / '.repair-workbench/ready.json').read_text())
           encoded = ''.join((root / ('.repair-workbench/' + name)).read_text().strip() for name in manifest['parts'])
@@ -58,7 +58,8 @@ jobs:
               path.write_bytes(data)
           print('Applied', len(writes), 'source files after validating every original and resulting blob.')
           PY
-          git add app docs/implementation .github/workflows
+          git restore --source=HEAD --staged --worktree .github/workflows
+          git add app docs/implementation
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
@@ -73,7 +74,7 @@ jobs:
           java -jar /tmp/ktlint.jar -F "${files[@]}"
           format_status=$?
           set -e
-          git add app docs/implementation .github/workflows
+          git add app docs/implementation
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix: restore reviewed Research, local assistance, safe recovery and traceable handoffs'

@@ -51,6 +51,8 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
 
     @Volatile private var binding: CompletableDeferred<Messenger>? = null
 
+    @Volatile private var quarantinedBinder: IBinder? = null
+
     @Volatile private var generation = ""
 
     @Volatile private var sessionId = ""
@@ -64,7 +66,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     private val mutableState = MutableStateFlow(LocalRuntimeState(processIsolated = true))
     override val state = mutableState.asStateFlow()
     override val handlesEngineFallback = true
-    override val isBusy get() = pending.isNotEmpty()
+    override val isBusy get() = pending.isNotEmpty() || quarantinedBinder?.isBinderAlive == true
 
     @Volatile override var processPssBytes: Long? = null
         private set
@@ -128,13 +130,13 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         pending[packet.requestId] = request
         try {
             send(packet)
-            withTimeout(10 * 60_000L) {
-                while (true) {
-                    val event = request.events!!.take() ?: break
-                    emit(event)
-                }
-                request.finished.await()
+            // The run's progress watchdog and explicit user deadline own generation time.
+            // A productive native stream must not acquire an unrelated ten-minute cutoff.
+            while (true) {
+                val event = request.events!!.take() ?: break
+                emit(event)
             }
+            request.finished.await()
         } finally {
             finishRequest(request)
         }
@@ -203,6 +205,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     true
                 } != true
             ) {
+                quarantinedBinder = remote?.binder
                 remote?.let { runCatching { RuntimeWireTransport.send(context, it, request.packet.copy(operation = "SHUTDOWN"), incoming) } }
                 disconnect("Inference worker did not acknowledge cancellation. Partial output is preserved; start a new request.")
             }
@@ -219,6 +222,9 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     }
 
     private suspend fun connect(): Messenger = bindMutex.withLock {
+        val quarantined = quarantinedBinder
+        check(quarantined?.isBinderAlive != true) { "NATIVE_SESSION_QUARANTINED: waiting for the cancelled worker process to stop; no new inference was dispatched" }
+        quarantinedBinder = null
         remote?.let { return@withLock it }
         val result = CompletableDeferred<Messenger>()
         binding = result
@@ -227,7 +233,10 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                 synchronized(this@ProcessLocalRuntime) {
                     if (connection !== this) return
                     try {
-                        binder.linkToDeath({ if (connection === this) disconnect("Native inference worker stopped. Completed output is preserved; tools will not be repeated.") }, 0)
+                        binder.linkToDeath({
+                            if (quarantinedBinder === binder) quarantinedBinder = null
+                            if (connection === this) disconnect("Native inference worker stopped. Completed output is preserved; tools will not be repeated.")
+                        }, 0)
                         check(binder.isBinderAlive) { "Inference worker stopped while connecting" }
                         val messenger = Messenger(binder)
                         remote = messenger

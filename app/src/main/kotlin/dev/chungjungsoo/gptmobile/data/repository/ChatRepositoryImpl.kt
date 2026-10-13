@@ -312,8 +312,6 @@ class ChatRepositoryImpl(
     private suspend fun runtimeEligibleForAssist(target: PlatformV2, policy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy): Boolean {
         fun status(state: dev.chungjungsoo.gptmobile.data.assist.AssistReadiness, reason: String) = dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(state, reason, target.uid)
         val unavailable = dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.SKIPPED
-        if (localRuntime.isBusy) return status(unavailable, "Local Assist skipped: model busy")
-        if (localRuntime.hasOpenConversation()) return status(unavailable, "Local Assist skipped: interactive conversation is open")
         assistAdmission.rejection(localRuntime.getHardwareState(), dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission.availableMemory(context), 128L * 1024 * 1024, 768L * 1024 * 1024, optional = true)?.let { return status(unavailable, it) }
         val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull()
             ?: return status(unavailable, "Local Assist unavailable: selected model is not installed")
@@ -326,8 +324,7 @@ class ChatRepositoryImpl(
         status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.PREPARING, "Preparing selected Local Assist model")
         val prepared = try {
             kotlinx.coroutines.withTimeoutOrNull(policy.validated().loadTimeoutSeconds * 1000L) {
-                localRuntime.tryRunExclusive {
-                    if (hasOpenConversation()) return@tryRunExclusive false
+                localRuntime.runExclusive {
                     val metadata = inspectModel(selection.path)
                     val backend = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)
                     check(metadata?.backends?.let { backend in it } != false) { "Selected backend is unsupported by this artifact" }
@@ -356,7 +353,7 @@ class ChatRepositoryImpl(
         val coordinator = dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
             "Select records describing reusable water bottles; preserve conflicting evidence.",
             { runtimeEligibleForAssist(target, policy) },
-            { task -> delegateToProfile(target, task, 128, root, root, 4096, { event -> event.invocationId?.let { invocation = it } }, allowTools = false, requestRole = "assist") },
+            { task -> delegateToProfile(target, task, 128, root, root, delegationInputBudget(target, 128), { event -> event.invocationId?.let { invocation = it } }, allowTools = false, requestRole = "assist") },
             {},
             policy.copy(evidenceSelection = true, summarizeRetrievedText = false, proposeQueries = false, maxAttempts = 1),
             { settingRepository.getFeatureSettings().assistEnabled() && settingRepository.getFeatureSettings().effectiveAssistPolicy() == policy && settingRepository.fetchPlatformV2s().any { it == target } },
@@ -2795,7 +2792,20 @@ class ChatRepositoryImpl(
             }
         }
         val journal = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.snapshot(runIds)
+        val segments = agentPersistenceDao.answerSegmentsForChat(chatId)
         kotlinx.serialization.json.buildJsonObject {
+            put("answerSegments", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment.serializer()), segments))
+            put(
+                "segmentSourceIntegrity",
+                kotlinx.serialization.json.JsonArray(
+                    segments.groupBy { it.runId }.map { (runId, rows) ->
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("runId", kotlinx.serialization.json.JsonPrimitive(runId))
+                            put("verified", kotlinx.serialization.json.JsonPrimitive(runCatching { dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.text(rows, runId, rows.first().fence) }.isSuccess))
+                        }
+                    }
+                )
+            )
             journal?.let { put("runJournal", json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.diagnostics.RunJournalSnapshot.serializer(), it)) }
             put("runs", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(AgentRun.serializer()), runs))
             put("toolEvents", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent.serializer()), events))

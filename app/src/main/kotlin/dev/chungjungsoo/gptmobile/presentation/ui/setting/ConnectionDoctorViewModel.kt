@@ -44,7 +44,14 @@ class ConnectionDoctorViewModel @Inject constructor(
     }
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val preferences = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
-    val report = MutableStateFlow(preferences.getString("last_inspection", "Choose a profile to check its connection. Benchmarks are in Debug and Statistics → Benchmarks.").orEmpty())
+    val report = MutableStateFlow("Choose a profile to check its connection. Benchmarks are in Debug and Statistics → Benchmarks.")
+    val contextReport = MutableStateFlow("Inspect a profile to see verified and declared context limits.")
+    val diagnosticReport = MutableStateFlow("Inspection does not generate an answer or reconfigure the server.")
+    private val llamaCapacity = dev.chungjungsoo.gptmobile.data.context.LlamaCapacityRepository(network)
+    init {
+        // Older versions persisted arbitrary inspection text in plaintext preferences.
+        preferences.edit().remove("last_inspection").apply()
+    }
     val busy = MutableStateFlow(false)
     private var job: Job? = null
     fun cancel() {
@@ -52,12 +59,16 @@ class ConnectionDoctorViewModel @Inject constructor(
     }
     fun inspect(profile: PlatformV2) = action {
         detectedContext.value = null
+        contextReport.value = "Context details for ${profile.name} are not verified yet."
+        diagnosticReport.value = "Checking ${profile.name}. Inspection does not generate an answer or change server configuration."
         val destination = if (profile.compatibleType == ClientType.LITERT_LM) "ON_DEVICE" else endpointLocality(profile.apiUrl).name
         val lines = mutableListOf("Destination: $destination", "Profile: ${profile.name} · ${profile.model}")
         if (profile.compatibleType == ClientType.LITERT_LM) {
             lines += "Actual runtime: ${runtime.state.value.backend ?: "not loaded"}"
             lines += "Accelerator: ${runtime.state.value.engineSpec?.accelerator ?: "not loaded"}"
             runtime.state.value.fallbackReason?.let { lines += "Fallback: $it" }
+            contextReport.value = "Loaded local context: ${runtime.admittedEngineSpec()?.maxTokens ?: "unknown"} tokens. Requested output cap: ${profile.maxTokens ?: "inherited"}. Model context is independent of the output cap."
+            diagnosticReport.value = "Runtime phase: ${runtime.state.value.lifecycle}. Actual backend and artifact must pass their own readiness checks. This inspection does not load or download a model."
         } else {
             require(!profile.apiUrl.contains('?') && !profile.apiUrl.contains('@')) { "Use a clean provider URL and the credential field." }
             val base = profile.apiUrl.trimEnd('/')
@@ -73,8 +84,41 @@ class ConnectionDoctorViewModel @Inject constructor(
             }
             if (response.status.value in setOf(401, 403)) lines += "Authentication was rejected. Reconnect or replace the credential."
             if (profile.compatibleType == ClientType.LLAMA) {
-                val capabilities = gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token))
-                lines += if (capabilities == null) "No Gateway capability response; this may be a direct llama.cpp server." else "Gateway capabilities: $capabilities"
+                val capabilities = try {
+                    gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                lines += if (capabilities == null) "Route: llama.cpp-compatible; direct/router identity unverified. Missing Gateway metadata does not mean chat is offline." else "Route: Gateway capability endpoint available. Gateway prompt transformations require separate verification."
+                llamaCapacity.invalidate()
+                val capacity = llamaCapacity.discover(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, providerType = "LLAMA"), profile.model)
+                val features = settings.getFeatureSettings()
+                val declared = features.tokenBudget.profileContextCeilings[profile.uid]?.takeIf { it > 0 }
+                val global = features.tokenBudget.normalized().contextTokens.takeIf { it != Int.MAX_VALUE }
+                val effective = listOfNotNull(capacity?.contextTokens, declared?.toLong(), global?.toLong()).minOrNull()
+                val output = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(profile.maxTokens, features.tokenBudget.outputTokens)
+                val reasoning = features.llamaReasoningModes[profile.uid] ?: if (profile.reasoning) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+                contextReport.value = listOf(
+                    "Verified serving allocation: ${capacity?.contextTokens ?: "unknown"} tokens",
+                    "Manual profile ceiling: ${declared ?: "not declared"}",
+                    "Global ceiling: ${global ?: "no additional app cap"}",
+                    "Effective ceiling: ${effective ?: "unknown"}",
+                    "Output allowance: ${output.tokens ?: "inherited"}; sources: ${output.sources.joinToString().ifBlank { "provider/app defaults" }}",
+                    "Reasoning requested: $reasoning. Template control is checked when a request needs explicit On/Off; observed computation is separate.",
+                    "Fit requires full prompt + generated-token allowance + safety/uncertainty ≤ serving context. Future tool headroom is planning space, not a second charge for serialized evidence.",
+                    "Overflow preserves the current task and returns a shortfall. Increase verified context or choose an explicit segmented workflow."
+                ).joinToString("\n\n")
+                diagnosticReport.value = listOf(
+                    "Capacity source: ${capacity?.provenance ?: "UNKNOWN"}; metadata refreshed on this check.",
+                    "Allocation: ${capacity?.fingerprint?.allocationRevision ?: "unknown"}. Slot count is not used to divide n_ctx.",
+                    "Loaded-model context and a model catalog limit are different. Missing or sleeping model metadata remains unknown.",
+                    "Waiting: 180 s to first meaningful progress; 90 s meaningful-progress idle allowance. Pings do not extend the deadline. User total-generation setting: ${features.tokenBudget.generationTimeoutMinutes.takeIf { it > 0 }?.let { "$it minutes" } ?: "no explicit deadline"}.",
+                    "Connection/authentication failure, unavailable model, context overflow, reasoning-only output, stalled decoding and output-limit exhaustion require different recovery actions. Details and saved evidence remain attached to the response.",
+                    "On-device Assist uses its own artifact/backend readiness; a healthy desktop connection does not qualify that runtime."
+                ).joinToString("\n\n")
+                capacity?.contextTokens?.takeIf { it <= Int.MAX_VALUE }?.let { detectedContext.value = profile.uid to it.toInt() }
             }
             lines += "Streaming and performance tests are in Debug and Statistics → Benchmarks. Check live tool connections in Tool connections."
         }
@@ -83,7 +127,6 @@ class ConnectionDoctorViewModel @Inject constructor(
     private fun finish(text: String) {
         val safe = DiagnosticRedactor.redact(text).take(12000)
         report.value = safe
-        preferences.edit().putString("last_inspection", safe).apply()
     }
     private fun action(block: suspend () -> Unit) {
         if (busy.value) return

@@ -68,6 +68,7 @@ data class AppFeatureSettings(
     val profileBehavior: Map<String, ProfileBehaviorSettings> = emptyMap(),
     val conversationResearch: Map<Int, MultiSearchResearchSelection> = emptyMap(),
     val conversationReasoning: Map<Int, Boolean> = emptyMap(),
+    val llamaReasoningModes: Map<String, dev.chungjungsoo.gptmobile.data.context.ReasoningMode> = emptyMap(),
     val conversationDelegation: Map<Int, ConversationDelegationSettings> = emptyMap(),
     val spendBudget: dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings = dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings(),
     val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()

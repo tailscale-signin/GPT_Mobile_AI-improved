@@ -28,15 +28,24 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
         )
         // Read the actual serialized value as the final authority, not a profile DTO's default.
-        val root = Json.parseToJsonElement(payload) as JsonObject
+        val original = Json.parseToJsonElement(payload) as JsonObject
+        val reasoning = if (config.providerType == "LLAMA") {
+            val needsControl = !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+            val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
+            dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.resolve(config.reasoningMode, config.allowReasoning, control)
+        } else {
+            null
+        }
+        val root = if (reasoning != null) dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.apply(original, reasoning) else original
+        val finalPayload = if (reasoning != null) root.toString() else payload
         val generation = root["generationConfig"] as? JsonObject
         val transmitted = listOfNotNull(root["max_completion_tokens"], root["max_output_tokens"], root["max_tokens"], generation?.get("maxOutputTokens"))
             .mapNotNull { (it as? JsonPrimitive)?.longOrNull?.takeIf { count -> count > 0 } }.minOrNull() ?: outputTokens?.takeIf { it > 0 }?.toLong()
-        val measured = RequestAdmission.estimate(payload)
-        val prepared = RequestAdmission.prepare(payload, config.requestRole, snapshot, measured, transmitted, config.permissionRevision, requireKnownCapacity = config.requireKnownCapacity)
+        val measured = RequestAdmission.estimate(finalPayload)
+        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, transmitted, config.permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
-            "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked}"
+            "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
         )
         val wire = prepared.dispatchPayload(snapshot.fingerprint, config.permissionRevision)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt)

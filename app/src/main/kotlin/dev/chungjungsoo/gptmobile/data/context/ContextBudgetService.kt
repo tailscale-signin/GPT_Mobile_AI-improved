@@ -36,7 +36,8 @@ object ContextBudgetService {
                 promptTokens = breakdown(turns, system, tools).total
             )
         }
-        val output = (outputLimit ?: 32768).coerceAtMost(config.contextTokens / 4)
+        val output = outputLimit ?: minOf(32768, config.contextTokens / 4)
+        require(output < config.contextTokens) { "The requested output allowance exceeds the context budget. Choose a larger context or explicitly lower the output limit; the task was not truncated." }
         val resultReserve = if (tools.isEmpty()) 0 else (config.contextTokens / 8).coerceAtMost(8192)
         val promptLimit = config.contextTokens - output - resultReserve - minOf(256, config.contextTokens / 16)
         fun cost(turn: ConversationTurn): Int = estimate(turn.userMessage.content) + estimate(turn.assistantMessage?.content.orEmpty()) +

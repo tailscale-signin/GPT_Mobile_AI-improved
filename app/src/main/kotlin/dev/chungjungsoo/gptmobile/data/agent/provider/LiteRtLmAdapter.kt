@@ -126,11 +126,9 @@ class LiteRtLmAdapter(
                     // Inspection also takes the native engine lock. Surface contention here,
                     // before planning, so queued requests remain visibly cancellable.
                     requestExclusiveFlow(
-                        constraints,
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
                         flow {
-                            if (constraints.requestRole == "assist") check(!hasOpenConversation()) { "Local Assist skipped: interactive conversation is open" }
                             emit(inspectModel(modelPath))
                         }
                     }.single()
@@ -376,11 +374,9 @@ class LiteRtLmAdapter(
                         formatTelemetryNotice(metrics, localRuntime).takeIf { it.isNotBlank() }?.let { send(ProviderEvent.Notice(it)) }
                     }
                     requestExclusiveFlow(
-                        constraints,
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
                         flow<Unit> {
-                            if (constraints.requestRole == "assist") check(!hasOpenConversation()) { "Local Assist skipped: interactive conversation is open" }
                             try {
                                 exclusiveToolsByName = runToolsByName
                                 exclusiveToolEventSink = runToolEventSink
@@ -670,22 +666,11 @@ class LiteRtLmAdapter(
         }
     }
 
-    /** Optional assistance never waits behind or evicts interactive inference. */
+    /** All native inference shares the holder's cancellable FIFO queue and lease. */
     private fun <T> requestExclusiveFlow(
-        constraints: RequestConstraints,
         onContended: suspend () -> Unit,
         block: suspend LocalRuntime.() -> Flow<T>
-    ): Flow<T> = if (constraints.requestRole != "assist") {
-        localRuntime.runExclusiveFlow(onContended, block)
-    } else {
-        channelFlow {
-            val admitted = localRuntime.tryRunExclusive {
-                block(this).collect { send(it) }
-                true
-            }
-            check(admitted == true) { "Local Assist skipped: runtime is busy" }
-        }
-    }
+    ): Flow<T> = localRuntime.runExclusiveFlow(onContended, block)
 
     private suspend fun executeBoundTool(
         toolName: String,

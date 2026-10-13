@@ -131,6 +131,9 @@ interface AgentPersistenceDao {
     @Query("SELECT * FROM answer_segments WHERE runId = :runId ORDER BY sequence")
     suspend fun answerSegments(runId: String): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>
 
+    @Query("SELECT answer_segments.* FROM answer_segments JOIN agent_runs ON agent_runs.run_id = answer_segments.runId WHERE agent_runs.chat_id = :chatId ORDER BY answer_segments.runId, answer_segments.sequence")
+    suspend fun answerSegmentsForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>
+
     @Insert
     suspend fun insertAnswerSegments(segments: List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>)
 

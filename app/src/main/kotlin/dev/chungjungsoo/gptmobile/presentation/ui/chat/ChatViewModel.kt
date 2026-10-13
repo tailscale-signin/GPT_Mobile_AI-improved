@@ -2066,8 +2066,15 @@ class ChatViewModel @Inject constructor(
         val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
         val synthesisPrompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
+        val lineage = withContext(Dispatchers.Default) {
+            dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(
+                grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType },
+                attributedSources
+            )
+        }
         val synthesisSnapshot = kotlinx.serialization.json.Json.encodeToString(
             dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+                version = 2,
                 userMessage = userMessage,
                 history = historicalUsers,
                 replies = historicalReplies,
@@ -2076,7 +2083,8 @@ class ChatViewModel @Inject constructor(
                 profileUid = leadPlatform.uid,
                 model = leadPlatform.model,
                 systemPrompt = leadPlatform.systemPrompt.orEmpty(),
-                configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(leadPlatform)
+                configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(leadPlatform),
+                lineage = lineage
             )
         )
         val run = AgentRunDraft(

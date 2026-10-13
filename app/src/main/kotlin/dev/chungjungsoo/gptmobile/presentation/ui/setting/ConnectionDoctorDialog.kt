@@ -8,6 +8,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -17,10 +20,14 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel()) {
     val detectedContext by model.detectedContext.collectAsStateWithLifecycle()
     val profiles by model.profiles.collectAsStateWithLifecycle()
     val report by model.report.collectAsStateWithLifecycle()
+    val contextReport by model.contextReport.collectAsStateWithLifecycle()
+    val diagnosticReport by model.diagnosticReport.collectAsStateWithLifecycle()
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     val busy by model.busy.collectAsStateWithLifecycle()
     AlertDialog(onDismissRequest = {
         model.cancel()
@@ -34,7 +41,20 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
             }
             if (detectedContext != null) TextButton(enabled = !busy, onClick = model::applyDetectedContext) { Text(stringResource(R.string.context_apply_detected)) }
             if (busy) TextButton(onClick = model::cancel) { Text(stringResource(R.string.connection_doctor_dialog_label_5)) }
-            androidx.compose.foundation.text.selection.SelectionContainer { Text(report) }
+            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = tab) {
+                listOf("Connection", "Context & Output", "Diagnostics").forEachIndexed { index, label ->
+                    androidx.compose.material3.Tab(selected = index == tab, onClick = { tab = index }, text = { Text(label) })
+                }
+            }
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(
+                    when (tab) {
+                        1 -> contextReport
+                        2 -> diagnosticReport
+                        else -> report
+                    }
+                )
+            }
         }
     }, confirmButton = {
         TextButton(onClick = {

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
@@ -13,6 +14,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalEngineHolderTest {
+    @Test fun queuedCancellationRemovesOnlyTheWaiterAndPreservesFifoAdmission() = runTest {
+        val holder = LocalEngineHolder(FakeLocalRuntime()) { 1000L }
+        val active = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val owner = launch {
+            holder.runExclusive {
+                active.complete(Unit)
+                release.await()
+            }
+        }
+        active.await()
+        val order = mutableListOf<Int>()
+        val waiters = (1..3).map { index -> launch { holder.runExclusive { order += index } } }
+        yield()
+        waiters[1].cancel()
+        release.complete(Unit)
+        owner.join()
+        waiters.forEach { it.join() }
+        assertEquals(listOf(1, 3), order)
+        assertFalse(holder.isBusy)
+    }
+
+    @Test fun queueDeadlineDoesNotReleaseTheActiveNativeLease() = runTest {
+        val holder = LocalEngineHolder(FakeLocalRuntime()) { 1000L }
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val owner = launch {
+            holder.runExclusive {
+                started.complete(Unit)
+                release.await()
+            }
+        }
+        started.await()
+        val waiting = async { runCatching { holder.runExclusive { error("must not dispatch") } }.exceptionOrNull() }
+        advanceTimeBy(180_001L)
+        assertTrue(waiting.await()?.message.orEmpty().contains("NATIVE_QUEUE_DEADLINE"))
+        assertTrue(holder.isBusy)
+        release.complete(Unit)
+        owner.join()
+        assertEquals("ready", holder.runExclusive { "ready" })
+    }
+
     @Test
     fun `optional status inference skips a busy engine instead of queuing`() = runTest {
         val holder = LocalEngineHolder(FakeLocalRuntime(), timeProvider = { 1000L })

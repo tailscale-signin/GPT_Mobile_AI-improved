@@ -183,7 +183,8 @@ class OpenAICompatibleAdapter @Inject constructor(
     private val openAIAPI: OpenAIAPI,
     private val groqAPI: GroqAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder,
-    private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null
+    private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null,
+    private val settingRepository: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -226,6 +227,12 @@ class OpenAICompatibleAdapter @Inject constructor(
         val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
         val isOllama = platform.compatibleType == ClientType.OLLAMA
         val isLlama = platform.compatibleType == ClientType.LLAMA
+        val llamaReasoning = if (isLlama) {
+            settingRepository?.getFeatureSettings()?.llamaReasoningModes?.get(platform.uid)
+                ?: if (platform.reasoning) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+        } else {
+            dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+        }
         val routerSettings = openRouterProviderSettings ?: dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings(apiKey = "")
         val (parsedOpenRouterOptions, profileRouting) = if (isOpenRouter) {
             dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.decodeProfile(platform.openRouterRouting)
@@ -312,6 +319,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                         contextCeiling = constraints.contextCeiling,
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
+                        reasoningMode = llamaReasoning,
+                        allowReasoning = if (isLlama) constraints.allowReasoning else true,
                         token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
                         freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
                         extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
@@ -431,15 +440,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                             topP = effectiveTopP,
                             topK = effectiveTopK,
                             maxTokens = effectiveOutputTokens,
-                            reasoningEffort = if (isLlama && !constraints.allowReasoning) "none" else null,
-                            chatTemplateKwargs = if (isLlama && !constraints.allowReasoning) {
-                                kotlinx.serialization.json.buildJsonObject {
-                                    put("enable_thinking", JsonPrimitive(false))
-                                    put("thinking", JsonPrimitive(false))
-                                }
-                            } else {
-                                null
-                            },
                             frequencyPenalty = effectiveFrequencyPenalty,
                             presencePenalty = effectivePresencePenalty,
                             repetitionPenalty = effectiveRepetitionPenalty,
@@ -752,7 +752,6 @@ class OpenAICompatibleAdapter @Inject constructor(
         if (!isLlama) return config
         val headers = buildMap {
             effectiveOutputTokens?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
-            if (!constraints.allowReasoning) put("X-Gateway-Reasoning-Effort", "none")
             if (constraints.requestRole != null || constraints.maxOutputTokens != null) {
                 put("X-Gateway-Delegated-Worker", "true")
                 put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools && constraints.requestRole != "reviewer").toString())
@@ -760,7 +759,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                 constraints.attemptId?.let { put("X-Gateway-Attempt-ID", it) }
             }
         }
-        return if (headers.isEmpty()) config else config.copy(extraHeaders = config.extraHeaders + headers)
+        val prior = if (!config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) {
+            config.extraHeaders.filterKeys { !it.equals("X-Gateway-Reasoning-Effort", ignoreCase = true) }
+        } else {
+            config.extraHeaders
+        }
+        return config.copy(extraHeaders = prior + headers)
     }
     private fun isLocalLoopbackUrl(url: String): Boolean = runCatching {
         val uri = URI(if ("://" in url) url else "http://$url")

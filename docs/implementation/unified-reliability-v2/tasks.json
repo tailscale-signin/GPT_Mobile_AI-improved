@@ -130,7 +130,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Presence-aware output resolver added with provenance and zero/null handling. Reasoning capability mapping and full requested/transmitted/confirmed UI remain."
+      "Llama AUTO/ON/OFF settings now resolve at final serialization with synthetic same-route template toggle probes; unsupported strict controls block before inference and computation remains observed-unknown. Other provider capability mappings and real-server qualification remain."
     ]
   },
   {
@@ -251,7 +251,7 @@
       "V04",
       "V11"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA13",
       "LA-QA15",
@@ -264,7 +264,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Shared holder has bounded FIFO waits; timed-out IPC worker is quarantined until binder death. Native generation has no unrelated ten-minute cutoff. Cooperative parent yield, root-priority fairness and real-device cancellation/death qualification remain."
+    ]
   },
   {
     "id": "V13",
@@ -450,7 +452,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Identical evidence tasks serialize and reuse validated cached sidecars; waiting cancellation is isolated. Actual backend fair scheduling and shared producer ownership remain."
+      "Warm Assist requests queue on the native holder and revalidate permission/runtime before dispatch. Shared-flight producer cancellation independence, subscriber links and root-priority scheduling remain."
     ]
   },
   {
@@ -738,7 +740,7 @@
       "V28",
       "V32"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T11",
       "CM-T17",
@@ -747,7 +749,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Frozen selected-profile lineage now records original body revisions, exact UTF-16/UTF-8 span locators, all exact duplicate occurrences and missing/partial competitors. Support remains unverified until semantic comparison; validated evidence producer links and live permission revision checks remain."
+    ]
   },
   {
     "id": "V34",
@@ -918,7 +922,7 @@
       "V39",
       "V40"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T07",
       "CM-T10",
@@ -928,7 +932,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Offline v2/v3 inspector verifies bundle integrity, frozen sequences, stale fences and committed prefix divergence using exported redacted segments. Provider-delta, reducer and renderer replay with separately consented chunks remain unavailable and are explicitly reported."
+    ]
   },
   {
     "id": "V42",
@@ -968,7 +974,7 @@
       "V11",
       "V42"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LC-T03",
       "LC-T04",
@@ -978,7 +984,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Connection Doctor now separates Connection, Context & Output and Diagnostics; refreshes same-route serving capacity; shows declared/effective limits, output sources, reasoning and watchdog policy; removes plaintext inspection persistence. Remaining: complete editable overflow/retention policies, adaptive timing observations and device UI qualification."
+    ]
   },
   {
     "id": "V44",

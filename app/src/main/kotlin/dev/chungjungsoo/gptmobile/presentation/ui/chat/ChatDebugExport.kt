@@ -100,7 +100,34 @@ internal fun buildChatDebugExport(
         put("chatTools", json.encodeToJsonElement(tools))
         put("featureSettings", json.encodeToJsonElement(features))
         put("composerDraft", draft)
-        records.forEach { (key, value) -> put(key, value) }
+        records.forEach { (key, value) ->
+            if (key == "answerSegments" && value is JsonArray) {
+                val previous = mutableMapOf<String, String>()
+                put(
+                    key,
+                    JsonArray(
+                        value.map { element ->
+                            val segment = element as JsonObject
+                            val run = (segment["runId"] as JsonPrimitive).content
+                            val body = exportedBody((segment["text"] as JsonPrimitive).content)
+                            val digest = debugBodyDigest(body)
+                            JsonObject(
+                                segment.toMutableMap().apply {
+                                    put("text", JsonPrimitive(body))
+                                    put("digest", JsonPrimitive(digest))
+                                    put("previousDigest", previous[run]?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                                    put("utf8Bytes", JsonPrimitive(body.toByteArray(Charsets.UTF_8).size))
+                                    put("digestRepresentation", JsonPrimitive("redacted-export-segment-utf8"))
+                                    previous[run] = digest
+                                }
+                            )
+                        }
+                    )
+                )
+            } else {
+                put(key, value)
+            }
+        }
         put(
             "research",
             JsonArray(

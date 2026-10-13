@@ -1789,14 +1789,14 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `assist cannot evict an interactive conversation`() = runBlocking {
-        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("answer"), LocalRuntimeEvent.Done)) }
+    fun `assist shares the warm engine after interactive generation has stopped`() = runBlocking {
+        val native = FakeLocalRuntime().apply { scriptedEvents = List(2) { listOf(LocalRuntimeEvent.TextDelta("answer"), LocalRuntimeEvent.Done) } }
         val adapter = adapter(LocalEngineHolder(native) { 1000L })
         adapter.openSession(turns("chat"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
         val events = adapter.openSession(turns("assist"), localPlatform(), constraints = RequestConstraints(allowTools = false, requestRole = "assist")).streamRound(emptyList(), emptyList()).toList()
-        assertTrue(events.any { it is ProviderEvent.Failed && "interactive" in it.message })
-        assertEquals(0, native.closeConversationCalls)
-        assertEquals(listOf("chat"), native.sendMessageCalls)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, native.loadEngineCalls.size)
+        assertEquals(listOf("chat", "assist"), native.sendMessageCalls)
     }
 
     @Test

@@ -14,6 +14,15 @@ internal object ResearchTimeouts {
         else -> pageMillis.coerceAtLeast(1L)
     }
 
+    /** A claim covers the academic read, one authorized page fallback and checkpoint time. */
+    fun leaseMillis(tool: String, pageMillis: Long): Long {
+        val operation = operationMillis(tool, pageMillis)
+        val fallback = pageMillis.coerceAtLeast(1L)
+        if (operation > Long.MAX_VALUE - fallback) return Long.MAX_VALUE
+        val attempts = operation + fallback
+        return if (attempts > Long.MAX_VALUE - 10_000L) Long.MAX_VALUE else attempts + 10_000L
+    }
+
     fun isAcademicRead(tool: String): Boolean = tool in setOf(
         "deep_research_search_papers",
         "deep_research_get_paper",

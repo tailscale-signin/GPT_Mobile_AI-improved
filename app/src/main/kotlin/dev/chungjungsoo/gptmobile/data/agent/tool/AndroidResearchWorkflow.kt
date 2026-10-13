@@ -651,7 +651,7 @@ internal class AndroidResearchWorkflow(
         var claimed = false
         try {
             if (stopped()) return
-            claimed = journal?.claimWork("paper:${source.paperId}", options.pageTimeoutSeconds * 3000L) != false
+            claimed = journal?.claimWork("paper:${source.paperId}", dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.leaseMillis(reader.realToolName, options.pageTimeoutSeconds * 1000L)) != false
             if (!claimed || !charge(ResearchBudget.Phase.DISCOVERY) || !startReadAttempt()) return
             val identifier = source.pmcid.takeIf(String::isNotBlank)?.let { "pmcid:$it" } ?: source.pmid.takeIf(String::isNotBlank)?.let { "pmid:$it" } ?: source.paperId
             val result = operation { invoke(reader, "$callId:academic:${source.id}", buildJsonObject { put("identifier", identifier) }) }

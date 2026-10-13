@@ -13,6 +13,13 @@ class ResearchTimeoutsTest {
         assertEquals(500000L, ResearchTimeouts.operationMillis("deep_research_search_papers", 500000))
     }
 
+    @Test fun sourceClaimOutlivesReaderAndDoesNotOverflow() {
+        for (tool in listOf("deep_research_read_paper", "deep_research_search_papers", "read_url")) {
+            assertTrue(ResearchTimeouts.leaseMillis(tool, 15000) > ResearchTimeouts.operationMillis(tool, 15000))
+        }
+        assertEquals(Long.MAX_VALUE, ResearchTimeouts.leaseMillis("read_url", Long.MAX_VALUE))
+    }
+
     @Test fun readRetryPolicyCannotAuthorizeMutationReplay() {
         assertTrue(ResearchTimeouts.isAcademicRead("deep_research_read_paper"))
         for (tool in listOf("delete_file", "github_commit", "deep_research_delete", "unknown")) assertFalse(ResearchTimeouts.isAcademicRead(tool))

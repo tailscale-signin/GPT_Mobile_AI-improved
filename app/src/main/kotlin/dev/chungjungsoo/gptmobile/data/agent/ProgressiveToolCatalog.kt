@@ -11,6 +11,7 @@ import kotlinx.serialization.json.put
 internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String) : AgentTool {
     private val candidates = definitions.associateBy { it.name }
     private val active = window(ranked(task)).map { it.name }.toMutableSet()
+    private val discovered = active.toMutableSet()
     override val definition = AgentToolDefinition(
         NAME,
         "Search other authorized tools by task or exact names. Call this when the currently advertised tools cannot perform a task. Found tools become available next round. This cannot grant permissions or install tools.",
@@ -48,12 +49,13 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
         if (query.isBlank() && names.isEmpty()) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Provide a task query or exact tool names."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
-        val undiscovered = if (query.isNotBlank()) ranked(query).filterNot { it.name in active } else emptyList()
+        val undiscovered = if (query.isNotBlank()) ranked(query).filterNot { it.name in discovered } else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
         val selected = window(found + active.mapNotNull(candidates::get))
         active.clear()
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }
+        discovered.addAll(admitted.map { it.name })
         val result = buildJsonObject {
             put(
                 "available_next_round",
@@ -71,22 +73,24 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
             put("selection_policy", "Exact requested tools replace older advertised tools; executable permissions are unchanged. Oversized schemas require a smaller provider definition.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             put("authorized_tool_count", candidates.size)
-            put("remaining_tool_count", candidates.size - active.size)
+            put("remaining_tool_count", candidates.size - discovered.size)
+            put("advertised_tool_count", active.size)
         }
         AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = false)
     }
 
     private fun window(ordered: List<AgentToolDefinition>): List<AgentToolDefinition> {
         var tokens = 0L
-        return ordered.distinctBy { it.name }.filter { tool ->
+        val selected = mutableListOf<AgentToolDefinition>()
+        for (tool in ordered.distinctBy { it.name }) {
+            if (selected.size >= INITIAL_TOOLS) break
             val cost = schemaTokens(tool)
-            if (tokens + cost > SCHEMA_TOKEN_ALLOWANCE) {
-                false
-            } else {
+            if (tokens + cost <= SCHEMA_TOKEN_ALLOWANCE) {
                 tokens += cost
-                true
+                selected += tool
             }
-        }.take(INITIAL_TOOLS)
+        }
+        return selected
     }
 
     private fun ranked(query: String): List<AgentToolDefinition> {

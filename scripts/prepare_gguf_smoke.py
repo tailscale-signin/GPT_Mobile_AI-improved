@@ -16,5 +16,5 @@ assert hashlib.sha256(source.read_bytes()).hexdigest() == "66967fbece6dbe9788659
 template = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
 target = directory / "stories15M-chatml.gguf"
 subprocess.run([sys.executable, str(upstream / "gguf-py/gguf/scripts/gguf_new_metadata.py"), str(source), str(target), "--chat-template", template, "--force"], check=True)
-assert hashlib.sha256(target.read_bytes()).hexdigest() == "d8353ad94a2932a5fb3323c3aa6de33768c4c90db36de53d552c0c4a5444d06a"
+assert hashlib.sha256(target.read_bytes()).hexdigest() == "c5398d4d93aa7dac7ee95fbc1f8448620fdb5b7445a8b42286c80d587e53dfd5"
 print(target)

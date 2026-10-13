@@ -43,6 +43,70 @@ def check_runtime_inventory(apk, manifest, abis):
     assert packaged == expected, f"Unaudited or missing QNN payloads: {sorted(packaged ^ expected)}"
 
 
+def elf_needed(binary):
+    """Read ELF64 DT_NEEDED from program headers, including stripped libraries."""
+    assert len(binary) >= 64 and binary[:6] == b"\x7fELF\x02\x01", "Expected little-endian ELF64"
+    offset = struct.unpack_from("<Q", binary, 32)[0]
+    size, count = struct.unpack_from("<HH", binary, 54)
+    assert size >= 56 and offset + size * count <= len(binary), "Invalid ELF program headers"
+    loads, dynamic = [], None
+    for index in range(count):
+        header = offset + index * size
+        kind = struct.unpack_from("<I", binary, header)[0]
+        file_offset, address = struct.unpack_from("<QQ", binary, header + 8)
+        file_size = struct.unpack_from("<Q", binary, header + 32)[0]
+        assert file_offset + file_size <= len(binary), "Invalid ELF segment bounds"
+        if kind == 1:
+            loads.append((address, file_offset, file_size))
+        elif kind == 2:
+            assert dynamic is None and file_size % 16 == 0, "Invalid ELF dynamic segment"
+            dynamic = (file_offset, file_size)
+    assert dynamic is not None, "Missing ELF dynamic segment"
+    needed, strings, string_size, terminated = [], None, None, False
+    for position in range(dynamic[0], sum(dynamic), 16):
+        tag, value = struct.unpack_from("<qQ", binary, position)
+        if tag == 0:
+            terminated = True
+            break
+        if tag == 1:
+            needed.append(value)
+        elif tag == 5:
+            strings = value
+        elif tag == 10:
+            string_size = value
+    assert terminated and strings is not None and string_size is not None, "Incomplete ELF dynamic strings"
+    matches = [start + strings - address for address, start, length in loads
+               if address <= strings and strings + string_size <= address + length]
+    assert len(matches) == 1, "Unmapped ELF dynamic strings"
+    table = binary[matches[0]:matches[0] + string_size]
+    result = set()
+    for index in needed:
+        assert index < len(table), "Invalid ELF dependency name offset"
+        end = table.find(b"\0", index)
+        assert end > index, "Invalid ELF dependency name"
+        result.add(table[index:end].decode("ascii"))
+    return result
+
+
+def check_gguf_dependencies(apk, manifest, abis):
+    names = apk.namelist()
+    system = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so"}
+    for abi in abis:
+        path = f"lib/{abi}/libgptmobile_gguf.so"
+        assert path in names, f"Missing GGUF CPU runtime for {abi}"
+        unexpected = elf_needed(apk.read(path)) - system
+        assert not unexpected, f"GGUF runtime has non-system dependencies: {sorted(unexpected)}"
+    # GenieX owns its separately pinned llama/ggml implementation. It must never
+    # become a dynamic dependency of the normal app's independent GGUF library.
+    for name in names:
+        if not name.startswith("lib/") or not Path(name).name.startswith(("libllama", "libggml")):
+            continue
+        expected = manifest["libraries"].get(name)
+        assert manifest.get("geniexVersion") and expected and expected.get("source") == f"com.qualcomm.qti:geniex-android:{manifest['geniexVersion']}", f"Unowned dynamic GGUF library: {name}"
+        binary = apk.read(name)
+        assert len(binary) == expected["bytes"] and hashlib.sha256(binary).hexdigest() == expected["sha256"], f"{name}: GenieX owner/hash mismatch"
+
+
 def check_apk(apk_path, manifest):
     with ZipFile(apk_path) as apk:
         names = apk.namelist()
@@ -58,9 +122,7 @@ def check_apk(apk_path, manifest):
         gguf = json.loads(apk.read("assets/gguf-runtime-inventory.json"))
         assert gguf["revision"] == "4413a192410fad1f054e9216114087a3e01527a0"
         assert gguf["backends"] == ["cpu"]
-        for abi in abis:
-            assert f"lib/{abi}/libgptmobile_gguf.so" in names, f"Missing GGUF CPU runtime for {abi}"
-        assert not any(Path(name).name in {"libllama.so", "libggml.so", "libggml-cpu.so", "libggml-base.so"} for name in names), "Unexpected dynamic GGUF dependency"
+        check_gguf_dependencies(apk, manifest, abis)
         checked = 0
         for name, expected in manifest["libraries"].items():
             if name.split("/")[1] not in abis:

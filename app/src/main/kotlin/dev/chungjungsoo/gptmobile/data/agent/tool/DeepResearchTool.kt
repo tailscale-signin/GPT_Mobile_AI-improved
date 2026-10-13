@@ -37,7 +37,8 @@ internal class DeepResearchTool(
     private val budget: AcademicRunBudget = AcademicRunBudget(goalDriven = true, shared = dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(1, ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(options).fingerprint, options.userLimits))),
     private val persistentEvidence: Boolean = false,
     private val remoteCapability: suspend () -> Boolean = { false },
-    private val runKey: String = ""
+    private val runKey: String = "",
+    private val peerReviewedOnly: Boolean = false
 ) : AgentTool {
     override val definition = AgentToolDefinition(
         "deep_research_$operation",
@@ -133,7 +134,7 @@ internal class DeepResearchTool(
                     counters?.limits?.maxDownloadedBytes?.let { put("researchDownloadAllowance", (it - counters.downloaded).coerceAtLeast(0)) }
                 }
                 val bound = JsonObject(
-                    arguments + remoteLimits + mapOf(
+                    arguments + remoteLimits + (if (peerReviewedOnly && operation == "search_papers") mapOf("reviewStatus" to JsonPrimitive("peer_reviewed")) else emptyMap()) + mapOf(
                         "depth" to JsonPrimitive(selection.depth),
                         "maxProviderCalls" to JsonPrimitive(providerCalls),
                         "enabledProviderIds" to JsonArray(enabledSelection.enabledProviders.sorted().map(::JsonPrimitive)),
@@ -197,7 +198,7 @@ internal class DeepResearchTool(
                 client.search(
                     AcademicSearchRequest(
                         query = str("query"), depth = selection.depth, page = str("cursor").ifBlank { "1" }.toInt().also { require(it > 0) }, maxResults = (number("maxResults") ?: if (selection.depth < 35) 10 else 25).coerceIn(1, 50),
-                        fromYear = number("fromYear"), toYear = number("toYear"), reviewStatus = str("reviewStatus").ifBlank { "any" },
+                        fromYear = number("fromYear"), toYear = number("toYear"), reviewStatus = if (peerReviewedOnly) "peer_reviewed" else str("reviewStatus").ifBlank { "any" },
                         includeDomains = researchDomains(options.includeDomains), excludeDomains = researchDomains(options.excludeDomains),
                         maxProviderCalls = (number("maxProviderCalls") ?: if (selection.depth == 100) AcademicNativeClient.CORE.size else 3).coerceIn(1, AcademicNativeClient.CORE.size)
                     ),

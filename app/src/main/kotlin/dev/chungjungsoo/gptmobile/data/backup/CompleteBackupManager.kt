@@ -52,7 +52,8 @@ class CompleteBackupManager @Inject constructor(
     private val toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository(context),
     private val memoryStore: dev.chungjungsoo.gptmobile.data.memory.v2.MemoryRepository? = null,
     private val healthImportStore: dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore =
-        dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context)
+        dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context),
+    private val researchBackup: dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup? = null
 ) {
     private val mutex = Mutex()
     private val protectionMutex = Mutex()
@@ -254,8 +255,11 @@ class CompleteBackupManager @Inject constructor(
 
             if (selected.includes(CompleteBackupSection.CONVERSATIONS)) {
                 File(context.filesDir, "research-history").listFiles().orEmpty()
-                    .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.(json|source|budget|ledger|index|chunk|cursor)")) && it.length() <= 512 * 1024 }
+                    .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.(json|source|budget|ledger|index|chunk|cursor|claim|fence)")) && it.length() <= 512 * 1024 }
                     .forEach { sources["internal/research-history/${it.name}"] = it }
+            }
+            if (selected.sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS }) {
+                sources.putAll(requireNotNull(researchBackup) { "Research backup is unavailable" }.export(selected, work))
             }
             if (selected.includes(CompleteBackupSection.HEALTH_DATA)) {
                 val healthImport = File(work, "health-connect-local-import-v1")
@@ -356,6 +360,7 @@ class CompleteBackupManager @Inject constructor(
 
         val archive = File(work, "archive.zip")
         var convertedLegacy = false
+        var encryptedArchive = false
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
             input.mark(64)
             val header = ByteArray(9)
@@ -386,6 +391,7 @@ class CompleteBackupManager @Inject constructor(
                 header[2] == 0x03.toByte() &&
                 header[3] == 0x04.toByte()
 
+            encryptedArchive = isLegacyComplete || isPasswordlessComplete || (headerBytes >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL3")
             when {
                 headerBytes >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL3" -> {
                     input.mark(64)
@@ -433,6 +439,12 @@ class CompleteBackupManager @Inject constructor(
         }
 
         var statisticsNotice = ""
+        val researchSnapshot = if (effective.sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS } && "research-feature.json" in manifest.files) {
+            require(encryptedArchive) { "Research evidence requires an encrypted backup" }
+            requireNotNull(researchBackup).validate(File(staging, "research-feature.json"), staging)
+        } else {
+            null
+        }
         val statisticsSnapshot = if (CompleteBackupSection.STATISTICS in effective.sections && "tool-statistics.json" in manifest.files) {
             runCatching {
                 val snapshotFile = File(staging, "tool-statistics.json")
@@ -440,6 +452,11 @@ class CompleteBackupManager @Inject constructor(
                 snapshotFile.readText().also { toolStatistics.validateSnapshot(it) }
             }
                 .onFailure { statisticsNotice = " Tool statistics were skipped: invalid or unsupported snapshot. Current statistics were preserved." }.getOrNull()
+        } else {
+            null
+        }
+        val researchStatisticsSnapshot = if (effective.includes(CompleteBackupSection.STATISTICS) && "research-statistics.ndjson" in manifest.files) {
+            File(staging, "research-statistics.ndjson").also { requireNotNull(researchBackup).validateStatistics(it) }
         } else {
             null
         }
@@ -462,10 +479,10 @@ class CompleteBackupManager @Inject constructor(
         val storage = files()
         val selectedPaths = manifest.files.keys
             .asSequence()
-            .filterNot { it == "database.sqlite" || it == "tool-statistics.json" }
+            .filterNot { it == "database.sqlite" || it == "tool-statistics.json" || it == "research-feature.json" || it == "research-statistics.ndjson" }
             .filter { path ->
                 if (path.startsWith("internal/research-history/")) {
-                    effective.includes(CompleteBackupSection.CONVERSATIONS)
+                    effective.includes(CompleteBackupSection.CONVERSATIONS) || (researchSnapshot != null && path.substringAfterLast('/') in researchSnapshot.versions.flatMap { json.decodeFromString<List<String>>(it.bodyChunksJson) })
                 } else if (path == "internal/benchmark-results/benchmark-results.json") {
                     CompleteBackupSection.STATISTICS in effective.sections
                 } else if (path == "internal/health-connect/local-import-v1") {
@@ -587,6 +604,24 @@ class CompleteBackupManager @Inject constructor(
             snapshot?.close()
         }
 
+        if (researchSnapshot != null) {
+            try {
+                requireNotNull(researchBackup).restore(researchSnapshot, effective, dev.chungjungsoo.gptmobile.data.research.researchHash(File(staging, "research-feature.json").readText()), staging)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                statisticsNotice += " Research evidence was not restored; current research was preserved. Resolve article jobs or identity conflicts and retry."
+            }
+        }
+        if (researchStatisticsSnapshot != null) {
+            try {
+                requireNotNull(researchBackup).restoreStatistics(researchStatisticsSnapshot)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                statisticsNotice += " Research statistics were not restored; existing receipt totals were preserved."
+            }
+        }
         if (statisticsSnapshot != null) {
             try {
                 toolStatistics.restore(statisticsSnapshot)
@@ -882,7 +917,10 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.CREDENTIALS,
         CompleteBackupSection.ATTACHMENTS,
         CompleteBackupSection.MEMORY,
-        CompleteBackupSection.HEALTH_DATA -> false
+        CompleteBackupSection.HEALTH_DATA,
+        CompleteBackupSection.RESEARCH_ARCHIVE,
+        CompleteBackupSection.CHAT_RESEARCH,
+        CompleteBackupSection.RESEARCH_APPRAISALS -> false
     }
 
     private fun manifestSelection(manifest: CompleteBackupManifest): CompleteBackupSelection {
@@ -933,6 +971,9 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.STATISTICS -> "debug statistics"
         CompleteBackupSection.AMAZON_DATA -> "Amazon observations & manual watches"
         CompleteBackupSection.HEALTH_DATA -> "Health Connect data"
+        CompleteBackupSection.RESEARCH_ARCHIVE -> "research archive"
+        CompleteBackupSection.CHAT_RESEARCH -> "chat research"
+        CompleteBackupSection.RESEARCH_APPRAISALS -> "article appraisals"
     }
 
     private fun ensureIdle(restoring: Boolean) {

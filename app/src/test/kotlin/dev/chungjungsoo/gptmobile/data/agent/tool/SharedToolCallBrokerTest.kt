@@ -172,24 +172,52 @@ class SharedToolCallBrokerTest {
     }
 
     @Test
-    fun `canceling owner lets surviving follower execute again`() = runTest {
+    fun `canceling first subscriber preserves one producer for surviving follower`() = runTest {
         val broker = SharedToolCallBroker()
         val release = CompletableDeferred<Unit>()
+        var calls = 0
         val owner = async {
             broker.executeShared("scope", "tool", "owner", buildJsonObject {}) {
+                calls++
                 release.await()
-                error("Canceled owner must not return a result")
+                AgentToolResult("owner", ToolResultContent.Text("survived"), false)
             }
         }
         runCurrent()
         val follower = async {
-            broker.executeShared("scope", "tool", "follower", buildJsonObject {}) {
-                AgentToolResult("follower", ToolResultContent.Text("survived"), false)
+            broker.executeShared("scope", "tool", "follower", buildJsonObject {}) { error("Do not repeat the physical request") }
+        }
+        runCurrent()
+        owner.cancelAndJoin()
+        assertTrue(follower.isActive)
+        release.complete(Unit)
+        assertEquals(ToolResultContent.Text("survived"), follower.await().content)
+        assertEquals("follower", follower.await().callId)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `last subscriber cancellation joins physical cleanup and permits fresh execution`() = runTest {
+        val broker = SharedToolCallBroker()
+        var cleaned = false
+        val owner = async {
+            broker.executeShared("scope", "tool", "owner", buildJsonObject {}) {
+                try {
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    cleaned = true
+                }
             }
         }
         runCurrent()
         owner.cancelAndJoin()
-        assertEquals(ToolResultContent.Text("survived"), follower.await().content)
+        assertTrue(cleaned)
+        assertEquals(
+            "next",
+            broker.executeShared("scope", "tool", "next", buildJsonObject {}) {
+                AgentToolResult("next", ToolResultContent.Text("fresh"), false)
+            }.callId
+        )
     }
 
     @Test

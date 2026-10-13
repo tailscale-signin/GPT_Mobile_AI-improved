@@ -28,6 +28,8 @@ class LocalEngineHolder(
     override val processPssBytes get() = delegate.processPssBytes
     override val handlesEngineFallback get() = delegate.handlesEngineFallback
     override val state get() = delegate.state
+    override fun admittedEngineSpec(): LocalEngineSpec? = loadedSpec
+
     override fun loadedEngineSpec(): LocalEngineSpec? = delegate.loadedEngineSpec()
 
     private val mutex = Mutex()

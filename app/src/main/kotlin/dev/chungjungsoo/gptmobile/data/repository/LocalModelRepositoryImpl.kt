@@ -185,10 +185,6 @@ class LocalModelRepositoryImpl(
     private suspend fun performImport(inputStream: InputStream, fileName: String, checkCurrent: () -> Unit, progress: (Long) -> Unit, stagingId: String?): LocalModelImportResult = withContext(ioDispatcher) {
         val root = storageRoot()
         val result = if (fileName.endsWith(".localmodel", true) || fileName.endsWith(".zip", true)) {
-            if (!dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
-                inputStream.close()
-                return@withContext LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.UNSUPPORTED_FORMAT, "This package needs the separate GenieX build.")
-            }
             dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root, checkCurrent = checkCurrent, stagingId = stagingId, onProgress = progress)
         } else if (fileName.endsWith(".gguf", true)) {
             dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.install(inputStream, root, checkCurrent, progress, stagingId)

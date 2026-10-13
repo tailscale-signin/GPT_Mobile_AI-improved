@@ -227,6 +227,9 @@ internal fun RequestDiagnostic(request: ModelInvocation, now: Long, settings: Ap
         if (settings.debugShowRuntime) MetricLine("Provider / model", "${request.provider} / ${request.model}")
         if (settings.debugShowNetwork || settings.debugShowRuntime) MetricLine("Request elapsed", formatLatency(if (request.status == "RUNNING") (now - request.startedAt).coerceAtLeast(0) else request.durationMs))
         if (settings.debugShowTotalTokens) MetricLine(if (request.estimated) "Input / output estimate" else "Reported input / output", "${request.inputTokens} / ${request.outputTokens}")
+        if (settings.debugShowTotalTokens) MetricLine("Usage source", "Input: ${request.inputTokenSource}; output: ${request.outputTokenSource}")
+        if (settings.debugShowRuntime) request.actualRuntime?.let { MetricLine("Executed runtime", it) }
+        if (settings.debugShowRuntime) request.finishReason?.let { MetricLine("Finish reason", it) }
         if (settings.debugShowTimeToFirstToken) MetricLine("First text token", formatLatency(request.firstTokenMs))
         if (settings.debugShowTokenSpeed) {
             if (request.status == "RUNNING") {

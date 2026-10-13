@@ -36,6 +36,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     private val repository: SettingRepository,
     private val runtime: LocalRuntime,
     private val models: LocalModelRepository,
+    private val chatRepository: dev.chungjungsoo.gptmobile.data.repository.ChatRepository,
     private val comparison: dev.chungjungsoo.gptmobile.data.benchmark.LocalRuntimeBenchmarkSuite,
     private val benchmarkStore: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore,
     @param:ApplicationContext private val context: Context
@@ -66,6 +67,10 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     init {
         refresh()
         viewModelScope.launch { benchmarkStore.load() }
+    }
+
+    fun testLocalAssist() = perform {
+        _status.value = chatRepository.testLocalAssist()
     }
 
     fun refresh() {

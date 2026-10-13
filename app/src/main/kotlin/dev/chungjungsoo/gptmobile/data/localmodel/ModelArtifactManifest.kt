@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 
 @Serializable
-enum class ArtifactRuntime { LITERT_LM, GENIE_LEGACY, GENIEX_QAIRT, GENIEX_LLAMA_CPP }
+enum class ArtifactRuntime { LITERT_LM, GENIE_LEGACY, GENIEX_QAIRT, GENIEX_LLAMA_CPP, LLAMA_CPP }
 
 @Serializable
 enum class ArtifactEvidence { DISCOVERED, PREFLIGHT_PASSED, SMOKE_TESTED, VERIFIED_ON_DEVICE, INCOMPATIBLE, QUARANTINED }
@@ -58,12 +58,12 @@ data class ModelArtifactManifest(
     val validations: List<ArtifactValidation> = emptyList()
 ) {
     fun validate(root: File, backend: String? = null, deviceSoc: String? = null, checkCurrent: () -> Unit = {}) {
-        require(schemaVersion in 1..2) { "Unsupported artifact manifest version $schemaVersion" }
+        require(schemaVersion in 1..3) { "Unsupported artifact manifest version $schemaVersion" }
         require(familyId.isNotBlank() && artifactId.isNotBlank() && contextTokens > 0)
         require(files.isNotEmpty() && files.size <= 256)
         require(files.map { it.path.lowercase() }.distinct().size == files.size) { "Duplicate package paths" }
         require(files.any { it.path == entryFile } && (tokenizerFile == null || files.any { it.path == tokenizerFile })) { "Missing entry or tokenizer asset" }
-        require(runtime != ArtifactRuntime.GENIEX_LLAMA_CPP || (format == "gguf" && entryFile.endsWith(".gguf"))) { "GGUF runtime requires a GGUF artifact" }
+        require(runtime !in setOf(ArtifactRuntime.GENIEX_LLAMA_CPP, ArtifactRuntime.LLAMA_CPP) || (format == "gguf" && entryFile.endsWith(".gguf"))) { "GGUF runtime requires a GGUF artifact" }
         require(runtime != ArtifactRuntime.LITERT_LM || (format == "litertlm" && entryFile.endsWith(".litertlm"))) { "LiteRT runtime requires a LiteRT artifact" }
         require(supportedBackends.isNotEmpty() && supportedBackends.all { it in setOf("cpu", "gpu", "npu") })
         require(projectorFile == null || schemaVersion == 2 && files.any { it.path == projectorFile }) { "Missing versioned projector asset" }
@@ -87,9 +87,13 @@ data class ModelArtifactManifest(
             require(item.sha256.matches(Regex("[a-fA-F0-9]{64}"))) { "Missing SHA-256: ${item.path}" }
             PackageDigest.verify(file, item.sha256, checkCurrent)
         }
-        if (runtime == ArtifactRuntime.GENIEX_LLAMA_CPP) {
+        if (runtime in setOf(ArtifactRuntime.GENIEX_LLAMA_CPP, ArtifactRuntime.LLAMA_CPP)) {
             val magic = safeFile(root, entryFile).inputStream().use { stream -> ByteArray(4).also { require(stream.read(it) == 4) } }
             require(magic.contentEquals("GGUF".toByteArray())) { "Invalid GGUF header" }
+        }
+        if (runtime == ArtifactRuntime.LLAMA_CPP) {
+            require(schemaVersion == 3 && supportedBackends == setOf("cpu") && !vision && projectorFile == null) { "Standalone GGUF requires a schema-3 CPU text manifest" }
+            require(runtimeVersion == dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION) { "Unsupported GGUF engine revision" }
         }
         if (runtime == ArtifactRuntime.GENIEX_QAIRT) validateQairtConfiguration(root)
     }

@@ -59,6 +59,30 @@ class InvocationLedgerTest {
         }
     }
 
+    @Test fun `native exact counts replace estimates and survive failed assist`() = runTest {
+        val saved = mutableListOf<ModelInvocation>()
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val ledger = InvocationLedger(database)
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                ProviderEvent.TextDelta("partial"),
+                ProviderEvent.Usage(outputTokens = 500, outputSource = "estimated"),
+                ProviderEvent.Usage(inputTokens = 240, outputTokens = 37, inputSource = "runtime_reported", outputSource = "runtime_reported", actualRuntime = "LLAMA_CPP", finishReason = "length"),
+                ProviderEvent.Failed("output limit")
+            )
+        }
+        ledger.wrap(session, "parent", "turn", "LITERT_LM", "gguf-digest", "assist", 300, 100, 1000).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(37, saved.single().outputTokens)
+        assertEquals("runtime_reported", saved.single().outputTokenSource)
+        assertEquals("LLAMA_CPP", saved.single().actualRuntime)
+        assertEquals("length", saved.single().finishReason)
+        assertTrue(!saved.single().estimated)
+    }
+
     @Test fun `ordinary requests do not collect or persist diagnostic history`() = runTest {
         dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
         val dao = mockk<InvocationDao>(relaxed = true)

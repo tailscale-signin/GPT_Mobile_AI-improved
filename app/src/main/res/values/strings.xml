@@ -1040,4 +1040,25 @@
     <string name="local_ai_assist_worker_waiting">Waiting for the assigned model to be loaded and idle</string>
     <string name="insights_refreshing">Checking prices…</string>
     <string name="local_ai_checking">Checking installation…</string>
+    <string name="picker_separate">Separate</string>
+    <string name="picker_help">Conversation modes</string>
+    <string name="picker_mode_help">Separate gives each selected profile its own answer. Combined shares permitted evidence and synthesizes the selected profiles’ contributions. Select at least two enabled profiles to use Combined.</string>
+    <string name="picker_rate_legend">Input / output per 1M tokens</string>
+    <string name="picker_no_profiles">No AI profiles yet. Add a profile in Settings → AI profiles.</string>
+    <string name="picker_no_matches">No matching profiles.</string>
+    <string name="picker_clear_filters">Clear filters</string>
+    <string name="picker_clear_search">Clear search</string>
+    <string name="picker_favorite">Favorite</string>
+    <string name="picker_add_favorite">Add to favorites</string>
+    <string name="picker_remove_favorite">Remove from favorites</string>
+    <string name="picker_on_device">On-device</string>
+    <string name="picker_loading">Loading…</string>
+    <string name="picker_insights_for">View benchmark and pricing for %1$s</string>
+    <string name="picker_qualified_rate">Rate has qualifications; open details for source, freshness and conditions.</string>
+    <plurals name="picker_selected_count"><item quantity="one">%d selected</item><item quantity="other">%d selected</item></plurals>
+    <plurals name="picker_hidden_count"><item quantity="one">%d hidden by filters</item><item quantity="other">%d hidden by filters</item></plurals>
+    <string name="assist_preparation">Model preparation</string>
+    <string name="assist_preparation_help">Warm only skips unloaded models. Automatic preparation may load your selected model for an eligible task; it never closes an interactive chat. Device pressure and permissions still apply.</string>
+    <string name="assist_warm_only">Warm only</string>
+    <string name="assist_auto_prepare">Prepare automatically</string>
 </resources>

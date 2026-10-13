@@ -57,11 +57,11 @@ class ModelArtifactManifestTest {
             }
             return bytes.toByteArray()
         }
-        val success = ModelBundleInstaller.install(ByteArrayInputStream(zip(false)), temporary.newFolder())
+        val success = ModelBundleInstaller.install(ByteArrayInputStream(zip(false)), temporary.newFolder(), runtimeAdmission = {})
         assertTrue(success is LocalModelImportResult.Success)
         val installed = ArtifactManifestStore.read(File((success as LocalModelImportResult.Success).absoluteFilePath))
         assertTrue(installed.evidence == ArtifactEvidence.DISCOVERED)
-        assertTrue(ModelBundleInstaller.install(ByteArrayInputStream(zip(true)), temporary.newFolder()) is LocalModelImportResult.Failure)
+        assertTrue(ModelBundleInstaller.install(ByteArrayInputStream(zip(true)), temporary.newFolder(), runtimeAdmission = {}) is LocalModelImportResult.Failure)
     }
 
     @Test fun duplicatePathsAndWrongSocAreRejected() {

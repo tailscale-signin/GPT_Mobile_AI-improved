@@ -226,11 +226,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         )
     }
 
-    internal suspend fun getPaper(identifier: String, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy()): AcademicPaper? = withContext(Dispatchers.IO) {
+    internal suspend fun getPaper(identifier: String, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), refresh: Boolean = false): AcademicPaper? = withContext(Dispatchers.IO) {
         check(allowed()) { "permission_denied" }
         val doi = SourceIdentity.normalizeDoi(identifier.removePrefix("doi:"))
         (
-            papers[if (doi.isNotBlank()) "doi:$doi" else identifier] ?: papers.values.firstOrNull { cached ->
+            (if (refresh) null else papers[if (doi.isNotBlank()) "doi:$doi" else identifier]) ?: papers.values.takeUnless { refresh }?.firstOrNull { cached ->
                 cached.identifiers["pmcid"] == identifier.removePrefix("pmcid:").uppercase() ||
                     cached.identifiers["pmid"] == identifier.removePrefix("pmid:")
             }
@@ -264,7 +264,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         return@withContext search(AcademicSearchRequest(query, 20, 1, includeDomains = policy.included, excludeDomains = policy.excluded), MultiSearchResearchSelection(true, 20, enabledProviders = setOf("europepmc")), allowed).papers.firstOrNull()
     }
 
-    internal suspend fun read(paper: AcademicPaper, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), persistent: Boolean = true): AcademicEvidence = withContext(Dispatchers.IO) {
+    internal suspend fun read(paper: AcademicPaper, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), persistent: Boolean = true, maxTextCharacters: Int = 24000, targetedCrawl: Boolean = false): AcademicEvidence = withContext(Dispatchers.IO) {
         check(allowed()) { "permission_denied" }
         fun recorded(evidence: AcademicEvidence): AcademicEvidence {
             telemetry.record(
@@ -284,7 +284,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             val url = when {
                 pmc.matches(Regex("PMC[0-9]+")) -> "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/fullTextXML"
                 arxiv.isNotBlank() -> "https://arxiv.org/html/$arxiv"
-                else -> paper.openAccessUrl.orEmpty()
+                else -> paper.openAccessUrl.orEmpty().ifBlank { if (targetedCrawl) paper.canonicalUrl else "" }
             }
             if (url.isBlank()) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, paper.canonicalUrl, System.currentTimeMillis(), "", "", "metadata_only"))
             if (url.substringBefore('?').endsWith(".pdf", true)) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway"))
@@ -298,18 +298,38 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             require(policy.allows(provider)) { "Academic provider disabled" }
             val readerIdentity = if (pmc.isNotBlank() || arxiv.isNotBlank()) provider else "source:${URI(url).host.orEmpty().lowercase()}"
             val readerPermit = permits[readerIdentity] ?: sourcePermits[(readerIdentity.hashCode() and Int.MAX_VALUE) % sourcePermits.size]
-            val body = readerPermit.withPermit {
+            var body = readerPermit.withPermit {
                 reserve(readerIdentity, allowed)
                 fetch(url, policy.included, policy.excluded, allowed, readerIdentity, sourceDocument = pmc.isBlank())
             }
             if (body.second.contains("pdf", true) || body.first.startsWith("%PDF")) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway"))
+            var sourceUrl = url
+            if (targetedCrawl && pmc.isBlank() && arxiv.isBlank()) {
+                for (candidate in targetedArticleLinks(body.first, url, paper.doi)) {
+                    check(allowed()) { "permission_denied" }
+                    val followed = readerPermit.withPermit {
+                        reserve(readerIdentity, allowed)
+                        fetch(candidate, policy.included, policy.excluded, allowed, readerIdentity, sourceDocument = true)
+                    }
+                    if (followed.second.contains("pdf", true) || followed.first.startsWith("%PDF")) continue
+                    val doc = Jsoup.parse(followed.first)
+                    val declaredDoi = doc.selectFirst("meta[name=citation_doi]")?.attr("content").orEmpty()
+                    if (declaredDoi.isNotBlank() && paper.doi.isNotBlank() && SourceIdentity.normalizeDoi(declaredDoi) != SourceIdentity.normalizeDoi(paper.doi)) continue
+                    if (Regex("(?i)verify you are human|access denied|captcha").containsMatchIn(doc.text().take(4000))) break
+                    if ((doc.selectFirst("article") ?: doc.selectFirst("main"))?.text().orEmpty().length >= 500) {
+                        body = followed
+                        sourceUrl = candidate
+                        break
+                    }
+                }
+            }
             val document = Jsoup.parse(body.first, "", if (pmc.isNotBlank()) Parser.xmlParser() else Parser.htmlParser())
             document.select("script,style,nav,form,header,footer").remove()
             val fullText = (if (pmc.isNotBlank()) document.selectFirst("body")?.text() else (document.selectFirst("article") ?: document.selectFirst("main") ?: document.selectFirst(".ltx_document"))?.text()).orEmpty()
             val challenge = Regex("(?i)verify you are human|enable javascript and cookies|access denied|captcha").containsMatchIn(fullText.take(1000))
-            val text = fullText.take(24000)
+            val text = fullText.take(maxTextCharacters.coerceIn(24000, 240000))
             val evidence = AcademicEvidence(
-                paper.paperId, paper.versionId + ":" + researchHash(body.first), url, System.currentTimeMillis(), researchHash(text), text,
+                paper.paperId, paper.versionId + ":" + researchHash(body.first), sourceUrl, System.currentTimeMillis(), researchHash(text), text,
                 if (challenge || text.length < 500) {
                     "unavailable"
                 } else if (fullText.length > text.length) {

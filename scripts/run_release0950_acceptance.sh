@@ -19,11 +19,17 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 performance_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.memory.MemoryDurabilityInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/memory-durability-instrumentation.txt"
 memory_status=${PIPESTATUS[0]}
+timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/picker-instrumentation.txt"
+picker_status=${PIPESTATUS[0]}
 set -e
 adb logcat -d > "$acceptance_output/logcat.txt"
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-performance.json > "$acceptance_output/performance.json" || true
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-editor.png > "$acceptance_output/editor-rtl-200-percent.png" || true
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-plan-dialog.png > "$acceptance_output/plan-dialog-rtl-200-percent.png" || true
+for picker_theme in light dark-rtl; do
+  adb exec-out run-as dev.melo.gptmobile.improved cat "files/picker-$picker_theme-200-percent.png" > "$acceptance_output/picker-$picker_theme-200-percent.png"
+done
+if [ "$picker_status" -ne 0 ]; then exit "$picker_status"; fi
 if [ "$editor_status" -ne 0 ]; then exit "$editor_status"; fi
 if [ "$performance_status" -ne 0 ]; then exit "$performance_status"; fi
 if [ "$memory_status" -ne 0 ]; then exit "$memory_status"; fi
@@ -38,6 +44,10 @@ check_instrumentation(folder / 'editor-instrumentation.txt', 'dev.chungjungsoo.g
 check_instrumentation(folder / 'performance-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsPerformanceInstrumentedTest', 'catalogParseAndStatisticsOverheadProduceMeasuredEvidence')
 for test in ('encryptedCutoverPreservesIdentityAndRejectsStaleWrites', 'portableRestoreUsesNewKeyAndCannotResurrectDeletedFacts'):
     check_instrumentation(folder / 'memory-durability-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.memory.MemoryDurabilityInstrumentedTest', test)
+for test in ('compactLightSelectionAndAccessibleFavorite', 'compactDarkRtlSelectionAndAccessibleFavorite'):
+    check_instrumentation(folder / 'picker-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest', test)
+for name in ('picker-light-200-percent.png', 'picker-dark-rtl-200-percent.png'):
+    assert (folder / name).read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
 data = json.loads((folder / 'performance.json').read_text())
 assert data['samples'] == 100 and data['representativeDevice'] is False
 assert data['qualification'] == 'measurement_only'

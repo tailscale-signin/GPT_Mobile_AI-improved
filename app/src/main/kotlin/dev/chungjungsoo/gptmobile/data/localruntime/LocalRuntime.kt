@@ -108,7 +108,8 @@ data class LocalInferenceMetrics(
     val metricScope: String = "last_segment",
     val requestedMtp: Boolean? = null,
     val effectiveMtp: Boolean? = null,
-    val planId: String? = null
+    val planId: String? = null,
+    val finishReason: String? = null
 )
 
 /** Native counters cover the last prefill/decode segment, not an entire multi-tool turn. */
@@ -119,6 +120,7 @@ data class NativeInferenceMetrics(
     val prefillTokensPerSecond: Double,
     val decodeTokensPerSecond: Double
 ) {
+    val hasValidTokenCounts: Boolean get() = prefillTokens >= 0 && decodeTokens >= 0
     val isValid: Boolean get() = prefillTokens >= 0 &&
         decodeTokens > 0 &&
         prefillTokensPerSecond.isFinite() &&
@@ -179,6 +181,9 @@ interface LocalRuntime {
     val state: StateFlow<LocalRuntimeState> get() = EMPTY_RUNTIME_STATE
 
     fun loadedEngineSpec(): LocalEngineSpec? = null
+
+    /** Exact request admitted by the outer holder, before runtime tuning. */
+    fun admittedEngineSpec(): LocalEngineSpec? = loadedEngineSpec()
 
     val processPssBytes: Long? get() = null
 

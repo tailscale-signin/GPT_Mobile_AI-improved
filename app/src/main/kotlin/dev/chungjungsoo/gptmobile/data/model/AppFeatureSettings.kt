@@ -53,6 +53,7 @@ data class AppFeatureSettings(
     val localModelCache: Boolean = true,
     val localSpeculativeDecoding: SpeculativeDecodingMode = SpeculativeDecodingMode.AUTO,
     val localNativeMetrics: Boolean = false,
+    val executionPolicy: dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy = dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy(),
     val localAssist: Boolean = false,
     val localAssistPolicy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(),
     val localIdleMinutes: Int = 10,
@@ -62,6 +63,7 @@ data class AppFeatureSettings(
     /** Global service state. Amazon is opt-in; other built-in services preserve their defaults. */
     val pluginExecution: Map<String, PluginExecutionSettings> = emptyMap(),
     val toolPluginStates: Map<String, Boolean> = emptyMap(),
+    val researchFeature: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings(),
     val delegation: ModelDelegationSettings = ModelDelegationSettings(),
     val profileBehavior: Map<String, ProfileBehaviorSettings> = emptyMap(),
     val conversationResearch: Map<Int, MultiSearchResearchSelection> = emptyMap(),

@@ -410,6 +410,18 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_38_39 = object : Migration(38, 39) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `inputTokenSource` TEXT NOT NULL DEFAULT 'estimated'")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `outputTokenSource` TEXT NOT NULL DEFAULT 'estimated'")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `finishReason` TEXT")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `actualRuntime` TEXT")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `executionPolicyJson` TEXT")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `consumedAssistInvocationIds` TEXT")
+            db.execSQL("UPDATE `model_invocations` SET inputTokenSource = 'provider_reported', outputTokenSource = 'provider_reported' WHERE estimated = 0")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -438,7 +450,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_34_35,
         MIGRATION_35_36,
         MIGRATION_36_37,
-        MIGRATION_37_38
+        MIGRATION_37_38,
+        MIGRATION_38_39
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

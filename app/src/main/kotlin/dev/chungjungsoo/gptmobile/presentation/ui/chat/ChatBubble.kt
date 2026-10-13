@@ -258,7 +258,8 @@ fun OpponentChatBubble(
     onShowPreviousRevision: () -> Unit = {},
     onShowNextRevision: () -> Unit = {},
     onContinueClick: (() -> Unit)? = null,
-    onActionClick: ((String) -> Unit)? = null
+    onActionClick: ((String) -> Unit)? = null,
+    articleCards: @Composable (String) -> Unit = {}
 ) {
     var activityExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     val bubbleColor = animateColorAsState(
@@ -423,7 +424,8 @@ fun OpponentChatBubble(
                     showReasoning = showReasoning,
                     isError = isError,
                     expanded = activityExpanded,
-                    onExpandedChange = { activityExpanded = it }
+                    onExpandedChange = { activityExpanded = it },
+                    articleCards = articleCards
                 )
                 if (showTerminalFallback) {
                     Text(

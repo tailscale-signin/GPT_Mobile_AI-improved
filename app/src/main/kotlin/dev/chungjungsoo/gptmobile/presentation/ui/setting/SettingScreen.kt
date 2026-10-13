@@ -72,9 +72,11 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()
     val debugMode by settingViewModel.debugMode.collectAsStateWithLifecycle()
     val featureSettings by settingViewModel.featureSettings.collectAsStateWithLifecycle()
+    var showResearch by rememberSaveable { mutableStateOf(false) }
+    var showExecution by rememberSaveable { mutableStateOf(false) }
     var showDelegation by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    val searchEntries = SettingsSearchRegistry.entries.filter { githubWorkspaceEnabled || it.destination != SettingsSearchDestination.WORKSPACE } +
+    val searchEntries = SettingsSearchRegistry.entries.filter { (githubWorkspaceEnabled || it.destination != SettingsSearchDestination.WORKSPACE) && (it.key != "research" || featureSettings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) } +
         memoryControlSearchEntries + privacyControlSearchEntries +
         platforms.flatMap { profile -> profileControlSearchEntries(profile, providerConnections.any { it.uid == profile.providerConnectionUid }) + SettingsSearchEntry("profile.${profile.uid}", profile.name, "AI › Profiles › ${profile.name}", SettingsSearchDestination.PROFILES, profile.uid, "${profile.model} ${profile.compatibleType}") }
 
@@ -105,10 +107,16 @@ fun SettingScreen(
                     onQueryChange = { query = it },
                     entries = searchEntries,
                     onSelect = { entry ->
-                        when (entry.destination) {
-                            SettingsSearchDestination.BACKUP -> settingViewModel.openBackupRestoreDialog()
-                            SettingsSearchDestination.DELEGATION -> showDelegation = true
-                            else -> onSearchDestination(entry.destination.name, entry.focus)
+                        if (entry.key == "research") {
+                            showResearch = true
+                        } else if (entry.key == "execution") {
+                            showExecution = true
+                        } else {
+                            when (entry.destination) {
+                                SettingsSearchDestination.BACKUP -> settingViewModel.openBackupRestoreDialog()
+                                SettingsSearchDestination.DELEGATION -> showDelegation = true
+                                else -> onSearchDestination(entry.destination.name, entry.focus)
+                            }
                         }
                     }
                 )
@@ -126,6 +134,7 @@ fun SettingScreen(
                             title = stringResource(R.string.local_models),
                             onClick = onNavigateToLocalModels
                         )
+                        SettingsDestination(icon = Icons.Rounded.Tune, title = "Execution & efficiency", onClick = { showExecution = true })
                     }
                 }
 
@@ -136,6 +145,7 @@ fun SettingScreen(
                             title = stringResource(R.string.settings_category_tools),
                             onClick = onNavigateToToolConnections
                         )
+                        if (featureSettings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) SettingsDestination(icon = Icons.Rounded.Psychology, title = "Research", onClick = { showResearch = true })
                     }
                 }
                 item {
@@ -210,6 +220,9 @@ fun SettingScreen(
             }
         }
     }
+
+    if (showResearch) ResearchFeatureScreen(onClose = { showResearch = false })
+    if (showExecution) ExecutionEfficiencyScreen(onClose = { showExecution = false })
 
     if (showDelegation) {
         LocalToolConfigurationDialog(section = "delegation", onDismiss = { showDelegation = false })

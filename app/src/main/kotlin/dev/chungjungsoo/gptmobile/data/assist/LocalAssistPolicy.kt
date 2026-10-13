@@ -12,7 +12,9 @@ data class LocalAssistPolicy(
     val taskTimeoutSeconds: Int = 8,
     val maxAttempts: Int = 2,
     val candidateRecords: Int = 12,
-    val selectedRecords: Int = 5
+    val selectedRecords: Int = 5,
+    val preparation: AssistPreparation = AssistPreparation.WARM_ONLY,
+    val loadTimeoutSeconds: Int = 60
 ) {
-    fun validated() = copy(taskTimeoutSeconds = taskTimeoutSeconds.coerceIn(2, 30), maxAttempts = maxAttempts.coerceIn(1, 8), candidateRecords = candidateRecords.coerceIn(5, 24), selectedRecords = selectedRecords.coerceIn(1, 5))
+    fun validated() = copy(loadTimeoutSeconds = loadTimeoutSeconds.coerceIn(10, 120), taskTimeoutSeconds = taskTimeoutSeconds.coerceIn(2, 30), maxAttempts = maxAttempts.coerceIn(1, 8), candidateRecords = candidateRecords.coerceIn(5, 24), selectedRecords = selectedRecords.coerceIn(1, 5))
 }

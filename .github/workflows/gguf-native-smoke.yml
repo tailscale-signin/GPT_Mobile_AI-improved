@@ -1,0 +1,39 @@
+name: GGUF CPU native smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'local-gguf-runtime/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/**'
+      - 'scripts/prepare_gguf_smoke.py'
+      - '.github/workflows/gguf-native-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gguf-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Fetch immutable source and fixture
+        run: |
+          curl --fail --location --retry 3 https://codeload.github.com/ggml-org/llama.cpp/tar.gz/4413a192410fad1f054e9216114087a3e01527a0 -o /tmp/llama.tar.gz
+          echo '4d0cb840af6e67de6afc72cd85aaa5d1419a9c6071a403d7a2069086f0bfe21b  /tmp/llama.tar.gz' | sha256sum --check
+          mkdir -p /tmp/llama
+          tar -xf /tmp/llama.tar.gz --strip-components=1 -C /tmp/llama
+          python3 -m pip install numpy tqdm pyyaml
+          python3 scripts/prepare_gguf_smoke.py /tmp/llama /tmp/gguf-fixture
+      - name: Compile and run production JNI with real inference
+        run: |
+          cmake -S local-gguf-runtime/src/main/cpp -B /tmp/gguf-build -DFETCHCONTENT_SOURCE_DIR_LLAMA=/tmp/llama -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/gguf-build --target gptmobile_gguf -j2
+          javac -d /tmp/gguf-classes local-gguf-runtime/src/main/java/dev/melo/gguf/GgufNative.java local-gguf-runtime/src/testHost/GgufNativeSmoke.java
+          java -Djava.library.path=/tmp/gguf-build -cp /tmp/gguf-classes GgufNativeSmoke /tmp/gguf-fixture/stories15M-chatml.gguf

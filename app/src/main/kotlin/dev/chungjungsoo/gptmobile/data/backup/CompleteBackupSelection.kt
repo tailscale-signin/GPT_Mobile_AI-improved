@@ -15,7 +15,10 @@ enum class CompleteBackupSection {
     AGENT_HISTORY,
     STATISTICS,
     AMAZON_DATA,
-    HEALTH_DATA
+    HEALTH_DATA,
+    RESEARCH_ARCHIVE,
+    CHAT_RESEARCH,
+    RESEARCH_APPRAISALS
 }
 
 /** Presentation groups retain the original archive sections and saved partial selections. */
@@ -35,6 +38,11 @@ enum class CompleteBackupGroup(val title: String, val description: String, val s
         "Themes, preferences, plugins and MCP connections.",
         setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.TOOLS)
     ),
+    RESEARCH(
+        "Research evidence",
+        "Archive, chat evidence and article appraisals. Requires encryption.",
+        setOf(CompleteBackupSection.RESEARCH_ARCHIVE, CompleteBackupSection.CHAT_RESEARCH, CompleteBackupSection.RESEARCH_APPRAISALS)
+    ),
     HEALTH_DATA(
         "Health data",
         "Locally imported Health Connect history. Requires encrypted backups.",
@@ -47,12 +55,13 @@ data class CompleteBackupSelection(
     val sections: Set<CompleteBackupSection> = DEFAULT_SECTIONS
 ) {
     val requiresEncryption: Boolean
-        get() = includes(CompleteBackupSection.CREDENTIALS) || includes(CompleteBackupSection.MEMORY) || includes(CompleteBackupSection.HEALTH_DATA)
+        get() = includes(CompleteBackupSection.CREDENTIALS) || includes(CompleteBackupSection.MEMORY) || includes(CompleteBackupSection.HEALTH_DATA) || sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS }
 
     fun includes(section: CompleteBackupSection): Boolean = section in sections
 
     fun normalized(): CompleteBackupSelection {
         val normalized = sections.toMutableSet()
+        if (CompleteBackupSection.CHAT_RESEARCH in normalized) normalized += CompleteBackupSection.CONVERSATIONS
         if (CompleteBackupSection.STATISTICS in normalized) {
             normalized += setOf(CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.PLATFORMS, CompleteBackupSection.AGENT_HISTORY)
         }
@@ -70,7 +79,7 @@ data class CompleteBackupSelection(
         } else {
             sections - section -
                 if (section == CompleteBackupSection.CONVERSATIONS) {
-                    setOf(CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.STATISTICS)
+                    setOf(CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.STATISTICS, CompleteBackupSection.CHAT_RESEARCH)
                 } else if (section in setOf(CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.PLATFORMS)) {
                     setOf(CompleteBackupSection.STATISTICS)
                 } else {
@@ -94,7 +103,10 @@ data class CompleteBackupSelection(
             CompleteBackupSection.ATTACHMENTS,
             CompleteBackupSection.AGENT_HISTORY,
             CompleteBackupSection.AMAZON_DATA,
-            CompleteBackupSection.HEALTH_DATA
+            CompleteBackupSection.HEALTH_DATA,
+            CompleteBackupSection.RESEARCH_ARCHIVE,
+            CompleteBackupSection.CHAT_RESEARCH,
+            CompleteBackupSection.RESEARCH_APPRAISALS
         )
         val ALL = CompleteBackupSelection(CompleteBackupSection.entries.toSet())
     }

@@ -1,0 +1,2 @@
+-keep class dev.melo.gguf.GgufNative { *; }
+-keep class dev.melo.gguf.GgufNative$Callback { *; }

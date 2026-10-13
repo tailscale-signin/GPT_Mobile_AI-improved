@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.52.0] - 2026-10-13
+
+- Repair delegation admission, durable evidence recovery, coverage/review states and scoped permissions.
+- Ship the independent GGUF CPU runtime in the normal application with native usage accounting and repeatable Local Assist sessions.
+- Add opt-in unified execution policies and shared budgets, Research archive/appraisal/statistics, encrypted research backups and a compact accessible profile picker.
+- Preserve runtime qualification boundaries and unknown cost/publication/coverage states.
+
 ## [Unreleased]
 
 - Improve multi-web search with deterministic source interleaving, explicit total limits, conservative URL identities, bounded guarded content grouping, deadline-aware refill and expandable source attribution.

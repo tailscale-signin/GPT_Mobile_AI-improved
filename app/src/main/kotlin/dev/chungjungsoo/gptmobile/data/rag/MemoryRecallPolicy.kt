@@ -41,6 +41,7 @@ internal object MemoryRecallPolicy {
         return facts.map { fact ->
             val terms = corpus.getValue(fact)
             val exact = queryTerms.intersect(terms).filterNot { it in generic }.sumOf { term -> ln(1.0 + facts.size.toDouble() / (1 + documentFrequency.getOrDefault(term, 0))) * 4 }
+            val specificSynonym = groups.any { group -> group.any { it in queryTerms && it !in generic } && group.any { it in terms && it !in generic } }
             val relatedMatches = expandedQuery.intersect(expanded(fact.fact.target.name, document = true)).filterNot { it in generic }.size
             val relation = fact.fact.relation.relationType
             val intent = if (!personal) {
@@ -63,7 +64,7 @@ internal object MemoryRecallPolicy {
             val similarity = semanticScores[fact.id] ?: 0.0
             val semantic = if (similarity >= 0.55) (similarity - 0.45) * 10.0 else 0.0
             // Synonyms boost an anchored match; a generic topic expansion alone is not evidence.
-            val related = if (exact > 0.0 || intent > 0.0 || followUp > 0.0 || semantic > 0.0) relatedMatches.coerceAtMost(3) * 0.35 else 0.0
+            val related = if (exact > 0.0 || intent > 0.0 || followUp > 0.0 || semantic > 0.0 || specificSynonym) relatedMatches.coerceAtMost(3) * 0.35 else 0.0
             val relevance = exact + related + intent + followUp + broadProfile + semantic
             val ageDays = ((now - fact.lastSeenMillis).coerceAtLeast(0) / 86_400_000.0)
             val recency = if (useRecency) 0.6 / (1.0 + ageDays / 30.0) else 0.0

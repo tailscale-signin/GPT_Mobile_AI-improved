@@ -84,7 +84,15 @@ internal object ScientificAppraisalContract {
                 // Numeric and lexical values must occur verbatim. Interpretation belongs in judgments.
                 require(cited.any { fieldValue in it.quote }) { "Study value is not extractive" }
                 if (unit != null) require(cited.any { unit in it.quote }) { "Unit not found in source" }
-                if (name in setOf("randomized_n", "analyzed_n", "arm_n")) require(fieldValue.replace(",", "").toLongOrNull()?.let { it > 0 } == true)
+                if (name in setOf("randomized_n", "analyzed_n", "arm_n")) {
+                    require(fieldValue.replace(",", "").toLongOrNull()?.let { it > 0 } == true)
+                    val label = when (name) {
+                        "randomized_n" -> Regex("(?i)randomi[sz]|randomly assigned")
+                        "analyzed_n" -> Regex("(?i)analy[sz]|analysis")
+                        else -> Regex("(?i)arm|group|allocated")
+                    }
+                    require(cited.any { fieldValue in it.quote && label.containsMatchIn(it.quote) }) { "Sample count lacks its reported methodological label" }
+                }
             } else {
                 require(fieldValue == null && unit == null) { "Missing data cannot carry an invented value" }
             }

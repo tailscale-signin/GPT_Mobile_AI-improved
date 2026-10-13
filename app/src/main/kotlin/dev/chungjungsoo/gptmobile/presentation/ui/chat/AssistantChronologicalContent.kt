@@ -53,7 +53,8 @@ internal fun AssistantChronologicalContent(
     showReasoning: Boolean,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
-    isError: Boolean = false
+    isError: Boolean = false,
+    articleCards: @Composable (String) -> Unit = {}
 ) {
     val events = remember(toolEvents) { toolEvents.associateBy { it.sequence } }
     val recalledSources = remember(timeline, toolEvents, debugMemorySources, debugMode, debugSettings.debugShowMemoryRecall) {
@@ -109,6 +110,8 @@ internal fun AssistantChronologicalContent(
                         if (expanded && showReasoning && !parsed.thinking.isNullOrBlank()) {
                             Text(parsed.thinking.orEmpty(), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }
+                        // Resolve cards from the complete source-bearing text before display cleanup.
+                        val citationText = parsed.response
                         val response = remember(parsed.response) { answerWithoutSourceLists(parsed.response) }
                         if (response.isNotBlank()) {
                             if (isError) {
@@ -117,6 +120,7 @@ internal fun AssistantChronologicalContent(
                                 ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
+                        if (!isLoading) articleCards(citationText)
                     }
                     AssistantTimelineItemType.TOOL -> if (expanded) {
                         events[item.toolSequence]?.let { event ->

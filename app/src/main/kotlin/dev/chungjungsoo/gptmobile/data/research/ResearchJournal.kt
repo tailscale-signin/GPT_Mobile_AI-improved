@@ -11,6 +11,7 @@ interface ResearchJournal {
         dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(1, ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(plan.fingerprint, plan.limits))
     suspend fun load(): ResearchSnapshot?
     suspend fun load(task: String): ResearchSnapshot? = load()
+    suspend fun archiveLeads(task: String): List<ResearchSource> = emptyList()
     suspend fun retainBody(text: String): List<String> = emptyList()
     suspend fun save(snapshot: ResearchSnapshot)
     fun cancellationOrigin(): String = "UNKNOWN"

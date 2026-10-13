@@ -78,7 +78,9 @@ class AgentToolResolver @Inject constructor(
     private val healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
     private val healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null,
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
-    private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null
+    private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
+    private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository? = null,
+    private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
@@ -417,6 +419,29 @@ class AgentToolResolver @Inject constructor(
                     }
                 )
                 resolved += ResolvedAgentTool(facade, remote?.connectionUid, "Deep Research", remote?.realToolName ?: facade.definition.name, facade.definition.name, shareableReadOnly = false, canReuseResult = access)
+            }
+        }
+
+        if (researchArchive != null && articleExaminations != null && platform?.enabled == true && !disableLocal && featureSettings.researchFeature.enabled && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.DEEP_RESEARCH)) {
+            val sourceChatId = userMessage?.chatId ?: 0
+            val persistentResearch = sourceChatId == 0 || factVault?.scopeForChat(sourceChatId)?.isTemporary == false
+            if (persistentResearch) {
+                dev.chungjungsoo.gptmobile.data.research.feature.ResearchEvidenceTool.OPERATIONS.filter { it != "examine_article" || academicAllowed }.forEach { operation ->
+                    val access: suspend () -> Boolean = {
+                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                        val features = settingRepository.getFeatureSettings()
+                        current == platform &&
+                            current?.enabled == true &&
+                            !current.disableAllTools &&
+                            !current.disableLocalTools &&
+                            features.researchFeature.enabled &&
+                            features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.DEEP_RESEARCH) &&
+                            (chatToolConfig?.isToolEnabled(listOf("research_$operation", "deep_research")) != false) &&
+                            (sourceChatId == 0 || factVault?.scopeForChat(sourceChatId)?.isTemporary == false)
+                    }
+                    val tool = dev.chungjungsoo.gptmobile.data.research.feature.ResearchEvidenceTool(operation, researchArchive, { articleExaminations.get() }, profileUid, sourceChatId, "public", chatToolConfig ?: ChatMcpToolConfig(), access, featureSettings.researchFeature.comparisonLimit)
+                    resolved += ResolvedAgentTool(tool, null, "Research", tool.definition.name, tool.definition.name, shareableReadOnly = operation != "examine_article", canReuseResult = access)
+                }
             }
         }
 

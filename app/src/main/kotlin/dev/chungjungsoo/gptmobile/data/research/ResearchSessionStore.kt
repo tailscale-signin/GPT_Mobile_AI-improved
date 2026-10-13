@@ -114,6 +114,21 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             runTurns[runId] = chatId to turnId
         }
         override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope, sharePublicEvidence)
+        override suspend fun archiveLeads(task: String): List<ResearchSource> {
+            val database = featureDatabase ?: return emptyList()
+            val features = featureSettings?.getFeatureSettings() ?: return emptyList()
+            if (!persistent || !features.researchFeature.enabled || !features.researchFeature.archivePreflight || !features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) || stopRequested()) return emptyList()
+            val dao = database.research()
+            val words = task.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length in 3..80 }.distinct().take(5)
+            return words.flatMap { dao.page(it, "", features.researchFeature.peerReviewedOnly, 12, 0) }.distinctBy { it.workId }.take(30).map { row ->
+                val aliases = dao.aliases(row.workId).map { it.alias.substringAfter('|') }
+                fun id(kind: String) = aliases.firstOrNull { it.startsWith("$kind:") }?.substringAfter(':').orEmpty()
+                ResearchSource(
+                    "lead", row.canonicalUrl, row.title, status = "Discovered", engines = listOf("archive-preflight"), doi = id("doi"), pmid = id("pmid"), pmcid = id("pmcid"), publicationYear = row.publicationYear,
+                    paperId = aliases.firstOrNull { it.startsWith("doi:") || it.startsWith("pmid:") || it.startsWith("pmcid:") || it.startsWith("arxiv:") }.orEmpty()
+                )
+            }
+        }
         override fun sourceId(identity: String, fallback: String) = "S" + researchHash(identity).take(16)
         private fun workKey(key: String) = "$chatId:$turnId:$authority:$key"
         override fun claimWork(key: String, leaseMillis: Long): Boolean {

@@ -55,6 +55,8 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     var topicLabel by rememberSaveable { mutableStateOf("") }
     var offset by rememberSaveable { mutableIntStateOf(0) }
     var confirmClose by rememberSaveable { mutableStateOf(false) }
+    var articleId by rememberSaveable { mutableStateOf<String?>(null) }
+    var articleVersion by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val enabled = settings.isToolPluginEnabled(ToolPluginId.DEEP_RESEARCH)
     LaunchedEffect(Unit) { viewModel.open() }
@@ -166,6 +168,10 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 Text("Peer review: ${row.peerReview.name.lowercase()}")
                                 if (row.retracted == true) Text("Retraction reported", color = MaterialTheme.colorScheme.error)
                                 Text(row.canonicalUrl, style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    articleId = row.workId
+                                    articleVersion = row.latestVersionId
+                                }) { Text("Article details / Examine") }
                                 TextButton(onClick = { deleteId = row.workId }) { Text("Remove from archive") }
                             }
                         }
@@ -179,6 +185,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                 }
             }
         }
+        articleId?.let { id -> dev.chungjungsoo.gptmobile.presentation.ui.research.ResearchArticleDialog(id, articleVersion, onClose = { articleId = null }) }
         if (confirmClose) {
             AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text("Keep your research changes?") }, text = { Text("Archive actions are already applied. The settings draft is unsaved.") }, confirmButton = {
                 TextButton(onClick = {

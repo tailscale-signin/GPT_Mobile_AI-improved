@@ -215,6 +215,20 @@ internal class AndroidResearchWorkflow(
                         planningStatus = if (parsedPlan.fallback) "Deterministic fallback" else "Validated"
                     )
                 }
+                if (saved == null) {
+                    val leads = journal?.archiveLeads(task).orEmpty()
+                    leads.forEach { lead ->
+                        if (options.contentScope != dev.chungjungsoo.gptmobile.data.model.ResearchContentScope.PAPERS_ONLY || lead.paperId.isNotBlank()) {
+                            val id = add(lead.url, lead.title, engines = lead.engines, doi = lead.doi, pmid = lead.pmid, pmcid = lead.pmcid, publicationYear = lead.publicationYear)
+                            val entry = sources.entries.firstOrNull { it.value.id == id }
+                            if (entry != null && !entry.value.readable) sources[entry.key] = entry.value.copy(paperId = lead.paperId)
+                        }
+                    }
+                    if (leads.isNotEmpty()) {
+                        checkpoint("Checking archived source leads")
+                        readPages(callId)
+                    }
+                }
                 researchLinks(task).take(10).forEach { add(it, it) }
                 var nextQueries = parsedPlan?.queries.orEmpty().map { it.text }.take(3)
                 if (saved == null && parsedPlan?.noResearchNeeded == true && sources.isEmpty()) {

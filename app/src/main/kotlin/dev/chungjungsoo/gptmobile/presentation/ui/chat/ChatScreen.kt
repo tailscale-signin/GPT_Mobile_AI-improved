@@ -644,6 +644,7 @@ fun ChatScreen(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
+                        currentResearchTools = { chatViewModel.chatToolConfig.value },
                         messageIndex = index,
                         message = message,
                         assistantMessages = groupedMessages.assistantMessages.getOrNull(index) ?: emptyList(),
@@ -1001,6 +1002,7 @@ fun ChatScreen(
 
 @Composable
 private fun ChatMessagePair(
+    currentResearchTools: () -> dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig,
     messageIndex: Int,
     message: MessageV2,
     assistantMessages: List<MessageV2>,
@@ -1243,6 +1245,13 @@ private fun ChatMessagePair(
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
                     conversationId = selectedAssistantMessage?.chatId,
+                    articleCards = { segment ->
+                        if (debugSettings.researchFeature.articleCards) {
+                            selectedAssistantMessage?.let { articleMessage ->
+                                dev.chungjungsoo.gptmobile.presentation.ui.research.ResearchCitationCards(articleMessage, segment, selectedPlatformUid.orEmpty(), debugSettings.researchFeature.compactCards, currentResearchTools)
+                            }
+                        }
+                    },
                     generationTiming = responseGenerationTiming(
                         agentRun,
                         if (isCombinedConversation) combinedProfiles.mapNotNull { it.message?.effectiveRunId()?.let(agentRunsById::get) } else emptyList()

@@ -58,6 +58,7 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         require(from != to)
         requireNotNull(dao.topic(to))
         dao.moveTopic(from, to)
+        dao.mergeRelatedTopics(from, to)
         dao.deleteRelatedTopic(from)
         dao.deleteTopic(from)
     }

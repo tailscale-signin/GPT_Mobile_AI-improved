@@ -226,11 +226,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         )
     }
 
-    internal suspend fun getPaper(identifier: String, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy()): AcademicPaper? = withContext(Dispatchers.IO) {
+    internal suspend fun getPaper(identifier: String, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), refresh: Boolean = false): AcademicPaper? = withContext(Dispatchers.IO) {
         check(allowed()) { "permission_denied" }
         val doi = SourceIdentity.normalizeDoi(identifier.removePrefix("doi:"))
         (
-            papers[if (doi.isNotBlank()) "doi:$doi" else identifier] ?: papers.values.firstOrNull { cached ->
+            (if (refresh) null else papers[if (doi.isNotBlank()) "doi:$doi" else identifier]) ?: papers.values.takeUnless { refresh }?.firstOrNull { cached ->
                 cached.identifiers["pmcid"] == identifier.removePrefix("pmcid:").uppercase() ||
                     cached.identifiers["pmid"] == identifier.removePrefix("pmid:")
             }
@@ -264,7 +264,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         return@withContext search(AcademicSearchRequest(query, 20, 1, includeDomains = policy.included, excludeDomains = policy.excluded), MultiSearchResearchSelection(true, 20, enabledProviders = setOf("europepmc")), allowed).papers.firstOrNull()
     }
 
-    internal suspend fun read(paper: AcademicPaper, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), persistent: Boolean = true): AcademicEvidence = withContext(Dispatchers.IO) {
+    internal suspend fun read(paper: AcademicPaper, allowed: suspend () -> Boolean, policy: AcademicAccessPolicy = AcademicAccessPolicy(), persistent: Boolean = true, maxTextCharacters: Int = 24000): AcademicEvidence = withContext(Dispatchers.IO) {
         check(allowed()) { "permission_denied" }
         fun recorded(evidence: AcademicEvidence): AcademicEvidence {
             telemetry.record(
@@ -307,7 +307,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             document.select("script,style,nav,form,header,footer").remove()
             val fullText = (if (pmc.isNotBlank()) document.selectFirst("body")?.text() else (document.selectFirst("article") ?: document.selectFirst("main") ?: document.selectFirst(".ltx_document"))?.text()).orEmpty()
             val challenge = Regex("(?i)verify you are human|enable javascript and cookies|access denied|captcha").containsMatchIn(fullText.take(1000))
-            val text = fullText.take(24000)
+            val text = fullText.take(maxTextCharacters.coerceIn(24000, 240000))
             val evidence = AcademicEvidence(
                 paper.paperId, paper.versionId + ":" + researchHash(body.first), url, System.currentTimeMillis(), researchHash(text), text,
                 if (challenge || text.length < 500) {

@@ -24,6 +24,16 @@ interface ChatRepository {
         benchmarkCategory: String = "task"
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = error("Benchmark sessions are unavailable")
 
+    /** Tool-free article examination uses the same provider adapters and physical invocation ledger. */
+    suspend fun openResearchSession(
+        platform: PlatformV2,
+        prompt: String,
+        rootWorkId: String,
+        role: String,
+        outputTokens: Int,
+        onInvocation: (String) -> Unit = {}
+    ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = error("Research sessions are unavailable")
+
     suspend fun runDelegationBenchmark(
         platform: PlatformV2,
         test: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase,

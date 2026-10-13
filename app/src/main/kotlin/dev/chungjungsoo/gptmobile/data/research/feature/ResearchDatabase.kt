@@ -86,6 +86,9 @@ interface ResearchDao {
     @Query("SELECT * FROM research_versions WHERE versionId = :id")
     suspend fun version(id: String): ResearchWorkVersion?
 
+    @Query("SELECT * FROM research_versions WHERE workId = :workId ORDER BY retrievedAt DESC LIMIT 100")
+    suspend fun versions(workId: String): List<ResearchWorkVersion>
+
     @Query("SELECT * FROM research_versions WHERE workId = :workId ORDER BY retrievedAt DESC LIMIT 1")
     suspend fun latestVersion(workId: String): ResearchWorkVersion?
 
@@ -125,7 +128,7 @@ interface ResearchDao {
     @Query("DELETE FROM research_body_roots WHERE rootKind=:kind AND rootId=:id")
     suspend fun removeRoots(kind: String, id: String)
 
-    @Query("DELETE FROM research_body_roots WHERE rootKind='chat' AND rootId LIKE :prefix || '%'")
+    @Query("DELETE FROM research_body_roots WHERE rootKind IN ('chat','citation') AND rootId LIKE :prefix || '%'")
     suspend fun deleteChatRoots(prefix: String)
 
     @Query("SELECT DISTINCT v.bodyChunksJson FROM research_versions v JOIN research_body_roots r ON r.versionId=v.versionId")
@@ -133,6 +136,9 @@ interface ResearchDao {
 
     @Query("UPDATE research_archive SET primaryTopicId=:to WHERE primaryTopicId=:from")
     suspend fun moveTopic(from: String, to: String)
+
+    @Query("INSERT OR IGNORE INTO research_work_topics(workId,topicId) SELECT workId,:to FROM research_work_topics WHERE topicId=:from")
+    suspend fun mergeRelatedTopics(from: String, to: String)
 
     @Query("DELETE FROM research_work_topics WHERE topicId=:id")
     suspend fun deleteRelatedTopic(id: String)

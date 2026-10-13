@@ -105,10 +105,6 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         if (pending) {
             ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
                 Text("${engine.name} · Adapter not ready", style = MaterialTheme.typography.labelLarge)
-                if (health != null && health.attempts > 0) {
-                    androidx.compose.material3.LinearProgressIndicator(progress = { health.successes.toFloat() / health.attempts }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "${engine.name}: ${health.successes} useful, ${health.empty} empty, ${health.failures} failed completed requests. Canceled and skipped attempts excluded." })
-                    Text("Useful rate: ${"%.1f".format(health.successPercent)}% · definition v2 · completed useful + empty + failed", style = MaterialTheme.typography.bodySmall)
-                }
                 Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
             }
         }

@@ -21,6 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Require completion evidence before leaving draft
+        if: github.event.pull_request.draft == false
+        run: python3 scripts/check_unified_reliability_v2.py --require-done
+
       - name: Check Android regex compatibility
         run: |
           python3 scripts/check_unified_reliability_v2.py

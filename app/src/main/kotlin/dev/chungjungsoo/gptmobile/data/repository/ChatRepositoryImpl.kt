@@ -2168,11 +2168,13 @@ class ChatRepositoryImpl(
         val requestedOutputTokens = contextPlan.outputTokens
         // Delegation saves input/replay tokens. Its brief budget must never cap the
         // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
-        val effectiveOutputCap = requestedOutputTokens ?: if (runId.startsWith("combined-synthesis:") && platform.maxTokens == null) 16_384 else null
+        val effectiveOutputCap = requestedOutputTokens ?: if (runId.startsWith("combined-synthesis:") && (platform.maxTokens == null || platform.maxTokens == 0)) 16_384 else null
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
         val resolvedOutputCap = dev.chungjungsoo.gptmobile.data.agent.provider.ProviderOutputLimits.effective(capKey, listOfNotNull(effectiveOutputCap, platform.maxTokens?.takeIf { it > 0 }).minOrNull())
         val requestConstraints = RequestConstraints(
+            contextCeiling = limits.contextTokens.takeIf { it < Int.MAX_VALUE },
+            requestRole = if (editorialPass) "synthesis" else "primary",
             maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
             allowReasoning = !editorialPass,

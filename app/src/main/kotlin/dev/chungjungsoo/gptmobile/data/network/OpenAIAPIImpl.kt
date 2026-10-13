@@ -47,6 +47,8 @@ class OpenAIAPIImpl @Inject constructor(
     private val networkClient: NetworkClient,
     private val openRouterReceipts: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore? = null
 ) : OpenAIAPI {
+    private val requestPreparation = ModelRequestPreparation(networkClient)
+
     override suspend fun uploadFile(
         filePath: String,
         fileName: String,
@@ -153,10 +155,11 @@ class OpenAIAPIImpl @Inject constructor(
             val executeRequest: suspend () -> Unit = {
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
                 ProviderCooldown.await(config)
+                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
-                    setBody(NetworkClient.openAIJson.encodeToString(preparedRequest))
+                    setBody(admittedPayload)
                     accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                     config.token?.takeIf { it.isNotBlank() && free == null }?.let { bearerAuth(it) }
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
@@ -405,10 +408,11 @@ class OpenAIAPIImpl @Inject constructor(
                 }
             ) {
                 ProviderCooldown.await(config)
+                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
-                    setBody(NetworkClient.openAIJson.encodeToString(preparedRequest))
+                    setBody(admittedPayload)
                     accept(ContentType.Text.EventStream)
                     config.token?.let { bearerAuth(it) }
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }

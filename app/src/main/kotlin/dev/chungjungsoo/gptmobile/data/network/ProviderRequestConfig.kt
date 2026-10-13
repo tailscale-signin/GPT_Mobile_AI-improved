@@ -9,7 +9,13 @@ data class ProviderRequestConfig(
     val anthropicBetaFeatures: Set<String> = emptySet(),
     val extraHeaders: Map<String, String> = emptyMap(),
     val freeProvider: FreeAiProvider? = null,
-    val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null
+    val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null,
+    val profileUid: String? = null,
+    val providerType: String? = null,
+    val requestRole: String = "primary",
+    val contextCeiling: Int? = null,
+    val permissionRevision: String = "legacy-unverified",
+    val requireKnownCapacity: Boolean = false
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

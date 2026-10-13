@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -53,7 +54,11 @@ data class ModelInvocation(
     val finishReason: String? = null,
     val actualRuntime: String? = null,
     val executionPolicyJson: String? = null,
-    val consumedAssistInvocationIds: String? = null
+    val consumedAssistInvocationIds: String? = null,
+    val requestAdmissionReceipts: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0") val assistInclusionVerified: Boolean = false,
+    val observedInputTokens: Long? = null,
+    val observedOutputTokens: Long? = null
 )
 
 class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
@@ -178,8 +183,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 profileUid = profileUid,
                 durationMs = activeAllowance ?: 0,
                 costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" },
-                executionPolicyJson = if (executionPolicy.sharedRunBudget) kotlinx.serialization.json.Json.encodeToString(executionPolicy) else null,
-                consumedAssistInvocationIds = exchanges.flatMap { it.results }.flatMap { dev.chungjungsoo.gptmobile.data.assist.AssistHandoffContract.producerIds(it) }.distinct().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) }
+                executionPolicyJson = if (executionPolicy.sharedRunBudget) kotlinx.serialization.json.Json.encodeToString(executionPolicy) else null
             )
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
@@ -195,6 +199,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 emit(ProviderEvent.Completed)
                 return@flow
             }
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet())
             onInvocation(record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
             val started = System.nanoTime()
@@ -214,7 +219,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             liveRequests.update { it + (record.id to record.copy(outputTokens = 0)) }
             try {
                 suspend fun collectRound() {
-                    session.streamRound(tools, exchanges).collect { event ->
+                    session.streamRound(tools, exchanges).flowOn(dispatch).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
                                 if (first == null) first = (System.nanoTime() - started) / 1_000_000
@@ -306,6 +311,11 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                                     finishReason = finishReason,
                                     actualRuntime = actualRuntime,
                                     status = status,
+                                    consumedAssistInvocationIds = dispatch.includedProducers.sorted().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
+                                    assistInclusionVerified = dispatch.receipts.isNotEmpty(),
+                                    requestAdmissionReceipts = dispatch.receipts.toList().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
+                                    observedInputTokens = input?.toLong(),
+                                    observedOutputTokens = output?.toLong(),
                                     costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
                                     durationMs = (System.nanoTime() - started) / 1_000_000,
                                     firstTokenMs = first

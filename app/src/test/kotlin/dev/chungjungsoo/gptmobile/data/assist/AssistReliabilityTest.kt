@@ -90,7 +90,7 @@ class AssistReliabilityTest {
 
     @Test
     fun terminalStateRejectsLateRunningCallback() {
-        val done = AssistTaskState("task", sequence = 4, execution = AssistExecution.COMPLETED, delivery = AssistDelivery.REJECTED)
+        val done = AssistTaskState(taskId = "task", sequence = 4, execution = AssistExecution.COMPLETED, delivery = AssistDelivery.REJECTED)
         assertFalse(done.accepts(done.copy(sequence = 5, execution = AssistExecution.RUNNING)))
         assertFalse(done.accepts(done.copy(sequence = 3)))
         assertFalse(done.accepts(done.copy(taskId = "other", sequence = 5)))

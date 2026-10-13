@@ -32,6 +32,8 @@ import kotlinx.serialization.Serializable
 class GoogleAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
 ) : GoogleAPI {
+    private val requestPreparation = ModelRequestPreparation(networkClient)
+
     override suspend fun uploadFile(
         filePath: String,
         fileName: String,
@@ -125,12 +127,13 @@ class GoogleAPIImpl @Inject constructor(
                         )
                     }
                 ) {
+                    val admittedPayload = requestPreparation.prepare(NetworkClient.json.encodeToString(request), config, model, null)
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                         header(GOOGLE_API_KEY_HEADER, config.token ?: "")
                         parameter("alt", "sse")
                         contentType(ContentType.Application.Json)
-                        setBody(NetworkClient.json.encodeToString(request))
+                        setBody(admittedPayload)
                     }.execute { response ->
                         if (!response.status.isSuccess()) {
                             val errorBody = response.body<String>()

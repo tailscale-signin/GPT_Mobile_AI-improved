@@ -9,6 +9,8 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -67,6 +69,25 @@ internal class AssistCoordinator(
     private suspend fun publish(task: AssistTaskState) = status(task.copy(sequence = sequence.incrementAndGet(), profileUid = policy.profileUid, physicalAttempts = attempts.get()))
 
     private suspend fun reduceShared(result: AgentToolResult, authority: String): AgentToolResult {
+        if (turnId.isBlank()) return reduceOnce(result, authority)
+        val source = ToolResultEnvelope.element(result.retainedContent ?: result.content)
+        val key = researchHash("$turnId|$authority|${runtimeFingerprint()}|$policy|$goal|${researchHash(source.toString())}")
+        val flight = synchronized(flights) {
+            flights.getOrPut(key) { Flight() }.also { it.subscribers++ }
+        }
+        return try {
+            // This is artifact deduplication, not a second lease for the native backend.
+            // A cancelled waiter leaves the physical producer and other waiters alone.
+            flight.mutex.withLock { reduceOnce(result, authority) }
+        } finally {
+            synchronized(flights) {
+                flight.subscribers--
+                if (flight.subscribers == 0) flights.remove(key)
+            }
+        }
+    }
+
+    private suspend fun reduceOnce(result: AgentToolResult, authority: String): AgentToolResult {
         val id = UUID.randomUUID().toString()
         val fingerprint = runtimeFingerprint()
         val source = ToolResultEnvelope.element(result.retainedContent ?: result.content)
@@ -215,6 +236,8 @@ internal class AssistCoordinator(
     }
 
     companion object {
+        private class Flight(val mutex: Mutex = Mutex(), var subscribers: Int = 0)
+        private val flights = mutableMapOf<String, Flight>()
         private val turnAttempts = linkedMapOf<String, Pair<Long, Int>>()
         private val results = linkedMapOf<String, List<JsonObject>>()
     }

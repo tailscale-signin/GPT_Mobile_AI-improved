@@ -45,7 +45,7 @@
     "dependencies": [
       "V01"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA21",
       "LA-QA24",
@@ -55,7 +55,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Shared immutable admission/capacity identities and serialized inclusion receipts added. Shared operational journal and all role boundaries remain."
+    ]
   },
   {
     "id": "V04",
@@ -114,7 +116,7 @@
       "V03",
       "V05"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LC-T02",
       "LC-T12",
@@ -125,7 +127,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Presence-aware output resolver added with provenance and zero/null handling. Reasoning capability mapping and full requested/transmitted/confirmed UI remain."
+    ]
   },
   {
     "id": "V07",
@@ -134,7 +138,7 @@
     "dependencies": [
       "V03"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LC-T03",
       "LC-T04",
@@ -143,7 +147,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Route-preserving, non-autoloading props discovery added, with short negative cache and metadata TTL. Per-key single-flight, runtime epoch invalidation and actual router/gateway qualification remain."
+    ]
   },
   {
     "id": "V08",
@@ -154,7 +160,7 @@
       "V06",
       "V07"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LC-T01",
       "LC-T02",
@@ -165,7 +171,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Checked-Long final serialized payload admission added for HTTP providers. Serving-tokenizer parity, bounded re-plan and live permission invalidation remain."
+    ]
   },
   {
     "id": "V09",
@@ -174,7 +182,7 @@
     "dependencies": [
       "V08"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LC-T05",
       "LC-T06",
@@ -185,7 +193,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Remote HTTP retries pass through final preparation. Native, gateway-added prompts and legacy GET still require unified final boundary coverage."
+    ]
   },
   {
     "id": "V10",
@@ -421,7 +431,7 @@
       "V18",
       "V19"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA13",
       "LA-QA14",
@@ -433,7 +443,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Identical evidence tasks serialize and reuse validated cached sidecars; waiting cancellation is isolated. Actual backend fair scheduling and shared producer ownership remain."
+    ]
   },
   {
     "id": "V21",
@@ -456,7 +468,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Implementation and full acceptance verification in progress; not a completion claim."
+      "HTTP serializer receipts compare exact validated sidecars; task delivery status and native dispatch still require integration."
     ]
   },
   {
@@ -470,7 +482,7 @@
       "V20",
       "V21"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA23",
       "LA-QA24",
@@ -480,7 +492,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Nullable observed counts and verified-versus-legacy inclusion metadata added; full attempt-level accounting and response reporting remain."
+    ]
   },
   {
     "id": "V23",

@@ -128,7 +128,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
                     val assembler = OpenAIResponsesEventAssembler()
                     var roundFailed = false
                     var canRotate = false
@@ -306,6 +306,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
+                        profileUid = platform.uid,
+                        providerType = platform.compatibleType.name,
+                        requestRole = constraints.requestRole ?: "primary",
+                        contextCeiling = constraints.contextCeiling,
+                        permissionRevision = constraints.permissionRevision,
+                        requireKnownCapacity = constraints.requireKnownCapacity,
                         token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
                         freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
                         extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
@@ -869,6 +875,12 @@ class AnthropicMessagesAdapter @Inject constructor(
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
+                        profileUid = platform.uid,
+                        providerType = platform.compatibleType.name,
+                        requestRole = constraints.requestRole ?: "primary",
+                        contextCeiling = constraints.contextCeiling,
+                        permissionRevision = constraints.permissionRevision,
+                        requireKnownCapacity = constraints.requireKnownCapacity,
                         token = activeKey,
                         anthropicBetaFeatures = thinkingPolicy.betaFeatures
                     )
@@ -1090,7 +1102,7 @@ class GeminiAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
                     var roundFailed = false
                     var canRotate = false
                     val roundParts = mutableListOf<Pair<String?, Part>>()

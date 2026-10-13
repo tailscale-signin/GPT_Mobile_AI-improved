@@ -38,6 +38,8 @@ private const val ANTHROPIC_FILES_BETA = "files-api-2025-04-14"
 class AnthropicAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
 ) : AnthropicAPI {
+    private val requestPreparation = ModelRequestPreparation(networkClient)
+
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -110,10 +112,11 @@ class AnthropicAPIImpl @Inject constructor(
             flow<MessageResponseChunk> {
                 val endpoint = config.buildEndpoint("messages")
 
+                val admittedPayload = requestPreparation.prepare(json.encodeToString(messageRequest), config, messageRequest.model, null)
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
-                    setBody(json.encodeToString(messageRequest))
+                    setBody(admittedPayload)
                     accept(ContentType.Text.EventStream)
                     headers {
                         append(API_KEY_HEADER, config.token ?: "")

@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolBatchPlannerTest {
+    @Test fun separateSourcesDoNotExhaustTheReaderRepeatLimit() {
+        fun call(id: String, url: String) = ProviderEvent.ToolCall(id, "mcp__jina__read_url", kotlinx.serialization.json.buildJsonObject { put("url", kotlinx.serialization.json.JsonPrimitive(url)) })
+        val first = call("1", "https://example.org/one")
+        val second = call("2", "https://example.org/two")
+        val plan = planToolBatch(listOf(first, second), 40, setOf(first.name), mapOf(toolRepeatKey(first) to 3), emptySet(), 24) { it.name }
+        assertEquals(listOf(second), plan.executable)
+        assertEquals(setOf("1"), plan.perToolSuppressedIds)
+        assertTrue(plan.disabledNames.isEmpty())
+    }
+
     @Test fun admittedCallsSurviveRemovalOfARepeatedTool() {
         val calls = (0..3).map { ProviderEvent.ToolCall("$it", "search_nodes", JsonObject(emptyMap())) }
         val plan = planToolBatch(calls, 10, setOf("search_nodes"), mapOf("search_nodes" to 1), emptySet(), 16) { it.name }

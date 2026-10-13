@@ -24,7 +24,7 @@ class BackFade internal constructor(private val scope: CoroutineScope) {
         running = true
         scope.launch {
             try {
-                opacity.animateTo(0f, tween(500))
+                opacity.animateTo(0f, tween(120))
                 action()
                 opacity.snapTo(1f)
             } finally {

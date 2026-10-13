@@ -34,6 +34,33 @@ class McpClientManagerTest {
 
     @org.junit.After fun clearEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
 
+    @Test fun `modern discovery respects passive failure cooldown and explicit refresh`() = runBlocking {
+        var requests = 0
+        val client = HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                requests++
+                respond("Unavailable", io.ktor.http.HttpStatusCode.ServiceUnavailable)
+            }
+        ) { install(SSE) }
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val config = McpConnectionConfig("modern-backoff", "https://example.com/mcp", false)
+        try {
+            assertTrue(runCatching { manager.listTools(config) }.isFailure)
+            val first = requests
+            assertTrue(first > 0)
+            repeat(3) {
+                assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpBackoffException)
+            }
+            assertEquals(first, requests)
+            assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+            assertTrue(runCatching { manager.listTools(config, forceRefresh = true) }.isFailure)
+            assertTrue(requests > first)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
     @Test fun `authentication failure stops repeat discovery until credentials change`() = runBlocking {
         var requests = 0
         val client = HttpClient(

@@ -145,8 +145,8 @@ private fun AppNavHost(
                     )
                 )
         },
-        popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = 500)) },
-        popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 500)) }
+        popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = 160)) },
+        popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 160)) }
     ) {
         homeScreenNavigation(navController)
         migrationScreenNavigation(navController)

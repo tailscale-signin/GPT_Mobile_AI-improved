@@ -44,7 +44,7 @@ internal fun MultiSearchResearchPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Deep Research", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                 Switch(selection.researchToggle, { value ->
-                    onChange(selection.copy(researchToggle = value))
+                    onChange(selection.copy(researchToggle = value, depth = if (value && selection.depth == 0) defaults.strategy.coerceIn(25, 100) else selection.depth))
                     if (value && unlockReason != null) consent = true
                 })
             }
@@ -62,10 +62,10 @@ internal fun MultiSearchResearchPanel(
                 })
             }
             val effective = selection.applyTo(defaults).deepResearch
-            Text(unlockReason ?: "Unlocked · ${selection.intensity()?.name?.lowercase() ?: "standard"}", color = if (unlockReason == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("${selection.depth}% effort · target ${effective.maxPages} readable sources${if (effective.sourceSafetyCap != null) " · limited by your safety cap" else ""}. ${if (selection.depth == 100) "All enabled eligible engines receive a query opportunity." else "Availability and quotas apply."}", style = MaterialTheme.typography.bodySmall)
+            Text(unlockReason ?: "Ready · ${selection.intensity()?.name?.lowercase() ?: "standard"}", color = if (unlockReason == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${selection.depth}% effort · target ${effective.maxPages} readable sources. ${if (selection.depth == 100) "All enabled eligible engines receive a query opportunity." else "Availability and quotas apply."}", style = MaterialTheme.typography.bodySmall)
             Row {
-                TextButton(onClick = { consent = true }) { Text("Academic permissions") }
+                TextButton(onClick = { consent = true }) { Text("Research permissions") }
                 TextButton(onClick = onSaveDefault) { Text("Save profile default") }
             }
             TextButton(onClick = { providers = !providers }) { Text("Providers & gateway") }
@@ -99,7 +99,7 @@ internal fun MultiSearchResearchPanel(
         }
     }
     if (consent) {
-        AlertDialog(onDismissRequest = { consent = false }, title = { Text("Enable academic research?") }, text = { Text("Allow this AI profile to send research queries to selected public academic providers and the selected gateway. This enables Deep Research and Papers and studies. Existing network restrictions still apply. Sources impose quotas; paywalled text is unavailable. Your gateway needs its own private bearer token.") }, confirmButton = {
+        AlertDialog(onDismissRequest = { consent = false }, title = { Text("Enable research for this profile?") }, text = { Text(if (selection.scope == ResearchContentScope.WEB_ONLY) "Enable Deep Research for this AI profile using its authorized web search and reading tools. Papers and studies access stays unchanged. Existing network restrictions still apply." else "Allow this AI profile to send research queries to selected public academic providers and the selected gateway. This enables Deep Research and Papers and studies. Existing network restrictions still apply. Sources impose quotas; paywalled text is unavailable. Your gateway needs its own private bearer token.") }, confirmButton = {
             TextButton(onClick = {
                 onConsent()
                 consent = false

@@ -8,6 +8,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalReadinessRegistryTest {
+    @Test fun `first incompatibility retains the native cause for diagnosis`() = runBlocking {
+        val cause = IllegalStateException("Input tensor not found")
+        val failure = runCatching { LocalReadinessRegistry().qualify("model") { throw cause } }.exceptionOrNull()
+        assertTrue(failure is LocalArtifactIncompatibleException)
+        assertEquals(cause, failure?.cause)
+    }
+
     @Test fun `concurrent incompatible requests perform one native attempt per identity`() = runBlocking {
         val registry = LocalReadinessRegistry()
         var attempts = 0

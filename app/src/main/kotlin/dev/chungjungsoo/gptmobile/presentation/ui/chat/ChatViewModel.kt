@@ -100,7 +100,8 @@ class ChatViewModel @Inject constructor(
     private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
     private val shareInbox: dev.chungjungsoo.gptmobile.data.sharing.ShareInbox? = null,
     private val factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
-    private val researchSessionStore: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
+    private val researchSessionStore: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
+    private val conversationExitWork: dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -377,6 +378,7 @@ class ChatViewModel @Inject constructor(
     private var lastAutoTitleUserTurnCount = 0
     private var autoTitleGenerationInFlight = false
     private val combinedSynthesisMessages = mutableSetOf<Int>()
+    private val combinedSynthesisAttempts = CombinedSynthesisGate()
     private var pendingRunDispatches = 0
     private val platformMembershipMutex = Mutex()
 
@@ -746,14 +748,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun grantAcademicResearch(profileUid: String) {
+    fun grantAcademicResearch(profileUid: String, includePapers: Boolean = true) {
         viewModelScope.launch {
             conversationDelegationMutex.withLock {
                 settingRepository.mutateFeatureSettings { latest ->
                     val granted = latest.withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
                         .withProfileToolPluginEnabled(profileUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
                     val behavior = granted.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-                    granted.copy(profileBehavior = granted.profileBehavior + (profileUid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true)))
+                    granted.copy(profileBehavior = granted.profileBehavior + (profileUid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = if (includePapers) true else behavior.academicSourcesAllowed)))
                 }
             }
         }
@@ -1008,6 +1010,7 @@ class ChatViewModel @Inject constructor(
             ?.getOrNull(platformIndex)
             ?: return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
+        combinedSynthesisAttempts.reset(userMessage.id)
         val runId = UUID.randomUUID().toString()
         val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
         val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
@@ -1017,7 +1020,7 @@ class ChatViewModel @Inject constructor(
             runId,
             if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
         )
-        _loadingStates.update { it.toMutableList().apply { this[platformIndex] = LoadingState.Loading } }
+        _loadingStates.update { states -> states.mapIndexed { index, state -> if (index == platformIndex) LoadingState.Loading else state } }
 
         viewModelScope.launch {
             persistBeforeProvider(
@@ -1222,26 +1225,28 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private var leavingConversation = false
+
     fun leaveConversation(done: () -> Unit) {
-        viewModelScope.launch {
-            try {
-                if (_chatRoom.value.isTemporary) {
-                    agentRunCoordinator.cancelChatAndJoin(_chatRoom.value.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
-                    chatRepository.deleteChatsV2(listOf(_chatRoom.value))
-                } else if (_chatRoom.value.id > 0 && composerRestored) {
-                    draftMutex.withLock {
-                        val encoded = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), _selectedAttachments.value.mapNotNull { it.attachment })
-                        chatRepository.saveComposerDraft(_chatRoom.value.id, question.text.toString(), encoded, System.currentTimeMillis() / 1000)
-                    }
+        if (leavingConversation) return
+        leavingConversation = true
+        val room = _chatRoom.value
+        val text = question.text.toString()
+        val attachments = _selectedAttachments.value.mapNotNull { it.attachment }
+        val saveDraft = composerRestored
+        conversationExitWork.enqueue(room.id) {
+            if (room.isTemporary) {
+                agentRunCoordinator.cancelChatAndJoin(room.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
+                chatRepository.deleteChatsV2(listOf(room))
+            } else if (room.id > 0 && saveDraft) {
+                draftMutex.withLock {
+                    val encoded = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), attachments)
+                    chatRepository.saveComposerDraft(room.id, text, encoded, System.currentTimeMillis() / 1000)
                 }
-                if (_chatRoom.value.isArchived) chatRepository.setChatArchived(_chatRoom.value.id, true)
-                done()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                _attachmentNotice.value = "Conversation cleanup or draft saving failed. Try closing again."
             }
+            if (room.isArchived && !room.isTemporary) chatRepository.setChatArchived(room.id, true)
         }
+        done()
     }
 
     fun saveAssistantMessageEdit(
@@ -1382,7 +1387,7 @@ class ChatViewModel @Inject constructor(
                 val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
                 _loadingStates.update { states ->
                     states.toMutableList().apply {
-                        unavailableIndexes.forEach { this[it] = LoadingState.Idle }
+                        unavailableIndexes.filter { it in indices }.forEach { this[it] = LoadingState.Idle }
                     }
                 }
                 if (platforms.isEmpty()) {
@@ -1440,13 +1445,17 @@ class ChatViewModel @Inject constructor(
                             setConversationDelegation(_chatToolConfig.value.delegation)
                         }
                         _groupedMessages.update { groupedMessages ->
+                            // Room can replace the optimistic row while persistence suspends.
+                            val persistedIndex = persistedTurnIndex(groupedMessages.userMessages, userMessage, persisted.userMessage)
+                                ?: return@update groupedMessages
+                            if (persistedIndex !in groupedMessages.assistantMessages.indices) return@update groupedMessages
                             groupedMessages.copy(
                                 userMessages = groupedMessages.userMessages.toMutableList().apply {
-                                    this[turnIndex] = persisted.userMessage
+                                    this[persistedIndex] = persisted.userMessage
                                 },
                                 assistantMessages = groupedMessages.assistantMessages.toMutableList().apply {
-                                    this[turnIndex] = mergePersistedAssistantRow(
-                                        currentRow = this[turnIndex],
+                                    this[persistedIndex] = mergePersistedAssistantRow(
+                                        currentRow = this[persistedIndex],
                                         selectedProfileUids = enabledPlatformsInChat,
                                         persistedMessages = persisted.assistantMessages,
                                         chatId = persisted.chatRoom.id
@@ -1454,7 +1463,9 @@ class ChatViewModel @Inject constructor(
                                 }
                             )
                         }
-                        val contextMessages = _groupedMessages.value
+                        val contextMessages = withContext(Dispatchers.Default) {
+                            groupPersistedMessages(chatRepository.fetchMessagesV2(persisted.chatRoom.id), enabledPlatformsInChat, persisted.chatRoom.id)
+                        }
                         agentRunCoordinator.start(
                             platforms.mapIndexed { runIndex, (_, platform) ->
                                 AgentRunRequest(
@@ -1751,7 +1762,7 @@ class ChatViewModel @Inject constructor(
                 .debounce(250)
                 .collect { (text, attachments) ->
                     val id = _chatRoom.value.id
-                    if (composerRestored && id > 0 && attachments.none { it.status == ChatAttachmentDraft.Status.Preparing }) {
+                    if (!leavingConversation && composerRestored && id > 0 && attachments.none { it.status == ChatAttachmentDraft.Status.Preparing }) {
                         val encoded = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), attachments.mapNotNull { it.attachment })
                         draftMutex.withLock {
                             chatRepository.saveComposerDraft(id, text.takeIf(String::isNotEmpty), encoded, System.currentTimeMillis() / 1000)
@@ -1764,6 +1775,7 @@ class ChatViewModel @Inject constructor(
 
     private fun fetchChatRoom() {
         viewModelScope.launch {
+            conversationExitWork.awaitPending(chatRoomId)
             val room = if (chatRoomId == 0) {
                 ChatRoomV2(
                     id = 0,
@@ -1888,7 +1900,8 @@ class ChatViewModel @Inject constructor(
                 }
                 .collect { (chatId, messages) ->
                     if (chatId <= 0) return@collect
-                    val groupedMessages = groupPersistedMessages(messages, enabledPlatformsInChat, chatId)
+                    val slots = enabledPlatformsInChat.toList()
+                    val groupedMessages = withContext(Dispatchers.Default) { groupPersistedMessages(messages, slots, chatId) }
                     _groupedMessages.update { groupedMessages }
                     _indexStates.update { current ->
                         List(groupedMessages.assistantMessages.size) { index -> current.getOrElse(index) { 0 } }
@@ -1944,6 +1957,7 @@ class ChatViewModel @Inject constructor(
             if (activeRow.size != activeSlotIndexes.size) return@forEach
             val sources = combinedSynthesisInputs(activeRow, runsById, _platformsInApp.value.associate { it.uid to it.name }, _chatPlatformModels.value)
                 ?: return@forEach
+            if (!combinedSynthesisAttempts.reserve(userId, sources)) return@forEach
             combinedSynthesisMessages += userId
             pendingRunDispatches += 1
             viewModelScope.launch {

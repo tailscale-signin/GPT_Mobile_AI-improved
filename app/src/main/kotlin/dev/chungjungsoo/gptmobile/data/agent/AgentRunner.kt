@@ -277,7 +277,7 @@ class AgentRunner(
                 val message = if (call.callId in hostSuppressedIds) {
                     "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
                 } else if (call.callId in perToolSuppressedIds) {
-                    "Tool '${call.name}' reached the per-response repeat limit and is disabled for the remainder of this response. Use results already collected; do not retry it until a new response."
+                    "This operation reached the per-response repeat limit. Use results already collected; do not repeat these arguments. Other authorized sources may still be read within the remaining budget."
                 } else {
                     FINAL_RESPONSE_INSTRUCTION
                 }

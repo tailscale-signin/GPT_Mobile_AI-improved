@@ -92,9 +92,14 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val packet = RuntimeWire("LOAD", UUID.randomUUID().toString(), generation = generation, spec = spec, settings = snapshot, preferredBackend = settings.getLocalRuntimeBackend())
         val artifact = java.io.File(spec.modelPath)
         check(artifact.isFile || artifact.isDirectory) { "MISSING_ASSET: Download or relink the selected model before running it." }
-        val identity = "$spec|${artifact.length()}|${artifact.lastModified()}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${packet.preferredBackend}|${snapshot.localEngineTuning()}"
-        readiness.qualify(identity) {
-            if (!isEngineLoaded(spec)) command(packet, timeoutMs = 180_000)
+        val identity = "${spec.engineConfiguration()}|${artifact.length()}|${artifact.lastModified()}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${packet.preferredBackend}|${snapshot.localEngineTuning()}"
+        try {
+            readiness.qualify(identity) {
+                if (!isEngineLoaded(spec)) command(packet, timeoutMs = 180_000)
+            }
+        } catch (error: Exception) {
+            mutableState.value = state.value.copy(lifecycle = "FAILED", fallbackReason = error.message)
+            throw error
         }
         requestedSpec = spec
         tuning = snapshot.localEngineTuning()

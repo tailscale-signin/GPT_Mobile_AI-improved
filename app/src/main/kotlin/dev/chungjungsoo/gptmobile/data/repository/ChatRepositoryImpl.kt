@@ -1798,6 +1798,13 @@ class ChatRepositoryImpl(
             )
             val toolBudget = ToolExecutionBudget(toolBudgetLimits, statistics = toolStatistics.takeIf { researchPersistent }, statisticsProfile = platform.uid, statisticsRoot = runId)
             val explicitResearchSelection = chatToolConfig?.research
+            val researchBlocked = explicitResearchSelection?.takeIf { it.researchToggle }?.let {
+                dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason(it, runFeatures, platform.uid, !platform.disableAllTools && !platform.disableRemoteTools)
+            }
+            if (!synthesisRun && researchBlocked != null) {
+                emit(ApiState.Notice("Research could not start: $researchBlocked. Open this conversation's Research permissions to resolve it.", persistent = true))
+                AppLogRecorder.record("Research", "ACQUISITION_SKIPPED · reason=$researchBlocked · executionAttempted=false", "W")
+            }
             val explicitResearch = !resumeWriterOnly &&
                 taskRecovery?.primaryOnly != true &&
                 explicitResearchSelection?.let { selection ->
@@ -2160,6 +2167,7 @@ class ChatRepositoryImpl(
         val requestConstraints = RequestConstraints(
             maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
+            allowReasoning = !editorialPass,
             allowGatewayLocalTools = false
         )
         if (editorialPass) AppLogRecorder.record("Combined", "OUTPUT_CAP_RESOLVED · runId=$runId · requested=${effectiveOutputCap ?: -1} · profile=${platform.maxTokens ?: -1} · provider=${dev.chungjungsoo.gptmobile.data.agent.provider.ProviderOutputLimits.effective(capKey, null) ?: -1} · effective=${resolvedOutputCap ?: -1}")

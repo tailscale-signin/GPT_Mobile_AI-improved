@@ -4,9 +4,10 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-class LocalArtifactIncompatibleException :
+class LocalArtifactIncompatibleException(cause: Throwable? = null) :
     IllegalStateException(
-        "ENGINE_INITIALIZATION: This artifact's tensor contract is incompatible with the selected runtime/backend. Replace the export or run explicit compatibility verification after changing the installation."
+        "ENGINE_INITIALIZATION: This model export could not initialize on the selected backend (Input tensor not found). In Local AI, check the model edition and backend; NPU exports need their matching device/runtime. Import a compatible export, then run Verify. This failed configuration will not be retried automatically.",
+        cause
     )
 
 /** Only deterministic artifact errors are retained. Resource pressure and cancellation stay retryable. */
@@ -22,7 +23,7 @@ internal class LocalReadinessRegistry {
             if (error is kotlinx.coroutines.CancellationException) throw error
             if (deterministicFailure(error)) {
                 blocked += key
-                throw LocalArtifactIncompatibleException()
+                throw LocalArtifactIncompatibleException(error)
             }
             throw error
         }

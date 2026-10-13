@@ -21,12 +21,14 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             text.startsWith("enrichment_success") ||
             text.startsWith("connected") ->
             DiagnosticClassification("recovery", "info", false, "reported_success")
-        "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
+        tag == "AppCrash" || "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
         level == "E" -> DiagnosticClassification("error", "error", true)
         level == "W" -> DiagnosticClassification("warning", "warning", true)
         Regex("(?:^| · )(?:error=true|status=FAILED|outcome=FAILED)(?: · |$)", RegexOption.IGNORE_CASE).containsMatchIn(message) ->
             DiagnosticClassification("reported_failure", "error", true)
-        tag == "Frame" && Regex("(?:slowFrames|jankyFrames)=[1-9]").containsMatchIn(message) ->
+        tag in setOf("Frame", "Rendering") && Regex("(?:slowFrames|jankyFrames|jankFrames)=[1-9]").containsMatchIn(message) ->
+            DiagnosticClassification("performance", "warning", true)
+        "choreographer" in text && Regex("skipped [1-9][0-9]* frames").containsMatchIn(text) ->
             DiagnosticClassification("performance", "warning", true)
         else -> DiagnosticClassification("informational", "info", false)
     }

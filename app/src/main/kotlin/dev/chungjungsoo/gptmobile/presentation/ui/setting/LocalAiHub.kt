@@ -195,6 +195,17 @@ fun LocalModelsScreen(
                     }
                     item(key = "import") { LocalAiActionCard(Icons.Rounded.FileOpen, stringResource(R.string.local_ai_import), stringResource(R.string.local_ai_import_description), { importOpen = true }) }
                     runtimeStatus?.let { status -> item(key = "runtime-status") { Text(status) } }
+                    activeRuntime.fallbackReason?.takeIf { activeRuntime.lifecycle == "FAILED" }?.let { reason ->
+                        item(key = "runtime-recovery") {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Local model needs attention", style = MaterialTheme.typography.titleSmall)
+                                    Text(reason, style = MaterialTheme.typography.bodySmall)
+                                    Text("Check the model edition and backend in its profile. After replacing or correcting it, choose Verify load from the profile menu.", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
                     importStatus?.let { status ->
                         item(key = "import-status") {
                             Text(status)
@@ -243,6 +254,10 @@ fun LocalModelsScreen(
                                         DropdownMenuItem(text = { Text(stringResource(R.string.local_ai_duplicate)) }, onClick = {
                                             menu = false
                                             runtimeViewModel.duplicateProfile(profile)
+                                        })
+                                        DropdownMenuItem(text = { Text("Verify load") }, onClick = {
+                                            menu = false
+                                            runtimeViewModel.verifyProfile(profile.uid)
                                         })
                                         DropdownMenuItem(text = { Text(stringResource(if (profile.isFavorite) R.string.local_ai_unpin else R.string.local_ai_pin)) }, onClick = {
                                             menu = false

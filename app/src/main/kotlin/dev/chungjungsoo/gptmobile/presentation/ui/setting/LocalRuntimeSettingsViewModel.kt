@@ -158,6 +158,25 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         _status.value = "Comparison started. It continues while you use other screens; Stop remains available in the benchmark notification."
     }
     fun stopComparison() = comparison.stop()
+
+    fun verifyProfile(uid: String) = perform {
+        val profile = repository.fetchPlatformV2s().first { it.uid == uid && it.compatibleType == ClientType.LITERT_LM }
+        val selected = models.resolveLocalModelSelection(profile.model, profile.accelerator)
+        _status.value = "Verifying the installed model and selected backend…"
+        val verified = runtime.tryRunExclusive {
+            val probe = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selected.path, LocalAccelerators.normalize(profile.accelerator), 2048, tuningLocked = true)
+            allowVerification(probe)
+            val metadata = inspectModel(selected.path)
+            val spec = probe.copy(maxTokens = metadata?.contextTokens?.takeIf { !metadata.dynamicContext } ?: minOf(metadata?.contextTokens ?: 2048, 4096))
+            metadata?.validate(spec)
+            allowVerification(spec)
+            loadEngine(spec)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOAD_VERIFICATION · outcome=PASSED · requested=${spec.accelerator} · effective=${loadedEngineSpec()?.accelerator ?: "unknown"} · inferenceQualified=false")
+            true
+        }
+        _status.value = if (verified == true) "Model loaded successfully and is ready for a test response. Load verification alone does not qualify performance or NPU execution." else "Local model is busy. Try Verify load after the current response finishes."
+    }
+
     fun clearRuntimeEvidence() = perform { benchmarkStore.clearRuntimeEvidence() }
 
     fun releaseIdleMemory() = perform {

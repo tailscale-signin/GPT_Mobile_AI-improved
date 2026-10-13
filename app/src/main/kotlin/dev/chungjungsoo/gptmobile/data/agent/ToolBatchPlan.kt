@@ -26,8 +26,10 @@ internal fun planToolBatch(
     val disabled = mutableSetOf<String>()
     val accepted = mutableMapOf<String, Int>()
     calls.forEachIndexed { index, call ->
-        val used = (usedByName[call.name] ?: 0) + (accepted[call.name] ?: 0)
-        val repeatLimit = if (Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else sameToolLimit
+        val repeatKey = toolRepeatKey(call)
+        val sourceRead = repeatKey != call.name
+        val used = (usedByName[repeatKey] ?: 0) + (accepted[repeatKey] ?: 0)
+        val repeatLimit = if (sourceRead || Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else sameToolLimit
         when {
             index >= remaining -> deferred += call
             call.name !in availableNames -> {
@@ -41,13 +43,26 @@ internal fun planToolBatch(
             used >= repeatLimit -> {
                 deferred += call
                 suppressed += call.callId
-                disabled += call.name
+                if (!sourceRead) disabled += call.name
             }
             else -> {
                 executable += call
-                accepted[call.name] = (accepted[call.name] ?: 0) + 1
+                accepted[repeatKey] = (accepted[repeatKey] ?: 0) + 1
             }
         }
     }
     return ToolBatchPlan(executable, deferred, suppressed, hostSuppressed, disabled, accepted)
+}
+
+/** Reading independent pages is useful research, not a repeated invocation loop. */
+internal fun toolRepeatKey(call: ProviderEvent.ToolCall): String {
+    val name = call.name.substringAfterLast("__")
+    if (name !in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "fetch", "read_doc")) return call.name
+    fun canonical(value: kotlinx.serialization.json.JsonElement): String = when (value) {
+        is kotlinx.serialization.json.JsonObject -> value.entries.sortedBy { it.key }.joinToString(",", "{", "}") { kotlinx.serialization.json.JsonPrimitive(it.key).toString() + ":" + canonical(it.value) }
+        is kotlinx.serialization.json.JsonArray -> value.joinToString(",", "[", "]") { canonical(it) }
+        else -> value.toString()
+    }
+    val hash = java.security.MessageDigest.getInstance("SHA-256").digest(canonical(call.arguments).toByteArray())
+    return call.name + ":" + hash.joinToString("") { "%02x".format(it) }
 }

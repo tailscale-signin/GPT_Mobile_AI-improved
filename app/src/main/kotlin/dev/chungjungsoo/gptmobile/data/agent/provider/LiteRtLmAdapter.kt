@@ -330,7 +330,7 @@ class LiteRtLmAdapter(
                     modelPath = modelPath,
                     accelerator = LocalAccelerators.normalize(platform.accelerator),
                     maxTokens = effectiveContextTokens,
-                    isVisionEnabled = visionCapable,
+                    isVisionEnabled = latestImages.isNotEmpty(),
                     visionAccelerator = if (
                         LocalAccelerators.normalize(platform.accelerator) == LocalAccelerators.NPU &&
                         catalogEntry?.capabilities?.npuVision == true

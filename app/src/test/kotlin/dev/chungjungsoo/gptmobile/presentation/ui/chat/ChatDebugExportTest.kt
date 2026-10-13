@@ -25,7 +25,7 @@ class ChatDebugExportTest {
         val records = buildJsonObject {
             put("answerSegments", kotlinx.serialization.json.JsonArray(listOf(json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment.serializer(), segment))))
         }
-        val body = buildChatDebugExport(ChatRoomV2(id = 1), emptyList(), listOf(PlatformV2(name = "Profile", token = "configured-secret-value")), ChatMcpToolConfig(), AppFeatureSettings(), "", records, emptyList(), json)
+        val body = buildChatDebugExport(ChatRoomV2(id = 1, title = "Synthetic"), emptyList(), listOf(PlatformV2(name = "Profile", token = "configured-secret-value")), ChatMcpToolConfig(), AppFeatureSettings(), "", records, emptyList(), json)
         assertFalse(body.contains("configured-secret-value"))
         assertFalse(body.contains(segment.digest))
         val exported = Json.parseToJsonElement(body).jsonObject.getValue("answerSegments").jsonArray.single().jsonObject

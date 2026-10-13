@@ -67,6 +67,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.containsLocalOnlyMemory
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.PreparationPhase
+import dev.chungjungsoo.gptmobile.data.diagnostics.measurePreparation
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
@@ -1350,7 +1352,10 @@ class ChatRepositoryImpl(
                 // A final suspending snapshot recovers any intermediate UI update
                 // skipped while the channel was busy. It is never the primary answer.
                 if (kotlinx.coroutines.currentCoroutineContext().isActive) {
-                    invocation?.let { send(ApiState.DelegationText(it, traceProfile, delegateText.toString(), !target.isPrivateDestination())) }
+                    invocation?.let {
+                        val update = ApiState.DelegationText(it, traceProfile, delegateText.toString(), !target.isPrivateDestination())
+                        if (requestRole == "assist") trySend(update) else send(update)
+                    }
                 }
             }
         }
@@ -1436,7 +1441,7 @@ class ChatRepositoryImpl(
                 return@channelFlow
             }
             var recovery: dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext? = null
-            var contextTurns = withContext(Dispatchers.Default) {
+            var contextTurns = measurePreparation(runId, PreparationPhase.NORMALIZATION) {
                 buildContextTurns(effectiveUserMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform, preserveAttachments = runId.startsWith("combined-synthesis:")).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
@@ -1602,7 +1607,7 @@ class ChatRepositoryImpl(
                     ResolvedAgentTool(it, null, "Saved response", it.definition.name, it.definition.name, shareableReadOnly = true)
                 }
             )
-            val resolvedTools = resolveAuthorizedTools()
+            val resolvedTools = measurePreparation(runId, PreparationPhase.TOOL_DISCOVERY) { resolveAuthorizedTools() }
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = effectiveUserMessages.lastOrNull()
             val researchTask = taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()
@@ -1665,7 +1670,7 @@ class ChatRepositoryImpl(
                 emit(ApiState.Notice("Local memory is unavailable. Continuing without saved facts.", persistent = true))
                 FactRecall()
             }
-            val recalled = recallTurnMemory()
+            val recalled = measurePreparation(runId, PreparationPhase.MEMORY_RECALL) { recallTurnMemory() }
             if (recalled.facts.any { it.localOnly }) privateMemoryRuns.add(runId)
             if (runId in privateMemoryRuns) {
                 // A model can place recalled text in arbitrary tool arguments. Permit only
@@ -1755,11 +1760,11 @@ class ChatRepositoryImpl(
                 !platform.disableAllTools &&
                 !platform.disableLocalTools
             val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
-            val documentContext = if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
+            val documentContext = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) { if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty() }
             var requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt()
             )
-            var contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
+            var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits) }
             AppLogRecorder.record(
                 "Tools",
                 "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}"
@@ -1776,7 +1781,7 @@ class ChatRepositoryImpl(
                 reviewedPreparationUnavailable = requiresReviewedPreparation
                 exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy)
                 requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt())
-                contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
+                contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits) }
                 AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}")
             }
             if (reviewedPreparationUnavailable) emit(ApiState.Notice("100% delegation requires an available helper and independent review. Check the delegate, reviewer and context settings, then retry.", persistent = true))
@@ -1860,7 +1865,7 @@ class ChatRepositoryImpl(
                 policySnapshot = runFeatures.resolveAssistPolicy(),
                 goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                 turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
-                eligible = { runtimeEligibleForAssist(it, runFeatures.effectiveAssistPolicy()) },
+                eligible = { target -> measurePreparation(runId, PreparationPhase.READINESS) { runtimeEligibleForAssist(target, runFeatures.effectiveAssistPolicy()) } },
                 profileAllowed = { original ->
                     settingRepository.fetchPlatformV2s().any { current ->
                         current.uid == original.uid &&

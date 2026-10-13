@@ -6,6 +6,9 @@ import kotlin.math.ln
 /** Bounded lexical retrieval with related vocabulary, relation intent and conversation continuity. */
 internal object MemoryRecallPolicy {
     private val stop = setOf("the", "and", "that", "this", "with", "have", "what", "how", "for", "are", "was", "can", "you", "your", "please", "help", "user", "about", "from", "would", "could", "tell")
+
+    // Generic task words cannot make an unrelated personal fact relevant by themselves.
+    private val generic = setOf("answer", "response", "reply", "question", "topic", "project", "work", "working", "help", "information", "history", "research", "explain", "write", "create", "make", "use", "using", "thing", "time")
     private val groups = listOf(
         setOf("concise", "brief", "short", "succinct", "brevity"),
         setOf("reply", "response", "answer", "replies"),
@@ -37,8 +40,8 @@ internal object MemoryRecallPolicy {
         val documentFrequency = corpus.values.flatten().groupingBy { it }.eachCount()
         return facts.map { fact ->
             val terms = corpus.getValue(fact)
-            val exact = queryTerms.intersect(terms).sumOf { term -> ln(1.0 + facts.size.toDouble() / (1 + documentFrequency.getOrDefault(term, 0))) * 4 }
-            val related = expandedQuery.intersect(expanded(fact.fact.target.name, document = true)).size.coerceAtMost(3) * 0.35
+            val exact = queryTerms.intersect(terms).filterNot { it in generic }.sumOf { term -> ln(1.0 + facts.size.toDouble() / (1 + documentFrequency.getOrDefault(term, 0))) * 4 }
+            val relatedMatches = expandedQuery.intersect(expanded(fact.fact.target.name, document = true)).filterNot { it in generic }.size
             val relation = fact.fact.relation.relationType
             val intent = if (!personal) {
                 0.0
@@ -55,10 +58,12 @@ internal object MemoryRecallPolicy {
                     else -> 0.0
                 }
             }
-            val followUp = if (continuity.isNotEmpty()) continuity.intersect(terms).size.coerceAtMost(3) * 0.6 else 0.0
+            val followUp = if (continuity.isNotEmpty()) continuity.intersect(terms).filterNot { it in generic }.size.coerceAtMost(3) * 0.6 else 0.0
             val broadProfile = if (broad && fact.fact.entity.id == "user") 3.0 else 0.0
             val similarity = semanticScores[fact.id] ?: 0.0
             val semantic = if (similarity >= 0.55) (similarity - 0.45) * 10.0 else 0.0
+            // Synonyms boost an anchored match; a generic topic expansion alone is not evidence.
+            val related = if (exact > 0.0 || intent > 0.0 || followUp > 0.0 || semantic > 0.0) relatedMatches.coerceAtMost(3) * 0.35 else 0.0
             val relevance = exact + related + intent + followUp + broadProfile + semantic
             val ageDays = ((now - fact.lastSeenMillis).coerceAtLeast(0) / 86_400_000.0)
             val recency = if (useRecency) 0.6 / (1.0 + ageDays / 30.0) else 0.0

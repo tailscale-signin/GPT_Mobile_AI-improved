@@ -32,7 +32,9 @@ data class AssistTaskState(
     val unprocessedSpanIds: List<String> = emptyList(),
     val runtimeFingerprint: String? = null,
     val reused: Boolean = false,
-    val policySnapshot: EffectiveAssistPolicy? = null
+    val policySnapshot: EffectiveAssistPolicy? = null,
+    val sharedWorkId: String? = null,
+    val subscriberId: String? = null
 ) {
     val terminal: Boolean get() = execution in setOf(AssistExecution.COMPLETED, AssistExecution.SKIPPED, AssistExecution.FAILED, AssistExecution.TIMED_OUT, AssistExecution.CANCELLED, AssistExecution.INTERRUPTED)
 

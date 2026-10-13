@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-enum class RunDiagnosticKind { REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, RUN_TERMINAL, CAPTURE_GAP }
+enum class RunDiagnosticKind { PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, RUN_TERMINAL, CAPTURE_GAP }
 
 @Serializable
 enum class RunDiagnosticRole {
@@ -58,7 +58,8 @@ data class RunDiagnosticEvent(
     val reasoningBytes: Long? = null,
     val elapsedMillis: Long? = null,
     val successful: Boolean? = null,
-    val measured: Boolean? = null
+    val measured: Boolean? = null,
+    val phase: PreparationPhase? = null
 )
 
 @Serializable
@@ -189,7 +190,8 @@ internal class RunDiagnosticJournal(
         reasoningBytes: Long? = null,
         elapsedMillis: Long? = null,
         successful: Boolean? = null,
-        measured: Boolean? = null
+        measured: Boolean? = null,
+        phase: PreparationPhase? = null
     ) {
         if (!enabled || privateSession) return
         // Identifiers are internally generated IDs. Reject accidental content at the boundary.
@@ -211,7 +213,7 @@ internal class RunDiagnosticJournal(
             val sequence = prior + 1L
             sequences[runId] = sequence
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
-            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured)
+            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase)
             if (pending.size >= 512) {
                 val sample = pending.indexOfFirst { it.kind == RunDiagnosticKind.REDUCER_CHECKPOINT }
                 if (sample >= 0) {

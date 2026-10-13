@@ -452,7 +452,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Warm Assist requests queue on the native holder and revalidate permission/runtime before dispatch. Shared-flight producer cancellation independence, subscriber links and root-priority scheduling remain."
+      "Shared producers now survive individual subscriber cancellation, recheck each subscriber permission/runtime, retain subscriber links and cancel with no subscribers. Root-priority fairness, explicit queue deadlines and device concurrency qualification remain."
     ]
   },
   {
@@ -606,7 +606,7 @@
       "V14",
       "V25"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA36",
       "LC-T06",
@@ -615,7 +615,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Full-query lexical and connected memory recall, conservative generic-term filtering, serialized-fact deduplication, off-main preparation and separate typed phase timings added. Bounded capability-discovery invalidation, complete serialization timing and performance qualification remain."
+    ]
   },
   {
     "id": "V28",

@@ -11,7 +11,7 @@ import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -24,7 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaReasoningAdmissionTest {
-    @Test fun explicitOffUsesOnlyTheProbedControlAndKeepsTheConfiguredRoute() = runTest {
+    @Test fun explicitOffUsesOnlyTheProbedControlAndKeepsTheConfiguredRoute() = runBlocking {
         val urls = mutableListOf<String>()
         val engine = MockEngine { incoming ->
             urls += incoming.url.toString()

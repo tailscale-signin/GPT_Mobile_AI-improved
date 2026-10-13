@@ -32,7 +32,12 @@ internal object ConnectedMemoryRecall {
             return value["type"] == JsonPrimitive(type) || (value["anyOf"] as? JsonArray).orEmpty().any { (it as? JsonObject)?.get("type") == JsonPrimitive(type) }
         }
         if (!accepts("query", "string")) return null
-        val result = mutableMapOf<String, kotlinx.serialization.json.JsonElement>("query" to JsonPrimitive(query.take(500)))
+        val querySchema = properties["query"] as JsonObject
+        val queryLength = query.codePointCount(0, query.length)
+        val queryMaximum = (querySchema["maxLength"] as? JsonPrimitive)?.intOrNull
+        val queryMinimum = (querySchema["minLength"] as? JsonPrimitive)?.intOrNull ?: 0
+        if (queryLength < queryMinimum || queryMaximum != null && queryLength > queryMaximum) return null
+        val result = mutableMapOf<String, kotlinx.serialization.json.JsonElement>("query" to JsonPrimitive(query))
         for (key in listOf("limit", "max_facts", "top_k")) {
             if (accepts(key, "integer")) {
                 val field = properties[key] as JsonObject
@@ -46,12 +51,12 @@ internal object ConnectedMemoryRecall {
             val key = listOf("user_id", "containerTag", "group_ids", "group_id").firstOrNull { it in properties }
             if (key != null) {
                 result[key] = when {
-                    accepts(key, "string") -> JsonPrimitive(scope.take(200))
-                    accepts(key, "array") -> JsonArray(listOf(JsonPrimitive(scope.take(200))))
+                    accepts(key, "string") -> JsonPrimitive(scope)
+                    accepts(key, "array") -> JsonArray(listOf(JsonPrimitive(scope)))
                     else -> return null
                 }
             } else if (tool.realToolName == "search_memories" && accepts("filters", "object")) {
-                result["filters"] = buildJsonObject { put("user_id", scope.take(200)) }
+                result["filters"] = buildJsonObject { put("user_id", scope) }
             } else {
                 // Never silently discard the user's chosen memory namespace.
                 return null
@@ -111,6 +116,7 @@ internal object ConnectedMemoryRecall {
             true
         }
         if (completed == null) issues += "Connected memory recall timed out; completed results are retained."
+        if (!stillEnabled()) return ""
         // JSON escaping can expand data. Remove complete rows rather than emitting invalid JSON.
         fun render() = buildJsonObject {
             put("kind", "untrusted_connected_memory")

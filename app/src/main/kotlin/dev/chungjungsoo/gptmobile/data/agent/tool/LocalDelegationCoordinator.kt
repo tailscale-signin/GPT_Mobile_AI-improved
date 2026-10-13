@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import dev.chungjungsoo.gptmobile.data.research.evidenceRevisionDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
@@ -1648,6 +1649,27 @@ internal class LocalDelegationCoordinator(
             )
         } else {
             result
+        }
+
+        if (config.deepResearch.enabled && reviewedResult.handoff.isNotBlank()) {
+            val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString())
+            val journal = researchJournal?.scoped(authority, tools.all { it.connectionUid == null })
+            journal?.load()?.let { snapshot ->
+                val reviewer = reviewerTarget(config, userSelectedRecoveryProfile.get() ?: target)
+                val status = when {
+                    !config.reviewerEnabled -> "NOT_REQUESTED"
+                    delegateReviewState(reviewedResult.handoff) == DelegateReviewState.PASSED -> "PASSED"
+                    reviewedResult.handoff.startsWith("[REVIEW_REJECTED]") -> "REJECTED"
+                    reviewer == null -> "UNAVAILABLE"
+                    else -> "INCOMPLETE"
+                }
+                val report = if (reviewedResult.handoff.length <= 32768) {
+                    dev.chungjungsoo.gptmobile.data.research.ResearchReviewRecord(status, snapshot.evidenceRevisionDigest(), dev.chungjungsoo.gptmobile.data.research.researchHash(result.handoff), reviewedResult.handoff, reviewer?.uid.orEmpty())
+                } else {
+                    dev.chungjungsoo.gptmobile.data.research.ResearchReviewRecord("INCOMPLETE", snapshot.evidenceRevisionDigest(), dev.chungjungsoo.gptmobile.data.research.researchHash(result.handoff), "Review artifact exceeded its storage limit; original corpus remains available. No independent pass is retained.", reviewer?.uid.orEmpty())
+                }
+                journal.save(snapshot.copy(reviewRecord = report, updatedAt = System.currentTimeMillis()))
+            }
         }
         AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · outcome=${reviewedResult.outcome} · searches=${reviewedResult.searches} · pages=${reviewedResult.pagesRead} · pagesAttempted=${reviewedResult.pagesAttempted} · pagesRetrieved=${reviewedResult.pagesRetrieved} · pagesReadable=${reviewedResult.pagesRead} · reviewStatus=${delegateReviewState(reviewedResult.handoff)} · rawBytes=${reviewedResult.rawBytes} · handoffChars=${reviewedResult.handoff.length}")
         if (automatic && reviewedResult.outcome !in setOf(LocalResearchOutcome.SUCCESS, LocalResearchOutcome.PARTIAL_USEFUL)) requests.decrementAndGet()

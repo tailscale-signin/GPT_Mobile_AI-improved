@@ -65,6 +65,7 @@ import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
 import dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot
+import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import io.mockk.coEvery
@@ -1025,7 +1026,7 @@ class ChatRepositoryImplTest {
             deepResearch = dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings(schemaVersion = 3, customSourceTarget = 12, effort = 50, concurrency = 1)
         ).normalized()
         val settings = mockk<SettingRepository>(relaxed = true)
-        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(delegation = config)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(delegation = config, profileBehavior = mapOf(primary.uid to dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings(delegationEnabled = true)))
         coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
         val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
         coEvery { persistence.getIncompleteRuns(any(), any()) } returns emptyList()
@@ -1119,6 +1120,7 @@ class ChatRepositoryImplTest {
         assertEquals(24, api.requests.count { it.model == helper.model })
         val saved = sessions.sessions.value.values.filter { it.runId == "run-a" }.maxBy { it.snapshot.updatedAt }.snapshot
         assertEquals(207, saved.sources.size)
+        assertEquals("UNAVAILABLE", saved.currentReviewRecord()?.status)
         assertEquals(12, saved.sources.count { it.readable })
         assertEquals(mapOf("Supported" to 5, "Insufficient" to 6, "Unreviewed" to 3), saved.claims.groupingBy { it.verdict }.eachCount())
         val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), primary, "run-b", null).toList()
@@ -1127,6 +1129,8 @@ class ChatRepositoryImplTest {
         val retried = repository.completeChat(listOf(original, original.copy(id = 4, content = "Retry failed stage")), emptyList(), primary, "run-c", null).toList()
         assertTrue(retried.toString(), retried.any { it is ApiState.Success && it.textChunk.contains("Final answer from saved") })
         assertEquals(26, api.streamChatCompletionCalls)
+        assertTrue(api.requests.last().toString().contains("Panel finding"))
+        assertTrue(api.requests.last().toString().contains("REVIEW_UNAVAILABLE"))
         assertEquals(24, api.requests.count { it.model == helper.model })
         assertEquals(0, repeatedReads)
     }
@@ -1148,6 +1152,7 @@ class ChatRepositoryImplTest {
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
+            override fun getSystemService(name: String): Any? = null
         },
         chatRoomV2Dao = proxy(),
         messageV2Dao = proxy(),

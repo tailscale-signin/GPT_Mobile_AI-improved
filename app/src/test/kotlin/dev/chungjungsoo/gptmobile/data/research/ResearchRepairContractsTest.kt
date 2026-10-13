@@ -113,4 +113,14 @@ class ResearchRepairContractsTest {
         val claim = ResearchClaim("Prevalence estimate", "S1", source.passage, "Supported", "Q1", "Relevant", true)
         assertTrue(assessResearchCoverage(listOf(question), listOf(claim), listOf(source)).complete)
     }
+
+    @Test fun independentReviewSurvivesSerializationButNeverAppliesToEditedEvidence() {
+        val source = ResearchSource("S1", "https://example.org/source", "Fixture", "Read", "Complete synthetic evidence passage retained verbatim.")
+        val original = ResearchSnapshot("Task", sources = listOf(source))
+        val report = ResearchReviewRecord("UNAVAILABLE", original.evidenceRevisionDigest(), researchHash("input handoff"), "[REVIEW_UNAVAILABLE] retained final handoff")
+        val restored = ResearchSnapshot.parse(original.copy(reviewRecord = report).json())!!
+        assertEquals(report, restored.currentReviewRecord())
+        assertEquals(null, restored.copy(sources = listOf(source.copy(passage = source.passage + " Changed passage."))).currentReviewRecord())
+        assertEquals(null, restored.copy(task = "Different task").currentReviewRecord())
+    }
 }

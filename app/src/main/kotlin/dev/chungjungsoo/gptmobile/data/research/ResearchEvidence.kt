@@ -150,6 +150,7 @@ data class ResearchSnapshot(
     val planningStatus: String = "Legacy unknown",
     val extractedSourceVersions: Set<String> = emptySet(),
     val cancellationOrigin: String = "UNKNOWN",
+    val reviewRecord: ResearchReviewRecord? = null,
     val queries: List<String> = emptyList(),
     val notes: List<String> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
@@ -178,6 +179,7 @@ data class ResearchSnapshot(
         put("planningStatus", planningStatus)
         put("extractedSourceVersions", JsonArray(extractedSourceVersions.map(::JsonPrimitive)))
         put("cancellationOrigin", cancellationOrigin)
+        reviewRecord?.let { put("reviewRecord", it.json()) }
         put("queries", JsonArray(queries.map(::JsonPrimitive)))
         put("notes", JsonArray(notes.map(::JsonPrimitive)))
         put("toolEvents", JsonArray(toolEvents.takeLast(200).map { it.json() }))
@@ -261,6 +263,7 @@ data class ResearchSnapshot(
                 planningStatus = value.text("planningStatus").ifBlank { "Legacy unknown" },
                 extractedSourceVersions = value.strings("extractedSourceVersions").toSet(),
                 cancellationOrigin = value.text("cancellationOrigin").ifBlank { "UNKNOWN" },
+                reviewRecord = (value["reviewRecord"] as? JsonObject)?.let(ResearchReviewRecord::parse),
                 questions = parseQuestions((value["questions"] as? JsonArray) ?: JsonArray(emptyList())).map { it.text }, queries = value.strings("queries").map { it.take(500) }, notes = value.strings("notes").take(20).map { it.take(500) },
                 updatedAt = (value["updatedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, complete = (value["complete"] as? JsonPrimitive)?.booleanOrNull == true,
                 toolEvents = value.rows("toolEvents").takeLast(200).mapNotNull { event ->
@@ -334,3 +337,41 @@ internal fun ResearchSnapshot.withFreshEvidence(nowMillis: Long, maxAgeMillis: L
         notes = (notes + "${expired.size} expired sources need refresh; other completed evidence is retained.").distinct()
     )
 }
+
+/** A review applies to an exact evidence revision and handoff, never all future claims. */
+data class ResearchReviewRecord(val status: String, val corpusDigest: String, val inputHandoffDigest: String, val finalHandoff: String, val reviewerUid: String = "") {
+    fun json() = buildJsonObject {
+        put("version", 1)
+        put("status", status)
+        put("corpusDigest", corpusDigest)
+        put("inputHandoffDigest", inputHandoffDigest)
+        put("finalHandoff", finalHandoff)
+        put("reviewerUid", reviewerUid)
+    }
+    companion object {
+        fun parse(value: JsonObject): ResearchReviewRecord? = runCatching {
+            require(value.number("version") == 1)
+            val status = value.text("status").also { require(it in setOf("NOT_REQUESTED", "UNAVAILABLE", "PASSED", "REJECTED", "INCOMPLETE")) }
+            val corpus = value.text("corpusDigest").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+            val handoff = value.text("inputHandoffDigest").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+            val final = value.text("finalHandoff").also { require(it.length <= 32768) }
+            ResearchReviewRecord(status, corpus, handoff, final, value.text("reviewerUid").also { require(it.length <= 128) })
+        }.getOrNull()
+    }
+}
+
+fun ResearchSnapshot.evidenceRevisionDigest(): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    fun add(value: String) {
+        digest.update(value.toByteArray(Charsets.UTF_8))
+        digest.update(0.toByte())
+    }
+    add(task)
+    questionPlan.forEach { add(it.json().toString()) }
+    questions.forEach(::add)
+    sources.sortedBy { it.id }.forEach { add(it.json().toString()) }
+    claims.sortedWith(compareBy<ResearchClaim> { it.sourceId }.thenBy { it.text }.thenBy { it.quote }).forEach { add(it.json().toString()) }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+fun ResearchSnapshot.currentReviewRecord(): ResearchReviewRecord? = reviewRecord?.takeIf { it.corpusDigest == evidenceRevisionDigest() }

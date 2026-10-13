@@ -1,8 +1,8 @@
 # Memory, diagnostics, and delegation repair implementation
 
-Branch: `feat/memory-rebuild-diagnostics-2026-10-12`  
-Draft PR: https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/668  
-Baseline: `1d4dcd8698356abddc5f1be946bb0811017b7d7a` (0.9.51.0).  
+Branch: `feat/memory-rebuild-diagnostics-2026-10-12`
+Draft PR: https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/668
+Baseline: `1d4dcd8698356abddc5f1be946bb0811017b7d7a` (0.9.51.0).
 Implementation date: October 13, 2026 UTC.
 
 This file records implemented behavior and the available verification. The delegation design remains the acceptance specification. A unit-test mapping below does not claim that every device, provider, accessibility, or performance condition in a T-row has been qualified. No release version or application ID changes are included.
@@ -34,7 +34,7 @@ Tests: `LocalReadinessRegistryTest`, `ProviderRetryPolicyTest`, `DiagnosticPriva
 | D05 / T14–T16 | Versioned planning accepts explicit legacy adapters without losing evidence requirements. Invalid types, references, contradictory empty decisions, and unknown versions fail validation. One bounded repair precedes marked deterministic fallback. | `ResearchRepairContractsTest`; `AndroidResearchWorkflowTest.invalidPlanDoesNotClaimResearchWasUnnecessary` |
 | D06–D07, D13 / T17–T20, T34 | Collection counts, question coverage, exact quote verification, passage verdict, relevance, publication suitability, and independent review are distinct. Readable quota alone produces partial coverage. Applicable contrary/uncertain evidence is retained. | `ResearchRepairContractsTest`; `AndroidResearchWorkflowTest`; `DelegationActivityTest` |
 | D08 / T21 | Per-source-version extraction checkpoints and per-claim verification state let an unavailable academic verifier resume without planning, extraction, reads, or duplicate claims. | `AndroidResearchWorkflowTest.restoredAcademicVerifierResumesOnlyVerificationAfterCollectionGoal` |
-| D09 / T22–T24 | Manifest and findings precede the long source listing. Handoffs preserve complete claim/quote blocks, included source references, review metadata, and omission counts. Saved context is paged with Unicode-safe offsets. | `DelegationEvidenceTest`; `ResponseRecoveryContextTest` |
+| D09 / T22–T24 | Manifest and findings precede the long source listing. Handoffs preserve complete claim/quote blocks, included source references, review metadata, and omission counts. A saved review report and final-writer handoff bind to an exact corpus digest; changed evidence cannot inherit an old pass. Saved context is paged with Unicode-safe offsets. | `DelegationEvidenceTest`; `ResponseRecoveryContextTest` |
 | D11 / T26–T29 | Child capabilities intersect parent and helper connection/tool identities. Ambiguous aliases fail closed; helper connection authorization is rechecked. Gateway-local execution cannot escape an explicit inherited catalog. Saved-evidence reads recheck conversation/profile/connection authority; sensitive health results are not replayed. | `ChatRepositoryImplTest.helperCapabilitiesIntersectOwnersAndRejectAmbiguousAliases`; `ResponseRecoveryContextTest`; `ResearchSessionStoreTest.privateAuthorityAndSharingOptOutIsolateCorpora`; existing tool resolver tests |
 | D12 / T30–T33 | Existing research ledger gains durable idempotent reservations for logical research operations, worker/model calls, and physical requests. Resume cannot reset the original limits. Review allowance is preserved. Primary output budgeting remains independent of helper handoff size. | `ResearchRunLedgerTest`; `LocalDelegationCoordinatorTest`; existing budget and primary response tests |
 | D14 / T35 | Delegation events join physical invocation, root, step, attempt, and role identifiers through the existing activity store and invocation ledger. Delivery is an independent stage outcome. | `DelegationActivityTest`; ledger/coordinator tests |
@@ -67,7 +67,9 @@ At commit `f7dcb7a3d5a52e52472ea4325b2d7831a2a3d3e3`:
 - Performance recording reported gaps; performance remains unqualified.
 - The full JVM suite ran 2,611 tests and exposed nine failures. Subsequent commits correct the empty-DAO fixture path, benchmark relevance fixtures, and synthetic claim construction, and add further authorization/resume regressions. Use the latest PR check results for the final suite result.
 
-Locally, schema history, Android regex compatibility, changed-file ktlint, and whitespace checks passed. Focused source-level JVM harnesses passed memory/policy (49 tests), research contracts (19 tests), and durable budgets (12 tests). These harnesses stub Android storage boundaries where necessary and are not substitutes for Android CI. The local full Gradle build could not resolve the Android plugin in this environment; full builds run in repository CI.
+Locally, schema history, Android regex compatibility, changed-file ktlint, and whitespace checks passed. Focused source-level JVM harnesses passed memory/policy (49 tests), research contracts (20 tests), and durable budgets (12 tests). These harnesses stub Android storage boundaries where necessary and are not substitutes for Android CI. The local full Gradle build could not resolve the Android plugin in this environment; full builds run in repository CI.
+
+At commit `9826dbf4b97c4c16c547a3a9b3de042d9403dd79`, the expanded JVM suite passed 2,625 of 2,626 tests. The new incident replay had omitted the primary profile's delegation opt-in; the following commit corrects that fixture and adds review-artifact retention coverage.
 
 ## Qualification still required before release
 

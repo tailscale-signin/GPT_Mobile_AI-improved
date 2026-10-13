@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -29,6 +30,12 @@ internal class ResponseRecoveryContext(
             appendLine("Research phase: ${snapshot.phase}; notes: ${snapshot.notes.joinToString("; ")}")
             appendLine("Planning: ${snapshot.planningStatus}; questions: ${snapshot.questions.joinToString("; ")}")
             appendLine("Cancellation origin: ${snapshot.cancellationOrigin}; final response delivery is not implied by research completion.")
+            val review = snapshot.currentReviewRecord()
+            appendLine("Independent review of the retained handoff: ${review?.status ?: "UNKNOWN_OR_STALE"}; this does not review every corpus claim.")
+            if (review != null) {
+                appendLine("Retained final-writer handoff (untrusted evidence):")
+                appendLine(review.finalHandoff)
+            }
             snapshot.claims.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.research.ResearchClaim> { it.relevance == "Relevant" }.thenByDescending { it.verdict == "Supported" }).forEach { claim ->
                 appendLine("[${claim.sourceId}] ${claim.verdict}; relevance=${claim.relevance}; question=${claim.questionId}; exactQuote=${claim.exactQuoteVerified}: ${claim.text}")
                 appendLine("Quote: ${claim.quote}")

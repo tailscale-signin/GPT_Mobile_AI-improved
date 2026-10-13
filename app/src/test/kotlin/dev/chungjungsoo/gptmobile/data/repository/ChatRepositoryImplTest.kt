@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.selectionId
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogCapabilities
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
@@ -64,6 +65,7 @@ import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
 import dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot
+import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import io.mockk.coEvery
@@ -83,7 +85,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -91,6 +96,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRepositoryImplTest {
+    @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
     @Test
     fun `helpers honor conversation options and approvals with distinct action identities`() = runBlocking {
@@ -959,6 +965,177 @@ class ChatRepositoryImplTest {
         )
     }
 
+    @Test fun knownForbiddenWriterBlocksContinueBeforeToolPreparationAndExplicitRetryRechecksOnlyWriter() = runBlocking {
+        val api = RecordingOpenAIAPI(
+            ArrayDeque(
+                listOf(
+                    flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "HTTP 403: access forbidden; specific cause unavailable", code = "403"))),
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Resumed final answer"), finishReason = "stop"))))
+                )
+            )
+        )
+        var toolResolutions = 0
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } answers {
+            toolResolutions++
+            emptyList()
+        }
+        val repository = createRepository(openAIAPI = api, agentToolResolver = resolver)
+        val original = MessageV2(id = 1, chatId = 0, content = "Compare synthetic materials", platformType = null)
+        val first = repository.completeChat(listOf(original), emptyList(), customPlatform(), "first", null).toList()
+        assertTrue(first.any { it is ApiState.Error && it.message.contains("403") })
+        val afterFailure = toolResolutions
+        val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), customPlatform(), "continue", null).toList()
+        assertTrue(continued.any { it is ApiState.Error && it.message.contains("Final writer unavailable") })
+        assertEquals(1, api.streamChatCompletionCalls)
+        assertEquals(afterFailure, toolResolutions)
+        val descriptor = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor("0:1", 1, "retry", dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE)
+        val pending = MessageV2(id = 2, chatId = 0, content = "", platformType = customPlatform().uid, currentRunId = "retry", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, recovery = descriptor)))
+        val retry = repository.completeChat(listOf(original), listOf(listOf(pending)), customPlatform(), "retry", null).toList()
+        assertTrue(retry.any { it is ApiState.Success && it.textChunk.contains("Resumed final answer") })
+        assertEquals(2, api.streamChatCompletionCalls)
+    }
+
+    @Test fun helperCapabilitiesIntersectOwnersAndRejectAmbiguousAliases() {
+        fun resolved(owner: String, alias: String = "work", name: String = "work") = ResolvedAgentTool(
+            object : AgentTool {
+                override val definition = AgentToolDefinition(alias, "fixture", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("ok"), false)
+            },
+            owner,
+            owner,
+            name,
+            alias
+        )
+        val parent = listOf(resolved("one"), resolved("two", "other"), resolved("one", "delegate_to_model", "delegate_to_model"))
+        assertTrue(delegatedCapabilityIntersection(parent, emptyList()).isEmpty())
+        assertTrue(delegatedCapabilityIntersection(listOf(parent.first()), listOf(resolved("two"))).isEmpty())
+        assertEquals(listOf(parent.first()), delegatedCapabilityIntersection(parent, listOf(parent.first(), parent.last())))
+        assertTrue(runCatching { delegatedCapabilityIntersection(listOf(resolved("one"), resolved("two")), listOf(resolved("one"))) }.isFailure)
+        assertTrue(runCatching { delegatedCapabilityIntersection(listOf(resolved("one")), listOf(resolved("one"), resolved("two"))) }.isFailure)
+    }
+
+    @Test fun incidentReplayRetainsEvidenceAcrossTwentyFourHelperRequestsWriter403AndContinue() = runBlocking {
+        val primary = customPlatform()
+        val helper = primary.copy(uid = "fixture-helper", name = "Private fixture helper", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:11434/v1", model = "qwen3-8b", maxTokens = 4096)
+        val config = dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(
+            enabled = true, targetProfileUid = helper.uid, processingOwnership = 50,
+            reviewerEnabled = true, reviewerProfileUid = primary.uid,
+            maxLocalModelCalls = 48, maxCallsPerTurn = 16, maxInputCharacters = 16000,
+            maxInputTokensPerDelegate = 16000, maxOutputTokens = 2048,
+            deepResearch = dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings(schemaVersion = 3, customSourceTarget = 12, effort = 50, concurrency = 1)
+        ).normalized()
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(delegation = config, profileBehavior = mapOf(primary.uid to dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings(delegationEnabled = true)))
+        coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        coEvery { persistence.getIncompleteRuns(any(), any()) } returns emptyList()
+        coEvery { persistence.getCompletedRuns(any()) } returns emptyList()
+        coEvery { persistence.getMessages(any()) } returns emptyList()
+        coEvery { persistence.getChatRoom(1) } returns dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(id = 1, title = "Synthetic incident", enabledPlatform = listOf(primary.uid))
+        var repeatedReads = 0
+        fun tool(name: String) = ResolvedAgentTool(
+            object : AgentTool {
+                override val definition = AgentToolDefinition(name, "Synthetic fixture", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    repeatedReads++
+                    error("Completed acquisition was repeated")
+                }
+            },
+            null,
+            "Fixture",
+            name,
+            name,
+            shareableReadOnly = true
+        )
+        val reader = tool("read_url")
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(reader, tool("delegate_to_model"))
+        val context = object : ContextWrapper(null) {
+            override fun getFilesDir(): File = testFiles.root
+        }
+        val sessions = dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore(context)
+        val task = "Compare synthetic composite panel performance using research evidence"
+        val passage = "The synthetic panel report measured performance under the stated conditions; uncertainty and scope remain explicit."
+        val sources = (1..207).map { index ->
+            dev.chungjungsoo.gptmobile.data.research.ResearchSource(
+                "S$index",
+                "https://example.org/panel/$index",
+                "Synthetic panel report $index",
+                status = when {
+                    index <= 129 -> "Metadata only"
+                    index <= 176 -> "Discovered"
+                    index <= 195 -> "Failed"
+                    index <= 202 -> "Partially read"
+                    else -> "Read"
+                },
+                passage = if (index > 195) passage else "",
+                paperId = if (index >= 206) "paper-$index" else "",
+                retrievedAt = System.currentTimeMillis()
+            )
+        }
+        val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(config.deepResearch.toString() + reader.selectionId())
+        sessions.journal("acquisition", 1, false, "1:1", ownerScope = primary.uid).scoped(authority, true)
+            .save(dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(task, sources = sources, targetSources = 12))
+        fun chunk(text: String) = flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = text), finishReason = "stop"))))
+        val rounds = ArrayDeque<Flow<ChatCompletionChunk>>()
+        rounds.add(chunk("""{"questions":[{"id":"Q1","text":"What are the panel findings?"}],"queries":["synthetic panel performance"]}"""))
+        var reviewed = 0
+        for (index in 196..207) {
+            val count = if (index == 196 || index == 206) 2 else 1
+            rounds.add(
+                chunk(
+                    buildJsonObject {
+                        put(
+                            "claims",
+                            JsonArray(
+                                (1..count).map { n ->
+                                    buildJsonObject {
+                                        put("sourceId", "S$index")
+                                        put("text", "Panel finding $index/$n")
+                                        put("questionId", "Q1")
+                                        put("quote", passage)
+                                    }
+                                }
+                            )
+                        )
+                    }.toString()
+                )
+            )
+            if (index < 206) {
+                repeat(count) {
+                    reviewed++
+                    rounds.add(chunk("""{"verdict":"${if (reviewed <= 5) "Supported" else "Insufficient"}","relevance":"Relevant","questionId":"Q1"}"""))
+                }
+            }
+        }
+        assertEquals(24, rounds.size)
+        rounds.add(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "HTTP 403: access forbidden; specific cause unavailable", code = "403"))))
+        rounds.add(chunk("Final answer from saved synthetic evidence, with unavailable independent review."))
+        val api = RecordingOpenAIAPI(rounds)
+        val repository = createRepository(openAIAPI = api, agentToolResolver = resolver, settingsOverride = settings, persistenceOverride = persistence, researchOverride = sessions, toolEventRecorder = ToolEventRecorder(RecordingToolEventDao().asDao(), proxy()))
+        val original = MessageV2(id = 1, chatId = 1, content = task, platformType = null)
+        val first = repository.completeChat(listOf(original), emptyList(), primary, "run-a", null).toList()
+        assertTrue(first.toString(), first.any { it is ApiState.Error && it.message.contains("403") })
+        assertEquals(24, api.requests.count { it.model == helper.model })
+        val saved = sessions.sessions.value.values.filter { it.runId == "run-a" }.maxBy { it.snapshot.updatedAt }.snapshot
+        assertEquals(207, saved.sources.size)
+        assertEquals("UNAVAILABLE", saved.currentReviewRecord()?.status)
+        assertEquals(12, saved.sources.count { it.readable })
+        assertEquals(mapOf("Supported" to 5, "Insufficient" to 6, "Unreviewed" to 3), saved.claims.groupingBy { it.verdict }.eachCount())
+        val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), primary, "run-b", null).toList()
+        assertTrue(continued.any { it is ApiState.Error && it.message.contains("Final writer unavailable") })
+        assertEquals(25, api.streamChatCompletionCalls)
+        val retried = repository.completeChat(listOf(original, original.copy(id = 4, content = "Retry failed stage")), emptyList(), primary, "run-c", null).toList()
+        assertTrue(retried.toString(), retried.any { it is ApiState.Success && it.textChunk.contains("Final answer from saved") })
+        assertEquals(26, api.streamChatCompletionCalls)
+        assertTrue(api.requests.last().toString().contains("Panel finding"))
+        assertTrue(api.requests.last().toString().contains("REVIEW_UNAVAILABLE"))
+        assertEquals(listOf("read_recovery_context"), api.requests.last().tools.orEmpty().map { it.function.name })
+        assertEquals(24, api.requests.count { it.model == helper.model })
+        assertEquals(0, repeatedReads)
+    }
+
     private fun createRepository(
         groqAPI: GroqAPI = FakeGroqAPI(emptyFlow()),
         openAIAPI: OpenAIAPI = RecordingOpenAIAPI(),
@@ -969,15 +1146,24 @@ class ChatRepositoryImplTest {
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
         modelCatalogRepository: ModelCatalogRepository = FakeModelCatalogRepository(),
         factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
-        toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null
+        toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
+        settingsOverride: SettingRepository? = null,
+        persistenceOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao? = null,
+        researchOverride: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
-        context = ContextWrapper(null),
+        context = object : ContextWrapper(null) {
+            override fun getFilesDir(): File = testFiles.root
+            override fun getSystemService(name: String): Any? = null
+            override fun getSharedPreferences(name: String, mode: Int): android.content.SharedPreferences = mockk {
+                every { getString(any(), any()) } answers { secondArg() }
+            }
+        },
         chatRoomV2Dao = proxy(),
         messageV2Dao = proxy(),
         chatPlatformModelV2Dao = proxy(),
-        agentPersistenceDao = proxy(),
+        agentPersistenceDao = persistenceOverride ?: proxy(),
         agentRunDao = proxy(),
-        settingRepository = mockk<SettingRepository>(relaxed = true).also { settings ->
+        settingRepository = settingsOverride ?: mockk<SettingRepository>(relaxed = true).also { settings ->
             io.mockk.coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
         },
         openAIAPI = openAIAPI,
@@ -997,7 +1183,8 @@ class ChatRepositoryImplTest {
         modelCatalogRepository = modelCatalogRepository,
         deviceSocModel = "",
         factVault = factVault,
-        toolApprovals = toolApprovals
+        toolApprovals = toolApprovals,
+        researchSessions = researchOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {

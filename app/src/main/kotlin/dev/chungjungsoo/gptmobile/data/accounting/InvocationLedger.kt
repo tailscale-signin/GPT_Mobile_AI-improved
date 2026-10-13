@@ -116,7 +116,8 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
         inputEstimate: Int,
         outputLimit: Int,
         totalLimit: Int,
-        profileUid: String? = null
+        profileUid: String? = null,
+        onInvocation: (String) -> Unit = {}
     ): AgentProviderSession = object : AgentProviderSession {
         override val handlesToolsInternally = session.handlesToolsInternally
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
@@ -158,6 +159,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 emit(ProviderEvent.Completed)
                 return@flow
             }
+            onInvocation(record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
             val started = System.nanoTime()
             var first: Long? = null

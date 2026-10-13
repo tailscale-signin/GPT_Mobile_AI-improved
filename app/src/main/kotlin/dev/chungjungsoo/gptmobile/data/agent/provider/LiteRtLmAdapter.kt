@@ -777,6 +777,10 @@ class LiteRtLmAdapter(
 
     private fun logEngineFailure(spec: LocalEngineSpec, error: Throwable) {
         runCatching {
+            if (dev.chungjungsoo.gptmobile.data.localruntime.LocalReadinessRegistry.deterministicFailure(error)) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "ENGINE_INITIALIZATION · outcome=INCOMPATIBLE · retryable=false", "E")
+                return
+            }
             Log.e(
                 TAG,
                 "Failed to load local engine path=${spec.modelPath} accelerator=${spec.accelerator}",

@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -36,8 +37,59 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val taskLocks = Array(64) { Mutex() }
     private val planLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
+    private val stopOrigins = ConcurrentHashMap<String, String>()
     private val stoppedTurns = ConcurrentHashMap.newKeySet<Pair<Int, String>>()
     private val runTurns = ConcurrentHashMap<String, Pair<Int, String>>()
+    private val generations = ConcurrentHashMap<Pair<Int, String>, Long>()
+    private val resumeControls = ConcurrentHashMap<Pair<Int, String>, String>()
+
+    private fun fenceFile(chatId: Int, turnId: String) = File(directory, researchHash("generation:$chatId:$turnId") + ".fence")
+
+    @Synchronized private fun currentGeneration(chatId: Int, turnId: String, persistent: Boolean): Long {
+        val key = chatId to turnId
+        if (!persistent) return generations[key] ?: 0L
+        val file = fenceFile(chatId, turnId)
+        val saved = if (file.isFile) Json.parseToJsonElement(AtomicFile(file).openRead().use { it.readBytes() }.decodeToString()).jsonObject else null
+        val fence = saved?.text("fence")?.toLongOrNull() ?: if (saved == null) 0L else error("Invalid generation checkpoint")
+        require(fence >= 0 && (saved == null || saved.number("chatId") == chatId))
+        generations[key] = maxOf(generations[key] ?: 0L, fence)
+        return generations.getValue(key)
+    }
+
+    /** Explicit Continue advances durable ownership without resetting budget or authority. */
+    suspend fun resume(chatId: Int, turnId: String, controlMessageId: Int, persistent: Boolean = true) = resumeGeneration(chatId, turnId, controlMessageId.toString(), persistent)
+
+    suspend fun resumeGeneration(chatId: Int, turnId: String, controlId: String, persistent: Boolean = true) = withContext(Dispatchers.IO) {
+        lock.withLock { advanceGeneration(chatId, turnId, controlId, persistent) }
+    }
+
+    @Synchronized private fun advanceGeneration(chatId: Int, turnId: String, controlId: String, persistent: Boolean) {
+        check(chatId !in deletedChats) { "Conversation was deleted" }
+        val key = chatId to turnId
+        val current = currentGeneration(chatId, turnId, persistent)
+        val file = fenceFile(chatId, turnId)
+        val savedControl = if (persistent && file.isFile) Json.parseToJsonElement(file.readText()).jsonObject.let { it.text("controlId").ifBlank { it.text("controlMessageId") } } else null
+        if (resumeControls[key] == controlId || savedControl == controlId) return
+        val next = Math.addExact(current, 1L)
+        if (persistent) {
+            check(directory.mkdirs() || directory.isDirectory)
+            writeAtomic(
+                file,
+                buildJsonObject {
+                    put("chatId", chatId)
+                    put("fence", next)
+                    put("controlId", controlId)
+                }.toString().toByteArray()
+            )
+        }
+        generations[key] = next
+        resumeControls[key] = controlId
+        runTurns.filterValues { it == key }.keys.forEach {
+            stops += it
+            stopOrigins[it] = "SUPERSEDED_GENERATION"
+        }
+        stoppedTurns.remove(key)
+    }
     private data class Lease(val owner: String, val until: Long)
     private val workLeases = ConcurrentHashMap<String, Lease>()
     private val sourceRefs = ConcurrentHashMap<String, Pair<ResearchSource, String>>()
@@ -48,14 +100,16 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     val sessions = mutable.asStateFlow()
 
     fun stop(runId: String) {
+        stopOrigins[runId] = "USER_STOP_RESEARCH_AND_SUMMARIZE"
         stops += runId
         runTurns[runId]?.let { stoppedTurns += it }
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId): ResearchJournal = object : ResearchJournal {
+        private val generation = currentGeneration(chatId, turnId, persistent)
         init {
             runTurns[runId] = chatId to turnId
         }
-        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$runId", shareEnabled)
+        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope)
         override fun sourceId(identity: String, fallback: String) = "S" + researchHash(identity).take(16)
         private fun workKey(key: String) = "$chatId:$turnId:$authority:$key"
         override fun claimWork(key: String, leaseMillis: Long): Boolean {
@@ -155,7 +209,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             ResearchBudget(1, ledger = ledger).also { turnBudgets[key] = System.currentTimeMillis() to it }
         }
-        override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns
+        override fun cancellationOrigin(): String = if (chatId in deletedChats) "CHAT_DELETED" else stopOrigins[runId] ?: "UNKNOWN"
+        override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns || generation != currentGeneration(chatId, turnId, persistent)
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
             lock.withLock {
@@ -170,6 +225,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val inMemory = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
                 val pointer = File(directory, researchHash("turn:$chatId:$turnId:$authority") + ".cursor")
                 val pointed = if (persistent && pointer.isFile) runCatching { read(file(Json.parseToJsonElement(pointer.readText()).jsonObject.text("runId"))) }.getOrNull() else null
+                check(!persistent || !pointer.isFile || pointed != null) { "Saved research checkpoint is corrupt or incomplete. Evidence is preserved; review the saved run before restarting acquisition." }
                 val persisted = if (pointed != null) {
                     listOf(pointed)
                 } else if (persistent && inMemory.isEmpty()) {
@@ -213,7 +269,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
-                if (chatId in deletedChats) return@withLock
+                if (chatId in deletedChats || generation != currentGeneration(chatId, turnId, persistent)) return@withLock
                 val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
                 val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
                 val snapshot = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
@@ -229,6 +285,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         put("runId", runId)
                         put("chatId", chatId)
                         put("turnId", turnId)
+                        put("rootWorkId", turnId)
+                        put("generationId", runId)
+                        put("generationFence", generation)
                         put("authority", authority)
                         val sourceRefs = snapshot.sources.map { source ->
                             val cacheKey = "$chatId:$turnId:$authority:${source.id}"
@@ -252,8 +311,17 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             this@ResearchSessionStore.sourceRefs[cacheKey] = source to name
                             JsonPrimitive(name)
                         }
-                        put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.copy(sources = emptyList(), queries = emptyList()).json() - "sources"))
-                        put("storageVersion", 3)
+                        val claimRefs = snapshot.claims.map { claim ->
+                            val bytes = claim.json().toString().toByteArray()
+                            require(bytes.size <= 16 * 1024) { "Research claim is oversized" }
+                            val name = researchHash(bytes.decodeToString()) + ".claim"
+                            val destination = File(directory, name)
+                            if (!destination.isFile) writeAtomic(destination, bytes)
+                            JsonPrimitive(name)
+                        }
+                        put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.copy(sources = emptyList(), queries = emptyList(), claims = emptyList()).json() - "sources" - "claims"))
+                        put("storageVersion", 4)
+                        put("claimPages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(claimRefs)))))
                         put("sourcePages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(sourceRefs)))))
                         put("queryPages", JsonArray(listOf(JsonPrimitive(writeReferenceTree(snapshot.queries.map(::JsonPrimitive))))))
                     }.toString().toByteArray()
@@ -380,11 +448,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stoppedTurns.removeAll { it.first == chatId }
         synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
-            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension in setOf("budget", "ledger", "cursor") && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
+            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension in setOf("budget", "ledger", "cursor", "fence") && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
             val retained = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { file ->
                 runCatching { references(Json.parseToJsonElement(file.readText()).jsonObject).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
             }.toSet()
             directory.listFiles().orEmpty().filter { it.extension == "source" && it.name !in retained }.forEach { AtomicFile(it).delete() }
+            val retainedClaims = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { manifest ->
+                runCatching {
+                    val value = Json.parseToJsonElement(manifest.readText()).jsonObject
+                    (value["claimPages"] as? JsonArray).orEmpty().flatMap { readReferenceTree((it as JsonPrimitive).content) }.map { it.content }
+                }.getOrDefault(emptyList())
+            }.toSet()
+            directory.listFiles().orEmpty().filter { it.extension == "claim" && it.name !in retainedClaims }.forEach { AtomicFile(it).delete() }
             val retainedIndexes = mutableSetOf<String>()
             fun markIndex(name: String) {
                 if (!name.matches(Regex("[a-f0-9]{64}\\.index")) || !retainedIndexes.add(name)) return
@@ -393,7 +468,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             directory.listFiles().orEmpty().filter { it.extension == "json" }.forEach { manifest ->
                 val value = Json.parseToJsonElement(manifest.readText()).jsonObject
-                listOf("sourcePages", "queryPages").forEach { field -> (value[field] as? JsonArray).orEmpty().forEach { markIndex((it as JsonPrimitive).content) } }
+                listOf("sourcePages", "queryPages", "claimPages").forEach { field -> (value[field] as? JsonArray).orEmpty().forEach { markIndex((it as JsonPrimitive).content) } }
             }
             directory.listFiles().orEmpty().filter { it.extension == "index" && it.name !in retainedIndexes }.forEach { AtomicFile(it).delete() }
             val retainedChunks = retained.flatMap { name ->
@@ -442,7 +517,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
     private fun references(value: kotlinx.serialization.json.JsonObject): JsonArray? {
         val pages = value["sourcePages"] as? JsonArray ?: return value["sourceRefs"] as? JsonArray
-        require(value.number("storageVersion") == 3)
+        require(value.number("storageVersion") in 3..4)
         return JsonArray(pages.flatMap { readReferenceTree((it as JsonPrimitive).content) })
     }
 
@@ -457,7 +532,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         val runId = value.text("runId")
         val metadata = requireNotNull(value["snapshot"]).jsonObject
         val queryPages = value["queryPages"] as? JsonArray
-        val raw = if (queryPages == null) metadata else kotlinx.serialization.json.JsonObject(metadata + ("queries" to JsonArray(queryPages.flatMap { readReferenceTree((it as JsonPrimitive).content) })))
+        val claimPages = value["claimPages"] as? JsonArray
+        val claimRows = claimPages?.flatMap { readReferenceTree((it as JsonPrimitive).content) }?.map { ref ->
+            val name = ref.content
+            require(name.matches(Regex("[a-f0-9]{64}\\.claim")))
+            val record = File(directory, name)
+            require(record.length() in 1..16 * 1024)
+            val text = AtomicFile(record).openRead().use { it.readBytes() }.decodeToString()
+            require(researchHash(text) + ".claim" == name)
+            Json.parseToJsonElement(text).jsonObject
+        }
+        val claimMetadata = if (claimRows == null) metadata else JsonObject(metadata + ("claims" to JsonArray(claimRows)))
+        val raw = if (queryPages == null) claimMetadata else kotlinx.serialization.json.JsonObject(claimMetadata + ("queries" to JsonArray(queryPages.flatMap { readReferenceTree((it as JsonPrimitive).content) })))
         val references = references(value)
         val restored = if (references == null) {
             raw

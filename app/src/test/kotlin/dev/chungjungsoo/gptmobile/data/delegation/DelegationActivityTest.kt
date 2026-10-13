@@ -24,4 +24,12 @@ class DelegationActivityTest {
         assertEquals(DelegationStepStatus.CANCELED, ended.status)
         assertEquals(100L, ended.finishedAt)
     }
+
+    @Test fun partialOutputAndFailedDeliveryStaySeparateAndTerminalStateCannotBeOverwritten() {
+        val failed = DelegationActivity(runId = "run", chatId = 1, policyRevision = "policy", primaryUid = "writer")
+            .append(DelegationEvent(DelegationEventKind.RUN_TERMINAL, role = DelegationRole.PRIMARY, status = DelegationStepStatus.FAILED, stageState = DelegationStageState(StageExecution.FAILED, OutputQuality.PARTIAL)))
+        assertEquals(false, failed.stageStates.getValue("primary").delivered)
+        assertEquals(OutputQuality.PARTIAL, failed.stageStates.getValue("primary").output)
+        assertEquals(failed, failed.append(DelegationEvent(DelegationEventKind.RUN_TERMINAL, role = DelegationRole.PRIMARY, status = DelegationStepStatus.RETURNED_OUTPUT)))
+    }
 }

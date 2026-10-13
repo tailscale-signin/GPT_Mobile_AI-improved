@@ -1009,6 +1009,14 @@ class ChatViewModel @Inject constructor(
             ?: return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val runId = UUID.randomUUID().toString()
+        val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
+        val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
+        val recovery = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor(
+            "${userMessage.chatId}:$sourceMessageId",
+            sourceMessageId,
+            runId,
+            if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+        )
         _loadingStates.update { it.toMutableList().apply { this[platformIndex] = LoadingState.Loading } }
 
         viewModelScope.launch {
@@ -1018,6 +1026,7 @@ class ChatViewModel @Inject constructor(
                         PersistAgentRetryRequest(
                             userMessage = userMessage,
                             assistantMessage = currentAssistantMessage.copy(combinedSources = emptyList()),
+                            recovery = recovery,
                             run = AgentRunDraft(
                                 runId = runId,
                                 profileUid = platformWithChatModel.uid,
@@ -1217,7 +1226,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (_chatRoom.value.isTemporary) {
-                    agentRunCoordinator.cancelChatAndJoin(_chatRoom.value.id)
+                    agentRunCoordinator.cancelChatAndJoin(_chatRoom.value.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
                     chatRepository.deleteChatsV2(listOf(_chatRoom.value))
                 } else if (_chatRoom.value.id > 0 && composerRestored) {
                     draftMutex.withLock {
@@ -1967,7 +1976,7 @@ class ChatViewModel @Inject constructor(
             _platformsInApp.value.firstOrNull { it.uid == source.platformUid && it.enabled }
                 ?.let(::resolvePlatformModel)
         }
-        val leadPlatform = candidates.firstOrNull { platform ->
+        val leadPlatform = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.firstOrNull { platform ->
             if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
                 true
             } else {
@@ -1977,6 +1986,10 @@ class ChatViewModel @Inject constructor(
             }
         }
         if (leadPlatform == null) {
+            if (sources.any { it.localOnly }) {
+                _attachmentNotice.update { "These responses contain local-only memory. Choose a local AI profile to combine them; the individual responses remain available." }
+                return
+            }
             val coolingProvider = candidates.firstNotNullOfOrNull { platform ->
                 if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) return@firstNotNullOfOrNull null
                 val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl) ?: return@firstNotNullOfOrNull null

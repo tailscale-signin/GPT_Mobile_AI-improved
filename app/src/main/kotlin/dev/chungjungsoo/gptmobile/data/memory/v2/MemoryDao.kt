@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.memory.v2
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Upsert
 
 @Dao
 interface MemoryDao {
@@ -29,4 +30,31 @@ interface MemoryDao {
 
     @Query("DELETE FROM memory_facts WHERE id = :id")
     suspend fun deleteFact(id: String)
+
+    @Query("SELECT * FROM memory_facts ORDER BY id")
+    suspend fun allFacts(): List<MemoryFactEntity>
+
+    @Upsert
+    suspend fun upsertFact(fact: MemoryFactEntity)
+
+    @Upsert
+    suspend fun upsertState(state: MemoryStoreStateEntity)
+
+    @Upsert
+    suspend fun upsertRecord(record: MemoryRecordEntity)
+
+    @Query("SELECT * FROM memory_records WHERE kind = :kind ORDER BY id")
+    suspend fun records(kind: String): List<MemoryRecordEntity>
+
+    @Query("DELETE FROM memory_records WHERE kind = :kind")
+    suspend fun deleteRecords(kind: String)
+
+    @Query("DELETE FROM memory_records WHERE kind = 'OUTBOX' AND generation <= :generation")
+    suspend fun acknowledgeIndexes(generation: Long)
+
+    @Query("DELETE FROM memory_facts")
+    suspend fun clearFacts()
+
+    @Query("DELETE FROM memory_records")
+    suspend fun clearRecords()
 }

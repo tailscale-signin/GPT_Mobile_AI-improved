@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import dev.chungjungsoo.gptmobile.data.research.evidenceRevisionDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
@@ -33,7 +34,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
-internal enum class DelegateProgressKind { REQUEST_STARTED, OUTPUT, TOOL_ACTIVITY, USAGE, REPAIR_WASTE }
+internal enum class DelegateProgressKind { INVOCATION_LINKED, REQUEST_STARTED, OUTPUT, TOOL_ACTIVITY, USAGE, REPAIR_WASTE }
 
 internal data class DelegateProgress(
     val kind: DelegateProgressKind,
@@ -42,7 +43,10 @@ internal data class DelegateProgress(
     val totalTokens: Long? = null,
     val textDelta: String? = null,
     val decodeTokensPerSecond: Double? = null,
-    val wastedMillis: Long = 0
+    val wastedMillis: Long = 0,
+    val invocationId: String? = null,
+    val attemptId: String? = null,
+    val rootWorkId: String? = null
 )
 
 private fun estimatedDelegateTokens(text: String): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(text).coerceAtLeast(1)
@@ -116,6 +120,7 @@ internal class LocalDelegationCoordinator(
     private val quarantinedWorkerUids = ConcurrentHashMap.newKeySet<String>()
     private val observedRequestOverheadTokens = ConcurrentHashMap<String, AtomicLong>()
     private val delegationCanceledByUser = AtomicBoolean(false)
+    private val cancellationCause = AtomicReference<dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin?>(null)
     private val userSelectedRecoveryProfile = AtomicReference<PlatformV2?>(null)
     private val lastFailure = AtomicReference<String?>(null)
     private val activeRequests = ConcurrentHashMap.newKeySet<Deferred<String?>>()
@@ -173,14 +178,15 @@ internal class LocalDelegationCoordinator(
         }
     }
 
-    fun cancelDelegation() {
+    fun cancelDelegation(origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.UNKNOWN) {
+        cancellationCause.compareAndSet(null, origin)
         synchronized(reviewStateLock) { delegationCanceledByUser.set(true) }
         activeRequests.forEach { it.cancel(CancellationException("PRIMARY_ONLY_HANDOFF")) }
     }
 
     private suspend fun reviewerTarget(config: ModelDelegationSettings, delegate: PlatformV2): PlatformV2? =
         reservedReviewer(config, profiles(), source)?.takeIf {
-            reviewerEligible(it, config, source) && !sameDelegationModel(delegate, it)
+            reviewerEligible(it, config, source) && dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(delegate, it) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT
         }
 
     /** One independent benchmark assessment; no repairs or candidate rewriting. */
@@ -513,7 +519,15 @@ internal class LocalDelegationCoordinator(
         )
     }
 
-    private fun reserveWorkerCall(limit: Int): Int? {
+    private val durableBudgetLock = kotlinx.coroutines.sync.Mutex()
+    private var durableBudget: dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
+    private suspend fun sharedLedger(): dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger? = durableBudgetLock.withLock {
+        if (durableBudget == null) durableBudget = researchJournal?.goalBudget(dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(settings().normalized().deepResearch))
+        durableBudget?.ledger
+    }
+
+    private suspend fun reserveWorkerCall(limit: Int): Int? {
+        if (sharedLedger()?.reserveDelegation("worker_calls", java.util.UUID.randomUUID().toString(), limit) == false) return null
         while (true) {
             val current = localCalls.get()
             if (current >= limit) return null
@@ -578,6 +592,8 @@ internal class LocalDelegationCoordinator(
         )
         val permanentlyUnavailable =
             containsAny(
+                "DELEGATE_CALL_LIMIT",
+                "DELEGATE_PHYSICAL_REQUEST_LIMIT",
                 "HTTP 404",
                 "HTTP 410",
                 "model not found",
@@ -840,6 +856,9 @@ internal class LocalDelegationCoordinator(
             return null
         }
         if (!planReservation()) return null
+        val ledger = sharedLedger()
+        val reviewReserve = if (!reviewer && live.reviewerEnabled) 1 else 0
+        check(ledger?.reserveDelegation("model_invocations", stepId, live.effectiveLocalModelCalls(), reviewReserve) != false) { "DELEGATE_CALL_LIMIT: original work model allowance exhausted" }
         // Reviewers never fall back to a callback that can inherit worker tools.
         val progressive = if (reviewer) {
             generateReviewerWithProgress
@@ -865,7 +884,7 @@ internal class LocalDelegationCoordinator(
             // Progressing tool work may extend the adaptive runtime, but never the hard deadline.
             val requestRuntimeSeconds = if (progressive == null) minOf(runtimeSeconds, hardRuntimeSeconds) else hardRuntimeSeconds
             val deferred = async(
-                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests),
+                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests, durableReservation = { ledger?.reserveDelegation("http_attempts", java.util.UUID.randomUUID().toString(), 48, reviewReserve) != false }),
                 start = CoroutineStart.LAZY
             ) {
                 if (progressive == null) {
@@ -903,6 +922,7 @@ internal class LocalDelegationCoordinator(
                                 error("DELEGATE_WASTE_BUDGET_EXHAUSTED: stop repair before spending another request.")
                             }
                         }
+                        DelegateProgressKind.INVOCATION_LINKED -> observe(DelegationEvent(DelegationEventKind.INVOCATION_LINKED, stepId = stepId, role = role, profileUid = profile.uid, invocationId = progress.invocationId, attemptId = progress.attemptId, rootWorkId = progress.rootWorkId))
                         DelegateProgressKind.REQUEST_STARTED -> Unit
                     }
                 }
@@ -1162,7 +1182,7 @@ internal class LocalDelegationCoordinator(
             }
             when (decision) {
                 DelegationRecoveryDecision.PrimaryOnly -> {
-                    cancelDelegation()
+                    cancelDelegation(if (candidates.isEmpty()) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PARENT_FAILURE else dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_PRIMARY_ONLY)
                     val detail = if (candidates.isEmpty()) {
                         "no eligible fallback delegate"
                     } else {
@@ -1178,7 +1198,7 @@ internal class LocalDelegationCoordinator(
                 is DelegationRecoveryDecision.SwitchProfile -> {
                     val selected = candidates.firstOrNull { it.uid == decision.profileUid }
                     if (selected == null) {
-                        cancelDelegation()
+                        cancelDelegation(dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PERMISSION_REVOKED)
                         AppLogRecorder.record("Delegation", "Selected failover no longer eligible · failed=$failedUid · selected=${decision.profileUid}", "W")
                         return null
                     }
@@ -1539,9 +1559,12 @@ internal class LocalDelegationCoordinator(
             AppLogRecorder.record("Delegation", "Research skipped · automatic=$automatic · enabled=${config.researchEnabled} · target=null")
             return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
         }
+        if (config.reviewerEnabled && config.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED && reviewerTarget(config, target) == null) {
+            return LocalResearchResult("[REVIEW_REQUIRED][UNVERIFIED] No eligible independent reviewer. Preparation paused before acquisition; choose an authorized reviewer with a verified distinct model identity.", 0, 0, 0, LocalResearchOutcome.FAILED)
+        }
         val effectiveResearchLimit = config.effectiveResearchCalls()
         val requestIndex = requests.getAndIncrement()
-        if (requestIndex >= effectiveResearchLimit) {
+        if (requestIndex >= effectiveResearchLimit || sharedLedger()?.reserveDelegation("research_operations", java.util.UUID.randomUUID().toString(), effectiveResearchLimit) == false) {
             AppLogRecorder.record("Delegation", "Research skipped · request budget exhausted · request=$requestIndex max=$effectiveResearchLimit · configured=${config.maxCallsPerTurn} · ownership=${config.processingOwnership}", "W")
             return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
         }
@@ -1569,6 +1592,7 @@ internal class LocalDelegationCoordinator(
                         generate = { prompt, tokens -> workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true) },
                         journal = researchJournal,
                         monotonicMs = nowMs,
+                        cancellationOrigin = { cancellationCause.get()?.name ?: researchJournal?.cancellationOrigin() ?: "UNKNOWN" },
                         stillEnabled = { !delegationCanceledByUser.get() }
                     ).run(LongResponsePolicy.evidenceTask(task), "$callId:$requestIndex")
                 } else {
@@ -1628,6 +1652,27 @@ internal class LocalDelegationCoordinator(
             )
         } else {
             result
+        }
+
+        if (config.deepResearch.enabled && reviewedResult.handoff.isNotBlank()) {
+            val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString())
+            val journal = researchJournal?.scoped(authority, tools.all { it.connectionUid == null })
+            journal?.load()?.let { snapshot ->
+                val reviewer = reviewerTarget(config, userSelectedRecoveryProfile.get() ?: target)
+                val status = when {
+                    !config.reviewerEnabled -> "NOT_REQUESTED"
+                    delegateReviewState(reviewedResult.handoff) == DelegateReviewState.PASSED -> "PASSED"
+                    reviewedResult.handoff.startsWith("[REVIEW_REJECTED]") -> "REJECTED"
+                    reviewer == null -> "UNAVAILABLE"
+                    else -> "INCOMPLETE"
+                }
+                val report = if (reviewedResult.handoff.length <= 32768) {
+                    dev.chungjungsoo.gptmobile.data.research.ResearchReviewRecord(status, snapshot.evidenceRevisionDigest(), dev.chungjungsoo.gptmobile.data.research.researchHash(result.handoff), reviewedResult.handoff, reviewer?.uid.orEmpty())
+                } else {
+                    dev.chungjungsoo.gptmobile.data.research.ResearchReviewRecord("INCOMPLETE", snapshot.evidenceRevisionDigest(), dev.chungjungsoo.gptmobile.data.research.researchHash(result.handoff), "Review artifact exceeded its storage limit; original corpus remains available. No independent pass is retained.", reviewer?.uid.orEmpty())
+                }
+                journal.save(snapshot.copy(reviewRecord = report, updatedAt = System.currentTimeMillis()))
+            }
         }
         AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · outcome=${reviewedResult.outcome} · searches=${reviewedResult.searches} · pages=${reviewedResult.pagesRead} · pagesAttempted=${reviewedResult.pagesAttempted} · pagesRetrieved=${reviewedResult.pagesRetrieved} · pagesReadable=${reviewedResult.pagesRead} · reviewStatus=${delegateReviewState(reviewedResult.handoff)} · rawBytes=${reviewedResult.rawBytes} · handoffChars=${reviewedResult.handoff.length}")
         if (automatic && reviewedResult.outcome !in setOf(LocalResearchOutcome.SUCCESS, LocalResearchOutcome.PARTIAL_USEFUL)) requests.decrementAndGet()

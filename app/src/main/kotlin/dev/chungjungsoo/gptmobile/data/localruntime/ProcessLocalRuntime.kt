@@ -36,6 +36,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class ProcessLocalRuntime(private val context: Context, private val settings: SettingRepository) : LocalRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val bindMutex = Mutex()
+    private val readiness = LocalReadinessRegistry()
     private val pending = ConcurrentHashMap<String, Pending>()
     private val thread = HandlerThread("local-runtime-client").apply { start() }
     private val incoming = Messenger(object : Handler(thread.looper) {
@@ -80,6 +81,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = execute("INSPECT", text = modelPath).capabilities
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
+        readiness.reset()
         command(RuntimeWire("VERIFY_RESET", UUID.randomUUID().toString(), generation = generation, spec = spec))
     }
 
@@ -88,7 +90,12 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val snapshot = settings.getFeatureSettings()
         mutableState.value = state.value.copy(lifecycle = "LOADING")
         val packet = RuntimeWire("LOAD", UUID.randomUUID().toString(), generation = generation, spec = spec, settings = snapshot, preferredBackend = settings.getLocalRuntimeBackend())
-        command(packet, timeoutMs = 180_000)
+        val artifact = java.io.File(spec.modelPath)
+        check(artifact.isFile || artifact.isDirectory) { "MISSING_ASSET: Download or relink the selected model before running it." }
+        val identity = "$spec|${artifact.length()}|${artifact.lastModified()}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}|${packet.preferredBackend}|${snapshot.localEngineTuning()}"
+        readiness.qualify(identity) {
+            if (!isEngineLoaded(spec)) command(packet, timeoutMs = 180_000)
+        }
         requestedSpec = spec
         tuning = snapshot.localEngineTuning()
     }

@@ -90,7 +90,7 @@ class ResearchEvidenceTest {
         assertEquals("https://example.org/page", restored.sources.single().canonicalUrl)
         assertEquals(passage, restored.sources.single().passage)
         assertEquals(0, restored.targetSources)
-        assertEquals(3, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(4, restored.json()["version"]?.jsonPrimitive?.int)
     }
 
     @Test fun versionTwoSnapshotsMigrateToVersionThreeWithoutLosingEvidence() {
@@ -108,7 +108,7 @@ class ResearchEvidenceTest {
         assertEquals(original, restored)
         assertTrue(restored.sources.single().readable)
         assertEquals(0, restored.targetSources)
-        assertEquals(3, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(4, restored.json()["version"]?.jsonPrimitive?.int)
         assertEquals(restored, ResearchSnapshot.parse(restored.json()))
     }
 
@@ -120,7 +120,7 @@ class ResearchEvidenceTest {
 
         assertEquals(original, restored)
         assertEquals(300, restored.targetSources)
-        assertEquals(3, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(4, restored.json()["version"]?.jsonPrimitive?.int)
     }
 
     @Test fun stableSourceIdsAndFailureDetailsSurviveRoundTrip() {

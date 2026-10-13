@@ -110,11 +110,7 @@ class DelegationBenchmarkRunnerTest {
         val runner = DelegationBenchmarkRunner(
             createCoordinator = {
                 LocalDelegationCoordinator(source, { config }, { listOf(helper) }, { _, prompt, _ ->
-                    when {
-                        prompt.startsWith("Plan public-web") -> """{"queries":[],"urls":["https://example.org/parcel"]}"""
-                        prompt.startsWith("Choose up to") -> """{"ids":["S1"]}"""
-                        else -> Regex("PKG-[a-f0-9]{8}").find(prompt)?.value?.let { "$it https://example.org/parcel" } ?: "No evidence"
-                    }
+                    researchScript(prompt)
                 })
             },
             target = helper,
@@ -135,9 +131,9 @@ class DelegationBenchmarkRunnerTest {
 
     @Test fun `new tool fixtures independently review both correct and incorrect delegate output`() = runTest {
         for (correct in listOf(true, false)) {
-            val worker = helper.copy(model = "delegate-model")
-            val judge = source.copy(uid = "judge", model = "judge-model")
-            val settings = delegationBenchmarkSettings(judge.uid).copy(targetProfileUid = worker.uid)
+            val worker = helper.copy(model = "qwen/qwen3-8b")
+            val judge = source.copy(uid = "judge", model = "gpt-4o")
+            val settings = delegationBenchmarkSettings(judge.uid).copy(targetProfileUid = worker.uid, allowRemoteWorkers = true, localPlatformsOnly = false)
             val reviews = mutableListOf<String>()
             val runner = DelegationBenchmarkRunner(
                 createCoordinator = { tools ->
@@ -170,9 +166,18 @@ class DelegationBenchmarkRunnerTest {
         }
     }
 
-    private val source = PlatformV2(uid = "primary", name = "Primary", compatibleType = ClientType.OPENAI)
-    private val helper = PlatformV2(uid = "helper", name = "Helper", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.2:8080")
-    private val config = ModelDelegationSettings(enabled = true, targetProfileUid = "helper", maxPages = 1, crawlDepth = 0, maxLocalModelCalls = 10)
+    private fun researchScript(prompt: String): String = when {
+        prompt.startsWith("Plan") -> """{"questions":[{"id":"Q1","text":"What is the parcel code?","evidenceNeeded":"Exact fixture passage"}],"queries":["parcel fixture"]}"""
+        prompt.startsWith("Extract") -> {
+            val code = Regex("PKG-[a-f0-9]{8}").find(prompt)!!.value
+            """{"claims":[{"sourceId":"S1","questionId":"Q1","relevance":"Relevant","text":"Parcel code is $code.","quote":"Parcel code is $code."}]}"""
+        }
+        else -> """{"verdict":"Supported","relevance":"Relevant","questionId":"Q1"}"""
+    }
+
+    private val source = PlatformV2(uid = "primary", name = "Primary", compatibleType = ClientType.OPENAI, model = "gpt-4.1", apiUrl = "https://api.openai.com")
+    private val helper = PlatformV2(uid = "helper", name = "Helper", compatibleType = ClientType.OPENROUTER, model = "qwen/qwen3-8b", apiUrl = "https://openrouter.ai/api/v1")
+    private val config = ModelDelegationSettings(enabled = true, allowRemoteWorkers = true, localPlatformsOnly = false, targetProfileUid = "helper", maxPages = 1, crawlDepth = 0, maxLocalModelCalls = 10)
 
     @Test fun `pipeline reads fixture then preserves code and source through primary synthesis`() = runBlocking {
         var calls = 0
@@ -181,11 +186,7 @@ class DelegationBenchmarkRunnerTest {
             createCoordinator = {
                 LocalDelegationCoordinator(source, { config }, { listOf(helper) }, { _, prompt, _ ->
                     calls++
-                    when {
-                        prompt.startsWith("Plan public-web") -> """{"queries":[],"urls":["https://example.org/parcel"]}"""
-                        prompt.startsWith("Choose up to") -> """{"ids":["S1"]}"""
-                        else -> Regex("PKG-[a-f0-9]{8}").find(prompt)?.value?.let { "$it https://example.org/parcel" } ?: "No evidence"
-                    }
+                    researchScript(prompt)
                 })
             },
             target = helper,
@@ -212,8 +213,8 @@ class DelegationBenchmarkRunnerTest {
         assertEquals(1, result.delegation!!.pagesRead)
         assertEquals(100L, result.delegation!!.primaryInputTokens)
         assertEquals(20L, result.delegation!!.primaryOutputTokens)
-        assertEquals(1, result.delegation!!.fixtureCalls)
-        assertEquals(1, result.delegation!!.successfulFixtureCalls)
+        assertEquals(2, result.delegation!!.fixtureCalls)
+        assertEquals(2, result.delegation!!.successfulFixtureCalls)
     }
 
     @Test fun `tool test uses an isolated random fixture and detects invalid arguments`() = runTest {

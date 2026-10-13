@@ -18,6 +18,8 @@ enum class ErrorCategory {
     NETWORK_DISCONNECTED,
     RATE_LIMIT_EXCEEDED,
     AUTHENTICATION_FAILED,
+    ACCESS_FORBIDDEN,
+    BUDGET_RESTRICTED,
     CONTEXT_WINDOW_EXCEEDED,
     SERVICE_UNAVAILABLE,
     CIRCUIT_BREAKER_OPEN,
@@ -47,6 +49,9 @@ object ErrorClassification {
         val msg = throwable.message?.lowercase().orEmpty()
 
         return when {
+            throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
+            msg.contains("402") || msg.contains("budget or credit restriction") -> ClassifiedError(ErrorCategory.BUDGET_RESTRICTED, ErrorSeverity.HIGH, false, 0, "The provider reported a budget or credit restriction.", throwable)
+            msg.contains("403") -> ClassifiedError(ErrorCategory.ACCESS_FORBIDDEN, ErrorSeverity.HIGH, false, 0, "HTTP 403: access forbidden. The provider's specific cause is unavailable.", throwable)
             throwable is CircuitBreakerOpenException -> ClassifiedError(
                 category = ErrorCategory.CIRCUIT_BREAKER_OPEN,
                 severity = ErrorSeverity.HIGH,
@@ -83,7 +88,7 @@ object ErrorClassification {
                 originalThrowable = throwable
             )
 
-            msg.contains("401") || msg.contains("403") || msg.contains("unauthorized") || msg.contains("invalid api key") -> ClassifiedError(
+            msg.contains("401") || msg.contains("unauthorized") || msg.contains("invalid api key") -> ClassifiedError(
                 category = ErrorCategory.AUTHENTICATION_FAILED,
                 severity = ErrorSeverity.CRITICAL,
                 isRetryable = false,

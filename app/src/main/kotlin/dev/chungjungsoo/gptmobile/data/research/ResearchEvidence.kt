@@ -94,12 +94,15 @@ data class ResearchSource(
     }
 }
 
-data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed") {
+data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed", val questionId: String = "", val relevance: String = "Unknown", val exactQuoteVerified: Boolean = false) {
     fun json() = buildJsonObject {
         put("text", text)
         put("sourceId", sourceId)
         put("quote", quote)
         put("verdict", verdict)
+        put("questionId", questionId)
+        put("relevance", relevance)
+        put("exactQuoteVerified", exactQuoteVerified)
     }
 }
 
@@ -143,6 +146,11 @@ data class ResearchSnapshot(
     val sources: List<ResearchSource> = emptyList(),
     val claims: List<ResearchClaim> = emptyList(),
     val questions: List<String> = emptyList(),
+    val questionPlan: List<ResearchQuestion> = emptyList(),
+    val planningStatus: String = "Legacy unknown",
+    val extractedSourceVersions: Set<String> = emptySet(),
+    val cancellationOrigin: String = "UNKNOWN",
+    val reviewRecord: ResearchReviewRecord? = null,
     val queries: List<String> = emptyList(),
     val notes: List<String> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
@@ -153,7 +161,7 @@ data class ResearchSnapshot(
     val delegationPlan: dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint? = null
 ) {
     fun json() = buildJsonObject {
-        put("version", 3)
+        put("version", 4)
         delegationPlan?.let { put("delegationPlan", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it)) }
         put("targetSources", targetSources)
         put("frontierCursors", JsonObject(frontierCursors.mapValues { JsonPrimitive(it.value) }))
@@ -167,6 +175,11 @@ data class ResearchSnapshot(
         put("sources", JsonArray(sources.map { it.json() }))
         put("claims", JsonArray(claims.map { it.json() }))
         put("questions", JsonArray(questions.map(::JsonPrimitive)))
+        put("questionPlan", JsonArray(questionPlan.map { it.json() }))
+        put("planningStatus", planningStatus)
+        put("extractedSourceVersions", JsonArray(extractedSourceVersions.map(::JsonPrimitive)))
+        put("cancellationOrigin", cancellationOrigin)
+        reviewRecord?.let { put("reviewRecord", it.json()) }
         put("queries", JsonArray(queries.map(::JsonPrimitive)))
         put("notes", JsonArray(notes.map(::JsonPrimitive)))
         put("toolEvents", JsonArray(toolEvents.takeLast(200).map { it.json() }))
@@ -177,7 +190,7 @@ data class ResearchSnapshot(
     companion object {
         fun parse(value: JsonObject): ResearchSnapshot? = runCatching {
             val version = value["version"]?.jsonPrimitive?.int
-            require(version in 1..3)
+            require(version in 1..4)
             val sources = value.rows("sources").mapNotNull { s ->
                 val id = s.text("id")
                 val url = s.text("url").take(2048)
@@ -232,11 +245,12 @@ data class ResearchSnapshot(
                     else -> source.canonicalUrl.ifBlank { source.url }
                 }
             }
-            val claimRows = value.rows("claims").take(30)
+            val claimRows = value.rows("claims")
             val claims = validatedResearchClaims(claimRows, sources).map { claim ->
                 val verdict = claimRows.firstOrNull { it.text("sourceId") == claim.sourceId && it.text("text").trim().take(600) == claim.text && it.text("quote").trim().take(1200) == claim.quote }
                     ?.text("verdict")?.takeIf { it in setOf("Supported", "Contradicted", "Insufficient") } ?: "Unreviewed"
-                claim.copy(verdict = verdict)
+                val row = claimRows.first { it.text("sourceId") == claim.sourceId && it.text("text").trim() == claim.text && it.text("quote").trim() == claim.quote }
+                claim.copy(verdict = verdict, questionId = row.text("questionId"), relevance = row.text("relevance").takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown", exactQuoteVerified = (row["exactQuoteVerified"] as? JsonPrimitive)?.booleanOrNull == true)
             }
             ResearchSnapshot(
                 delegationPlan = value["delegationPlan"]?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it) },
@@ -245,7 +259,12 @@ data class ResearchSnapshot(
                 searches = value.number("searches").coerceAtLeast(0), attempts = value.number("attempts").coerceAtLeast(0),
                 engineResponses = value.number("engineResponses").coerceAtLeast(0), engineFailures = value.number("engineFailures").coerceAtLeast(0),
                 sources = sources, claims = claims,
-                questions = value.strings("questions").take(8).map { it.take(350) }, queries = value.strings("queries").map { it.take(500) }, notes = value.strings("notes").take(20).map { it.take(500) },
+                questionPlan = parseQuestions((value["questionPlan"] as? JsonArray) ?: (value["questions"] as? JsonArray) ?: JsonArray(emptyList())),
+                planningStatus = value.text("planningStatus").ifBlank { "Legacy unknown" },
+                extractedSourceVersions = value.strings("extractedSourceVersions").toSet(),
+                cancellationOrigin = value.text("cancellationOrigin").ifBlank { "UNKNOWN" },
+                reviewRecord = (value["reviewRecord"] as? JsonObject)?.let(ResearchReviewRecord::parse),
+                questions = parseQuestions((value["questions"] as? JsonArray) ?: JsonArray(emptyList())).map { it.text }, queries = value.strings("queries").map { it.take(500) }, notes = value.strings("notes").take(20).map { it.take(500) },
                 updatedAt = (value["updatedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, complete = (value["complete"] as? JsonPrimitive)?.booleanOrNull == true,
                 toolEvents = value.rows("toolEvents").takeLast(200).mapNotNull { event ->
                     val outcome = event.text("outcome").takeIf { it in setOf("SUCCESS", "PARTIAL", "EMPTY", "BLOCKED", "AUTH_FAILED", "RATE_LIMITED", "INVALID_RESPONSE", "BUDGET_EXHAUSTED", "CIRCUIT_OPEN", "FAILED") }
@@ -278,12 +297,12 @@ fun researchDomainAllowed(url: String, include: List<String>, exclude: List<Stri
 }
 
 /** An exact quote is necessary but does not itself establish entailment. */
-fun validatedResearchClaims(rows: List<JsonObject>, sources: List<ResearchSource>): List<ResearchClaim> = rows.take(30).mapNotNull { row ->
+fun validatedResearchClaims(rows: List<JsonObject>, sources: List<ResearchSource>): List<ResearchClaim> = rows.mapNotNull { row ->
     val source = sources.firstOrNull { it.id == row.text("sourceId") && it.readable } ?: return@mapNotNull null
-    val quote = row.text("quote").trim().take(1200)
-    val claim = row.text("text").trim().take(600)
-    if (quote.length < 20 || quote !in source.passage || claim.isBlank()) return@mapNotNull null
-    ResearchClaim(claim, source.id, quote)
+    val quote = row.text("quote").trim()
+    val claim = row.text("text").trim()
+    if (quote.length !in 20..1200 || quote !in source.passage || claim.isBlank() || claim.length > 600) return@mapNotNull null
+    ResearchClaim(claim, source.id, quote, questionId = row.text("questionId"), exactQuoteVerified = source.paperId.isBlank())
 }.distinctBy { it.text to it.sourceId }
 
 /** Bounded overlap flags likely copies; it never proves that publishers are independent. */
@@ -305,3 +324,54 @@ fun Collection<ResearchSource>.readableWorkCount(): Int = filter { it.readable }
         else -> source.equivalenceGroup.ifBlank { source.canonicalUrl }
     }
 }.size
+
+/** Expiration invalidates dependent verification, never the entire saved corpus. */
+internal fun ResearchSnapshot.withFreshEvidence(nowMillis: Long, maxAgeMillis: Long = 86_400_000): ResearchSnapshot {
+    val expired = sources.filter { it.readable && nowMillis - it.retrievedAt !in 0..maxAgeMillis }.map { it.id }.toSet()
+    if (expired.isEmpty()) return this
+    return copy(
+        complete = false,
+        sources = sources.map { if (it.id in expired) it.copy(status = "Discovered", passage = "", bodyChunks = emptyList()) else it },
+        claims = claims.map { if (it.sourceId in expired) it.copy(verdict = "Unreviewed", exactQuoteVerified = false, relevance = "Unknown") else it },
+        extractedSourceVersions = extractedSourceVersions.filterNot { key -> expired.any { key.startsWith("$it:") } }.toSet(),
+        notes = (notes + "${expired.size} expired sources need refresh; other completed evidence is retained.").distinct()
+    )
+}
+
+/** A review applies to an exact evidence revision and handoff, never all future claims. */
+data class ResearchReviewRecord(val status: String, val corpusDigest: String, val inputHandoffDigest: String, val finalHandoff: String, val reviewerUid: String = "") {
+    fun json() = buildJsonObject {
+        put("version", 1)
+        put("status", status)
+        put("corpusDigest", corpusDigest)
+        put("inputHandoffDigest", inputHandoffDigest)
+        put("finalHandoff", finalHandoff)
+        put("reviewerUid", reviewerUid)
+    }
+    companion object {
+        fun parse(value: JsonObject): ResearchReviewRecord? = runCatching {
+            require(value.number("version") == 1)
+            val status = value.text("status").also { require(it in setOf("NOT_REQUESTED", "UNAVAILABLE", "PASSED", "REJECTED", "INCOMPLETE")) }
+            val corpus = value.text("corpusDigest").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+            val handoff = value.text("inputHandoffDigest").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+            val final = value.text("finalHandoff").also { require(it.length <= 32768) }
+            ResearchReviewRecord(status, corpus, handoff, final, value.text("reviewerUid").also { require(it.length <= 128) })
+        }.getOrNull()
+    }
+}
+
+fun ResearchSnapshot.evidenceRevisionDigest(): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    fun add(value: String) {
+        digest.update(value.toByteArray(Charsets.UTF_8))
+        digest.update(0.toByte())
+    }
+    add(task)
+    questionPlan.forEach { add(it.json().toString()) }
+    questions.forEach(::add)
+    sources.sortedBy { it.id }.forEach { add(it.json().toString()) }
+    claims.sortedWith(compareBy<ResearchClaim> { it.sourceId }.thenBy { it.text }.thenBy { it.quote }).forEach { add(it.json().toString()) }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+fun ResearchSnapshot.currentReviewRecord(): ResearchReviewRecord? = reviewRecord?.takeIf { it.corpusDigest == evidenceRevisionDigest() }

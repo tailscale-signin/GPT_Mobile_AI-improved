@@ -519,6 +519,20 @@ class AgentToolResolver @Inject constructor(
                         (resolved.connectionUid == null || features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(resolved.connectionUid)))
                 })
             }
+            .map { resolved ->
+                val connection = resolved.connectionUid ?: return@map resolved
+                val admittedBindings = bindings.filter { it.binding.connectionUid == connection }
+                val previousCheck = resolved.canReuseResult
+                resolved.copy(canReuseResult = {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    current == platform &&
+                        current?.enabled == true &&
+                        admittedBindings.isNotEmpty() &&
+                        toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection } == admittedBindings &&
+                        settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection)) &&
+                        previousCheck?.invoke() != false
+                })
+            }
             .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
             .sortedBy { it.modelToolName }
     }

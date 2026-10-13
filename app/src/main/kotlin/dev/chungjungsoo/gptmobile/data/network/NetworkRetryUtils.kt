@@ -20,6 +20,8 @@ object NetworkRetryUtils {
      * (e.g. temporary DNS resolution failure, socket timeouts, connection reset).
      */
     fun isTransientNetworkError(throwable: Throwable): Boolean {
+        val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
         return when (throwable) {
             is CancellationException -> false
             is SocketTimeoutException,

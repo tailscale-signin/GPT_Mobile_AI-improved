@@ -80,4 +80,27 @@ class ResearchRunLedgerTest {
         assertEquals(10000L, writes.last().downloaded)
         assertEquals("user_download_limit", writes.last().limitReason)
     }
+
+    @Test fun delegationCountersAreDistinctIdempotentAndSurviveRestartWithoutMintingAllowance() {
+        val writes = mutableListOf<ResearchRunLedger.State>()
+        val ledger = ResearchRunLedger("p", ResearchUserLimits(), writes::add)
+        repeat(16) { assertTrue(ledger.reserveDelegation("research_operations", "operation-$it", 16)) }
+        repeat(24) { assertTrue(ledger.reserveDelegation("model_invocations", "model-$it", 48)) }
+        assertTrue(ledger.reserveDelegation("model_invocations", "model-0", 48))
+        assertEquals(24, ledger.snapshot().delegationReservations.getValue("model_invocations").size)
+        val restarted = ResearchRunLedger("p", ResearchUserLimits())
+        restarted.restore(writes.last())
+        assertFalse(restarted.reserveDelegation("research_operations", "extra", 48))
+        repeat(23) { assertTrue(restarted.reserveDelegation("model_invocations", "continued-$it", 48, reserveForReview = 1)) }
+        assertFalse(restarted.reserveDelegation("model_invocations", "worker-overflow", 48, reserveForReview = 1))
+        assertTrue(restarted.reserveDelegation("model_invocations", "independent-review", 48))
+        assertFalse(restarted.reserveDelegation("model_invocations", "extra", 48))
+        assertEquals(0L, restarted.snapshot().physical)
+    }
+
+    @Test fun delegationReservationCannotDispatchAfterPersistenceFailure() {
+        val ledger = ResearchRunLedger("p", ResearchUserLimits()) { error("disk full") }
+        assertTrue(runCatching { ledger.reserveDelegation("http_attempts", "attempt", 48) }.isFailure)
+        assertTrue(ledger.snapshot().delegationReservations.isEmpty())
+    }
 }

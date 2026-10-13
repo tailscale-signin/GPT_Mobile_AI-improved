@@ -64,13 +64,26 @@ object DelegationPolicyResolver {
                 .thenBy { it.uid }
         )
 
-    fun preview(config: ModelDelegationSettings, profiles: List<PlatformV2>): String {
-        val candidates = ranked(profiles, config)
-        val selected = if (config.targetProfileUid.isNotBlank()) candidates.find { it.uid == config.targetProfileUid } else candidates.firstOrNull()
+    fun preview(config: ModelDelegationSettings, profiles: List<PlatformV2>, primary: PlatformV2? = null): String {
+        val policy = config.normalized()
+        val admission = primary?.let { DelegationAdmissionResolver.resolve(policy, profiles, it) }
+        val candidates = ranked(profiles, policy, primary)
+        val selected = if (primary != null) {
+            admission?.worker
+        } else if (policy.targetProfileUid.isNotBlank()) {
+            candidates.find { it.uid == policy.targetProfileUid }
+        } else {
+            candidates.firstOrNull()
+        }
         return buildString {
             appendLine("Configuration preview · no requests made")
+            if (primary == null) {
+                appendLine("Primary not selected here; role conflicts and independence must be checked for the actual chat.")
+            } else {
+                appendLine(admission?.explanation)
+            }
             appendLine(
-                if (!config.enabled) {
+                if (!policy.enabled) {
                     "Delegation is off."
                 } else if (selected == null) {
                     "Blocked: choose an eligible helper."
@@ -78,14 +91,17 @@ object DelegationPolicyResolver {
                     "Helper: ${selected.name} · ${selected.model}"
                 }
             )
-            appendLine("Data: ${if (config.remoteWorkersAllowed()) "Cloud helpers permitted by global policy" else "On device / private server only"}")
+            appendLine("Data: ${if (policy.remoteWorkersAllowed()) "Cloud helpers permitted by the resolved policy" else "On device / private server only"}")
             appendLine("Private-server forwarding and readiness require separate verification.")
-            appendLine("Input: ${config.maxInputTokensPerDelegate} requested → ${config.effectiveLocalInputTokens()} token estimate ceiling")
-            appendLine("Helper calls: ${config.maxLocalModelCalls} requested → ${config.effectiveLocalModelCalls()} ceiling")
-            appendLine("Output: ${config.maxOutputTokens} tokens; provider/profile may lower this.")
-            appendLine("Preparation: ${config.preparationTimeoutSeconds}s; retries share the deadline.")
+            appendLine("Input: ${policy.maxInputTokensPerDelegate} requested → ${policy.effectiveLocalInputTokens()} token estimate ceiling")
+            appendLine("Logical research operations: ${policy.maxCallsPerTurn} requested → ${policy.effectiveResearchCalls()} ceiling")
+            appendLine("Physical model sessions: ${policy.maxLocalModelCalls} requested → ${policy.effectiveLocalModelCalls()} ceiling")
+            val research = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(policy.deepResearch)
+            appendLine("Research depth: ${policy.deepResearch.effort}; effective source goal: ${research.sourceGoal}; legacy delegation depth: ${policy.strategy}. Source collection does not imply question coverage.")
+            appendLine("Output: ${policy.maxOutputTokens} tokens; provider/profile may lower this.")
+            appendLine("Preparation: ${policy.preparationTimeoutSeconds}s; retries share the deadline.")
             appendLine("Tools: intersection of parent, profile, conversation and current authorization.")
-            if (config.processingOwnership == 0 && config.reviewerProfileUid.isBlank()) appendLine("Blocked: delegate-led preparation requires an independent reviewer.")
+            if (policy.reviewMode == DelegationReviewMode.REQUIRED && policy.reviewerProfileUid.isBlank()) appendLine("Required independent review pauses preparation until an eligible reviewer is selected.")
             append("Changes apply to the next response. Stop and permission revocation remain live.")
         }
     }

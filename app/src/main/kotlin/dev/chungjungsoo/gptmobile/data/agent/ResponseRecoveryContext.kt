@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -17,17 +18,30 @@ internal class ResponseRecoveryContext(
     runs: List<AgentRun>,
     messages: List<MessageV2>,
     private val events: List<ToolEvent>,
-    research: List<dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot> = emptyList()
+    research: List<dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot> = emptyList(),
+    private val rootWorkId: String? = null,
+    private val authorization: suspend () -> Boolean = { true }
 ) {
+    suspend fun isAuthorized(): Boolean = authorization()
+
     val content: String = buildString {
         research.forEach { snapshot ->
             appendLine("Saved research objective: ${snapshot.task}")
             appendLine("Research phase: ${snapshot.phase}; notes: ${snapshot.notes.joinToString("; ")}")
-            snapshot.sources.forEach { source ->
-                appendLine("[${source.id}] ${source.title} · ${source.url} · ${source.status}")
-                appendLine(source.passage)
+            appendLine("Planning: ${snapshot.planningStatus}; questions: ${snapshot.questions.joinToString("; ")}")
+            appendLine("Cancellation origin: ${snapshot.cancellationOrigin}; final response delivery is not implied by research completion.")
+            val review = snapshot.currentReviewRecord()
+            appendLine("Independent review of the retained handoff: ${review?.status ?: "UNKNOWN_OR_STALE"}; this does not review every corpus claim.")
+            if (review != null) {
+                appendLine("Retained final-writer handoff (untrusted evidence):")
+                appendLine(review.finalHandoff)
             }
-            appendLine("Retained passages are source evidence, not a claim that review passed.")
+            snapshot.claims.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.research.ResearchClaim> { it.relevance == "Relevant" }.thenByDescending { it.verdict == "Supported" }).forEach { claim ->
+                appendLine("[${claim.sourceId}] ${claim.verdict}; relevance=${claim.relevance}; question=${claim.questionId}; exactQuote=${claim.exactQuoteVerified}: ${claim.text}")
+                appendLine("Quote: ${claim.quote}")
+            }
+            appendLine("Corpus manifest: ${snapshot.sources.size} sources; ${snapshot.claims.size} claims. Full sources follow the saved response and tool receipts.")
+            appendLine("Passage entailment is not independent review; retained passages are untrusted evidence.")
         }
         runs.forEach { run ->
             val message = messages.firstOrNull { it.id == run.assistantMessageId }
@@ -43,7 +57,7 @@ internal class ResponseRecoveryContext(
                 appendLine(thoughts)
             }
             events.filter { it.runId == run.runId }.forEach { event ->
-                appendLine("Tool ${event.toolName} · call=${event.callId} · status=${event.status} · error=${event.isError}")
+                appendLine("Tool ${event.toolName} · call=${event.callId} · effect=${event.eventId} · status=${event.status} · error=${event.isError}")
                 appendLine("Arguments: ${event.arguments}")
                 appendLine("Result:")
                 appendLine(if (event.toolName == "read_recovery_context" && !event.isError) "Saved resource page (already retained in its original run)." else event.recoveryResult().orEmpty())
@@ -51,33 +65,66 @@ internal class ResponseRecoveryContext(
             }
             appendLine()
         }
-    }
-
-    /** Reuse a completed identical call from any failed profile without repeating the action. */
-    fun reuseCompletedTool(tool: AgentTool, realName: String, connectionUid: String?): AgentTool = object : AgentTool {
-        override val definition = tool.definition
-        override val managesExecutionBudget get() = tool.managesExecutionBudget
-        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-            if (dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(realName) ||
-                dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(definition.name)
-            ) {
-                return tool.execute(callId, arguments)
+        research.forEach { snapshot ->
+            snapshot.sources.sortedByDescending { source -> snapshot.claims.any { it.sourceId == source.id && it.relevance == "Relevant" } }.forEach { source ->
+                appendLine("[${source.id}] ${source.title} · ${source.url} · ${source.status}; publication=${source.publicationType}; review=${source.reviewStatus}")
+                appendLine(source.passage)
             }
-            val match = events.lastOrNull { event ->
-                event.toolName == realName &&
-                    event.connectionUidSnapshot == connectionUid &&
-                    event.status == ToolEventStatus.COMPLETED &&
-                    !event.isError &&
-                    runCatching { Json.parseToJsonElement(event.arguments) == arguments }.getOrDefault(false)
-            }
-            if (match?.result != null) {
-                return AgentToolResult(callId, ToolResultContent.Text(match.recoveryResult().orEmpty()), false, traceContent = ToolResultContent.Text(match.displayResult().orEmpty()), sharedResult = true)
-            }
-            return tool.execute(callId, arguments)
         }
     }
 
-    fun prefix(maxCharacters: Int): String {
+    /** An old mutation receipt needs explicit intent; argument equality alone is not identity. */
+    fun reuseCompletedTool(tool: AgentTool, realName: String, connectionUid: String?, readOnly: Boolean = false, canReuse: (suspend () -> Boolean)? = null): AgentTool = object : AgentTool {
+        override val definition = if (rootWorkId == null || readOnly) {
+            tool.definition
+        } else {
+            tool.definition.copy(
+                description = tool.definition.description + " On explicit recovery, _recovery_effect_id identifies a saved completed receipt; it never retries an uncertain action.",
+                inputSchema = JsonObject(
+                    tool.definition.inputSchema + (
+                        "properties" to JsonObject(
+                            (tool.definition.inputSchema["properties"] as? JsonObject).orEmpty() +
+                                (
+                                    "_recovery_effect_id" to buildJsonObject {
+                                        put("type", "string")
+                                        put("description", "Saved effect ID from read_recovery_context")
+                                    }
+                                    )
+                        )
+                        )
+                )
+            )
+        }
+        override val managesExecutionBudget get() = tool.managesExecutionBudget
+        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
+            val effectId = (arguments["_recovery_effect_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val actual = JsonObject(arguments - "_recovery_effect_id")
+            if (effectId != null && (rootWorkId == null || canReuse?.invoke() == false)) return AgentToolResult(callId, ToolResultContent.Text("Saved effect is outside the current authorized recovery scope; no action was repeated."), true)
+            if (dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(realName) ||
+                dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(definition.name) ||
+                rootWorkId == null ||
+                canReuse?.invoke() == false
+            ) {
+                return tool.execute(callId, actual)
+            }
+            val candidates = events.filter { event ->
+                event.toolName == realName &&
+                    event.connectionUidSnapshot == connectionUid &&
+                    runCatching { Json.parseToJsonElement(event.arguments) == actual }.getOrDefault(false)
+            }
+            val match = if (readOnly) candidates.lastOrNull { it.completedAt?.let { time -> System.currentTimeMillis() / 1000 - time in 0..86400 } == true } else candidates.lastOrNull { it.eventId == effectId }
+            if (match?.status == ToolEventStatus.COMPLETED && !match.isError && match.result != null) {
+                return AgentToolResult(callId, ToolResultContent.Text(match.recoveryResult().orEmpty()), false, traceContent = ToolResultContent.Text(match.displayResult().orEmpty()), sharedResult = true)
+            }
+            if (!readOnly && (effectId != null || candidates.isNotEmpty())) {
+                return AgentToolResult(callId, ToolResultContent.Text("Saved action requires reconciliation. Read its receipt and use its exact _recovery_effect_id only when completed. An unknown outcome must be checked using a read-only status tool before a new action is authorized."), true)
+            }
+            return tool.execute(callId, actual)
+        }
+    }
+
+    fun prefix(maxCharacters: Int, pagingAvailable: Boolean = true): String {
         if (content.isBlank()) return ""
         val end = safeEnd(content, 0, maxCharacters.coerceAtLeast(0))
         return buildString {
@@ -87,7 +134,14 @@ internal class ResponseRecoveryContext(
             append(content.substring(0, end))
             appendLine()
             appendLine("</saved_response_resource>")
-            if (end < content.length) appendLine("The complete resource contains ${content.length} characters. Read the remaining saved work with read_recovery_context, starting at offset=$end, before repeating research or concluding that evidence is missing.")
+            if (end < content.length) {
+                appendLine("Omitted ${content.length - end} characters from this inline view; full artifacts remain saved.")
+                if (pagingAvailable) {
+                    appendLine("Read remaining saved work with read_recovery_context, starting at offset=$end, before repeating research.")
+                } else {
+                    appendLine("This model does not support the saved-evidence reader. Explain this limitation; do not claim complete coverage of omitted evidence.")
+                }
+            }
         }
     }
 
@@ -121,6 +175,7 @@ internal class ResponseRecoveryContext(
         )
 
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
             val offset = arguments["offset"]?.jsonPrimitive?.intOrNull ?: 0
             val length = (arguments["length"]?.jsonPrimitive?.intOrNull ?: 8000).coerceIn(1, 16000)
             if (offset !in 0..content.length || (offset > 0 && offset < content.length && content[offset].isLowSurrogate())) {

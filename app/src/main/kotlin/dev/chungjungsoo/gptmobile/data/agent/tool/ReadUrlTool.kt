@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
@@ -73,6 +74,13 @@ class ReadUrlTool(
                         )
                     }
                     put(
+                        "extractDocument",
+                        buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Follow a document extraction handoff. Downloads a complete document to temporary disk, at most 16 MiB; reads at most 100 PDF pages or 80,000 characters. Partial binary files are never parsed.")
+                        }
+                    )
+                    put(
                         "includeLinks",
                         buildJsonObject {
                             put("type", "boolean")
@@ -111,7 +119,8 @@ class ReadUrlTool(
                     start,
                     (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true,
                     (arguments["includeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
-                    (arguments["excludeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() }
+                    (arguments["excludeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
+                    (arguments["extractDocument"] as? JsonPrimitive)?.booleanOrNull == true
                 )
             } ?: error(callId, "Read URL failed: page deadline reached. Choose another source.")
         } catch (exception: CancellationException) {
@@ -138,7 +147,7 @@ class ReadUrlTool(
         }
     }
 
-    private suspend fun read(callId: String, start: URI, includeLinks: Boolean, includeDomains: List<String>, excludeDomains: List<String>): AgentToolResult {
+    private suspend fun read(callId: String, start: URI, includeLinks: Boolean, includeDomains: List<String>, excludeDomains: List<String>, extractDocument: Boolean): AgentToolResult {
         val outputCap = minOf(outputLimitBytes, kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: outputLimitBytes)
         var current = start
         var redirects = 0
@@ -186,15 +195,30 @@ class ReadUrlTool(
                     else -> null
                 }
                 if (!isTextContent(contentType) && (documentExtension == null || documentContext == null)) throw ReadUrlException("unsupported binary content ($contentType); use an enabled document reader or attach the document")
-                val boundedBody = readBounded(response, current.host.orEmpty(), MAX_BODY_BYTES)
+                val boundedBody = if (extractDocument && documentExtension != null && documentContext != null) BoundedBody(byteArrayOf(), false) else readBounded(response, current.host.orEmpty(), MAX_BODY_BYTES)
                 val rawText = if (documentExtension == null) boundedBody.bytes.toString(contentType.charsetOrUtf8()) else ""
                 val document = if (documentExtension != null && documentContext != null) {
-                    if (boundedBody.truncated) throw ReadUrlException("document exceeds the 1 MiB mobile reader limit; attach it for bounded document extraction")
-                    kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                    if (boundedBody.truncated) return documentExtractionHandoff(callId, current, includeDomains, excludeDomains)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         val file = java.io.File.createTempFile("research-", ".$documentExtension", documentContext.cacheDir)
                         try {
-                            file.writeBytes(boundedBody.bytes)
-                            dev.chungjungsoo.gptmobile.util.DocumentTextExtractor.extract(documentContext, file, contentType.substringBefore(';'))
+                            if (extractDocument) {
+                                val channel = response.bodyAsChannel()
+                                file.outputStream().use { output ->
+                                    copyCompleteDocument(
+                                        read = { buffer -> channel.readAvailable(buffer, 0, buffer.size) },
+                                        write = { buffer, size ->
+                                            check(research?.budget?.tryChargeDownloadedBytes(size) != false) { "User download limit reached" }
+                                            output.write(buffer, 0, size)
+                                        }
+                                    )
+                                }
+                            } else {
+                                file.writeBytes(boundedBody.bytes)
+                            }
+                            kotlinx.coroutines.runInterruptible {
+                                dev.chungjungsoo.gptmobile.util.DocumentTextExtractor.extract(documentContext, file, contentType.substringBefore(';'))
+                            }
                         } finally {
                             file.delete()
                         }
@@ -312,7 +336,8 @@ class ReadUrlTool(
     }
 
     private fun parseUrl(arguments: JsonObject): URI? {
-        if (arguments.keys.any { it !in setOf("url", "includeLinks", "includeDomains", "excludeDomains") }) return null
+        if (arguments.keys.any { it !in setOf("url", "includeLinks", "includeDomains", "excludeDomains", "extractDocument") }) return null
+        if ("extractDocument" in arguments && (arguments["extractDocument"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) return null
         if ("includeLinks" in arguments && (arguments["includeLinks"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) return null
         for (name in listOf("includeDomains", "excludeDomains")) {
             if (name !in arguments) continue
@@ -547,3 +572,43 @@ private fun truncateUtf8(value: String, maxBytes: Int): String {
     }
     return result.toString()
 }
+
+/** EOF is required: an oversized binary prefix is never handed to a document parser. */
+internal suspend fun copyCompleteDocument(read: suspend (ByteArray) -> Int, write: (ByteArray, Int) -> Unit, maxBytes: Int = 16 * 1024 * 1024) {
+    val buffer = ByteArray(8192)
+    var total = 0
+    while (true) {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val count = read(buffer)
+        if (count < 0) return
+        if (count == 0) {
+            yield()
+            continue
+        }
+        require(count <= maxBytes - total) { "Document exceeds the bounded 16 MiB extraction limit. Attach it or choose another source." }
+        write(buffer, count)
+        total += count
+    }
+}
+
+private fun documentExtractionHandoff(callId: String, url: URI, includeDomains: List<String>, excludeDomains: List<String>) = AgentToolResult(
+    callId,
+    ToolResultContent.Json(
+        buildJsonObject {
+            put("outcome", "DOCUMENT_EXTRACTION_REQUIRED")
+            put("coverage", "unread")
+            put("message", "The document exceeds the inline reader limit. Resume with the bounded extraction arguments below; no full-text evidence has been verified.")
+            put("nextTool", "read_url")
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("url", url.toString())
+                    put("extractDocument", true)
+                    put("includeDomains", JsonArray(includeDomains.map(::JsonPrimitive)))
+                    put("excludeDomains", JsonArray(excludeDomains.map(::JsonPrimitive)))
+                }
+            )
+        }
+    ),
+    isError = true
+)

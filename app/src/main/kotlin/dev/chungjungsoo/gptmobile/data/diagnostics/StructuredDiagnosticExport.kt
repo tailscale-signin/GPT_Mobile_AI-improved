@@ -4,7 +4,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private val eventIdPattern = Regex("(?:^| · )eventId=([a-zA-Z0-9-]+)")
+private val eventIdPattern = Regex("(?:^|: | · )eventId=([a-zA-Z0-9-]+)")
 private val recordPattern = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$")
 private val fieldPattern = Regex("(?:^| · |(?<=\\s))([A-Za-z][A-Za-z0-9_]*)=")
 private val numericFieldPattern = Regex("(?:attempt|attempts|.*(?:Ms|Bytes|Tokens|Count)|input|output|limit|budget|entries|sequence|round|calls|records)", RegexOption.IGNORE_CASE)
@@ -13,22 +13,28 @@ private val numericFieldPattern = Regex("(?:attempt|attempts|.*(?:Ms|Bytes|Token
 internal fun diagnosticEventIdentity(line: String): String = eventIdPattern.find(line)?.groupValues?.get(1)
     ?: java.security.MessageDigest.getInstance("SHA-256").digest(line.toByteArray()).joinToString("") { "%02x".format(it) }
 
-internal fun structuredDiagnosticLine(line: String, captureSource: String = "unknown", duplicate: Boolean = false): String {
-    val safe = redactLogMessage(line.take(16_000)).take(8000)
+internal fun structuredDiagnosticLine(line: String, captureSource: String = "unknown", duplicate: Boolean = false, parentEventId: String? = null, sequence: Int = 0, captureIdentity: String? = null): String {
+    val safe = redactLogMessage(line).take(8000)
     val match = recordPattern.matchEntire(safe)
     val message = match?.groupValues?.get(4) ?: safe
     val classification = classifyDiagnostic(match?.groupValues?.get(2), match?.groupValues?.get(3), message)
     val fields = fieldPattern.findAll(message).take(64).toList()
     return buildJsonObject {
-        put("schema", 3)
-        put("eventId", diagnosticEventIdentity(line))
+        put("schema", 4)
+        put("eventId", captureIdentity ?: diagnosticEventIdentity(line))
+        parentEventId?.let { put("parentEventId", it) }
+        put("sequence", sequence)
         put("captureSource", captureSource)
         put("duplicate", duplicate)
         put("countAsIssue", !duplicate && match != null && classification.actionable)
         put("category", classification.category)
         put("severity", classification.severity)
         put("recovery", classification.recovery)
-        put("truncated", line.length > 8000)
+        put("truncated", line.length > 8000 || "truncatedAtSource=true" in line)
+        put("truncatedAtSource", "truncatedAtSource=true" in line)
+        put("truncatedAtExport", line.length > 8000)
+        put("originalLength", line.length)
+        put("retainedLength", safe.length)
         put("kind", if (match == null) "continuation" else "event")
         put("message", message)
         if (match != null) {

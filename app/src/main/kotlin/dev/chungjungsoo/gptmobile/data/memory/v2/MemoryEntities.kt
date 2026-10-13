@@ -5,7 +5,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/** Phase 1 foundation only: legacy vault remains authoritative until verified cutover. */
+/** Canonical encrypted memory records. Legacy import is verified before authority changes. */
 @Entity(tableName = "memory_facts", indices = [Index("scope"), Index("identityKey")])
 data class MemoryFactEntity(
     @PrimaryKey val id: String,
@@ -63,4 +63,13 @@ data class MemoryStoreStateEntity(
     val payload: ByteArray,
     val importDigest: ByteArray?,
     val importedCount: Int
+)
+
+@Entity(tableName = "memory_records", indices = [Index("kind")])
+data class MemoryRecordEntity(
+    @PrimaryKey val id: String,
+    val kind: String,
+    val generation: Long,
+    val scope: String,
+    val payload: ByteArray
 )

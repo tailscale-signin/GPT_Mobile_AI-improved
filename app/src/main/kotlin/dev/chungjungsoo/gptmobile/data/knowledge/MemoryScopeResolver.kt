@@ -24,6 +24,11 @@ data class MemoryScope(
 /** One boundary shared by automatic recall, tools, documents and background learning. */
 @Singleton
 class MemoryScopeResolver @Inject constructor(private val database: ChatDatabaseV2) {
+    suspend fun sourceUnchanged(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2): Boolean {
+        val current = database.messageDao().message(message.id)
+        return current?.chatId == message.chatId && current.content == message.content
+    }
+
     suspend fun messageKeys(chatId: Int) = database.messageDao().loadMessages(chatId).map { "$chatId:${it.id}" }
 
     suspend fun resolve(chatId: Int): MemoryScope = withContext(Dispatchers.IO) {

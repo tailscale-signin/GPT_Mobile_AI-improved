@@ -56,17 +56,32 @@ class LocalSemanticMemoryInstrumentedTest {
                 }
             }.awaitAll()
             assertTrue("Engine became unavailable after close/reopen cycles: ${engine.status.value.detail}", engine.status.value.available)
-            engine.releaseWhenIdle(0)
-            engine = LocalSemanticMemory(context)
-            assertTrue("Reopened native index lost its project fact", engine.search("bread", "project:private").containsKey("project"))
-            engine.synchronize(facts.take(1))
-            assertTrue("Native index deletion failed: ${engine.status.value.detail}", engine.status.value.available)
-            val afterDeletion = engine.search("bread", "project:private")
-            assertTrue("Native search failed after deletion: ${engine.status.value.detail}", engine.status.value.available)
-            assertFalse("Deleted project fact remained in native search", afterDeletion.containsKey("project"))
             val document = dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDocument("reference", "Reference", "hash", chatId = 77)
             val chunk = dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk("reference:0", document.id, 0, 0, 33, "Astronomy reference about galaxies")
             engine.indexDocument(document, listOf(chunk))
+            engine.releaseWhenIdle(0)
+            val persisted = MyObjectBox.builder().androidContext(context).directory(File(directory, "memory-vectors-use-qa-v1")).build()
+            try {
+                assertTrue("Protected fact vectors were persisted in the document index", persisted.boxFor(MemoryVector::class.java).all.all { it.factId.startsWith("doc:") })
+            } finally {
+                persisted.close()
+            }
+            engine = LocalSemanticMemory(context)
+            assertTrue("A fresh derived cache exposed facts before canonical hydration", engine.search("bread", "project:private").isEmpty())
+            assertTrue("Reopened native document index lost its chunk", engine.searchDocuments("galaxies", 77, null).containsKey(chunk.id))
+            assertTrue("Native document search crossed chat scope", engine.searchDocuments("galaxies", 78, null).isEmpty())
+            // The encrypted repository owns durability; callers hydrate this disposable fact cache.
+            // MemoryDurabilityInstrumentedTest separately covers canonical storage and restore.
+            engine.synchronize(facts)
+            assertTrue("Canonical snapshot failed to rebuild project fact search", engine.search("bread", "project:private").containsKey("project"))
+            engine.synchronize(facts.map { if (it.id == "project") it.copy(scope = "project:moved") else it })
+            assertFalse("Scope change left a fact visible to its former project", engine.search("bread", "project:private").containsKey("project"))
+            assertTrue("Scope change lost the fact in its authorized project", engine.search("bread", "project:moved").containsKey("project"))
+            engine.synchronize(facts.take(1))
+            assertTrue("Native index deletion failed: ${engine.status.value.detail}", engine.status.value.available)
+            val afterDeletion = engine.search("bread", "project:moved")
+            assertTrue("Native search failed after deletion: ${engine.status.value.detail}", engine.status.value.available)
+            assertFalse("Deleted project fact remained in native search", afterDeletion.containsKey("project"))
             engine.clearFacts()
             assertTrue("Fact-only clear lost document vectors", engine.searchDocuments("galaxies", 77, null).containsKey(chunk.id))
             assertTrue("Fact-only clear retained personal facts", engine.search("astronomy", "personal").isEmpty())
@@ -74,6 +89,7 @@ class LocalSemanticMemoryInstrumentedTest {
             val afterClear = engine.search("astronomy", "personal")
             assertTrue("Native search failed after clearing: ${engine.status.value.detail}", engine.status.value.available)
             assertTrue("Cleared native index still returned facts", afterClear.isEmpty())
+            assertTrue("Cleared native index still returned document chunks", engine.searchDocuments("galaxies", 77, null).isEmpty())
         } finally {
             engine.releaseWhenIdle(0)
             directory.deleteRecursively()

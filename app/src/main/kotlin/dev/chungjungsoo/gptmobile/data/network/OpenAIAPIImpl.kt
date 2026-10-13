@@ -152,6 +152,7 @@ class OpenAIAPIImpl @Inject constructor(
 
             val executeRequest: suspend () -> Unit = {
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
+                ProviderCooldown.await(config)
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -179,11 +180,11 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                         }
                         if (response.status.value in listOf(429, 502, 503, 504)) {
-                            throw java.io.IOException("HTTP ${response.status.value}: transient provider failure")
+                            throw ProviderHttpFailure(response.status.value, if (response.status.value == 429) ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]) else ProviderRetryPolicy.retryAfterMillis(response.headers[HttpHeaders.RetryAfter].orEmpty(), System.currentTimeMillis()))
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "Provider",
                             "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
@@ -193,7 +194,7 @@ class OpenAIAPIImpl @Inject constructor(
                         emit(
                             ChatCompletionChunk(
                                 error = ErrorDetail(
-                                    message = config.readableProviderError(errorMessage, response.status.value.toString()),
+                                    message = if (response.status.value in setOf(401, 402, 403)) errorMessage else config.readableProviderError(errorMessage, response.status.value.toString()),
                                     type = "http_error",
                                     code = response.status.value.toString()
                                 )
@@ -403,6 +404,7 @@ class OpenAIAPIImpl @Inject constructor(
                     )
                 }
             ) {
+                ProviderCooldown.await(config)
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -426,18 +428,18 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                         }
                         if (response.status.value in listOf(429, 502, 503, 504)) {
-                            throw java.io.IOException("HTTP ${response.status.value}: transient provider failure")
+                            throw ProviderHttpFailure(response.status.value, if (response.status.value == 429) ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]) else ProviderRetryPolicy.retryAfterMillis(response.headers[HttpHeaders.RetryAfter].orEmpty(), System.currentTimeMillis()))
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        val errorMessage = providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "Provider",
                             "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
                             "E"
                         )
 
-                        emit(ResponseErrorEvent(message = config.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
+                        emit(ResponseErrorEvent(message = if (response.status.value in setOf(401, 402, 403)) errorMessage else config.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
                         return@execute
                     }
 

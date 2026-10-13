@@ -97,6 +97,7 @@ internal fun ModelDelegationSettingsContent(
     onCloudRecallChange: (Boolean) -> Unit = {}
 ) {
     var previewPlan by rememberSaveable { mutableStateOf(false) }
+    var previewPrimaryUid by rememberSaveable { mutableStateOf("") }
     var resetConfirm by rememberSaveable { mutableStateOf(false) }
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var settingsTab by rememberSaveable { mutableIntStateOf(0) }
@@ -170,6 +171,9 @@ internal fun ModelDelegationSettingsContent(
         }
         if (settingsTab == 0) {
             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_global_defaults_ordinary_changes_apply_to_the_389ee), style = MaterialTheme.typography.bodySmall)
+            Text("Preview for primary profile", style = MaterialTheme.typography.labelLarge)
+            DelegateModelDropdown(profiles = profiles, selectedProfileUid = previewPrimaryUid, enabled = !busy, onSelected = { previewPrimaryUid = it?.uid.orEmpty() }, scores = modelScores)
+            LocalToolToggle("Delegation orchestration v2", config.orchestrationEnabled, !busy, "Turning this off stops new delegated dispatch. Saved evidence stays available; use primary-only recovery explicitly.") { value -> onChange { it.copy(orchestrationEnabled = value) } }
             TextButton(onClick = { previewPlan = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preview_plan_11340)) }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("Primary-led" to 25, "Shared" to 50, "Delegate-led" to 100).forEach { (label, amount) ->
@@ -261,6 +265,7 @@ internal fun ModelDelegationSettingsContent(
                         onChange {
                             it.copy(
                                 reviewerEnabled = value,
+                                reviewMode = if (!value) dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF else dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.BEST_EFFORT,
                                 reviewerProfileUid = if (value) it.reviewerProfileUid else ""
                             )
                         }
@@ -270,6 +275,10 @@ internal fun ModelDelegationSettingsContent(
                         SettingsHelpIcon(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_25bb8247d7))
                     }
                     if (config.reviewerEnabled) {
+                        LocalToolToggle("Require independent review before preparation", config.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED, !busy) { required ->
+                            onChange { it.copy(reviewMode = if (required) dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED else dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.BEST_EFFORT) }
+                        }
+                        Text("Best effort preserves unverified evidence if review is unavailable. Required review pauses before research.", style = MaterialTheme.typography.bodySmall)
                         DelegateModelDropdown(
                             profiles = profiles,
                             blockedReason = { candidate -> dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.reasons(candidate, config.copy(approvedWorkerUids = null), primary = selectedDelegate).takeIf { it.isNotEmpty() }?.joinToString { it.name.lowercase().replace('_', ' ') } },
@@ -426,7 +435,7 @@ internal fun ModelDelegationSettingsContent(
             }
         }
     }
-    if (previewPlan) androidx.compose.material3.AlertDialog(onDismissRequest = { previewPlan = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preview_plan_11340)) }, text = { Text(dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.preview(config, profiles)) }, confirmButton = { TextButton(onClick = { previewPlan = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_close_7d9eb)) } })
+    if (previewPlan) androidx.compose.material3.AlertDialog(onDismissRequest = { previewPlan = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preview_plan_11340)) }, text = { Text(dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.preview(config, profiles, profiles.firstOrNull { it.uid == previewPrimaryUid })) }, confirmButton = { TextButton(onClick = { previewPlan = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_close_7d9eb)) } })
     if (resetConfirm) {
         androidx.compose.material3.AlertDialog(onDismissRequest = { resetConfirm = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_restore_tuning_defaults_36a10)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_and_budget_tuning_will_return_to_rec_c3851)) }, confirmButton = {
             TextButton(onClick = {

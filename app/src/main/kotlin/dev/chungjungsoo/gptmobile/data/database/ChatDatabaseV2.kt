@@ -42,6 +42,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.v2.MemoryFactLinkEntity::class,
         dev.chungjungsoo.gptmobile.data.memory.v2.MemoryPendingChangeEntity::class,
         dev.chungjungsoo.gptmobile.data.memory.v2.MemoryStoreStateEntity::class,
+        dev.chungjungsoo.gptmobile.data.memory.v2.MemoryRecordEntity::class,
         ChatRoomV2::class,
         dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord::class,
         MessageV2::class,
@@ -66,7 +67,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 37,
+    version = 38,
     exportSchema = true
 )
 @TypeConverters(

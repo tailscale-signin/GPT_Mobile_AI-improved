@@ -22,7 +22,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString()) {
-    fun line() = "${Instant.ofEpochMilli(time)} $level/$tag: $message · eventId=$eventId"
+    fun line(): String {
+        val lines = message.lines()
+        return "${Instant.ofEpochMilli(time)} $level/$tag: eventId=$eventId · ${lines.first()}" +
+            lines.drop(1).mapIndexed { index, line -> "\nparentEventId=$eventId · sequence=${index + 1} · $line" }.joinToString("")
+    }
 }
 
 /** Opt-in, app-process-only diagnostics. No network upload and no HTTP bodies. */
@@ -158,13 +162,13 @@ object AppLogRecorder {
 
     fun record(tag: String, message: String, level: String = "I") {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
-        queue.trySend(AppLogEntry(System.currentTimeMillis(), level, tag.take(64), redactLogMessage(message.take(16_000)).take(8000)))
+        queue.trySend(AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message)))
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */
     internal fun checkpoint(tag: String, message: String) {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
-        val entry = AppLogEntry(System.currentTimeMillis(), "I", tag.take(64), redactLogMessage(message.take(16_000)).take(8000))
+        val entry = AppLogEntry(System.currentTimeMillis(), "I", tag.take(64), diagnosticMessageForStorage(message))
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
             recent.addLast(entry)
@@ -214,12 +218,25 @@ object AppLogRecorder {
         try {
             target.bufferedWriter().use { output ->
                 if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
+                historicalExitMetadata(context).forEach { line ->
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history") else line)
+                }
                 val seen = mutableSetOf<String>()
                 snapshot.forEach { (source, bytes) ->
+                    var parent: String? = null
+                    var sequence = 0
                     bytes.inputStream().bufferedReader().useLines { lines ->
-                        lines.forEach { line ->
-                            val identity = diagnosticEventIdentity(line)
-                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity)) else line)
+                        lines.forEachIndexed { index, line ->
+                            val root = Regex("^\\S+ [VDIWEF]/[^:]+: ").containsMatchIn(line)
+                            val explicit = Regex("(?:^|: | · )eventId=([a-zA-Z0-9-]+)").find(line)?.groupValues?.get(1)
+                            if (root) {
+                                parent = explicit ?: "$source:$index"
+                                sequence = 0
+                            } else {
+                                sequence++
+                            }
+                            val identity = if (root) parent!! else "${parent ?: source}:$sequence"
+                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity), parent.takeUnless { root }, sequence, identity) else line)
                         }
                     }
                 }
@@ -228,6 +245,26 @@ object AppLogRecorder {
         } catch (failure: Exception) {
             target.delete()
             throw failure
+        }
+    }
+
+    /** Bounded platform metadata only: never collect trace streams, descriptions, or process names. */
+    private fun historicalExitMetadata(context: Context): List<String> {
+        val prefix = "${Instant.now()} I/ProcessExit: "
+        if (android.os.Build.VERSION.SDK_INT < 30) return listOf(prefix + "coverage=unsupported")
+        return try {
+            val manager = context.getSystemService(android.app.ActivityManager::class.java)
+            val exits = manager?.getHistoricalProcessExitReasons(context.packageName, 0, 8)
+                ?: return listOf(prefix + "coverage=unavailable")
+            if (exits.isEmpty()) {
+                listOf(prefix + "coverage=no_records · reason=unknown")
+            } else {
+                exits.map { exit ->
+                    prefix + "coverage=available · exitTime=${exit.timestamp} · reasonCode=${exit.reason} · statusCode=${exit.status} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}"
+                }
+            }
+        } catch (_: Exception) {
+            listOf(prefix + "coverage=unavailable · reason=unknown")
         }
     }
 
@@ -282,7 +319,7 @@ private val KNOWN_ANDROID_NOISE = listOf(
 )
 
 internal fun redactLogMessage(message: String): String {
-    var text = DiagnosticRedactor.redact(message)
+    var text = DiagnosticRedactor.redact(redactDiagnosticPayload(message))
     text = text.replace(Regex("""(?:/data/|/storage/|/sdcard/|/home/)[^\s,;]+"""), "[private-path]")
     text = text.replace(Regex("""\b(?:10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3})\b"""), "[private-address]")
     if (

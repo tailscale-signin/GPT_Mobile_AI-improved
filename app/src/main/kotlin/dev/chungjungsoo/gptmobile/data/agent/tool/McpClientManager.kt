@@ -202,7 +202,6 @@ class McpClientManager internal constructor(
         return try {
             val result = modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId) }
                 ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) { it.client.callTool(toolName, arguments) }
-            recordSuccess(config.connectionUid, observation = observation)
             outcome = if (result.isError == true) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
             if (result.isError == true) {
                 val failure = result.toString()
@@ -213,10 +212,13 @@ class McpClientManager internal constructor(
                     recordQuota(failure)
                 }
             }
+            if (result.isError != true) recordSuccess(config.connectionUid, observation = observation)
             mediaStore?.materialize(result) ?: result
         } catch (cancelled: CancellationException) {
+            outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.CANCELED
             throw cancelled
         } catch (error: Exception) {
+            outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
             if (error is McpBackoffException) throw error
             if (error.isMcpUnauthorized()) {
                 val message = "MCP authentication or access failed. Open Manage connection for this provider and update its credentials."
@@ -308,6 +310,15 @@ class McpClientManager internal constructor(
         availableToolCount: Int? = null,
         observation: McpHealthObservationOrder.Token
     ) = healthOrder.publish(observation) {
+        // Catalog/transport success cannot clear an authorization or quota block for this credential.
+        val cooldown = providerCooldowns[connectionUid]
+        if (cooldown?.first == observation.key && cooldown.second > nowMs()) {
+            _health.update { current ->
+                val previous = current[connectionUid] ?: McpConnectionHealth()
+                current + (connectionUid to previous.copy(latencyMs = latencyMs ?: previous.latencyMs, availableToolCount = availableToolCount ?: previous.availableToolCount))
+            }
+            return@publish
+        }
         val now = nowMs()
         statistics?.observeHealth(connectionUid, "CONNECTED", "SERVER_RESPONSE", now)
         var previousState = McpConnectionHealthState.RECOVERING

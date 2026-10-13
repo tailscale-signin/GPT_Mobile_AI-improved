@@ -50,6 +50,7 @@ class CompleteBackupManager @Inject constructor(
     private val nativePlugins: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null,
     private val benchmarkStore: BenchmarkStore,
     private val toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository(context),
+    private val memoryStore: dev.chungjungsoo.gptmobile.data.memory.v2.MemoryRepository? = null,
     private val healthImportStore: dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore =
         dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context)
 ) {
@@ -534,6 +535,7 @@ class CompleteBackupManager @Inject constructor(
                 val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
                 val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
                 val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
+                val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.read() else null
                 val oldProtection = savedProtection()
                 val restoreTransactionId = UUID.randomUUID().toString()
                 val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
@@ -556,6 +558,7 @@ class CompleteBackupManager @Inject constructor(
                             )
                         }
                         if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
+                        if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.restorePortable(selectedSecrets, protectedMemory)
                         if (restorePreferences) {
                             preferences.replace(if (restoreSettings) PluginBackupPreferences.sanitizeAcademic(manifest.preferences) else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
                         }
@@ -805,8 +808,10 @@ class CompleteBackupManager @Inject constructor(
                 database.platformDao().getPlatforms().mapNotNull { it.secretRef } +
                 database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
             ).filter { secretBelongsTo(it, selection) }
+        val portableMemory = if (selection.includes(CompleteBackupSection.MEMORY)) memoryStore?.exportPortable().orEmpty() else emptyMap()
         return buildMap {
-            refs.forEach { reference ->
+            putAll(portableMemory)
+            refs.filterNot { portableMemory.isNotEmpty() && (it == FactVaultRepository.VAULT_REFERENCE || it.startsWith("memory-part-")) }.forEach { reference ->
                 secretVault.read(reference)?.let { bytes ->
                     try {
                         put(reference, Base64.getEncoder().encodeToString(bytes))
@@ -820,6 +825,7 @@ class CompleteBackupManager @Inject constructor(
 
     private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
         reference.startsWith("share-") -> false
+        reference.startsWith("memory-portable-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference.startsWith("workspace-memory-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference == BACKUP_PASSWORD_REF || reference == BACKUP_KEY_REF || reference.startsWith("backup-recovery-") -> false
         reference == FactVaultRepository.VAULT_REFERENCE || reference.startsWith("memory-part-") -> selection.includes(CompleteBackupSection.MEMORY)
@@ -839,7 +845,7 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private suspend fun replaceSecrets(values: Map<String, String>, selection: CompleteBackupSelection) {
-        values.forEach { (reference, encoded) ->
+        values.filterKeys { !it.startsWith("memory-portable-") }.forEach { (reference, encoded) ->
             val bytes = Base64.getDecoder().decode(encoded)
             try {
                 secretVault.put(reference, bytes)

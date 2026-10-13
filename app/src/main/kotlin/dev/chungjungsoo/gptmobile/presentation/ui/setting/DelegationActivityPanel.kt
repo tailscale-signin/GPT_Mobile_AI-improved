@@ -92,12 +92,16 @@ internal fun DelegationActivityPanel(model: DelegationActivityViewModel = hiltVi
             androidx.compose.material3.Switch(collect, { value -> operation { model.history.setEnabled(value) } })
             if (unavailable) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_delegation_history_unavailable))
             notice?.let { Text(it) }
-            TextButton(onClick = { export.launch("delegation-activity-v1.json") }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_export_delegation_history)) }
+            TextButton(onClick = { export.launch("delegation-activity-v2.json") }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_export_delegation_history)) }
             TextButton(onClick = { clear = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_clear_delegation_history)) }
         }
         history.values.sortedByDescending { it.startedAt }.take(50).forEach { run ->
             SettingsPanel("${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(run.startedAt))} · ${run.status.name.lowercase().replace('_', ' ')}") {
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f6bf56958c, run.finishedAt?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_27bae32ded, ((it - run.startedAt).coerceAtLeast(0)).toString()) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_217d4d83d3), run.policyRevision.take(12)))
+                run.stageStates["primary"]?.let { writer ->
+                    Text(if (writer.delivered) "Final response delivered" else "Final response ${writer.execution.name.lowercase()}; output ${writer.output.name.lowercase()}")
+                    if (!writer.delivered && sessions.values.any { it.runId == run.runId && it.snapshot.sources.any { source -> source.readable } }) Text("Evidence saved; final response not delivered. Open the conversation to view evidence or retry the failed stage.")
+                }
                 val steps = run.events.filter { it.kind == dev.chungjungsoo.gptmobile.data.delegation.DelegationEventKind.STEP_FINISHED }
                 dev.chungjungsoo.gptmobile.data.delegation.DelegationRole.entries.filter { role -> steps.any { it.role == role } }.forEach { role ->
                     val roleSteps = steps.filter { it.role == role }

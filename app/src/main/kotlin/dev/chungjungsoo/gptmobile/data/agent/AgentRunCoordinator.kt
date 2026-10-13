@@ -100,6 +100,7 @@ class AgentRunCoordinator @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
+    private val cancellationContexts = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext>()
     private val recoveryLock = Mutex()
     private val gatewayRecoveryAttemptAtMs = ConcurrentHashMap<String, Long>()
     private val gatewayRecoveryFailures = ConcurrentHashMap<String, Int>()
@@ -145,13 +146,17 @@ class AgentRunCoordinator @Inject constructor(
 
     private suspend fun startUnlocked(requests: List<AgentRunRequest>) {
         val pending = requests.distinctBy(AgentRunRequest::runId).mapNotNull { request ->
-            val job = scope.launch(start = CoroutineStart.LAZY) {
+            val rootMessage = resolveTaskRecovery(request.userMessages)?.sourceMessageId ?: request.userMessages.lastOrNull()?.id
+            val cancellation = dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext("${request.chatId}:$rootMessage", request.runId)
+            val job = scope.launch(context = cancellation, start = CoroutineStart.LAZY) {
                 execute(request)
             }
             if (jobs.putIfAbsent(request.runId, job) == null) {
+                cancellationContexts[request.runId] = cancellation
                 job.invokeOnCompletionCleanup {
                     runCatching {
                         jobs.remove(request.runId)
+                        cancellationContexts.remove(request.runId)
                         _streamMessages.update { it - request.assistantMessage.id }
                         interruptingRunIds.remove(request.runId)
                         _activeRuns.update { it - request.runId }
@@ -210,12 +215,12 @@ class AgentRunCoordinator @Inject constructor(
         requestCancellation(jobs.keys.toSet(), isInterrupted = true)
     }
 
-    suspend fun cancelChatAndJoin(chatId: Int) {
+    suspend fun cancelChatAndJoin(chatId: Int, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         val runIds = _activeRuns.value.values
             .filter { it.chatId == chatId }
             .mapTo(mutableSetOf(), ActiveAgentRun::runId)
         withContext(NonCancellable) {
-            terminalizeAndCancel(runIds, isInterrupted = false)
+            terminalizeAndCancel(runIds, isInterrupted = false, origin = origin)
         }
     }
 
@@ -242,11 +247,12 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean) {
+    private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         if (runIds.isEmpty()) return
         if (isInterrupted) interruptingRunIds += runIds
         val completedAt = currentEpochSeconds()
         runIds.forEach { runId ->
+            cancellationContexts[runId]?.mark(if (isInterrupted) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PROCESS_INTERRUPTION else origin)
             runCatching {
                 cancelAndJoinAgentRun(jobs[runId]) {
                     chatRepository.finishActiveAgentRun(
@@ -398,6 +404,7 @@ class AgentRunCoordinator @Inject constructor(
     private suspend fun execute(request: AgentRunRequest) {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
+        val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId }
         var lastCheckpointAt = 0L
         try {
             if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return
@@ -412,7 +419,7 @@ class AgentRunCoordinator @Inject constructor(
                     assistantMessage = assistantMessage.copy(
                         content = content,
                         thoughts = thoughts,
-                        timeline = timeline
+                        timeline = recoveryMarkers + timeline
                     )
                     _streamMessages.update { it + (assistantMessage.id to assistantMessage) }
                     val now = SystemClock.elapsedRealtime()

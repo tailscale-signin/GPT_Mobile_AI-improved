@@ -21,6 +21,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadUrlToolTest {
+    @Test fun `document download requires EOF within the byte limit`() = runBlocking {
+        val input = java.io.ByteArrayInputStream(ByteArray(8193))
+        val output = java.io.ByteArrayOutputStream()
+        assertTrue(
+            runCatching {
+                copyCompleteDocument({ input.read(it) }, { bytes, size -> output.write(bytes, 0, size) }, maxBytes = 8192)
+            }.isFailure
+        )
+        assertEquals(8192, output.size())
+        val exact = java.io.ByteArrayInputStream(ByteArray(8192))
+        copyCompleteDocument({ exact.read(it) }, { _, _ -> }, maxBytes = 8192)
+    }
+
+    @Test fun `document download cancellation propagates before parsing`() = runBlocking {
+        assertTrue(
+            runCatching {
+                copyCompleteDocument({ throw kotlinx.coroutines.CancellationException("fixture") }, { _, _ -> })
+            }.exceptionOrNull() is kotlinx.coroutines.CancellationException
+        )
+    }
+
     @Test
     fun `rate limit cooldown is shared across reader instances`() = runBlocking {
         var requests = 0
@@ -79,7 +100,7 @@ class ReadUrlToolTest {
         assertEquals(setOf("url"), schema["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet())
         assertEquals("string", properties["url"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals(false, schema["additionalProperties"]!!.jsonPrimitive.content.toBoolean())
-        assertEquals(setOf("url", "includeLinks", "includeDomains", "excludeDomains"), properties.keys)
+        assertEquals(setOf("url", "includeLinks", "includeDomains", "excludeDomains", "extractDocument"), properties.keys)
         assertEquals("boolean", properties["includeLinks"]!!.jsonObject["type"]!!.jsonPrimitive.content)
     }
 

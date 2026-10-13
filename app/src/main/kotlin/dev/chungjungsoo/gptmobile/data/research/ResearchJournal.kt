@@ -13,6 +13,7 @@ interface ResearchJournal {
     suspend fun load(task: String): ResearchSnapshot? = load()
     suspend fun retainBody(text: String): List<String> = emptyList()
     suspend fun save(snapshot: ResearchSnapshot)
+    fun cancellationOrigin(): String = "UNKNOWN"
     fun stopRequested(): Boolean
     suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T = block()
 }

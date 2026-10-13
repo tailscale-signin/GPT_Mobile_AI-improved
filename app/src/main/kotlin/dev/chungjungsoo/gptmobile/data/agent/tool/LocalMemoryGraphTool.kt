@@ -39,7 +39,7 @@ class LocalMemoryGraphTool(
             "create_entities" -> "Create local knowledge-graph entities grounded in the current user message. Optional observations must quote the user. Stored on-device only."
             "create_relations" -> "Create directed local knowledge-graph relations grounded in the current user message. Stored on-device only."
             "add_observations" -> "Add exact user-authored observations to local memory entities. Observations must quote the current user message."
-            "search_nodes" -> "Search local memory entities, observations, and relationships using the on-device Room/SQLite index."
+            "search_nodes" -> "Search local memory entities, observations, and relationships using the canonical local memory service."
             "read_graph" -> "Read a bounded page of the local knowledge graph. Respects Memory recall, review, retention, and chat-scope settings."
             "open_nodes" -> "Open named local memory entities and adjacent relationships."
             "forget" -> "Forget a specific memory fact only when the current user explicitly asks to forget it."
@@ -70,7 +70,6 @@ class LocalMemoryGraphTool(
             val scopedChatId = message.chatId.takeIf { state.settings.sameChatOnly }
             val result = when (operation) {
                 "create_entities" -> {
-                    val memoryGraph = requireNotNull(graph) { "Native knowledge-graph storage is unavailable." }
                     val objects = objectArray(arguments, "entities").take(MAX_WRITE_ITEMS)
                     require(objects.isNotEmpty()) { "Provide at least one entity." }
                     val inputs = objects.map { obj ->
@@ -84,11 +83,8 @@ class LocalMemoryGraphTool(
                         }
                         MemoryGraphEntityInput(name, type)
                     }
-                    val saved = if (state.settings.reviewBeforeRecall) {
-                        emptyList()
-                    } else {
-                        memoryGraph.createEntities(inputs, message.chatId, message.id, scope)
-                    }
+                    require(objects.all { it.stringArray("observations").isNotEmpty() }) { "Provide a source-grounded observation for each entity." }
+                    val saved = emptyList<MemoryGraphNode>()
                     var pendingFacts = 0
                     objects.forEach { obj ->
                         val entityName = obj.string("name")
@@ -166,40 +162,21 @@ class LocalMemoryGraphTool(
                     val query = text("query").trim()
                     require(query.isNotBlank()) { "Provide a search query." }
                     val limit = ((arguments["limit"] as? JsonPrimitive)?.intOrNull ?: 20).coerceIn(1, 64)
-                    if (graph != null && repository.scopeForChat(message.chatId).excludedSources.isEmpty()) {
-                        encodeNodes(graph.searchNodes(query, scopedChatId, scope = scope, limit = limit), referenceDataOnly = true)
-                    } else {
-                        encodeVaultFacts(MemoryRecallPolicy.rank(query, repository.visibleFacts(message.chatId, isLocal)).take(limit))
-                    }
+                    encodeVaultFacts(MemoryRecallPolicy.rank(query, repository.visibleFacts(message.chatId, isLocal)).take(limit))
                 }
 
                 "read_graph" -> {
                     val limit = ((arguments["limit"] as? JsonPrimitive)?.intOrNull ?: 32).coerceIn(1, 64)
-                    if (graph != null && repository.scopeForChat(message.chatId).excludedSources.isEmpty()) {
-                        val (total, nodes) = graph.readGraph(scopedChatId, scope = scope, offset = offset, limit = limit)
-                        buildJsonObject {
-                            put("total", total)
-                            put("offset", offset)
-                            put("nodes", JsonArray(nodes.map(::nodeJson)))
-                            put("referenceDataOnly", true)
-                            put("localOnly", true)
-                        }.toString()
-                    } else {
-                        encodeVaultFacts(repository.visibleFacts(message.chatId, isLocal).drop(offset).take(limit))
-                    }
+                    encodeVaultFacts(repository.visibleFacts(message.chatId, isLocal).drop(offset).take(limit))
                 }
 
                 "open_nodes" -> {
                     val names = arguments.stringArray("names")
                     require(names.isNotEmpty()) { "Provide entity names." }
-                    if (graph != null && repository.scopeForChat(message.chatId).excludedSources.isEmpty()) {
-                        encodeNodes(graph.openNodes(names, scopedChatId, scope = scope), referenceDataOnly = true)
-                    } else {
-                        val facts = repository.visibleFacts(message.chatId, isLocal).filter { entry ->
-                            names.any { it.equals(entry.fact.entity.name, true) || it.equals(entry.fact.target.name, true) }
-                        }
-                        encodeVaultFacts(facts)
+                    val facts = repository.visibleFacts(message.chatId, isLocal).filter { entry ->
+                        names.any { it.equals(entry.fact.entity.name, true) || it.equals(entry.fact.target.name, true) }
                     }
+                    encodeVaultFacts(facts)
                 }
 
                 "forget" -> {
@@ -212,7 +189,7 @@ class LocalMemoryGraphTool(
                         "The user must explicitly name this memory and ask to forget it. Memories can also be deleted in Settings → Memory."
                     }
                     repository.deleteFact(fact.id)
-                    "Forgot the selected memory. Its graph index entry was removed with the vault update."
+                    "Forgot the selected memory. It is excluded from recall immediately; derived cleanup runs in the background."
                 }
 
                 "search_documents", "read_document" -> {

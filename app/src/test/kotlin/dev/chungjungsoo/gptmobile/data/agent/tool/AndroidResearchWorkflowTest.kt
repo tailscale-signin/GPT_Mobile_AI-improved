@@ -240,7 +240,8 @@ class AndroidResearchWorkflowTest {
         val result = withTimeout(2500) { AndroidResearchWorkflow(config(), listOf(search(2), read), ::model, journal).run("Research", "run") }
         assertEquals(1, result.pagesRead)
         assertEquals("Stopped", journal.snapshot!!.phase)
-        assertTrue(result.handoff.contains("Stopped by user"))
+        assertTrue(result.handoff.contains("origin=UNKNOWN"))
+        assertFalse(result.handoff.contains("Stopped by user"))
     }
 
     @Test fun failedPageNeverBecomesEvidenceAndSharedBudgetStopsWork() = runBlocking {
@@ -458,7 +459,7 @@ class AndroidResearchWorkflowTest {
         var calls = 0
         val generate: suspend (String, Int) -> String? = { _, _ ->
             calls++
-            """{"queries":[],"questions":[]}"""
+            """{"queries":[],"questions":[],"noResearchNeeded":true}"""
         }
         val result = AndroidResearchWorkflow(config(), emptyList(), generate, journal).run("Explain a simple concept", "direct")
         assertEquals(LocalResearchOutcome.NO_RESEARCH_NEEDED, result.outcome)
@@ -549,7 +550,7 @@ class AndroidResearchWorkflowTest {
         val settings = config(1).let { it.copy(deepResearch = it.deepResearch.copy(academicSources = true, reviewEvidence = false)) }
         val result = withTimeout(5000) { AndroidResearchWorkflow(settings, listOf(search, read), generate = { _, _ -> null }, journal = Journal()).run("Documented device request limits", "stream") }
         assertEquals(1, result.pagesRead)
-        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+        assertEquals(LocalResearchOutcome.PARTIAL_USEFUL, result.outcome)
     }
 
     @Test fun siblingTaskReusesSourcesButPlansItsOwnQuestions() = runBlocking {
@@ -583,5 +584,54 @@ class AndroidResearchWorkflowTest {
         assertFalse(journal.snapshot!!.questions.contains("Earlier question"))
         assertTrue(journal.snapshot!!.sources.any { it.id == "S9" && it.readable })
         assertEquals(2, journal.snapshot!!.sources.count { it.readable })
+    }
+
+    @Test fun restoredAcademicVerifierResumesOnlyVerificationAfterCollectionGoal() = runBlocking {
+        val journal = Journal()
+        val source = dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/paper", "Synthetic device study", "Read", passage, paperId = "fixture-paper", versionId = "v1", retrievedAt = System.currentTimeMillis())
+        val claim = dev.chungjungsoo.gptmobile.data.research.ResearchClaim("Two parallel requests", "S1", passage, questionId = "Q1")
+        journal.snapshot = ResearchSnapshot(
+            "Research request limits",
+            questions = listOf("What is the request limit?"),
+            questionPlan = listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What is the request limit?")),
+            planningStatus = "Validated",
+            sources = listOf(source),
+            claims = listOf(claim),
+            targetSources = 1,
+            extractedSourceVersions = setOf("S1:" + dev.chungjungsoo.gptmobile.data.research.researchHash(source.versionId + source.passage))
+        )
+        var available = false
+        var verificationCalls = 0
+        var modelCalls = 0
+        val verifier = tool("deep_research_verify_evidence") { id, _ ->
+            verificationCalls++
+            AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("verdict", if (available) "quote_verified" else "unavailable") }), !available)
+        }
+        val generate: suspend (String, Int) -> String? = { prompt, _ ->
+            check(prompt.startsWith("Review the claim")) { "Completed planning or extraction was repeated: $prompt" }
+            modelCalls++
+            """{"verdict":"Supported","relevance":"Relevant","questionId":"Q1"}"""
+        }
+        val first = AndroidResearchWorkflow(config(1), listOf(verifier), generate, journal).run("Research request limits", "unavailable")
+        assertEquals(LocalResearchOutcome.PARTIAL_USEFUL, first.outcome)
+        assertEquals(1, verificationCalls)
+        assertEquals(0, modelCalls)
+        available = true
+        val resumed = AndroidResearchWorkflow(config(1), listOf(verifier), generate, journal).run("Research request limits", "restored")
+        assertEquals(LocalResearchOutcome.SUCCESS, resumed.outcome)
+        assertEquals(2, verificationCalls)
+        assertEquals(1, modelCalls)
+        assertEquals(1, journal.snapshot!!.claims.size)
+        assertTrue(journal.snapshot!!.claims.single().exactQuoteVerified)
+    }
+
+    @Test fun disabledResearchUsesExplicitOriginAndNeverInfersUserStopOrRevocation() = runBlocking {
+        for (origin in listOf("UNKNOWN", "USER_PRIMARY_ONLY", "PERMISSION_REVOKED")) {
+            val journal = Journal()
+            AndroidResearchWorkflow(config(), emptyList(), { _, _ -> error("Stopped work must not dispatch") }, journal, stillEnabled = { false }, cancellationOrigin = { origin }).run("Research fixture", "stopped-$origin")
+            assertEquals(origin, journal.snapshot!!.cancellationOrigin)
+            assertEquals(if (origin == "PERMISSION_REVOKED") "Permission revoked" else "Stopped", journal.snapshot!!.phase)
+            assertFalse(journal.snapshot!!.complete)
+        }
     }
 }

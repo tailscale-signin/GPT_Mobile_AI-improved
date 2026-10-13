@@ -111,6 +111,66 @@ class AndroidResearchWorkflowTest {
         else -> """{"verdict":"Supported"}"""
     }
 
+    @Test fun academicReadersReserveRemainingGoalAndReleaseFailedRead() = runBlocking {
+        val journal = Journal()
+        var reads = 0
+        val papers = tool("deep_research_search_papers") { id, _ ->
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put(
+                            "papers",
+                            JsonArray(
+                                (1..3).map { index ->
+                                    buildJsonObject {
+                                        put("paperId", "doi:10.1234/fixture$index")
+                                        put("doi", "10.1234/fixture$index")
+                                        put("canonicalUrl", "https://example.org/paper/$index")
+                                        put("title", "Research paper $index")
+                                    }
+                                }
+                            )
+                        )
+                    }
+                ),
+                false
+            )
+        }
+        val paperReader = tool("deep_research_read_paper") { id, _ ->
+            reads++
+            val fail = reads == 1
+            delay(10)
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("retrievalStatus", if (fail) "failed" else "read")
+                        put("text", if (fail) "" else passage)
+                    }
+                ),
+                fail
+            )
+        }
+        val settings = config(1).let { it.copy(deepResearch = it.deepResearch.copy(academicSources = true, reviewEvidence = false, concurrency = 4)) }
+        val result = AndroidResearchWorkflow(settings, listOf(papers, paperReader), ::model, journal)
+            .run("Research request limits", "academic-goal")
+        assertEquals(2, reads)
+        assertEquals(1, result.pagesRead)
+        assertEquals(1, journal.snapshot!!.sources.count { it.readable })
+    }
+
+    @Test fun localWorkerUsesSharedOrchestratorWhenDeepResearchIsEnabled() = runBlocking {
+        val journal = Journal()
+        val settings = config(1)
+        assertTrue(settings.deepResearch.enabled)
+        val result = LocalResearchWorkflow(settings, listOf(search(), reader()), ::model, journal = journal)
+            .run("Research request limits", "local-worker")
+        assertEquals(1, result.pagesRead)
+        assertEquals("Supported", journal.snapshot!!.claims.single().verdict)
+        assertTrue(journal.snapshot!!.toolEvents.any { it.reader == "read_url" && it.outcome == "SUCCESS" })
+    }
+
     @Test fun readsSourcesBeforeReviewingAndRejectsInventedQuotes() = runBlocking {
         val journal = Journal()
         val result = AndroidResearchWorkflow(config(), listOf(search(), reader()), ::model, journal).run("Research request limits", "run")

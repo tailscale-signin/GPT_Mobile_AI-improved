@@ -532,6 +532,7 @@ internal class AndroidResearchWorkflow(
     }
 
     private val sourceUpdates = Mutex()
+    private var academicReadsInFlight = 0
 
     private suspend fun readAcademicPagesConcurrent(callId: String, reader: ResolvedAgentTool) {
         while (!exhausted && !stopped() && collecting()) {
@@ -547,10 +548,20 @@ internal class AndroidResearchWorkflow(
     }
 
     private suspend fun readAcademicSource(source: ResearchSource, callId: String, reader: ResolvedAgentTool) {
-        if (sourceUpdates.withLock { sources.values.readableWorkCount() >= sourceTarget }) return
-        if (stopped() || !charge(ResearchBudget.Phase.DISCOVERY) || !startReadAttempt()) return
-        if (journal?.claimWork("paper:${source.paperId}", options.pageTimeoutSeconds * 3000L) == false) return
+        val admitted = sourceUpdates.withLock {
+            if (sources.values.readableWorkCount() + academicReadsInFlight >= sourceTarget) {
+                false
+            } else {
+                academicReadsInFlight++
+                true
+            }
+        }
+        if (!admitted) return
+        var claimed = false
         try {
+            if (stopped()) return
+            claimed = journal?.claimWork("paper:${source.paperId}", options.pageTimeoutSeconds * 3000L) != false
+            if (!claimed || !charge(ResearchBudget.Phase.DISCOVERY) || !startReadAttempt()) return
             val identifier = source.pmcid.takeIf(String::isNotBlank)?.let { "pmcid:$it" } ?: source.pmid.takeIf(String::isNotBlank)?.let { "pmid:$it" } ?: source.paperId
             val result = operation { invoke(reader, "$callId:academic:${source.id}", buildJsonObject { put("identifier", identifier) }) }
             val payload = (result?.retainedContent ?: result?.content)?.researchPayload() as? JsonObject
@@ -597,7 +608,13 @@ internal class AndroidResearchWorkflow(
                 withContext(NonCancellable) { checkpoint() }
             }
         } finally {
-            journal?.releaseWork("paper:${source.paperId}")
+            withContext(NonCancellable) {
+                try {
+                    if (claimed) journal?.releaseWork("paper:${source.paperId}")
+                } finally {
+                    sourceUpdates.withLock { academicReadsInFlight-- }
+                }
+            }
         }
     }
 

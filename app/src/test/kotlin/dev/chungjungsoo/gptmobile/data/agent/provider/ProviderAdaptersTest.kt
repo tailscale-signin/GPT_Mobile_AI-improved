@@ -77,6 +77,31 @@ import org.junit.Test
 
 class ProviderAdaptersTest {
     @Test
+    fun `OpenRouter connection policy reaches every execution role and benchmarks bypass cache`() = runBlocking {
+        val settings = io.mockk.mockk<dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository>()
+        io.mockk.coEvery { settings.loadSettings("worker-connection") } returns dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings(
+            apiKey = "unused-by-adapter",
+            responseCachingEnabled = true,
+            responseCacheTtlSeconds = 812,
+            routing = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting(zdr = true, sort = "latency", only = listOf("fixture-provider"))
+        )
+        for (role in listOf("primary", "delegate", "reviewer", "helper", "synthesis", "benchmark")) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder(), settings)
+                .openSession(turns(), platform(ClientType.OPENROUTER).copy(providerConnectionUid = "worker-connection", openRouterRouting = null), RequestConstraints(requestRole = role, freshResponse = role == "benchmark"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(true, api.chatRequests.single().provider?.zdr)
+            assertEquals(listOf("fixture-provider"), api.chatRequests.single().provider?.only)
+            assertEquals("latency", api.chatRequests.single().provider?.sort)
+            assertEquals(if (role == "benchmark") "false" else "true", api.configs.single().extraHeaders["X-OpenRouter-Cache"])
+            assertEquals("worker-connection", api.configs.single().openRouterReceipt?.connectionUid)
+            assertEquals(role, api.configs.single().openRouterReceipt?.role)
+        }
+        io.mockk.coVerify(exactly = 6) { settings.loadSettings("worker-connection") }
+        io.mockk.coVerify(exactly = 0) { settings.loadSettings() }
+    }
+
+    @Test
     fun `provider completion ceiling rejection retries once with reported cap`() = runBlocking {
         val api = FakeOpenAIAPI(
             chatRounds = ArrayDeque(

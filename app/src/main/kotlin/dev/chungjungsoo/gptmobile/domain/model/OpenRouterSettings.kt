@@ -14,7 +14,13 @@ data class OpenRouterSettings(
     val cacheEnabled: Boolean = true,
     val cacheTtlSeconds: Int = 300,
     val stickySessionRoutingEnabled: Boolean = true,
-    val responseCachingEnabled: Boolean = false
+    val responseCachingEnabled: Boolean = false,
+    val responseCacheTtlSeconds: Int = 300,
+    val noRemoteResponseStorage: Boolean = false,
+    val attributionEnabled: Boolean = false,
+    val routing: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting? = null,
+    val schemaVersion: Int = 2,
+    val revision: Long = 0
 )
 
 data class CacheKey(

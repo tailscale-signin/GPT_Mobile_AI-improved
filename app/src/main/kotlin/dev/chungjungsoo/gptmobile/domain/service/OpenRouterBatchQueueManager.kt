@@ -22,14 +22,15 @@ class OpenRouterBatchQueueManager(
     private var flushJob: Job? = null
 
     suspend fun enqueue(request: OpenRouterBatchRequestItem) {
+        require(settings.batchingEnabled) { "Background queue is disabled for this connection." }
         val shouldFlush: Boolean
         val batchToFlush = mutableListOf<OpenRouterBatchRequestItem>()
 
         mutex.withLock {
             queue.addLast(request)
-            if (queue.size >= settings.batchSize) {
+            if (queue.size >= settings.batchSize.coerceIn(1, 100)) {
                 cancelFlushJobLocked()
-                val count = minOf(queue.size, settings.batchSize)
+                val count = minOf(queue.size, settings.batchSize.coerceIn(1, 100))
                 repeat(count) {
                     queue.pollFirst()?.let { batchToFlush.add(it) }
                 }
@@ -46,9 +47,10 @@ class OpenRouterBatchQueueManager(
     }
 
     private fun scheduleFlushLocked() {
-        flushJob?.cancel()
+        if (flushJob?.isActive == true) return
         flushJob = scope.launch {
-            delay(settings.flushTimeoutMs)
+            delay(settings.flushTimeoutMs.coerceIn(1000, 30000))
+            mutex.withLock { flushJob = null }
             flush()
         }
     }
@@ -63,10 +65,11 @@ class OpenRouterBatchQueueManager(
         mutex.withLock {
             cancelFlushJobLocked()
             if (queue.isNotEmpty()) {
-                val count = minOf(queue.size, settings.batchSize)
+                val count = minOf(queue.size, settings.batchSize.coerceIn(1, 100))
                 repeat(count) {
                     queue.pollFirst()?.let { batch.add(it) }
                 }
+                if (queue.isNotEmpty()) scheduleFlushLocked()
             }
         }
         if (batch.isNotEmpty()) {
@@ -95,14 +98,15 @@ class RetryPolicy(
         var attempt = 0
         var lastException: Throwable = RuntimeException("Unknown error")
 
-        while (attempt < maxRetries) {
+        while (attempt <= maxRetries.coerceIn(0, 10)) {
             val result = block()
             if (result.isSuccess) {
                 return result
             }
             lastException = result.exceptionOrNull() ?: RuntimeException("Execution failed")
+            if (lastException is kotlinx.coroutines.CancellationException) throw lastException
             attempt++
-            if (attempt < maxRetries) {
+            if (attempt <= maxRetries.coerceIn(0, 10)) {
                 val delayMs = baseDelayMs * (1L shl (attempt - 1))
                 delay(delayMs)
             }
@@ -115,13 +119,11 @@ class RetryPolicy(
 fun handleBatchFailure(
     requests: List<OpenRouterBatchRequestItem>,
     error: Throwable
-): List<OpenRouterBatchItemResult> {
-    return requests.map { request ->
-        OpenRouterBatchItemResult(
-            requestId = request.id,
-            content = null,
-            error = error.message ?: "Unknown batch error",
-            usage = null
-        )
-    }
+): List<OpenRouterBatchItemResult> = requests.map { request ->
+    OpenRouterBatchItemResult(
+        requestId = request.id,
+        content = null,
+        error = error.message ?: "Unknown batch error",
+        usage = null
+    )
 }

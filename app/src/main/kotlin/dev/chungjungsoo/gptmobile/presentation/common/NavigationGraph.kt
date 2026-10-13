@@ -164,7 +164,7 @@ private fun isSettingsDestination(route: String?): Boolean {
         baseRoute == Route.SETTINGS ||
         route == Route.AI_PLATFORMS ||
         route == Route.ADD_PLATFORM ||
-        route == Route.OPENROUTER_SETTINGS ||
+        (route == Route.OPENROUTER_SETTINGS || route == Route.OPENROUTER_CONNECTION) ||
         baseRoute == Route.FACT_VAULT ||
         baseRoute == Route.ADVANCED_SETTINGS ||
         route == Route.USAGE_STATISTICS ||
@@ -407,7 +407,18 @@ fun NavGraphBuilder.settingNavigation(
             val viewModel: OpenRouterSettingsViewModel = hiltViewModel()
             OpenRouterSettingsScreen(
                 viewModel = viewModel,
-                onNavigationClick = { navController.navigateUp() }
+                onNavigationClick = { navController.navigateUp() },
+                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+                onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) }
+            )
+        }
+        composable(Route.OPENROUTER_CONNECTION, arguments = listOf(navArgument("connectionUid") { type = NavType.StringType }, navArgument("tab") { defaultValue = "Setup" })) {
+            val viewModel: OpenRouterSettingsViewModel = hiltViewModel()
+            OpenRouterSettingsScreen(
+                viewModel = viewModel,
+                onNavigationClick = { navController.navigateUp() },
+                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+                onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) }
             )
         }
 
@@ -500,7 +511,9 @@ fun NavGraphBuilder.settingNavigation(
             ProviderConnectionSettingsScreen(
                 connectionUid = backStackEntry.arguments?.getString("connectionUid").orEmpty(),
                 settingViewModel = settingViewModel,
-                onNavigationClick = { navController.navigateUp() }
+                onNavigationClick = { navController.navigateUp() },
+                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+                onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) }
             )
         }
         composable(Route.ADD_PLATFORM) {

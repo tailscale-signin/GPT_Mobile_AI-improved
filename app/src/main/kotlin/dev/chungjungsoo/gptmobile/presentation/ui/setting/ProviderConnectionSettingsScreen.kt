@@ -59,7 +59,9 @@ fun ProviderConnectionSettingsScreen(
     connectionUid: String,
     settingViewModel: SettingViewModelV2,
     onNavigationClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onManageProfiles: () -> Unit = {},
+    onOpenProfile: (String) -> Unit = {}
 ) {
     val connections by settingViewModel.providerConnections.collectAsState()
     val profiles by settingViewModel.platformState.collectAsState()
@@ -88,6 +90,16 @@ fun ProviderConnectionSettingsScreen(
         return
     }
 
+    if (connection.compatibleType == ClientType.OPENROUTER && connection.apiUrl.trimEnd('/') in dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.endpoints) {
+        OpenRouterSettingsScreen(
+            viewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(),
+            onNavigationClick = onNavigationClick,
+            modifier = modifier,
+            onManageProfiles = onManageProfiles,
+            onOpenProfile = onOpenProfile
+        )
+        return
+    }
     val isFree = connection.compatibleType == ClientType.FREE
     var name by remember(connection.uid, connection.name) { mutableStateOf(connection.name) }
     var apiUrl by remember(connection.uid, connection.apiUrl) { mutableStateOf(connection.apiUrl) }

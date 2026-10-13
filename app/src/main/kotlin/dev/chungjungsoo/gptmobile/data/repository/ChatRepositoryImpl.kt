@@ -217,12 +217,13 @@ class ChatRepositoryImpl(
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val openRouterModelRepository: OpenRouterModelRepository? = null,
     private val toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
-    private val delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore? = null
+    private val delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore? = null,
+    private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null
 ) : ChatRepository {
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
-    private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder)
+    private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder, openRouterSettingsRepository)
     private val anthropicMessagesAdapter = AnthropicMessagesAdapter(anthropicAPI, providerAttachmentEncoder)
     private val geminiAdapter = GeminiAdapter(googleAPI, providerAttachmentEncoder)
     private val sharedToolCallBroker = SharedToolCallBroker()
@@ -384,7 +385,7 @@ class ChatRepositoryImpl(
         benchmarkCategory: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
         val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
-        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
+        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY, freshResponse = true, requestRole = "benchmark")
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory)
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
@@ -1953,7 +1954,7 @@ class ChatRepositoryImpl(
             )
         }
         suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
-            val constraints = if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints
+            val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints).copy(requestRole = kind)
             workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan.copy(tools = if (textOnly) emptyList() else contextPlan.tools), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
             try {
                 workspace?.recordDebugRequest(latestUser?.chatId ?: 0, runId, kind, requestPlatform, turns, if (textOnly) emptyList() else contextPlan.tools, constraints)

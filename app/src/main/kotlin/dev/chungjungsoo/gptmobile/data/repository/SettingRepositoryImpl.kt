@@ -27,6 +27,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -43,6 +44,8 @@ class SettingRepositoryImpl @Inject constructor(
         prettyPrint = true
         encodeDefaults = true
     }
+
+    private val connectionMutation = kotlinx.coroutines.sync.Mutex()
 
     // High-performance thread-safe in-memory cache for resolved PlatformV2 list
     private val platformV2Cache = AtomicReference<List<PlatformV2>?>(null)
@@ -392,10 +395,18 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun updateProviderConnection(
         connection: ProviderConnection,
         credential: String?
-    ): ProviderConnection {
-        val existing = providerConnectionDao.getConnection(connection.uid)
+    ): ProviderConnection = connectionMutation.withLock { updateConnection(connection, credential) }
+
+    override suspend fun replaceProviderCredential(uid: String, expectedEndpoint: String, expectedCredentials: String, endpoint: String, credential: String?): ProviderConnection = connectionMutation.withLock {
+        val current = checkNotNull(providerConnectionDao.getConnection(uid)) { "Connection unavailable" }
+        check(current.apiUrl == expectedEndpoint && getProviderCredentials(uid).orEmpty() == expectedCredentials) { "Connection changed during validation" }
+        updateConnection(current.copy(apiUrl = endpoint), credential)
+    }
+
+    private suspend fun updateConnection(connection: ProviderConnection, credential: String?): ProviderConnection {
+        val existing = checkNotNull(providerConnectionDao.getConnection(connection.uid)) { "Connection unavailable" }
         val base = connection.copy(
-            secretRef = connection.secretRef ?: existing?.secretRef,
+            secretRef = connection.secretRef ?: existing.secretRef,
             updatedAt = System.currentTimeMillis() / 1000
         )
         val secured = secureProviderConnection(base, credential)
@@ -404,15 +415,15 @@ class SettingRepositoryImpl @Inject constructor(
         return secured
     }
 
-    override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean {
-        val persisted = providerConnectionDao.getConnection(connection.uid) ?: return true
+    override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean = connectionMutation.withLock {
+        val persisted = providerConnectionDao.getConnection(connection.uid) ?: return@withLock true
         providerConnectionDao.deleteWithProfiles(persisted)
         try {
             persisted.secretRef?.let { secretVault.delete(it) }
         } finally {
             invalidatePlatformCache()
         }
-        return true
+        true
     }
 
     override suspend fun exportConfigurationJson(): String {

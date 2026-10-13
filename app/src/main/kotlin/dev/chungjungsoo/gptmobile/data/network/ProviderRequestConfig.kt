@@ -8,7 +8,8 @@ data class ProviderRequestConfig(
     val token: String?,
     val anthropicBetaFeatures: Set<String> = emptySet(),
     val extraHeaders: Map<String, String> = emptyMap(),
-    val freeProvider: FreeAiProvider? = null
+    val freeProvider: FreeAiProvider? = null,
+    val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

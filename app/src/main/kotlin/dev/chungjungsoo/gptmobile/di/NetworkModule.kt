@@ -28,7 +28,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOpenAIAPI(networkClient: NetworkClient): OpenAIAPI = OpenAIAPIImpl(networkClient)
+    fun provideOpenAIAPI(networkClient: NetworkClient, receipts: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore): OpenAIAPI = OpenAIAPIImpl(networkClient, receipts)
 
     @Provides
     @Singleton

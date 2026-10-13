@@ -54,8 +54,6 @@ import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
-import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
-import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
@@ -205,7 +203,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         }
 
         val openRouterProviderSettings = if (platform.compatibleType == ClientType.OPENROUTER) {
-            runCatching { openRouterSettingsRepository?.loadSettings() }.getOrNull()
+            platform.providerConnectionUid?.takeIf { it.isNotBlank() }?.let { uid -> openRouterSettingsRepository?.loadSettings(uid) }
         } else {
             null
         }
@@ -215,7 +213,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         ) {
             val chatId = turns.firstOrNull()?.userMessage?.chatId ?: 0
             if (chatId > 0) {
-                "gptmobile-chat-$chatId-${platform.uid}".take(255)
+                dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.session(platform.providerConnectionUid ?: platform.uid, chatId.toLong(), platform.uid, constraints.requestRole ?: "primary")
             } else {
                 null
             }
@@ -228,32 +226,13 @@ class OpenAICompatibleAdapter @Inject constructor(
         val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
         val isOllama = platform.compatibleType == ClientType.OLLAMA
         val isLlama = platform.compatibleType == ClientType.LLAMA
-        val openRouterHeaders = if (isOpenRouter) {
-            buildMap {
-                if (openRouterProviderSettings?.responseCachingEnabled == true) {
-                    put("X-OpenRouter-Cache", "true")
-                    put("X-OpenRouter-Cache-TTL", openRouterProviderSettings.cacheTtlSeconds.coerceIn(1, 86_400).toString())
-                }
-            }
-        } else {
-            emptyMap()
-        }
-        val (parsedOpenRouterOptions, parsedRouting) = if (isOpenRouter) {
-            if (!platform.openRouterRouting.isNullOrBlank()) {
-                val asOptions = runCatching { json.decodeFromString<OpenRouterOptions>(platform.openRouterRouting) }.getOrNull()
-                if (asOptions != null && (asOptions.provider != null || asOptions.maxTokens != null || asOptions.stream != null || asOptions.repetitionPenalty != null || asOptions.seed != null)) {
-                    asOptions to asOptions.provider?.normalized()
-                } else {
-                    val routing = runCatching { json.decodeFromString<OpenRouterProviderRouting>(platform.openRouterRouting) }.getOrNull()
-                    null to routing?.normalized()
-                }
-            } else {
-                val defaults = OpenRouterOptions.createDefault()
-                defaults to defaults.provider?.normalized()
-            }
+        val routerSettings = openRouterProviderSettings ?: dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings(apiKey = "")
+        val (parsedOpenRouterOptions, profileRouting) = if (isOpenRouter) {
+            dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.decodeProfile(platform.openRouterRouting)
         } else {
             null to null
         }
+        val parsedRouting = if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.resolve(routerSettings.routing, profileRouting) else null
         val parsedOllamaOptions = if (isOllama && !platform.ollamaOptions.isNullOrBlank()) {
             runCatching { json.decodeFromString<OllamaOptions>(platform.ollamaOptions) }.getOrNull()
         } else if (isOllama) {
@@ -303,6 +282,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
                 }
 
+                val freshOnce = isOpenRouter && !constraints.freshResponse && dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterFreshRequests.consume(platform.providerConnectionUid ?: platform.uid)
                 val attempts = candidateKeys.size
                 val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
@@ -328,7 +308,21 @@ class OpenAICompatibleAdapter @Inject constructor(
                         apiUrl = platform.apiUrl,
                         token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
                         freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
-                        extraHeaders = openRouterHeaders + llamaGatewayHeaders
+                        extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
+                        openRouterReceipt = if (isOpenRouter) {
+                            dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext(
+                                connectionUid = platform.providerConnectionUid ?: platform.uid,
+                                credentialRevision = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.revision(platform.providerConnectionUid ?: platform.uid, platform.apiUrl, activeKey),
+                                endpoint = platform.apiUrl,
+                                profileUid = platform.uid,
+                                model = platform.model,
+                                role = constraints.requestRole ?: "primary",
+                                attemptId = constraints.attemptId,
+                                policy = json.encodeToString(parsedRouting)
+                            )
+                        } else {
+                            null
+                        }
                     )
                     var roundFailed = false
                     var canRotate = false

@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,41 +45,50 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelItem
-import dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository
+import dev.chungjungsoo.gptmobile.data.openrouter.account.perMillion
+import dev.chungjungsoo.gptmobile.data.openrouter.account.usd
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
 fun OpenRouterModelPickerDialog(
     currentModel: String,
-    repository: OpenRouterModelRepository = remember { OpenRouterModelRepository() },
+    connectionUid: String? = null,
+    catalogViewModel: dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterCatalogViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(),
     onDismiss: () -> Unit,
     onModelSelected: (String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var models by remember { mutableStateOf<List<OpenRouterModelItem>>(emptyList()) }
-    var selectedModelId by remember { mutableStateOf(currentModel) }
+    var isLoading by remember(connectionUid) { mutableStateOf(false) }
+    var errorMessage by remember(connectionUid) { mutableStateOf<String?>(null) }
+    var models by remember(connectionUid) { mutableStateOf<List<OpenRouterModelItem>>(emptyList()) }
+    var selectedModelId by remember(connectionUid, currentModel) { mutableStateOf(currentModel) }
+    var loadJob by remember(connectionUid) { mutableStateOf<Job?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val loadError = stringResource(R.string.openrouter_load_error)
 
     fun loadModels(forceRefresh: Boolean = false) {
+        loadJob?.cancel()
         isLoading = true
         errorMessage = null
-        coroutineScope.launch {
-            val result = repository.fetchModels(forceRefresh = forceRefresh)
+        loadJob = coroutineScope.launch {
+            val result = catalogViewModel.load(connectionUid, forceRefresh)
             isLoading = false
             result.onSuccess {
                 models = it
             }.onFailure {
-                errorMessage = it.localizedMessage ?: "Failed to load models"
+                errorMessage = loadError
             }
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(connectionUid) {
         loadModels(forceRefresh = false)
+    }
+    DisposableEffect(connectionUid) {
+        onDispose { loadJob?.cancel() }
     }
 
     val filteredModels = remember(searchQuery, models) {
@@ -219,6 +231,32 @@ fun OpenRouterModelPickerDialog(
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
+                                        }
+                                        val priceColor = accessiblePriceColor(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                        Text(
+                                            text = stringResource(R.string.orw_input) + ": " + usd(perMillion(item.pricing?.prompt)) + " / 1M",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = priceColor
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.orw_output) + ": " + usd(perMillion(item.pricing?.completion)) + " / 1M",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = priceColor
+                                        )
+                                        Text(stringResource(R.string.orw_catalog_price), style = MaterialTheme.typography.labelSmall)
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            listOf(
+                                                "tools" to R.string.orw_capability_tools,
+                                                "reasoning" to R.string.orw_capability_reasoning,
+                                                "structured_outputs" to R.string.orw_capability_structured
+                                            ).filter { (parameter, _) -> item.supportedParameters?.contains(parameter) == true }.forEach { (_, label) ->
+                                                Text(
+                                                    stringResource(label),
+                                                    Modifier.background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.small).padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            }
                                         }
                                     }
                                     if (isSelected) {

@@ -17,7 +17,11 @@ data class OpenRouterModelItem(
     val contextLength: Int? = null,
     val pricing: OpenRouterPricing? = null,
     @SerialName("top_provider")
-    val topProvider: OpenRouterTopProvider? = null
+    val topProvider: OpenRouterTopProvider? = null,
+    @SerialName("canonical_slug") val canonicalSlug: String? = null,
+    @SerialName("supported_parameters") val supportedParameters: List<String>? = null,
+    val architecture: kotlinx.serialization.json.JsonObject? = null,
+    @SerialName("per_request_limits") val perRequestLimits: kotlinx.serialization.json.JsonObject? = null
 )
 
 @Serializable

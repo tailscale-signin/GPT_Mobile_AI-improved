@@ -29,6 +29,12 @@ interface OpenRouterBatchCacheDao {
     @Query("DELETE FROM openrouter_batch_cache")
     suspend fun clearAll()
 
+    @Query("SELECT COUNT(*) FROM openrouter_batch_cache WHERE cache_key LIKE :prefix || '%'")
+    suspend fun countForConnection(prefix: String): Int
+
+    @Query("DELETE FROM openrouter_batch_cache WHERE cache_key LIKE :prefix || '%'")
+    suspend fun clearForConnection(prefix: String)
+
     @Query("SELECT COUNT(*) FROM openrouter_batch_cache")
     suspend fun count(): Int
 }

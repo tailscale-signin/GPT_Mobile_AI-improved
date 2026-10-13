@@ -139,7 +139,6 @@ fun PlatformSettingScreen(
     val downloadedLocalModels by settingViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val acceleratorOptions by settingViewModel.acceleratorOptions.collectAsStateWithLifecycle()
     val userMessage by settingViewModel.userMessage.collectAsStateWithLifecycle()
-    val openRouterCreditsState by settingViewModel.openRouterCreditsState.collectAsStateWithLifecycle()
     val ollamaServerState by settingViewModel.ollamaServerState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingServiceEnable by remember { mutableStateOf<Pair<String, Set<String>>?>(null) }
@@ -356,13 +355,6 @@ fun PlatformSettingScreen(
                                 currentModel = platformData.model,
                                 onTestConnection = settingViewModel::checkOllamaServer,
                                 onSelectModel = settingViewModel::updateApiModel
-                            )
-                        }
-
-                        if (platformData.compatibleType == ClientType.OPENROUTER && !platformData.token.isNullOrBlank()) {
-                            FancyOpenRouterCreditsCard(
-                                uiState = openRouterCreditsState,
-                                onRefresh = { settingViewModel.refreshOpenRouterCredits(forceRefresh = true) }
                             )
                         }
 
@@ -709,6 +701,7 @@ fun PlatformSettingScreen(
                         if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
                             OpenRouterModelPickerDialog(
                                 currentModel = platformData.model,
+                                connectionUid = platformData.providerConnectionUid,
                                 onDismiss = settingViewModel::closeApiModelDialog,
                                 onModelSelected = settingViewModel::updateApiModel
                             )

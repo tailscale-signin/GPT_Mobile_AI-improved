@@ -37,9 +37,6 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import dev.chungjungsoo.gptmobile.di.DeviceRamGb
 import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -211,27 +208,12 @@ class PlatformSettingViewModel @Inject constructor(
     init {
         loadToolBindings()
         loadCatalog()
-        observeOpenRouterCredits()
         observeOllamaServer()
     }
 
     private fun loadCatalog() {
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getVisibleEntries()
-        }
-    }
-
-    private fun observeOpenRouterCredits() {
-        viewModelScope.launch {
-            platformState.collect { platform ->
-                if (platform?.compatibleType == ClientType.OPENROUTER && !platform.token.isNullOrBlank()) {
-                    if (_openRouterCreditsState.value is OpenRouterCreditsUiState.Idle) {
-                        refreshOpenRouterCredits(forceRefresh = false)
-                    }
-                } else if (platform?.compatibleType != ClientType.OPENROUTER) {
-                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
-                }
-            }
         }
     }
 
@@ -278,30 +260,8 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun refreshOpenRouterCredits(forceRefresh: Boolean = false) {
-        val platform = platformState.value ?: return
-        if (platform.compatibleType != ClientType.OPENROUTER) return
-        val token = platform.token?.trim().orEmpty()
-        if (token.isBlank()) {
-            _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
-            return
-        }
-
-        viewModelScope.launch {
-            _openRouterCreditsState.value = OpenRouterCreditsUiState.Loading
-            openRouterCreditsRepository.fetchCredits(token, forceRefresh = forceRefresh)
-                .onSuccess { data ->
-                    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Success(
-                        credits = data,
-                        lastUpdatedTime = timeFormat.format(Date())
-                    )
-                }
-                .onFailure { error ->
-                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Error(
-                        message = error.message ?: "Failed to fetch OpenRouter credits"
-                    )
-                }
-        }
+        // Account data is owned by the explicit connection workspace; regular keys never probe /credits.
+        _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
     }
 
     fun loadToolBindings() {

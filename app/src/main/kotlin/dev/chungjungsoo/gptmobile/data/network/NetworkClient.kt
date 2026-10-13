@@ -34,6 +34,7 @@ class NetworkClient @Inject constructor(
         HttpClient(httpEngine) {
             install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
             expectSuccess = false
+            followRedirects = false
 
             // Optimize CIO engine with TCP keep-alive and connection limits when CIO is used
             if (httpEngine == CIO) {

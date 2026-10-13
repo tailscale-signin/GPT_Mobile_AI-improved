@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.UnknownEvent
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
+import dev.chungjungsoo.gptmobile.data.openrouter.account.recordOpenRouterReceipts
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
@@ -43,7 +44,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 
 class OpenAIAPIImpl @Inject constructor(
-    private val networkClient: NetworkClient
+    private val networkClient: NetworkClient,
+    private val openRouterReceipts: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore? = null
 ) : OpenAIAPI {
     override suspend fun uploadFile(
         filePath: String,
@@ -223,6 +225,16 @@ class OpenAIAPIImpl @Inject constructor(
                         null
                     }
 
+                    if (config.openRouterReceipt != null) {
+                        emit(
+                            ChatCompletionChunk(
+                                id = response.headers["X-Generation-Id"],
+                                model = request.model,
+                                cacheStatus = response.headers["X-OpenRouter-Cache-Status"]
+                            )
+                        )
+                    }
+
                     // llama.cpp and other compatible providers return choices[].message for stream=false.
                     val responseType = response.contentType()
                     if (responseType?.match(ContentType.Application.Json) == true ||
@@ -365,7 +377,7 @@ class OpenAIAPIImpl @Inject constructor(
                 )
             )
         }
-    }.flowOn(Dispatchers.IO)
+    }.recordOpenRouterReceipts(config.openRouterReceipt, openRouterReceipts).flowOn(Dispatchers.IO)
 
     override fun streamResponses(
         request: ResponsesRequest,

@@ -24,6 +24,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     val state = mutable.asStateFlow()
     val settings = repository.observeFeatureSettings().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
     val archiveCount = archive.dao.observeCount().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0)
+    val categories = archive.dao.categories().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
     val topics = archive.dao.topics().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
     private val rows = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.research.feature.ArchiveRow>>(emptyList())
     val archiveRows = rows.asStateFlow()
@@ -46,30 +47,40 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
             }
         }
     }
-    fun clearArchive() {
-        viewModelScope.launch {
-            archive.dao.clearArchive(System.currentTimeMillis())
-            loadArchive()
-        }
+    fun clearArchive() = archiveAction {
+        archive.dao.clearArchive(System.currentTimeMillis())
+        loadArchive()
     }
-    fun removeFromArchive(id: String) {
-        viewModelScope.launch {
-            archive.remove(id)
-            loadArchive(offset = archiveOffset)
-        }
+    fun removeFromArchive(id: String) = archiveAction {
+        archive.remove(id)
+        loadArchive(offset = archiveOffset)
     }
-    fun renameTopic(id: String, label: String) {
+    fun renameTopic(id: String, label: String) = archiveAction {
+        archive.renameTopic(id, label)
+        loadArchive()
+    }
+    fun renameCategory(id: String, label: String) = archiveAction { archive.renameCategory(id, label) }
+    fun createTopic(categoryId: String, label: String) = archiveAction { archive.createTopic(categoryId, label) }
+    fun moveWork(workId: String, topicId: String) = archiveAction {
+        archive.move(workId, topicId)
+        loadArchive(offset = archiveOffset)
+    }
+    fun mergeTopics(from: String, to: String) = archiveAction {
+        archive.mergeTopics(from, to)
+        loadArchive(topic = "")
+    }
+    private fun archiveAction(block: suspend () -> Unit) {
         viewModelScope.launch {
             try {
-                archive.renameTopic(id, label)
-                loadArchive()
+                block()
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Exception) {
-                mutable.update { it.copy(error = error.message) }
+                mutable.update { it.copy(error = error.message ?: "Archive change failed") }
             }
         }
     }
+
     fun editFeature(value: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings) {
         savedState["researchFeatureDraft"] = Json.encodeToString(value)
         mutable.update { it.copy(featureDraft = value, dirty = it.draft != original || value != originalFeature, error = null) }

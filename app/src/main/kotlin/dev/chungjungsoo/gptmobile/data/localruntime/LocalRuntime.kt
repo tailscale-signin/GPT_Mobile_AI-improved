@@ -182,6 +182,9 @@ interface LocalRuntime {
 
     fun loadedEngineSpec(): LocalEngineSpec? = null
 
+    /** Exact request admitted by the outer holder, before runtime tuning. */
+    fun admittedEngineSpec(): LocalEngineSpec? = loadedEngineSpec()
+
     val processPssBytes: Long? get() = null
 
     val deviceRamGb: Long get() = 8L

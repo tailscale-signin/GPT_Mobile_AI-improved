@@ -48,6 +48,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val count by viewModel.archiveCount.collectAsStateWithLifecycle()
     val rows by viewModel.archiveRows.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
     val topics by viewModel.topics.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -57,6 +58,11 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     var confirmClose by rememberSaveable { mutableStateOf(false) }
     var articleId by rememberSaveable { mutableStateOf<String?>(null) }
     var articleVersion by rememberSaveable { mutableStateOf<String?>(null) }
+    var moveId by rememberSaveable { mutableStateOf<String?>(null) }
+    var mergeFrom by rememberSaveable { mutableStateOf<String?>(null) }
+    var categoryId by rememberSaveable { mutableStateOf("") }
+    var categoryLabel by rememberSaveable { mutableStateOf("") }
+    var newTopic by rememberSaveable { mutableStateOf("") }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val enabled = settings.isToolPluginEnabled(ToolPluginId.DEEP_RESEARCH)
     LaunchedEffect(Unit) { viewModel.open() }
@@ -151,11 +157,28 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                         topic = value.topicId
                                         topicLabel = value.label
                                         offset = 0
-                                    }, label = { Text("${value.categoryId.replace('-', ' ')} › ${value.label}") })
+                                    }, label = { Text("${categories.firstOrNull { it.categoryId == value.categoryId }?.label ?: value.categoryId} › ${value.label}") })
                                 }
                                 if (topic.isNotBlank()) {
                                     OutlinedTextField(topicLabel, { topicLabel = it }, label = { Text("Topic name") })
                                     TextButton(onClick = { viewModel.renameTopic(topic, topicLabel) }) { Text("Rename topic") }
+                                    TextButton(onClick = { mergeFrom = topic }, enabled = topics.size > 1) { Text("Merge into another topic…") }
+                                }
+                                Text("Organize categories and topics", style = MaterialTheme.typography.titleSmall)
+                                categories.forEach { category ->
+                                    FilterChip(categoryId == category.categoryId, {
+                                        categoryId = category.categoryId
+                                        categoryLabel = category.label
+                                    }, label = { Text(category.label) })
+                                }
+                                if (categoryId.isNotBlank()) {
+                                    OutlinedTextField(categoryLabel, { categoryLabel = it }, label = { Text("Category name") })
+                                    TextButton(onClick = { viewModel.renameCategory(categoryId, categoryLabel) }) { Text("Rename category") }
+                                    OutlinedTextField(newTopic, { newTopic = it }, label = { Text("New topic name") })
+                                    TextButton(onClick = {
+                                        viewModel.createTopic(categoryId, newTopic)
+                                        newTopic = ""
+                                    }, enabled = newTopic.isNotBlank()) { Text("Create topic") }
                                 }
                                 TextButton(onClick = { deleteId = "*" }, enabled = count > 0) { Text("Clear reusable archive") }
                                 Text("Archive reuse requires a fresh source check. Saved content may be historical or unavailable.")
@@ -172,6 +195,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                     articleId = row.workId
                                     articleVersion = row.latestVersionId
                                 }) { Text("Article details / Examine") }
+                                TextButton(onClick = { moveId = row.workId }) { Text("Move to topic…") }
                                 TextButton(onClick = { deleteId = row.workId }) { Text("Remove from archive") }
                             }
                         }
@@ -197,6 +221,31 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                     TextButton(onClick = discard) { Text("Discard") }
                     TextButton(onClick = { confirmClose = false }) { Text("Keep editing") }
                 }
+            })
+        }
+        if (moveId != null || mergeFrom != null) {
+            AlertDialog(onDismissRequest = {
+                moveId = null
+                mergeFrom = null
+            }, title = { Text(if (moveId != null) "Move work to topic" else "Merge topic into…") }, text = {
+                LazyColumn {
+                    items(topics.filter { it.topicId != mergeFrom }, key = { it.topicId }) { destination ->
+                        TextButton(onClick = {
+                            moveId?.let { viewModel.moveWork(it, destination.topicId) }
+                            mergeFrom?.let {
+                                viewModel.mergeTopics(it, destination.topicId)
+                                topic = ""
+                            }
+                            moveId = null
+                            mergeFrom = null
+                        }) { Text("${categories.firstOrNull { it.categoryId == destination.categoryId }?.label.orEmpty()} › ${destination.label}") }
+                    }
+                }
+            }, confirmButton = {}, dismissButton = {
+                TextButton(onClick = {
+                    moveId = null
+                    mergeFrom = null
+                }) { Text("Cancel") }
             })
         }
         deleteId?.let { id ->

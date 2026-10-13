@@ -102,4 +102,24 @@ class AssistCoordinatorTest {
         }
         assertEquals(1, generated)
     }
+
+    @Test fun explicitProbeUsesProductionSelectionAndKeepsSyntheticOriginals() = runBlocking {
+        val probe = AssistTestFixture.tool()
+        val original = probe.execute("probe", JsonObject(emptyMap()))
+        val assist = AssistCoordinator("water bottles", { true }, { "[0,2,4]" }, {})
+        val selected = assist.bind(probe).execute("probe", JsonObject(emptyMap()))
+        assertEquals(original.content, selected.retainedContent)
+        val payload = (selected.content as ToolResultContent.Json).value as JsonObject
+        assertEquals(JsonPrimitive(true), payload["assistSelection"])
+        assertEquals(3, (payload["results"] as JsonArray).size)
+    }
+
+    @Test fun cachedSelectionCannotSurviveRuntimeReadinessRevocation() = runBlocking {
+        var ready = true
+        val assist = AssistCoordinator("goal", { ready }, { "[0]" }, {}, turnId = java.util.UUID.randomUUID().toString())
+        val wrapped = assist.bind(tool(), "same-authority")
+        wrapped.execute("first", JsonObject(emptyMap()))
+        ready = false
+        assertEquals(ToolResultContent.Json(payload), wrapped.execute("second", JsonObject(emptyMap())).content)
+    }
 }

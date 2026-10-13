@@ -48,6 +48,8 @@ interface ChatRepository {
     suspend fun benchmarkContextTokens(platform: PlatformV2): Int? = null
 
     /** Validate setup before recording or sending any benchmark requests. */
+    suspend fun testLocalAssist(): String = error("Local Assist tests are unavailable")
+
     suspend fun validateBenchmarkProfile(platform: PlatformV2) = Unit
 
     suspend fun completeChat(

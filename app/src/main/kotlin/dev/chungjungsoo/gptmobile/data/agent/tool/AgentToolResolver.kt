@@ -104,7 +104,8 @@ class AgentToolResolver @Inject constructor(
         chatToolConfig: ChatMcpToolConfig? = null,
         userMessage: MessageV2? = null,
         delegate: (suspend (PlatformV2, String, Int) -> String)? = null,
-        onConnectionError: (String) -> Unit = {}
+        onConnectionError: (String) -> Unit = {},
+        examinationRunKey: String? = null
     ): List<ResolvedAgentTool> {
         val platforms = settingRepository.fetchPlatformV2s()
         val platform = platforms.firstOrNull { it.uid == profileUid }
@@ -119,7 +120,12 @@ class AgentToolResolver @Inject constructor(
         val disableLocal = platform?.disableLocalTools == true
         val featureSettings = settingRepository.getFeatureSettings()
         val researchSelection = chatToolConfig?.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(profileUid).strategy)
-        val academicAllowed = dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(researchSelection, featureSettings, profileUid, !disableRemote && platform?.disableAllTools != true) == null && chatToolConfig?.allToolsDisabled != true
+        fun paperAccess(features: AppFeatureSettings, current: PlatformV2?, selection: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection): Boolean = if (examinationRunKey == null) {
+            dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, current?.disableRemoteTools == false && !current.disableAllTools) == null
+        } else {
+            current != null && dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(features, current, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest("", profileUid, userMessage?.chatId ?: 0, origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), chatToolConfig ?: ChatMcpToolConfig()) == null
+        }
+        val academicAllowed = paperAccess(featureSettings, platform, researchSelection) && chatToolConfig?.allToolsDisabled != true
         val allowRemoteMcp = !disableRemote && featureSettings.remoteMcpConnections
         val allowDeviceLocation =
             !disableLocal &&
@@ -314,6 +320,7 @@ class AgentToolResolver @Inject constructor(
         if (allowRemoteMcp) {
             val mcpGroups = bindings
                 .filter { it.connection?.type == ToolConnectionType.MCP }
+                .filter { examinationRunKey == null || it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
                 .filter { pluginEnabledForBinding(featureSettings, profileUid, it) }
                 .filter { it.connection?.alias != "deep_research" || academicAllowed && it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
                 .filterNot { binding ->
@@ -363,13 +370,13 @@ class AgentToolResolver @Inject constructor(
                 selection == researchSelection &&
                     current?.enabled == true &&
                     !current.disableAllTools &&
-                    dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, !current.disableRemoteTools) == null
+                    paperAccess(features, current, selection)
             }
             val persistentAcademicEvidence = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == false } == true
             val academicPlan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(featureSettings, profileUid, researchSelection)
             val academicOptions = academicPlan.settings
             val sharedTurnBudget = userMessage?.let { message ->
-                researchSessions?.journal("academic:${message.chatId}:${message.id}", message.chatId, persistentAcademicEvidence, "${message.chatId}:${message.id}")?.goalBudget(academicPlan)
+                researchSessions?.journal("academic:${examinationRunKey ?: "${message.chatId}:${message.id}"}", message.chatId, persistentAcademicEvidence, examinationRunKey ?: "${message.chatId}:${message.id}")?.goalBudget(academicPlan)
             }
             val academicBudget = AcademicRunBudget(shared = sharedTurnBudget ?: dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(1, ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(academicPlan.fingerprint, academicPlan.limits)), goalDriven = true)
             DeepResearchTool.OPERATIONS.forEach { operation ->
@@ -400,7 +407,7 @@ class AgentToolResolver @Inject constructor(
                     academicBudget,
                     persistentEvidence = persistentAcademicEvidence,
                     peerReviewedOnly = featureSettings.researchFeature.peerReviewedOnly,
-                    runKey = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
+                    runKey = examinationRunKey ?: userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
                     remoteCapability = {
                         val statusTool = academicRemote.singleOrNull { it.connectionUid == researchSelection.gatewayConnectionUid && it.realToolName.endsWith("deep_research_status") && it.shareableReadOnly }
                         val statusAllowed = statusTool?.connectionUid?.let { uid ->
@@ -440,7 +447,7 @@ class AgentToolResolver @Inject constructor(
                             (chatToolConfig?.isToolEnabled(listOf("research_$operation", "deep_research")) != false) &&
                             (sourceChatId == 0 || factVault?.scopeForChat(sourceChatId)?.isTemporary == false)
                     }
-                    val tool = dev.chungjungsoo.gptmobile.data.research.feature.ResearchEvidenceTool(operation, researchArchive, { articleExaminations.get() }, profileUid, sourceChatId, "public", chatToolConfig ?: ChatMcpToolConfig(), access, featureSettings.researchFeature.comparisonLimit)
+                    val tool = dev.chungjungsoo.gptmobile.data.research.feature.ResearchEvidenceTool(operation, researchArchive, { articleExaminations.get() }, profileUid, sourceChatId, "public", chatToolConfig ?: ChatMcpToolConfig(), access, featureSettings.researchFeature.comparisonLimit, userMessage?.let { "${it.chatId}:${it.id}" })
                     resolved += ResolvedAgentTool(tool, null, "Research", tool.definition.name, tool.definition.name, shareableReadOnly = operation != "examine_article", canReuseResult = access)
                 }
             }

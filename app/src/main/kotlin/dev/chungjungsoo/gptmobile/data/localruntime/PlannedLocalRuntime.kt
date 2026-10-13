@@ -26,6 +26,11 @@ class PlannedLocalRuntime(
     private var effective: LocalEngineSpec? = null
     private var preference: Pair<LocalExecutionPolicy, LocalEngineTuning>? = null
     private var tuningNotice: String? = null
+    private var artifactAtLoad: String? = null
+
+    private suspend fun artifactIdentity(spec: LocalEngineSpec): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalledCached(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
+    }
     init {
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
             delegate.state.collect { actual -> mutableState.value = actual.copy(decision = mutableState.value.decision, requestedMtp = effective?.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice) }
@@ -34,6 +39,7 @@ class PlannedLocalRuntime(
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         if (isEngineLoaded(spec)) return
+        val artifact = artifactIdentity(spec)
         val current = settings.getFeatureSettings()
         val tuning = current.localEngineTuning()
         val isLiteRt = !spec.modelPath.endsWith("manifest.json")
@@ -70,6 +76,7 @@ class PlannedLocalRuntime(
         try {
             delegate.loadEngine(chosen)
             effective = chosen
+            artifactAtLoad = artifact
             requested = spec
             preference = current.localExecutionPolicy to tuning
             val actual = delegate.state.value
@@ -90,7 +97,7 @@ class PlannedLocalRuntime(
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
         val current = settings.getFeatureSettings()
-        return requested == spec && (spec.tuningLocked || preference == current.localExecutionPolicy to current.localEngineTuning()) && effective?.let { delegate.isEngineLoaded(it) } == true
+        return requested == spec && artifactAtLoad == artifactIdentity(spec) && (spec.tuningLocked || preference == current.localExecutionPolicy to current.localEngineTuning()) && effective?.let { delegate.isEngineLoaded(it) } == true
     }
 
     override suspend fun createConversation(config: LocalConversationConfig) = delegate.createConversation(config.copy(speculativeDecoding = config.speculativeDecoding ?: effective?.speculativeDecoding))
@@ -114,6 +121,7 @@ class PlannedLocalRuntime(
         requested = null
         effective = null
         tuningNotice = null
+        artifactAtLoad = null
         mutableState.value = delegate.state.value
     }
 

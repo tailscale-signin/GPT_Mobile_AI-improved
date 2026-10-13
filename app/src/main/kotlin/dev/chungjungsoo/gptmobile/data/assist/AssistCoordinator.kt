@@ -67,7 +67,7 @@ internal class AssistCoordinator(
         if (result.isError || !stillEnabled()) return result
         val key = if (turnId.isBlank()) null else dev.chungjungsoo.gptmobile.data.research.researchHash("$turnId|$authority|$policy|$goal|${result.retainedContent ?: result.content}")
         val cached = key?.let { synchronized(results) { results[it] } }
-        if (cached != null) return if (stillEnabled()) result.copy(content = cached, retainedContent = result.retainedContent ?: result.content) else result
+        if (cached != null) return if (stillEnabled() && warmEligible()) result.copy(content = cached, retainedContent = result.retainedContent ?: result.content) else result
         if (!worker.tryLock()) return result
         return try {
             val reduced = reduce(result)

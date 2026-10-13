@@ -16,7 +16,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Registered, bounded evidence access; model-supplied URLs and user-origin flags are rejected. */
-internal class ResearchEvidenceTool(private val operation: String, private val archive: ResearchArchiveRepository, private val coordinator: () -> ArticleExaminationCoordinator, private val profileUid: String, private val chatId: Int, private val authority: String, private val tools: ChatMcpToolConfig, private val permitted: suspend () -> Boolean, private val comparisonLimit: Int) : AgentTool {
+internal class ResearchEvidenceTool(private val operation: String, private val archive: ResearchArchiveRepository, private val coordinator: () -> ArticleExaminationCoordinator, private val profileUid: String, private val chatId: Int, private val authority: String, private val tools: ChatMcpToolConfig, private val permitted: suspend () -> Boolean, private val comparisonLimit: Int, private val rootWorkId: String? = null) : AgentTool {
     override val definition = AgentToolDefinition(
         "research_$operation",
         when (operation) {
@@ -155,7 +155,7 @@ internal class ResearchEvidenceTool(private val operation: String, private val a
                 require(workId.matches(Regex("[a-f0-9]{64}")))
                 val value = requireNotNull(archive.dao.latestVersion(workId))
                 version(value.versionId)
-                val jobId = coordinator().automaticExamine(ExaminationRequest(workId, profileUid, chatId, value.versionId, authority, ExaminationOrigin.AUTHORIZED_RESEARCH), { tools })
+                val jobId = coordinator().automaticExamine(ExaminationRequest(workId, profileUid, chatId, value.versionId, authority, ExaminationOrigin.AUTHORIZED_RESEARCH, rootWorkId = rootWorkId, parentRunId = kotlin.coroutines.coroutineContext[dev.chungjungsoo.gptmobile.data.agent.ToolRunContext]?.runId), { tools })
                 buildJsonObject {
                     put("jobId", jobId)
                     put("status", "admitted")

@@ -74,4 +74,13 @@ class ArticleExaminationContractTest {
         assertEquals(listOf("S123abc", "doi:10.1234/example", "arxiv:2401.12345v2", "pmcid:PMC123456"), keys)
         assertTrue(articleCitationOccurrences("A study with a similar title").isEmpty())
     }
+
+    @Test fun resumeCheckpointKeepsReviewReasonsSourceCheckAndPhysicalInvocations() {
+        val report = IndependentAppraisalReport("appraisal", "immutable-hash", "reviewer", "canonical-model", "rejected", listOf("No randomized comparison"), listOf("review-attempt"))
+        val receipt = SourceValidationReceipt(versionId = "version", contentHash = "hash", retrievedAt = 123L, status = "metadata_checked_abstract_only", owner = "native")
+        val checkpoint = ExaminationCheckpoint(rootWorkId = "original-task", parentRunId = "generation", nextChunk = 1, invocationIds = listOf("extract-attempt", "review-attempt"), independentReports = listOf(report), sourceValidation = receipt)
+        assertEquals(checkpoint, Json.decodeFromString<ExaminationCheckpoint>(Json.encodeToString(checkpoint)))
+        assertTrue(Json.decodeFromString<ExaminationCheckpoint>("{}").independentReports.isEmpty())
+        assertFalse(checkpoint.coverage.complete)
+    }
 }

@@ -80,6 +80,16 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         val old = requireNotNull(dao.topic(id))
         dao.topic(old.copy(label = label.trim(), revision = old.revision + 1))
     }
+    suspend fun createTopic(categoryId: String, label: String) = database.withTransaction {
+        require(label.trim().length in 1..100)
+        require(dao.allCategories().any { it.categoryId == categoryId })
+        dao.topic(ResearchTopic(java.util.UUID.randomUUID().toString(), categoryId, label.trim()))
+    }
+    suspend fun renameCategory(id: String, label: String) = database.withTransaction {
+        require(label.trim().length in 1..100)
+        val old = requireNotNull(dao.allCategories().firstOrNull { it.categoryId == id })
+        dao.category(old.copy(label = label.trim(), revision = old.revision + 1))
+    }
     suspend fun move(workId: String, topicId: String) = database.withTransaction {
         requireNotNull(dao.topic(topicId))
         dao.membership(requireNotNull(dao.membership(workId)).copy(primaryTopicId = topicId))

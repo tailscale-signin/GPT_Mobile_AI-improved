@@ -85,4 +85,14 @@ class PlannedLocalRuntimeTest {
         assertEquals(message, LocalNpuPackageException.fromRemote(message).message)
         assertFalse(message.contains("NPU initialization failed: NPU initialization failed"))
     }
+
+    @Test fun samePathWithChangedArtifactCannotReuseWarmQualification() = runTest {
+        val native = FakeLocalRuntime().apply { capabilities = LocalModelCapabilities(speculative = false) }
+        val runtime = planned(native)
+        val spec = LocalEngineSpec(modelPath("mutable.litertlm"), "cpu", 1024)
+        runtime.loadEngine(spec)
+        assertTrue(runtime.isEngineLoaded(spec))
+        java.io.File(spec.modelPath).appendText("replacement content")
+        assertFalse(runtime.isEngineLoaded(spec))
+    }
 }

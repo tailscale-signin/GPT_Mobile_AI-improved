@@ -315,9 +315,9 @@ class ChatRepositoryImpl(
         assistAdmission.rejection(localRuntime.getHardwareState(), dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission.availableMemory(context), 128L * 1024 * 1024, 768L * 1024 * 1024, optional = true)?.let { return status(unavailable, it) }
         val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull()
             ?: return status(unavailable, "Local Assist unavailable: selected model is not installed")
-        val record = localRuntime.state.value.engineSpec
+        val record = localRuntime.admittedEngineSpec()
         if (record != null) {
-            if (record.modelPath != selection.path || record.accelerator != dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)) return status(unavailable, "Local Assist skipped: another runtime configuration is loaded")
+            if (record.modelPath != selection.path || record.accelerator != dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator) || !localRuntime.isEngineLoaded(record)) return status(unavailable, "Local Assist skipped: another runtime configuration is loaded")
             return status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready")
         }
         if (policy.preparation == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) return status(unavailable, "Local Assist skipped: warm-only policy; model is not loaded")
@@ -339,6 +339,32 @@ class ChatRepositoryImpl(
             false
         }
         return if (prepared) status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready") else status(unavailable, "Local Assist unavailable: preparation failed, timed out, or model became busy; see runtime diagnostics")
+    }
+
+    override suspend fun testLocalAssist(): String {
+        val features = settingRepository.getFeatureSettings()
+        check(features.assistEnabled()) { "Enable Local Assist before testing it" }
+        val policy = features.effectiveAssistPolicy()
+        val profiles = settingRepository.fetchPlatformV2s().filter { it.enabled && it.compatibleType == ClientType.LITERT_LM && !it.excludesMemory() }
+        val candidates = profiles.filter { policy.profileUid == null || it.uid == policy.profileUid }
+        val target = candidates.firstOrNull { runtimeEligibleForAssist(it, policy) }
+            ?: error(dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.state.value.reason)
+        val root = "assist-test:${UUID.randomUUID()}"
+        var invocation: String? = null
+        val coordinator = dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
+            "Select records describing reusable water bottles; preserve conflicting evidence.",
+            { runtimeEligibleForAssist(target, policy) },
+            { task -> delegateToProfile(target, task, 128, root, root, 4096, { event -> event.invocationId?.let { invocation = it } }, allowTools = false, requestRole = "assist") },
+            {},
+            policy.copy(evidenceSelection = true, summarizeRetrievedText = false, proposeQueries = false, maxAttempts = 1),
+            { settingRepository.getFeatureSettings().assistEnabled() && settingRepository.getFeatureSettings().effectiveAssistPolicy() == policy && settingRepository.fetchPlatformV2s().any { it == target } },
+            root,
+            { invocation }
+        )
+        val original = dev.chungjungsoo.gptmobile.data.assist.AssistTestFixture.tool()
+        val result = coordinator.bind(original).execute(root, JsonObject(emptyMap()))
+        check(result.retainedContent != null && result.content != result.retainedContent) { "Test completed without an accepted selection; original evidence retained. See Local Assist status." }
+        return "Local Assist passed: exact synthetic records retained, no external tools, invocation ${invocation ?: "unavailable"}."
     }
 
     override suspend fun validateBenchmarkProfile(platform: PlatformV2) {
@@ -953,6 +979,7 @@ class ChatRepositoryImpl(
             estimatedRequestInputTokens, maxTokens,
             settingRepository.getFeatureSettings().tokenBudget.normalized().totalRunTokens,
             profileUid = target.uid,
+            forceAccounting = requestRole == "assist",
             onInvocation = { id -> onProgress(DelegateProgress(DelegateProgressKind.INVOCATION_LINKED, invocationId = id, attemptId = attemptId, rootWorkId = turnKey)) }
         ) ?: session
         val childToolLimit = minOf(target.maxToolCalls, chatToolConfig.maxToolCalls ?: Int.MAX_VALUE).coerceAtLeast(0)

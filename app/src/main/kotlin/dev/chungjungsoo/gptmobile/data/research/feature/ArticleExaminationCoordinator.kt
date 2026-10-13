@@ -43,7 +43,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class ExaminationCheckpoint(val schemaVersion: Int = 1, val rootWorkId: String? = null, val parentRunId: String? = null, val archiveEpoch: Long = 0, val versionId: String? = null, val nextChunk: Int = 0, val chunkCount: Int = 0, val invocationIds: List<String> = emptyList(), val limitations: List<String> = emptyList(), val coverage: ArticleSectionCoverage = ArticleSectionCoverage(), val pendingAppraisalIds: List<String> = emptyList())
+data class ExaminationCheckpoint(val schemaVersion: Int = 1, val rootWorkId: String? = null, val parentRunId: String? = null, val archiveEpoch: Long = 0, val versionId: String? = null, val nextChunk: Int = 0, val chunkCount: Int = 0, val invocationIds: List<String> = emptyList(), val limitations: List<String> = emptyList(), val coverage: ArticleSectionCoverage = ArticleSectionCoverage(), val pendingAppraisalIds: List<String> = emptyList(), val independentReports: List<IndependentAppraisalReport> = emptyList(), val sourceValidation: SourceValidationReceipt? = null)
+
+@Serializable
+data class IndependentAppraisalReport(val appraisalId: String, val artifactHash: String, val reviewerProfileUid: String, val reviewerModel: String, val verdict: String, val reasons: List<String>, val invocationIds: List<String>)
+
+@Serializable
+data class SourceValidationReceipt(val schemaVersion: Int = 1, val versionId: String, val contentHash: String, val retrievedAt: Long, val status: String, val owner: String, val providerReceiptIds: List<String> = emptyList())
 
 data class ExaminationRequest(val workId: String, val profileUid: String, val chatId: Int = 0, val versionId: String? = null, val authority: String = "public", val origin: ExaminationOrigin = ExaminationOrigin.AUTHORIZED_RESEARCH, val rootWorkId: String? = null, val parentRunId: String? = null)
 
@@ -70,7 +76,8 @@ class ArticleExaminationCoordinator @Inject constructor(
     private val settings: SettingRepository,
     private val chats: ChatDatabaseV2,
     private val academic: AcademicNativeClient,
-    private val models: ChatRepository
+    private val models: ChatRepository,
+    private val toolResolver: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
@@ -185,8 +192,6 @@ class ArticleExaminationCoordinator @Inject constructor(
                         val reviewer = resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile)
                         val options = features.delegationFor(profile.uid).deepResearch
                         val selection = features.conversationResearch[request.chatId] ?: currentTools().research ?: MultiSearchResearchSelection()
-                        // A selected gateway is never silently replaced with a different transport.
-                        check(selection.gatewayConnectionUid == null || selection.allowNativeFallback) { "Use the approved gateway article tools; native fallback is not authorized" }
                         var version = checkpoint.versionId?.let { archive.dao.version(it) }
                         var text = version?.let { archive.text(it, request.authority) }
                         if (version == null || text == null) {
@@ -195,8 +200,28 @@ class ArticleExaminationCoordinator @Inject constructor(
                             val identifier = aliases.firstOrNull { it.startsWith("doi:") || it.startsWith("pmid:") || it.startsWith("pmcid:") || it.startsWith("arxiv:") }
                                 ?: error("A DOI, PMID, PMCID or arXiv identifier is needed for the native article reader")
                             val access = AcademicAccessPolicy(researchDomains(options.includeDomains), researchDomains(options.excludeDomains), selection.enabledProviders)
-                            val paper = academic.getPaper(identifier, ::allowed, access, refresh = true) ?: error("Article metadata is unavailable")
-                            val evidence = academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000)
+                            val retrieved = if (selection.gatewayConnectionUid == null) {
+                                val paper = academic.getPaper(identifier, ::allowed, access, refresh = true) ?: error("Article metadata is unavailable")
+                                paper to academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000)
+                            } else {
+                                val available = toolResolver.get().resolve(profile.uid, currentTools(), dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId), examinationRunKey = checkpoint.rootWorkId ?: "examination:${record.jobId}")
+                                suspend fun payload(operation: String): String {
+                                    check(allowed())
+                                    val tool = available.singleOrNull { it.modelToolName == "deep_research_$operation" } ?: error("Approved gateway article reader unavailable")
+                                    val result = tool.tool.execute("${record.jobId}:$operation", kotlinx.serialization.json.buildJsonObject { put("identifier", kotlinx.serialization.json.JsonPrimitive(identifier)) })
+                                    check(!result.isError && allowed()) { "Gateway article retrieval failed or permission changed" }
+                                    return when (val value = result.content) {
+                                        is dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json -> value.value.toString()
+                                        is dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text -> value.text
+                                        else -> error("Unsupported gateway article response")
+                                    }
+                                }
+                                val json = Json { ignoreUnknownKeys = true }
+                                val paper = json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(payload("get_paper"))
+                                paper to json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence>(payload("read_paper"))
+                            }
+                            val (paper, evidence) = retrieved
+                            check(evidence.text.length <= 240000 && evidence.textHash == researchHash(evidence.text)) { "Article text is oversized or its integrity check failed" }
                             val body = evidence.text.takeIf { evidence.retrievalStatus in setOf("read", "partially_read") } ?: paper.abstract
                             check(body.isNotBlank()) { evidence.retrievalStatus }
                             val readable = evidence.retrievalStatus in setOf("read", "partially_read")
@@ -218,7 +243,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                             version = archive.capture(source, body, request.authority, archive.dao.version(requireNotNull(record.requestedVersionId))?.publicSource == true, request.chatId, record.jobId, features.researchFeature.archiveEnabled, checkpoint.archiveEpoch)
                             check(version!!.workId == record.workId) { "Resolved article identity changed" }
                             text = body
-                            checkpoint = checkpoint.copy(versionId = version!!.versionId, nextChunk = 0, limitations = if (readable) listOf("Figures and supplementary material have not been independently verified") else listOf("Abstract only; full methods and results unavailable"))
+                            checkpoint = checkpoint.copy(sourceValidation = SourceValidationReceipt(versionId = version!!.versionId, contentHash = researchHash(body), retrievedAt = evidence.retrievedAt, status = if (readable) "fresh_text_captured" else "metadata_checked_abstract_only", owner = if (selection.gatewayConnectionUid == null) "native" else "selected_gateway", providerReceiptIds = evidence.providerReceipts), versionId = version!!.versionId, nextChunk = 0, limitations = if (readable) listOf("Figures and supplementary material have not been independently verified") else listOf("Abstract only; full methods and results unavailable"))
                             archive.dao.root(BodyReference("job", record.jobId, version!!.versionId))
                         }
                         val captured = requireNotNull(version)
@@ -273,7 +298,9 @@ Source UTF-16 offset ${chunk.first}: ${chunk.second}
                                 archive.database.withTransaction {
                                     check(archive.dao.job(record.jobId)?.lease == record.lease)
                                     archive.dao.appraisal(appraisal.copy(independentReview = verdict, reviewedRevision = artifactHash))
-                                    checkpoint = checkpoint.copy(pendingAppraisalIds = checkpoint.pendingAppraisalIds - id)
+                                    val reasons = (Json.parseToJsonElement(output.toString().trim()) as kotlinx.serialization.json.JsonObject)["reasons"] as kotlinx.serialization.json.JsonArray
+                                    val report = IndependentAppraisalReport(id, artifactHash, reviewer.uid, reviewer.model, verdict, reasons.map { (it as kotlinx.serialization.json.JsonPrimitive).content }, ids.toList())
+                                    checkpoint = checkpoint.copy(pendingAppraisalIds = checkpoint.pendingAppraisalIds - id, independentReports = checkpoint.independentReports.filterNot { it.appraisalId == id } + report)
                                     check(archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.REVIEWING, Json.encodeToString(checkpoint), null, System.currentTimeMillis()) == 1)
                                 }
                             }
@@ -290,19 +317,22 @@ Source UTF-16 offset ${chunk.first}: ${chunk.second}
                             var truncated = false
                             val receiptIds = mutableListOf<String>()
                             val session = models.openResearchSession(profile, prompt, checkpoint.rootWorkId ?: "examination:${record.jobId}", "research-appraisal", 6144, parentRunId = checkpoint.parentRunId ?: "examination:${record.jobId}") { receiptIds += it }
-                            session.streamRound(emptyList(), emptyList()).collect { event ->
-                                when (event) {
-                                    is ProviderEvent.TextDelta -> {
-                                        check(reply.length + event.text.length <= 96 * 1024)
-                                        reply.append(event.text)
+                            try {
+                                session.streamRound(emptyList(), emptyList()).collect { event ->
+                                    when (event) {
+                                        is ProviderEvent.TextDelta -> {
+                                            check(reply.length + event.text.length <= 96 * 1024)
+                                            reply.append(event.text)
+                                        }
+                                        is ProviderEvent.Failed -> failure = event.message
+                                        is ProviderEvent.Usage -> if (event.finishReason in setOf("length", "max_tokens", "output_limit")) truncated = true
+                                        is ProviderEvent.ToolCall -> error("Article appraisal cannot execute tools")
+                                        else -> Unit
                                     }
-                                    is ProviderEvent.Failed -> failure = event.message
-                                    is ProviderEvent.Usage -> if (event.finishReason in setOf("length", "max_tokens", "output_limit")) truncated = true
-                                    is ProviderEvent.ToolCall -> error("Article appraisal cannot execute tools")
-                                    else -> Unit
                                 }
+                            } finally {
+                                checkpoint = checkpoint.copy(invocationIds = (checkpoint.invocationIds + receiptIds).distinct())
                             }
-                            checkpoint = checkpoint.copy(invocationIds = (checkpoint.invocationIds + receiptIds).distinct())
                             stage(ExaminationStage.APPRAISING)
                             check(!truncated) { "Appraisal output limit reached; complete source and prior batches retained" }
                             val validated = try {

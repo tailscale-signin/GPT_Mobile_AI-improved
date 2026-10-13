@@ -29,7 +29,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarketplace: () -> Unit) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
-    val active by viewModel.active.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val testStatus by viewModel.status.collectAsStateWithLifecycle()
     val readiness by dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.state.collectAsStateWithLifecycle()
     val policy = settings.localAssistPolicy.validated()
     val target = profiles.firstOrNull { it.uid == policy.profileUid }
@@ -44,8 +45,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                         target == null && policy.profileUid != null -> stringResource(R.string.local_ai_assist_worker_missing)
                         target == null -> "Automatic · eligible warm model only"
                         !target.enabled -> stringResource(R.string.local_ai_assist_worker_disabled)
-                        active.engineSpec?.modelPath?.contains("/models/${target.model}/") != true -> stringResource(R.string.local_ai_assist_worker_waiting)
-                        active.engineSpec == null -> "Waiting for a warm model"
+                        readiness.profileUid != target.uid -> "Readiness has not been checked for this profile"
                         else -> readiness.reason
                     },
                     color = MaterialTheme.colorScheme.primary
@@ -68,6 +68,9 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                     FilterChip(policy.preparation == mode, { viewModel.updateAssist { it.copy(preparation = mode) } }, label = { Text(stringResource(if (mode == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) R.string.assist_warm_only else R.string.assist_auto_prepare)) })
                 }
                 if (settings.localAssist) Text(readiness.reason)
+                Text("Runs one local request on synthetic records using the selected preparation policy. It does not call external tools.", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = viewModel::testLocalAssist, enabled = settings.localAssist && !busy) { Text(if (busy) "Testing…" else "Test Local Assist") }
+                testStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         }
         item {

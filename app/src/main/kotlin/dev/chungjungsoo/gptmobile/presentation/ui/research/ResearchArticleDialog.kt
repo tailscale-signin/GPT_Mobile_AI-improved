@@ -73,6 +73,13 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                     item {
                         Text(job.stage.name.lowercase().replace('_', ' '), style = MaterialTheme.typography.titleMedium)
                         job.terminalReason?.let { Text(it) }
+                        val checkpoint = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson) }.getOrNull()
+                        checkpoint?.sourceValidation?.let { Text("Source check: ${it.status.replace('_', ' ')} · ${it.owner}", style = MaterialTheme.typography.bodySmall) }
+                        checkpoint?.independentReports.orEmpty().forEach { report ->
+                            Text("Review by ${report.reviewerModel}: ${report.verdict}")
+                            report.reasons.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        }
+                        if (features.researchFeature.showWarnings) checkpoint?.limitations.orEmpty().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                         if (job.stage in setOf(ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING)) {
                             Row {
                                 TextButton(onClick = { viewModel.pause(job.jobId) }) { Text("Pause") }
@@ -81,8 +88,8 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                         }
                     }
                 }
-                if (state.fields.isEmpty()) item { Text("Methods and numbers have not been validated. Missing sample sizes and effects remain unknown.") }
-                state.fields.forEach { field ->
+                if (features.researchFeature.showMethodMetrics && state.fields.isEmpty()) item { Text("Methods and numbers have not been validated. Missing sample sizes and effects remain unknown.") }
+                (if (features.researchFeature.showMethodMetrics) state.fields else emptyList()).forEach { field ->
                     item {
                         Text("${field.name.replace('_', ' ')} · ${field.outcomeKey}", style = MaterialTheme.typography.labelLarge)
                         Text(field.value?.let { "$it ${field.unit.orEmpty()}" } ?: field.missingness.name.lowercase().replace('_', ' '))

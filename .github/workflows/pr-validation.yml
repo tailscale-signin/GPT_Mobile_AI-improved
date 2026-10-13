@@ -76,6 +76,7 @@ jobs:
           path: |
             app/schemas/dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsDatabase/*.json
             app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/*.json
+            app/schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/*.json
             app/build/test-results/testDebugUnitTest/*.xml
           if-no-files-found: warn
 

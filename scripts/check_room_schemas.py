@@ -9,7 +9,7 @@ import sys
 root = Path(__file__).resolve().parents[1]
 # The pre-existing experimental DebugDatabase exports a separate, unversioned
 # schema. This gate covers the versioned conversation/backup migration history.
-schema_history = ["app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2", "app/schemas/dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsDatabase"]
+schema_history = ["app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2", "app/schemas/dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsDatabase", "app/schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase"]
 result = subprocess.run(
     ["git", "status", "--porcelain", "--untracked-files=all", "--", *schema_history],
     cwd=root, check=True, capture_output=True, text=True,

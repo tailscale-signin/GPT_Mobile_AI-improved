@@ -63,6 +63,7 @@ data class AppFeatureSettings(
     /** Global service state. Amazon is opt-in; other built-in services preserve their defaults. */
     val pluginExecution: Map<String, PluginExecutionSettings> = emptyMap(),
     val toolPluginStates: Map<String, Boolean> = emptyMap(),
+    val researchFeature: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings(),
     val delegation: ModelDelegationSettings = ModelDelegationSettings(),
     val profileBehavior: Map<String, ProfileBehaviorSettings> = emptyMap(),
     val conversationResearch: Map<Int, MultiSearchResearchSelection> = emptyMap(),

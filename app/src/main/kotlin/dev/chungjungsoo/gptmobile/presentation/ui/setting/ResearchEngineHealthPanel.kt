@@ -15,6 +15,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.research.engine.ResearchEngineRegistry
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore
@@ -87,18 +89,26 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
             Text(engine.name + " · " + engine.capability, style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth())
             Text(
                 if (health == null || health.attempts == 0) {
-                    "Unknown · No requests yet"
+                    "No completed requests · Useful rate unavailable"
                 } else {
                     "${health.successes}/${health.attempts} useful outcomes · ${health.empty} empty · ${health.canceled} canceled · ${health.failures} failures · ${health.transportSuccesses} HTTP completions · ${health.transportFailures} HTTP failures · ${health.transportCanceled} transport cancellations${if (health.lowSample) " · Low sample" else ""}"
                 },
                 style = MaterialTheme.typography.bodySmall
             )
+            if (health != null && health.attempts > 0) {
+                androidx.compose.material3.LinearProgressIndicator(progress = { health.successes.toFloat() / health.attempts }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "${engine.name}: ${health.successes} useful, ${health.empty} empty, ${health.failures} failed completed requests. Canceled and skipped attempts excluded." })
+                Text("Useful rate: ${"%.1f".format(health.successPercent)}% · definition v2 · completed useful + empty + failed", style = MaterialTheme.typography.bodySmall)
+            }
             Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
         }
         TextButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
         if (pending) {
             ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
                 Text("${engine.name} · Adapter not ready", style = MaterialTheme.typography.labelLarge)
+                if (health != null && health.attempts > 0) {
+                    androidx.compose.material3.LinearProgressIndicator(progress = { health.successes.toFloat() / health.attempts }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "${engine.name}: ${health.successes} useful, ${health.empty} empty, ${health.failures} failed completed requests. Canceled and skipped attempts excluded." })
+                    Text("Useful rate: ${"%.1f".format(health.successPercent)}% · definition v2 · completed useful + empty + failed", style = MaterialTheme.typography.bodySmall)
+                }
                 Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
             }
         }

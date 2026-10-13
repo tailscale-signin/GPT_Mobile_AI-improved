@@ -19,3 +19,11 @@ timeout 180s adb shell am instrument -w -r \
   dev.melo.gptmobile.improved.nativesmoke.test/androidx.test.runner.AndroidJUnitRunner \
   | tee "$smoke_evidence/instrumentation.txt"
 python3 scripts/check_native_memory_smoke.py --instrumentation-output "$smoke_evidence/instrumentation.txt"
+
+adb push /tmp/gguf-fixture/stories15M-chatml.gguf /data/local/tmp/stories15M-chatml.gguf
+timeout 240s adb shell am instrument -w -r \
+  -e class dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest \
+  dev.melo.gptmobile.improved.nativesmoke.test/androidx.test.runner.AndroidJUnitRunner \
+  | tee "$smoke_evidence/gguf-instrumentation.txt"
+python3 scripts/check_gguf_android_smoke.py "$smoke_evidence/gguf-instrumentation.txt"
+adb shell rm /data/local/tmp/stories15M-chatml.gguf

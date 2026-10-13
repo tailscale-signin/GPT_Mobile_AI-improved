@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.research
 
 import android.content.Context
 import android.util.AtomicFile
+import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.agent.ResearchBudget
 import dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth
@@ -29,7 +30,7 @@ data class ResearchSession(val runId: String, val chatId: Int, val snapshot: Res
 
 /** App-private bounded history, included in complete backups; temporary chats stay in RAM. */
 @Singleton
-class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context) {
+class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context, private val featureDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null, private val featureSettings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null) {
     private val directory = File(context.filesDir, "research-history")
     private val lock = Mutex()
     private val readerHealth = ConcurrentHashMap<Pair<Int, String>, ResearchReaderHealth>()
@@ -104,12 +105,15 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stops += runId
         runTurns[runId]?.let { stoppedTurns += it }
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId, publicEvidence: Boolean = false): ResearchJournal = object : ResearchJournal {
+        private val createdAt = System.currentTimeMillis()
+        private var archiveEpoch: Long? = null
+        private val archivedRevisions = mutableMapOf<String, String>()
         private val generation = currentGeneration(chatId, turnId, persistent)
         init {
             runTurns[runId] = chatId to turnId
         }
-        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope)
+        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope, sharePublicEvidence)
         override fun sourceId(identity: String, fallback: String) = "S" + researchHash(identity).take(16)
         private fun workKey(key: String) = "$chatId:$turnId:$authority:$key"
         override fun claimWork(key: String, leaseMillis: Long): Boolean {
@@ -249,7 +253,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         override suspend fun retainBody(text: String): List<String> = withContext(Dispatchers.IO) {
             lock.withLock {
                 check(!stopRequested()) { "Research stopped" }
-                text.chunked(16 * 1024).map { chunk ->
+                researchTextChunks(text).map { chunk ->
                     val name = researchHash(chunk) + ".chunk"
                     if (persistent) {
                         check(directory.mkdirs() || directory.isDirectory)
@@ -342,6 +346,35 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             put("runId", runId)
                         }.toString().toByteArray()
                     )
+                    try {
+                        featureDatabase?.let { database ->
+                            val settings = featureSettings?.getFeatureSettings()
+                            val dao = database.research()
+                            val epoch = archiveEpoch ?: (dao.sequence()?.archiveEpoch ?: 0L).also { archiveEpoch = it }
+                            val eligible = settings?.researchFeature?.archiveEnabled == true && settings.researchFeature.enabled && settings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) && (dao.deleted("archive-clear") ?: 0) < createdAt
+                            snapshot.sources.forEach { source ->
+                                val revision = researchHash(source.json().toString())
+                                if (archivedRevisions[source.id] != revision) {
+                                    val body = if (source.bodyChunks.isEmpty()) {
+                                        source.passage
+                                    } else {
+                                        source.bodyChunks.joinToString("") { name ->
+                                            require(name.matches(Regex("[a-f0-9]{64}\\.chunk")))
+                                            val text = File(directory, name).readText()
+                                            require(researchHash(text) + ".chunk" == name)
+                                            text
+                                        }
+                                    }
+                                    dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, authority, publicEvidence, chatId, turnId, eligible, epoch, researchHash(body), body.toByteArray().size.toLong())
+                                    archivedRevisions[source.id] = revision
+                                }
+                            }
+                        }
+                    } catch (cancel: kotlinx.coroutines.CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Research", "Archive index update failed; original run evidence remains retained", "W")
+                    }
                     // Retention is incremental; never rescan the corpus per network chunk.
                     val retained = completedFiles ?: directory.listFiles().orEmpty()
                         .filter { it.extension == "json" && read(it)?.snapshot?.complete == true }
@@ -439,6 +472,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
 
     suspend fun deleteChat(chatId: Int) = withContext(Dispatchers.IO) {
+        featureDatabase?.let { database ->
+            database.withTransaction {
+                val dao = database.research()
+                dao.tombstone(dev.chungjungsoo.gptmobile.data.research.feature.ResearchDeletionTombstone("chat:$chatId", System.currentTimeMillis()))
+                dao.deleteBindings(chatId)
+                dao.deleteChatRoots("$chatId:")
+                dao.chatJobs(chatId).forEach { job ->
+                    dao.job(job.copy(stage = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.CANCELED, terminalReason = "Conversation deleted", lease = job.lease + 1))
+                    dao.removeRoots("job", job.jobId)
+                }
+            }
+        }
         deletedChats += chatId
         temporaryBodies.keys.removeAll { it.startsWith("$chatId:") }
         readerHealth.keys.removeAll { it.first == chatId }
@@ -471,14 +516,47 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 listOf("sourcePages", "queryPages", "claimPages").forEach { field -> (value[field] as? JsonArray).orEmpty().forEach { markIndex((it as JsonPrimitive).content) } }
             }
             directory.listFiles().orEmpty().filter { it.extension == "index" && it.name !in retainedIndexes }.forEach { AtomicFile(it).delete() }
+            val featureChunks = featureDatabase?.research()?.retainedBodies().orEmpty().flatMap { runCatching { Json.decodeFromString<List<String>>(it) }.getOrDefault(emptyList()) }.toSet()
             val retainedChunks = retained.flatMap { name ->
                 runCatching { Json.parseToJsonElement(File(directory, name).readText()).jsonObject.strings("bodyChunks") }.getOrDefault(emptyList())
-            }.toSet()
+            }.toSet() + featureChunks
             directory.listFiles().orEmpty().filter { it.extension == "chunk" && it.name !in retainedChunks }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }
         }
     }
 
+    /** Shared immutable chunks, published before the metadata transaction under the same GC lock. */
+    suspend fun <T> publishFeatureBody(text: String, commit: suspend (List<String>) -> T): T = withContext(Dispatchers.IO) {
+        require(text.toByteArray().size <= 2 * 1024 * 1024)
+        lock.withLock {
+            check(directory.mkdirs() || directory.isDirectory)
+            val refs = researchTextChunks(text).map { chunk ->
+                val name = researchHash(chunk) + ".chunk"
+                val target = File(directory, name)
+                if (!target.isFile) {
+                    check(directory.usableSpace > 8L * 1024 * 1024 + chunk.toByteArray().size)
+                    writeAtomic(target, chunk.toByteArray())
+                }
+                name
+            }
+            commit(refs)
+        }
+    }
+    suspend fun readFeatureBody(refs: List<String>): String? = withContext(Dispatchers.IO) {
+        if (refs.size > 128) return@withContext null
+        lock.withLock {
+            val output = StringBuilder()
+            for (name in refs) {
+                if (!name.matches(Regex("[a-f0-9]{64}\\.chunk"))) return@withLock null
+                val file = File(directory, name)
+                if (!file.isFile || file.length() > 64 * 1024) return@withLock null
+                val text = runCatching { file.readText() }.getOrNull() ?: return@withLock null
+                if (researchHash(text) + ".chunk" != name) return@withLock null
+                output.append(text)
+            }
+            output.toString()
+        }
+    }
     private fun writeAtomic(file: File, bytes: ByteArray) {
         val atomic = AtomicFile(file)
         val output = atomic.startWrite()
@@ -568,4 +646,15 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         ResearchSession(runId, value.number("chatId"), requireNotNull(ResearchSnapshot.parse(restored)), value.text("turnId").ifBlank { runId }, value.text("authority").ifBlank { "legacy" })
     }.getOrNull()
+}
+
+/** Preserve complete UTF-16 scalar pairs at persisted UTF-8 chunk boundaries. */
+internal fun researchTextChunks(text: String): List<String> = buildList {
+    var start = 0
+    while (start < text.length) {
+        var end = minOf(start + 16 * 1024, text.length)
+        if (end < text.length && text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) end--
+        add(text.substring(start, end))
+        start = end
+    }
 }

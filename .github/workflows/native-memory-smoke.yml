@@ -7,6 +7,10 @@ on:
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/telemetry/tool/**'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/delegation/**'
       - 'app/build.gradle.kts'
+      - 'local-gguf-runtime/**'
+      - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/**'
+      - 'scripts/prepare_gguf_smoke.py'
+      - 'scripts/check_gguf_android_smoke.py'
       - 'app/proguard-rules.pro'
       - 'app/app-native-smoke-rules.pro'
       - 'app/native-smoke-test-rules.pro'
@@ -48,6 +52,14 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Fetch immutable source and fixture
+        run: |
+          curl --fail --location --retry 3 https://codeload.github.com/ggml-org/llama.cpp/tar.gz/4413a192410fad1f054e9216114087a3e01527a0 -o /tmp/llama.tar.gz
+          echo '4d0cb840af6e67de6afc72cd85aaa5d1419a9c6071a403d7a2069086f0bfe21b  /tmp/llama.tar.gz' | sha256sum --check
+          mkdir -p /tmp/llama
+          tar -xf /tmp/llama.tar.gz --strip-components=1 -C /tmp/llama
+          python3 -m pip install numpy tqdm pyyaml
+          python3 scripts/prepare_gguf_smoke.py /tmp/llama /tmp/gguf-fixture
       - name: Enable KVM
         run: sudo chmod 666 /dev/kvm
       - name: Build the minified native test app
@@ -55,7 +67,7 @@ jobs:
           ./gradlew :app:assembleNativeSmoke :app:assembleNativeSmokeAndroidTest -PnativeMemorySmoke=true --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/nativeSmoke/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/nativeSmoke/*.apk
-      - name: Exercise encoder callbacks, vector search and engine reopening
+      - name: Exercise encoder, vector index and GGUF CPU inference
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36

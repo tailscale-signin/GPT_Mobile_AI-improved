@@ -77,7 +77,7 @@ class ResearchTelemetryStore(private val directory: File) {
             val events = index.events.values.filter { it.engineId == engineId && it.recordedAt >= since }
             fun legacyTransport(event: ResearchAttempt) = event.schemaVersion < 2 && event.operation in setOf("lookup_search", "read")
             val live = events.filter { !legacyTransport(it) && it.dispatched && !it.cacheHit && it.outcome in setOf("SUCCESS", "EMPTY", "FAILED", "INVALID_RESPONSE", "CANCELLED") }
-            ResearchEngineRollup(live.size, live.count { it.outcome == "SUCCESS" }, live.count { it.outcome in setOf("FAILED", "INVALID_RESPONSE") }, events.count { it.cacheHit }, events.count { !it.dispatched && !it.cacheHit }, live.count { it.outcome == "EMPTY" }, live.count { it.outcome == "CANCELLED" }, events.count { it.outcome == "TRANSPORT_SUCCESS" || legacyTransport(it) && it.outcome == "SUCCESS" }, events.count { it.outcome == "TRANSPORT_FAILED" || legacyTransport(it) && it.outcome == "FAILED" }, events.count { it.outcome == "TRANSPORT_CANCELLED" || legacyTransport(it) && it.outcome == "CANCELLED" })
+            ResearchEngineRollup(live.count { it.outcome != "CANCELLED" }, live.count { it.outcome == "SUCCESS" }, live.count { it.outcome in setOf("FAILED", "INVALID_RESPONSE") }, events.count { it.cacheHit }, events.count { !it.dispatched && !it.cacheHit }, live.count { it.outcome == "EMPTY" }, live.count { it.outcome == "CANCELLED" }, events.count { it.outcome == "TRANSPORT_SUCCESS" || legacyTransport(it) && it.outcome == "SUCCESS" }, events.count { it.outcome == "TRANSPORT_FAILED" || legacyTransport(it) && it.outcome == "FAILED" }, events.count { it.outcome == "TRANSPORT_CANCELLED" || legacyTransport(it) && it.outcome == "CANCELLED" })
         }
     }
 

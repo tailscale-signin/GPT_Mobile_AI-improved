@@ -770,12 +770,11 @@ class ChatRepositoryImpl(
         // local -> remote tool use and remote -> local tool use without recursion.
         val helperFeatures = settingRepository.getFeatureSettings()
         val helperCatalog = if (allowTools && fixtureTools == null && authorizedTools != null && !target.disableAllTools && !chatToolConfig.allToolsDisabled) {
-            agentToolResolver.resolve(target.uid, chatToolConfig).map { it.connectionUid to it.realToolName }.toSet()
+            agentToolResolver.resolve(target.uid, chatToolConfig)
         } else {
-            emptySet()
+            emptyList()
         }
-        val inheritedTools = authorizedTools.orEmpty()
-            .filter { (it.connectionUid to it.realToolName) in helperCatalog }
+        val inheritedTools = delegatedCapabilityIntersection(authorizedTools.orEmpty(), helperCatalog)
             .filterNot { it.realToolName == "delegate_to_model" || !target.isPrivateDestination() && it.realToolName in setOf("memory", "memory_recall", "read_graph", "search_nodes", "open_nodes", "memory_read_document", "memory_search_documents") }
             .distinctBy { it.modelToolName }
             .sortedWith(compareBy<ResolvedAgentTool> { !(isGitHubTask(task) && it.isGitHubTool()) }.thenBy { delegatedToolPriority(it) })
@@ -785,8 +784,8 @@ class ChatRepositoryImpl(
             fixtureTools.toMutableList()
         } else if (authorizedTools != null) {
             // Delegated agents are children of the current run. Reuse the parent's
-            // already-authorized and already-budgeted tool snapshot instead of resolving
-            // a second catalog from the helper profile. This preserves chat-level
+            // already-authorized and already-budgeted tools after intersecting them
+            // with the helper's current capability catalog. This preserves chat-level
             // permissions, native GitHub/MCP access, shared budgets and approval state.
             inheritedTools.map { inherited ->
                 object : AgentTool by inherited.tool {
@@ -794,6 +793,8 @@ class ChatRepositoryImpl(
                         val live = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == target.uid }
                         val features = settingRepository.getFeatureSettings()
                         check(live == target && features.toolPluginStates == helperFeatures.toolPluginStates && features.profileBehavior[target.uid]?.toolPluginStates == helperFeatures.profileBehavior[target.uid]?.toolPluginStates) { "Helper permissions changed; dispatch stopped." }
+                        val helperPermission = helperCatalog.firstOrNull { it.connectionUid == inherited.connectionUid && it.realToolName == inherited.realToolName }
+                        check(helperPermission != null && helperPermission.canReuseResult?.invoke() != false) { "Helper connection authorization changed; dispatch stopped." }
                         return inherited.tool.execute(callId, arguments)
                     }
                 }
@@ -1309,12 +1310,26 @@ class ChatRepositoryImpl(
                     if (runs.isEmpty() && retainedResearch.isEmpty()) {
                         null
                     } else {
+                        val recoveryProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == platform.uid }
+                        val recoveryRoom = agentPersistenceDao.getChatRoom(latest.chatId)
                         dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext(
                             runs,
                             agentPersistenceDao.getMessages(latest.chatId),
                             events,
                             retainedResearch,
-                            rootWorkId = root.takeIf { taskRecovery != null }
+                            rootWorkId = root.takeIf { taskRecovery != null },
+                            authorization = {
+                                val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == platform.uid }
+                                val currentRoom = agentPersistenceDao.getChatRoom(latest.chatId)
+                                recoveryProfile != null &&
+                                    currentProfile == recoveryProfile &&
+                                    currentProfile.enabled &&
+                                    recoveryRoom != null &&
+                                    currentRoom != null &&
+                                    currentRoom.isTemporary == recoveryRoom.isTemporary &&
+                                    platform.uid in currentRoom.activePlatform &&
+                                    allowedTools.all { it.canReuseResult?.invoke() != false }
+                            }
                         )
                     }
                 }
@@ -1583,6 +1598,7 @@ class ChatRepositoryImpl(
                 } else {
                     (limits.contextTokens / 8).coerceAtLeast(64) * 3
                 }
+                check(recovery.isAuthorized()) { "Saved evidence access changed. Resume again with the current conversation and permissions." }
                 val prefix = recovery.prefix(inlineCharacters, supportsTools)
                 contextTurns = contextTurns.map { turn ->
                     if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = turn.userMessage.content + "\n\n" + prefix)) else turn
@@ -3067,3 +3083,13 @@ private fun currentEpochSeconds(): Long = System.currentTimeMillis() / 1000
 /** A truncated visible result gets one bounded finalization request. */
 internal fun delegationRepairOutputCap(requested: Int, profileLimit: Int?): Int =
     minOf(maxOf(1024L, requested.toLong() * 2).coerceAtMost(4096L).toInt(), profileLimit?.takeIf { it > 0 } ?: 4096)
+
+/** Aliases identify one owner; neither parent nor helper authority can broaden the other. */
+internal fun delegatedCapabilityIntersection(parent: List<ResolvedAgentTool>, helper: List<ResolvedAgentTool>): List<ResolvedAgentTool> {
+    for (catalog in listOf(parent, helper)) {
+        require(catalog.groupBy { it.modelToolName }.values.none { rows -> rows.map { it.connectionUid to it.realToolName }.distinct().size > 1 }) { "Ambiguous child tool alias; select one connection owner before delegation." }
+    }
+    val allowed = helper.map { it.connectionUid to it.realToolName }.toSet()
+    return parent.filter { (it.connectionUid to it.realToolName) in allowed && it.realToolName != "delegate_to_model" }
+        .distinctBy { it.modelToolName }
+}

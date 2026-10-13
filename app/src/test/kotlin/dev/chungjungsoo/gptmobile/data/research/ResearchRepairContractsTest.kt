@@ -92,4 +92,25 @@ class ResearchRepairContractsTest {
         val unknown = Json.parseToJsonElement("""{"schemaVersion":999,"questions":["Valid"],"queries":[]}""").jsonObject
         assertTrue(runCatching { ResearchPlanContract.parse(unknown) }.isFailure)
     }
+
+    @Test fun plannerRejectsCoercedFieldsAndMalformedReferences() {
+        val invalid = listOf(
+            """{"questions":[{"text":12}],"queries":[]}""",
+            """{"questions":[{"text":"Valid","evidenceNeeded":false}],"queries":[]}""",
+            """{"questions":["Valid"],"queries":[{"text":"query","questionIds":[12]}]}""",
+            """{"questions":["Valid"],"queries":[{"text":"query","questionIds":[]}]}""",
+            """{"questions":["Valid"],"queries":[],"noResearchNeeded":true}""",
+            """{"questions":[],"queries":[],"noResearchNeeded":"true"}"""
+        )
+        invalid.forEach { assertTrue(it, runCatching { ResearchPlanContract.parse(Json.parseToJsonElement(it).jsonObject) }.isFailure) }
+        val legacy = ResearchPlanContract.parse(Json.parseToJsonElement("""{"questions":["Valid"],"queries":[{"query":"legacy query"}]}""").jsonObject)
+        assertEquals(listOf("Q1"), legacy.queries.single().questionIds)
+    }
+
+    @Test fun applicablePrevalenceStudyIsNotGloballyExcluded() {
+        val question = ResearchQuestion("Q1", "What is the prevalence of the synthetic trait?", "Primary prevalence study")
+        val source = ResearchSource("S1", "https://example.org/prevalence", "Fixture prevalence", "Read", "The trait occurred in ten percent of the synthetic sample.", publicationType = "prevalence study")
+        val claim = ResearchClaim("Prevalence estimate", "S1", source.passage, "Supported", "Q1", "Relevant", true)
+        assertTrue(assessResearchCoverage(listOf(question), listOf(claim), listOf(source)).complete)
+    }
 }

@@ -156,4 +156,28 @@ class ResponseRecoveryContextTest {
         assertTrue(view.contains("Omitted"))
         assertFalse(view.contains("with read_recovery_context"))
     }
+
+    @Test fun revocationBlocksLaterPagesAndSavedReceiptReuseWithoutExecutingMutation() = runTest {
+        var allowed = true
+        var writes = 0
+        val message = MessageV2(id = 2, chatId = 1, content = "sensitive fixture", platformType = "p", currentRunId = "old-run")
+        val recovery = ResponseRecoveryContext(listOf(run), listOf(message), emptyList(), rootWorkId = "1:1", authorization = { allowed })
+        val reader = recovery.tool()
+        assertFalse(reader.execute("before", buildJsonObject {}).isError)
+        val mutation = object : AgentTool {
+            override val definition = AgentToolDefinition("write_file", "write", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                writes++
+                return AgentToolResult(callId, ToolResultContent.Text("written"), false)
+            }
+        }
+        val wrapper = recovery.reuseCompletedTool(mutation, "write_file", "connection")
+        allowed = false
+        assertFalse(recovery.isAuthorized())
+        val blocked = reader.execute("after", buildJsonObject {})
+        assertTrue(blocked.isError)
+        assertFalse(blocked.content.toString().contains("sensitive fixture"))
+        assertTrue(wrapper.execute("write", buildJsonObject {}).isError)
+        assertEquals(0, writes)
+    }
 }

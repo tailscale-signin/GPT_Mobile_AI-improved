@@ -31,7 +31,8 @@ fun researchSourceCanAnswer(question: ResearchQuestion, source: ResearchSource):
     if (!empirical) return true
     val type = source.publicationType.lowercase().replace('_', ' ').replace('-', ' ')
     if (type.isBlank() || type == "unknown") return false
-    if (listOf("protocol", "comment", "editorial", "price", "product", "questionnaire", "prevalence").any { it in type }) return false
+    val requested = (question.text + " " + question.evidenceNeeded).lowercase()
+    if (listOf("protocol", "comment", "editorial", "price", "product", "questionnaire", "prevalence").any { it in type && it !in requested }) return false
     if ("primary" in requirement && ("review" in type || "meta analysis" in type)) return false
     if ("randomized" in requirement || "randomised" in requirement) return "randomized" in type || "randomised" in type
     if ("controlled" in requirement && "controlled" !in type) return false

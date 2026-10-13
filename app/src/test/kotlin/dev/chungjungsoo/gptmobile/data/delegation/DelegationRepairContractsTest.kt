@@ -67,4 +67,20 @@ class DelegationRepairContractsTest {
         assertFalse(config.copy(orchestrationVersion = 99).normalized().enabled)
         assertFalse(config.copy(reviewMode = DelegationReviewMode.OFF).withDelegationAmount(100).normalized().reviewerEnabled)
     }
+
+    @Test fun previewUsesTheSameReservedReviewerAndWorkerAsAdmission() {
+        val writer = profile("writer", "openai/gpt-4.1")
+        val reviewer = profile("a-reviewer", "anthropic/claude-sonnet-4.5")
+        val worker = profile("z-worker", "qwen/qwen3-8b")
+        val config = ModelDelegationSettings(enabled = true, reviewerEnabled = true, reviewerProfileUid = reviewer.uid, allowRemoteWorkers = true, localPlatformsOnly = false)
+        val profiles = listOf(writer, reviewer, worker)
+        val admission = DelegationAdmissionResolver.resolve(config, profiles, writer)
+        assertEquals(worker.uid, admission.worker!!.uid)
+        val preview = DelegationPolicyResolver.preview(config, profiles, writer)
+        assertTrue(preview.contains("Helper: ${worker.name} · ${worker.model}"))
+        assertFalse(preview.contains("Helper: ${reviewer.name} · ${reviewer.model}"))
+        assertTrue(preview.contains("Logical research operations:"))
+        val denied = DelegationAdmissionResolver.resolve(config.copy(targetProfileUid = worker.uid, allowRemoteWorkers = false, localPlatformsOnly = true), profiles, writer)
+        assertTrue(denied.explanation.contains("CLOUD_DENIED"))
+    }
 }

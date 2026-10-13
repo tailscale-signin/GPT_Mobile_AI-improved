@@ -585,4 +585,43 @@ class AndroidResearchWorkflowTest {
         assertTrue(journal.snapshot!!.sources.any { it.id == "S9" && it.readable })
         assertEquals(2, journal.snapshot!!.sources.count { it.readable })
     }
+
+    @Test fun restoredAcademicVerifierResumesOnlyVerificationAfterCollectionGoal() = runBlocking {
+        val journal = Journal()
+        val source = dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/paper", "Synthetic device study", "Read", passage, paperId = "fixture-paper", versionId = "v1", retrievedAt = System.currentTimeMillis())
+        val claim = dev.chungjungsoo.gptmobile.data.research.ResearchClaim("Two parallel requests", "S1", passage, questionId = "Q1")
+        journal.snapshot = ResearchSnapshot(
+            "Research request limits",
+            questions = listOf("What is the request limit?"),
+            questionPlan = listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What is the request limit?")),
+            planningStatus = "Validated",
+            sources = listOf(source),
+            claims = listOf(claim),
+            targetSources = 1,
+            extractedSourceVersions = setOf("S1:" + dev.chungjungsoo.gptmobile.data.research.researchHash(source.versionId + source.passage))
+        )
+        var available = false
+        var verificationCalls = 0
+        var modelCalls = 0
+        val verifier = tool("deep_research_verify_evidence") { id, _ ->
+            verificationCalls++
+            AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("verdict", if (available) "quote_verified" else "unavailable") }), !available)
+        }
+        val generate: suspend (String, Int) -> String? = { prompt, _ ->
+            check(prompt.startsWith("Review the claim")) { "Completed planning or extraction was repeated: $prompt" }
+            modelCalls++
+            """{"verdict":"Supported","relevance":"Relevant","questionId":"Q1"}"""
+        }
+        val first = AndroidResearchWorkflow(config(1), listOf(verifier), generate, journal).run("Research request limits", "unavailable")
+        assertEquals(LocalResearchOutcome.PARTIAL_USEFUL, first.outcome)
+        assertEquals(1, verificationCalls)
+        assertEquals(0, modelCalls)
+        available = true
+        val resumed = AndroidResearchWorkflow(config(1), listOf(verifier), generate, journal).run("Research request limits", "restored")
+        assertEquals(LocalResearchOutcome.SUCCESS, resumed.outcome)
+        assertEquals(2, verificationCalls)
+        assertEquals(1, modelCalls)
+        assertEquals(1, journal.snapshot!!.claims.size)
+        assertTrue(journal.snapshot!!.claims.single().exactQuoteVerified)
+    }
 }

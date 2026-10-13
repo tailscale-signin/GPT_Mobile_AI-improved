@@ -18,8 +18,11 @@ internal class ResponseRecoveryContext(
     messages: List<MessageV2>,
     private val events: List<ToolEvent>,
     research: List<dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot> = emptyList(),
-    private val rootWorkId: String? = null
+    private val rootWorkId: String? = null,
+    private val authorization: suspend () -> Boolean = { true }
 ) {
+    suspend fun isAuthorized(): Boolean = authorization()
+
     val content: String = buildString {
         research.forEach { snapshot ->
             appendLine("Saved research objective: ${snapshot.task}")
@@ -87,6 +90,7 @@ internal class ResponseRecoveryContext(
         }
         override val managesExecutionBudget get() = tool.managesExecutionBudget
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
             val effectId = (arguments["_recovery_effect_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content
             val actual = JsonObject(arguments - "_recovery_effect_id")
             if (effectId != null && (rootWorkId == null || canReuse?.invoke() == false)) return AgentToolResult(callId, ToolResultContent.Text("Saved effect is outside the current authorized recovery scope; no action was repeated."), true)
@@ -164,6 +168,7 @@ internal class ResponseRecoveryContext(
         )
 
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
             val offset = arguments["offset"]?.jsonPrimitive?.intOrNull ?: 0
             val length = (arguments["length"]?.jsonPrimitive?.intOrNull ?: 8000).coerceIn(1, 16000)
             if (offset !in 0..content.length || (offset > 0 && offset < content.length && content[offset].isLowSurrogate())) {

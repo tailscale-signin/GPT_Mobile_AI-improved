@@ -49,6 +49,7 @@ internal object SettingsSearchRegistry {
     } + DebugMetric.entries.map {
         SettingsSearchEntry("debug.${it.name}", it.title, "Debug › Display", SettingsSearchDestination.DEBUG, it.name, it.description)
     } + listOf(
+        SettingsSearchEntry("execution", "Execution & efficiency", "AI › Execution & efficiency", SettingsSearchDestination.LOCAL_MODELS, "execution", "optimization balanced savings fast local assist budgets shared usage handoff diagnostics"),
         SettingsSearchEntry("appearance.presets", "Theme Styles", "Appearance › Style", SettingsSearchDestination.APPEARANCE, "0", "theme colours colors graphite cyan midnight"),
         SettingsSearchEntry("appearance.custom", "Custom Colours", "Appearance › Colours", SettingsSearchDestination.APPEARANCE, "1", "palette contrast accent secondary background cards hex save theme"),
         SettingsSearchEntry("appearance.saved", "Saved Themes", "Appearance › Saved", SettingsSearchDestination.APPEARANCE, "3", "saved theme rename duplicate delete backup colours colors"),

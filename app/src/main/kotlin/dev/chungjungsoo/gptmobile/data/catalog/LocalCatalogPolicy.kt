@@ -27,13 +27,16 @@ data class CatalogCompatibilityReport(
 )
 
 object LocalCatalogCompatibilityResolver {
-    fun resolve(entry: CatalogEntry, geniexEnabled: Boolean, soc: String, installed: Boolean = false): CatalogSupportDecision =
-        report(entry, geniexEnabled, soc, installed).decision
+    fun resolve(entry: CatalogEntry, geniexEnabled: Boolean, soc: String, installed: Boolean = false, ggufEnabled: Boolean = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.ggufPackaged): CatalogSupportDecision =
+        report(entry, geniexEnabled, soc, installed, ggufEnabled = ggufEnabled).decision
 
-    fun report(entry: CatalogEntry, geniexEnabled: Boolean, soc: String, installed: Boolean = false, totalRamGb: Long? = null, availableBytes: Long? = null, estimatedWorkingBytes: Long? = null): CatalogCompatibilityReport {
-        val geniex = entry.variantLabel.startsWith("GENIEX_") || entry.runtimeRequirement.contains("geniex", true) || entry.downloadUrl.substringBefore('?').endsWith(".gguf", true)
+    fun report(entry: CatalogEntry, geniexEnabled: Boolean, soc: String, installed: Boolean = false, totalRamGb: Long? = null, availableBytes: Long? = null, estimatedWorkingBytes: Long? = null, ggufEnabled: Boolean = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.ggufPackaged): CatalogCompatibilityReport {
+        val gguf = entry.variantLabel.contains("LLAMA_CPP", true) || entry.variantLabel.contains("GGUF", true) || entry.runtimeRequirement.contains("llama.cpp", true) || entry.downloadUrl.substringBefore('?').endsWith(".gguf", true)
+        val geniex = !gguf && (entry.variantLabel.startsWith("GENIEX_") || entry.runtimeRequirement.contains("geniex", true))
+        val missingRuntime = (geniex && !geniexEnabled) || (gguf && !ggufEnabled && !geniexEnabled)
         val reasons = buildList {
-            if (geniex && !geniexEnabled) add("Requires the separate GenieX build")
+            if (missingRuntime) add(if (geniex) "Requires the separate GenieX build" else "This build has no compatible GGUF runtime")
+            if (gguf && ggufEnabled && !geniexEnabled && entry.supportedAccelerators.none { it.equals("cpu", true) }) add("The packaged GGUF runtime requires a CPU-compatible text artifact")
             if (entry.coverageStatus != "represented") add(entry.coverageStatus.replace('_', ' '))
             if (entry.sourceChipset.isNotBlank() && !entry.sourceChipset.equals(soc, true)) add("This variant targets ${entry.sourceChipset}; exact chipset matching is required")
             if (ModelCatalogParser.compareAppVersions(entry.minAppVersion, dev.chungjungsoo.gptmobile.BuildConfig.VERSION_NAME) > 0) add("Requires app ${entry.minAppVersion}")
@@ -43,7 +46,7 @@ object LocalCatalogCompatibilityResolver {
             if (npuOnly && !geniex && !dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(entry.supportedAccelerators, entry.socToModelFiles, soc)) add("No exact NPU package for this chipset")
         }
         val action = when {
-            geniex && !geniexEnabled -> CatalogAction.VIEW_BUILD
+            missingRuntime -> CatalogAction.VIEW_BUILD
             reasons.isNotEmpty() -> CatalogAction.VIEW_REASON
             installed -> CatalogAction.VERIFY
             entry.isGated -> CatalogAction.REVIEW_ACCESS
@@ -57,7 +60,7 @@ object LocalCatalogCompatibilityResolver {
         }
         return CatalogCompatibilityReport(
             decision = CatalogSupportDecision(action, reasons, reasons.isEmpty() && !installed && memory != CatalogMemoryReadiness.INSUFFICIENT_TOTAL_RAM, false),
-            runtime = if (geniex && !geniexEnabled) CatalogRuntimeAvailability.BUILD_MISSING else CatalogRuntimeAvailability.PACKAGED_REQUIRES_INITIALIZATION,
+            runtime = if (missingRuntime) CatalogRuntimeAvailability.BUILD_MISSING else CatalogRuntimeAvailability.PACKAGED_REQUIRES_INITIALIZATION,
             memory = memory,
             evidence = if (installed) CatalogArtifactEvidence.INSTALLED else CatalogArtifactEvidence.LISTED,
             minimumRamGb = entry.minRamGb.takeIf { it > 0 },

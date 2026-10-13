@@ -9,9 +9,9 @@ Runtime dependencies remain pinned; normal application identity remains unchange
 | Package | Requirements | Implementation | Validation |
 |---|---|---|---|
 | Profile picker | SP-01–SP-16, U01–U22, C01–C18 | Compact UID-keyed picker, details, labels and refresh lifecycle implemented | Unit/Compose CI pending; first compile import corrected |
-| Native usage and Assist lifecycle | GGUF F03–F10, T05–T20; UAR-02, 05, 08, 17 | Native segment accounting, explicit provenance, helper ownership cleanup and readiness implemented; handoff/consumption remaining | Regression fixtures added; Android CI pending |
+| Native usage and Assist lifecycle | GGUF F03–F10, T05–T20; UAR-02, 05, 08, 17 | Native segment accounting, explicit provenance, helper ownership cleanup and readiness implemented; exact span handoffs and producer/consumer joins implemented | Regression fixtures added; Android CI pending |
 | Normal-app GGUF | GGUF F01–F02, T01–T04, T21 | Pinned CPU JNI module, v3 neutral imports, compatibility routing and inventory implemented | Host JNI real generation passed; Android/minified validation pending |
-| Unified execution policy and budgets | UAR-01–UAR-18 | Pending | Pending |
+| Unified execution policy and budgets | UAR-01–UAR-18 | Opt-in policy, existing-ledger transactional model reservations, retained root limits, synthesis reserve, subscriber-owned shared reads and exact span handoffs implemented | Regression tests added; Android CI and broader qualification pending |
 | Research settings and statistics | RQ-01–RQ-04, NAV/UI/MET | Pending | Pending |
 | Research archive and restore | RQ-05–RQ-07, RQ-13–RQ-14, ARC/FRESH/DATA | Pending | Pending |
 | Citations, Examine and appraisal | RQ-08–RQ-12, CIT/EX/APP/AI/SEC | Pending | Pending |

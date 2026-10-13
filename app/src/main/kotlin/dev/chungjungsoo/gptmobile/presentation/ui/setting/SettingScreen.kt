@@ -72,6 +72,7 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()
     val debugMode by settingViewModel.debugMode.collectAsStateWithLifecycle()
     val featureSettings by settingViewModel.featureSettings.collectAsStateWithLifecycle()
+    var showExecution by rememberSaveable { mutableStateOf(false) }
     var showDelegation by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val searchEntries = SettingsSearchRegistry.entries.filter { githubWorkspaceEnabled || it.destination != SettingsSearchDestination.WORKSPACE } +
@@ -105,10 +106,14 @@ fun SettingScreen(
                     onQueryChange = { query = it },
                     entries = searchEntries,
                     onSelect = { entry ->
-                        when (entry.destination) {
-                            SettingsSearchDestination.BACKUP -> settingViewModel.openBackupRestoreDialog()
-                            SettingsSearchDestination.DELEGATION -> showDelegation = true
-                            else -> onSearchDestination(entry.destination.name, entry.focus)
+                        if (entry.key == "execution") {
+                            showExecution = true
+                        } else {
+                            when (entry.destination) {
+                                SettingsSearchDestination.BACKUP -> settingViewModel.openBackupRestoreDialog()
+                                SettingsSearchDestination.DELEGATION -> showDelegation = true
+                                else -> onSearchDestination(entry.destination.name, entry.focus)
+                            }
                         }
                     }
                 )
@@ -126,6 +131,7 @@ fun SettingScreen(
                             title = stringResource(R.string.local_models),
                             onClick = onNavigateToLocalModels
                         )
+                        SettingsDestination(icon = Icons.Rounded.Tune, title = "Execution & efficiency", onClick = { showExecution = true })
                     }
                 }
 
@@ -210,6 +216,8 @@ fun SettingScreen(
             }
         }
     }
+
+    if (showExecution) ExecutionEfficiencyScreen(onClose = { showExecution = false })
 
     if (showDelegation) {
         LocalToolConfigurationDialog(section = "delegation", onDismiss = { showDelegation = false })

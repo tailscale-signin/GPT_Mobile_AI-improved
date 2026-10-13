@@ -80,6 +80,8 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
+import dev.chungjungsoo.gptmobile.data.orchestration.assistEnabled
+import dev.chungjungsoo.gptmobile.data.orchestration.effectiveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.rag.FactRecall
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
@@ -1246,6 +1248,7 @@ class ChatRepositoryImpl(
         var delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.INTERRUPTED
         var delegationProducedOutput = false
         var delegationDelivered = false
+        var latestAssistInvocationId: String? = null
         suspend fun generateDelegate(
             target: PlatformV2,
             task: String,
@@ -1267,7 +1270,10 @@ class ChatRepositoryImpl(
             try {
                 return delegateToProfile(target, admittedTemplate?.takeIf { requestRole == "delegate" }?.let { it.description + "\n\n" + task } ?: task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${taskRecovery?.sourceMessageId ?: it.id}" } ?: runId, inputCap, { event ->
                     progress(event)
-                    if (event.kind == DelegateProgressKind.INVOCATION_LINKED) invocation = event.invocationId
+                    if (event.kind == DelegateProgressKind.INVOCATION_LINKED) {
+                        invocation = event.invocationId
+                        if (requestRole == "assist") latestAssistInvocationId = event.invocationId
+                    }
                     if (event.kind == DelegateProgressKind.TOOL_ACTIVITY) activity.set("Using helper tools")
                     event.textDelta?.let {
                         // This is the bounded UI preview only; delegateToProfile retains the full handoff.
@@ -1780,11 +1786,11 @@ class ChatRepositoryImpl(
             val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                 tools = authorizedBoundedTools,
                 candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() },
-                enabled = runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM,
-                policy = runFeatures.localAssistPolicy,
+                enabled = runFeatures.assistEnabled() && platform.compatibleType != ClientType.LITERT_LM,
+                policy = runFeatures.effectiveAssistPolicy(),
                 goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                 turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
-                eligible = { runtimeEligibleForAssist(it, runFeatures.localAssistPolicy) },
+                eligible = { runtimeEligibleForAssist(it, runFeatures.effectiveAssistPolicy()) },
                 profileAllowed = { original ->
                     settingRepository.fetchPlatformV2s().any { current ->
                         current.uid == original.uid &&
@@ -1796,9 +1802,10 @@ class ChatRepositoryImpl(
                 },
                 generate = { target, task, cap -> generateDelegate(target, task, cap, inputCap = 4096, allowTools = false, requestRole = "assist") },
                 notice = { emit(ApiState.Notice(it)) },
+                producerInvocationId = { latestAssistInvocationId },
                 stillEnabled = {
                     val live = settingRepository.getFeatureSettings()
-                    live.localAssist && live.localAssistPolicy == runFeatures.localAssistPolicy && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
+                    live.assistEnabled() && live.effectiveAssistPolicy() == runFeatures.effectiveAssistPolicy() && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
                 }
             )
             val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }

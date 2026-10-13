@@ -53,6 +53,7 @@ data class AppFeatureSettings(
     val localModelCache: Boolean = true,
     val localSpeculativeDecoding: SpeculativeDecodingMode = SpeculativeDecodingMode.AUTO,
     val localNativeMetrics: Boolean = false,
+    val executionPolicy: dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy = dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy(),
     val localAssist: Boolean = false,
     val localAssistPolicy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(),
     val localIdleMinutes: Int = 10,

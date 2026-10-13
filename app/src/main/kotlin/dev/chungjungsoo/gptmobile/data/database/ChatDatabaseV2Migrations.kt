@@ -416,6 +416,8 @@ object ChatDatabaseV2Migrations {
             db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `outputTokenSource` TEXT NOT NULL DEFAULT 'estimated'")
             db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `finishReason` TEXT")
             db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `actualRuntime` TEXT")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `executionPolicyJson` TEXT")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `consumedAssistInvocationIds` TEXT")
             db.execSQL("UPDATE `model_invocations` SET inputTokenSource = 'provider_reported', outputTokenSource = 'provider_reported' WHERE estimated = 0")
         }
     }

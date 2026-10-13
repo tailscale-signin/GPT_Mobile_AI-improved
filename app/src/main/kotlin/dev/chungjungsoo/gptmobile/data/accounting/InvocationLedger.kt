@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 
 @Entity(tableName = "model_invocations", indices = [Index("turnKey"), Index("startedAt")])
 @kotlinx.serialization.Serializable
@@ -50,7 +51,9 @@ data class ModelInvocation(
     @androidx.room.ColumnInfo(defaultValue = "'estimated'") val inputTokenSource: String = "estimated",
     @androidx.room.ColumnInfo(defaultValue = "'estimated'") val outputTokenSource: String = "estimated",
     val finishReason: String? = null,
-    val actualRuntime: String? = null
+    val actualRuntime: String? = null,
+    val executionPolicyJson: String? = null,
+    val consumedAssistInvocationIds: String? = null
 )
 
 class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
@@ -83,7 +86,21 @@ interface InvocationDao {
     @Query("SELECT COALESCE(SUM(costMicros), 0) FROM model_invocations WHERE startedAt >= :start AND currency = :currency")
     suspend fun dailyCost(start: Long, currency: String): Long
 
+    @Query("SELECT * FROM model_invocations WHERE turnKey = :turnKey ORDER BY startedAt, id")
+    suspend fun forRootBudget(turnKey: String): List<ModelInvocation>
+
+    @Query("SELECT executionPolicyJson FROM model_invocations WHERE turnKey = :turnKey AND executionPolicyJson IS NOT NULL ORDER BY startedAt LIMIT 1")
+    suspend fun rootExecutionPolicy(turnKey: String): String?
+
     @Transaction suspend fun reserve(invocation: ModelInvocation, limit: Int, spend: SpendBudgetSettings = SpendBudgetSettings()) {
+        invocation.executionPolicyJson?.let { encoded ->
+            val requested = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy>(encoded)
+            val rows = forRootBudget(invocation.turnKey)
+            val effective = rows.mapNotNull { it.executionPolicyJson }.fold(requested) { current, saved ->
+                kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy>(saved).restrictWith(current)
+            }
+            dev.chungjungsoo.gptmobile.data.orchestration.ModelBudgetAdmission.check(rows, invocation, effective)
+        }
         if (limit != Int.MAX_VALUE && committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens > limit) throw TokenAllowanceReached()
         if (spend.enforced && invocation.costMicros == null) throw SpendAllowanceReached("Add a current model price and a finite output cap before using a monetary budget.")
         val cost = invocation.costMicros ?: 0
@@ -125,8 +142,12 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
     ): AgentProviderSession = object : AgentProviderSession {
         override val handlesToolsInternally = session.handlesToolsInternally
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
-            val spend = settings?.getFeatureSettings()?.spendBudget ?: SpendBudgetSettings()
-            val retainAccounting = totalLimit != Int.MAX_VALUE || spend.enforced || LocalDiagnosticsPolicy.enabled
+            val features = settings?.getFeatureSettings()
+            val spend = features?.spendBudget ?: SpendBudgetSettings()
+            val selectedPolicy = features?.executionPolicy ?: dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy()
+            val retainedPolicy = if (settings != null) dao.rootExecutionPolicy(turnKey)?.let { kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy>(it) } else null
+            val executionPolicy = (retainedPolicy?.restrictWith(selectedPolicy) ?: selectedPolicy).validate()
+            val retainAccounting = totalLimit != Int.MAX_VALUE || spend.enforced || executionPolicy.unifiedRunAccounting || executionPolicy.sharedRunBudget || LocalDiagnosticsPolicy.enabled
             if (!retainAccounting && !LocalDiagnosticsPolicy.enabled) {
                 emitAll(session.streamRound(tools, exchanges))
                 return@flow
@@ -140,6 +161,10 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             val price = if (provider == "LITERT_LM") ModelPrice(model, 0, 0, "On-device inference", System.currentTimeMillis()) else configured
             val estimatedInput = (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             val reservedCost = price?.takeIf { provider == "LITERT_LM" || outputLimit > 0 }?.cost(estimatedInput, outputLimit)
+            val activeAllowance = executionPolicy.modelActiveMillis?.takeIf { executionPolicy.sharedRunBudget }?.let { limit ->
+                val used = dao.forRootBudget(turnKey).sumOf { it.durationMs }
+                ((limit - used).coerceAtLeast(1) / executionPolicy.concurrentModels).coerceAtLeast(1)
+            }
             val record = ModelInvocation(
                 java.util.UUID.randomUUID().toString(),
                 parentRunId,
@@ -150,10 +175,16 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 outputLimit,
                 profileUid = profileUid,
-                costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" }
+                durationMs = activeAllowance ?: 0,
+                costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" },
+                executionPolicyJson = if (executionPolicy.sharedRunBudget) kotlinx.serialization.json.Json.encodeToString(executionPolicy) else null,
+                consumedAssistInvocationIds = exchanges.flatMap { it.results }.flatMap { dev.chungjungsoo.gptmobile.data.assist.AssistHandoffContract.producerIds(it.content) }.distinct().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) }
             )
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
+            } catch (error: dev.chungjungsoo.gptmobile.data.orchestration.ExecutionAllowanceReached) {
+                emit(ProviderEvent.Failed("${error.message} No model request was sent; completed evidence remains available."))
+                return@flow
             } catch (error: SpendAllowanceReached) {
                 emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
                 emit(ProviderEvent.Completed)
@@ -181,59 +212,75 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var lastPublished = started
             liveRequests.update { it + (record.id to record.copy(outputTokens = 0)) }
             try {
-                session.streamRound(tools, exchanges).collect { event ->
-                    when (event) {
-                        is ProviderEvent.TextDelta -> {
-                            if (first == null) first = (System.nanoTime() - started) / 1_000_000
-                            val size = event.text.toByteArray().size
-                            visibleBytes += size
-                            generatedBytes += size
+                suspend fun collectRound() {
+                    session.streamRound(tools, exchanges).collect { event ->
+                        when (event) {
+                            is ProviderEvent.TextDelta -> {
+                                if (first == null) first = (System.nanoTime() - started) / 1_000_000
+                                val size = event.text.toByteArray().size
+                                visibleBytes += size
+                                generatedBytes += size
+                            }
+                            is ProviderEvent.ThinkingDelta -> {
+                                val size = event.text.toByteArray().size
+                                reasoningBytes += size
+                                generatedBytes += size
+                            }
+                            is ProviderEvent.RequestConfigured -> dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                "Model",
+                                "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
+                            )
+                            is ProviderEvent.Usage -> {
+                                input = if (event.inputSource == "runtime_reported" && inputSource != "runtime_reported") event.inputTokens ?: input else mergeUsageCount(input, event.inputTokens, event.cumulative)
+                                output = if (event.outputSource == "runtime_reported" && outputSource != "runtime_reported") event.outputTokens ?: output else mergeUsageCount(output, event.outputTokens, event.cumulative)
+                                if (event.inputTokens != null && event.inputSource != "unavailable") inputSource = event.inputSource
+                                if (event.outputTokens != null && event.outputSource != "unavailable") outputSource = event.outputSource
+                                actualRuntime = event.actualRuntime ?: actualRuntime
+                                finishReason = event.finishReason?.take(80) ?: finishReason
+                                settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
+                            }
+                            ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL")) status = "COMPLETED"
+                            is ProviderEvent.Failed -> {
+                                status = if (generatedBytes > 0 && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message)) "PARTIAL" else "FAILED"
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Segment ${record.id} · status=$status · ${event.message}", if (status == "PARTIAL") "I" else "E")
+                            }
+                            else -> Unit
                         }
-                        is ProviderEvent.ThinkingDelta -> {
-                            val size = event.text.toByteArray().size
-                            reasoningBytes += size
-                            generatedBytes += size
+                        val now = System.nanoTime()
+                        if (now - lastPublished >= 500_000_000 || event is ProviderEvent.Usage || (first != null && liveRequests.value[record.id]?.firstTokenMs == null)) {
+                            lastPublished = now
+                            liveRequests.update {
+                                it + (
+                                    record.id to record.copy(
+                                        inputTokens = input ?: record.inputTokens,
+                                        outputTokens = output ?: if (status != "COMPLETED" && executionPolicy.sharedRunBudget) maxOf(record.outputTokens, ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) else ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                        estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
+                                        inputTokenSource = inputSource,
+                                        outputTokenSource = if (output == null && status != "COMPLETED" && executionPolicy.sharedRunBudget) "reserved_unknown" else outputSource,
+                                        finishReason = finishReason,
+                                        actualRuntime = actualRuntime,
+                                        durationMs = (now - started) / 1_000_000,
+                                        firstTokenMs = first
+                                    )
+                                    )
+                            }
                         }
-                        is ProviderEvent.RequestConfigured -> dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                            "Model",
-                            "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
-                        )
-                        is ProviderEvent.Usage -> {
-                            input = if (event.inputSource == "runtime_reported" && inputSource != "runtime_reported") event.inputTokens ?: input else mergeUsageCount(input, event.inputTokens, event.cumulative)
-                            output = if (event.outputSource == "runtime_reported" && outputSource != "runtime_reported") event.outputTokens ?: output else mergeUsageCount(output, event.outputTokens, event.cumulative)
-                            if (event.inputTokens != null && event.inputSource != "unavailable") inputSource = event.inputSource
-                            if (event.outputTokens != null && event.outputSource != "unavailable") outputSource = event.outputSource
-                            actualRuntime = event.actualRuntime ?: actualRuntime
-                            finishReason = event.finishReason?.take(80) ?: finishReason
-                            settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
-                        }
-                        ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL")) status = "COMPLETED"
-                        is ProviderEvent.Failed -> {
-                            status = if (generatedBytes > 0 && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message)) "PARTIAL" else "FAILED"
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Segment ${record.id} · status=$status · ${event.message}", if (status == "PARTIAL") "I" else "E")
-                        }
-                        else -> Unit
+                        emit(event)
                     }
-                    val now = System.nanoTime()
-                    if (now - lastPublished >= 500_000_000 || event is ProviderEvent.Usage || (first != null && liveRequests.value[record.id]?.firstTokenMs == null)) {
-                        lastPublished = now
-                        liveRequests.update {
-                            it + (
-                                record.id to record.copy(
-                                    inputTokens = input ?: record.inputTokens,
-                                    outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                                    estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
-                                    inputTokenSource = inputSource,
-                                    outputTokenSource = outputSource,
-                                    finishReason = finishReason,
-                                    actualRuntime = actualRuntime,
-                                    durationMs = (now - started) / 1_000_000,
-                                    firstTokenMs = first
-                                )
-                                )
-                        }
-                    }
-                    emit(event)
+                }
+                val completed = if (activeAllowance == null) {
+                    collectRound()
+                    true
+                } else {
+                    kotlinx.coroutines.withTimeoutOrNull(activeAllowance) {
+                        collectRound()
+                        true
+                    } ?: false
+                }
+                if (!completed) {
+                    status = if (generatedBytes > 0) "PARTIAL" else "FAILED"
+                    finishReason = "operation_deadline"
+                    emit(ProviderEvent.Failed("Active model time allowance reached; completed evidence and partial output are retained."))
                 }
             } catch (cancelled: CancellationException) {
                 status = "CANCELED"
@@ -251,10 +298,10 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             dao.save(
                                 record.copy(
                                     inputTokens = input ?: record.inputTokens,
-                                    outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                    outputTokens = output ?: if (status != "COMPLETED" && executionPolicy.sharedRunBudget) maxOf(record.outputTokens, ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) else ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                                     estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
                                     inputTokenSource = inputSource,
-                                    outputTokenSource = outputSource,
+                                    outputTokenSource = if (output == null && status != "COMPLETED" && executionPolicy.sharedRunBudget) "reserved_unknown" else outputSource,
                                     finishReason = finishReason,
                                     actualRuntime = actualRuntime,
                                     status = status,

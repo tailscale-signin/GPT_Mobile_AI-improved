@@ -5,10 +5,15 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -30,7 +35,8 @@ class SharedToolCallBroker(
     )
 
     private data class Entry(
-        val result: CompletableDeferred<AgentToolResult>,
+        val result: Deferred<AgentToolResult>,
+        var subscribers: Int = 0,
         @Volatile var completedAtMillis: Long? = null
     )
 
@@ -70,41 +76,48 @@ class SharedToolCallBroker(
     ): AgentToolResult {
         val key = Key(scopeId, toolIdentity, canonicalJson(arguments))
 
-        while (true) {
-            val now = nowMillis()
-            purgeExpired(now)
-
-            val candidate = Entry(CompletableDeferred())
-            val existing = entries.putIfAbsent(key, candidate)
-
-            if (existing == null) {
-                try {
-                    val result = execute().copy(statisticsProducerId = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext]?.invocationId)
-                    candidate.completedAtMillis = nowMillis()
-                    candidate.result.complete(result)
-                    if (result.isError) entries.remove(key, candidate)
-                    return result
-                } catch (cancellation: CancellationException) {
-                    entries.remove(key, candidate)
-                    candidate.result.completeExceptionally(cancellation)
-                    throw cancellation
-                } catch (error: Throwable) {
-                    entries.remove(key, candidate)
-                    candidate.result.completeExceptionally(error)
-                    throw error
+        val context = currentCoroutineContext()
+        var shared = false
+        val entry = synchronized(entries) {
+            purgeExpired(nowMillis())
+            val existing = entries[key]
+            val selected = if (existing != null) {
+                shared = true
+                existing
+            } else {
+                // The physical read belongs to all subscribers, never to the first waiter.
+                // Every caller enters through its own admitted tool/authority wrapper.
+                lateinit var created: Entry
+                val producer = CoroutineScope(context.minusKey(Job)).async(start = CoroutineStart.LAZY) {
+                    try {
+                        val result = execute().copy(statisticsProducerId = context[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext]?.invocationId)
+                        created.completedAtMillis = nowMillis()
+                        if (result.isError) synchronized(entries) { entries.remove(key, created) }
+                        result
+                    } catch (error: Throwable) {
+                        synchronized(entries) { entries.remove(key, created) }
+                        throw error
+                    }
+                }
+                created = Entry(producer)
+                entries[key] = created
+                created
+            }
+            selected.subscribers++
+            selected
+        }
+        try {
+            entry.result.start()
+            return entry.result.await().copy(callId = callId, sharedResult = shared)
+        } finally {
+            val cancelProducer = synchronized(entries) {
+                entry.subscribers--
+                (entry.subscribers == 0 && !entry.result.isCompleted).also { cancel ->
+                    if (cancel) entries.remove(key, entry)
                 }
             }
-
-            if (existing.isExpired(now) && entries.remove(key, existing)) {
-                continue
-            }
-
-            try {
-                return existing.result.await().copy(callId = callId, sharedResult = true)
-            } catch (cancellation: CancellationException) {
-                currentCoroutineContext().ensureActive()
-                entries.remove(key, existing)
-            }
+            // Join native/network cleanup before the last subscriber releases its owner.
+            if (cancelProducer) withContext(NonCancellable) { entry.result.cancelAndJoin() }
         }
     }
 

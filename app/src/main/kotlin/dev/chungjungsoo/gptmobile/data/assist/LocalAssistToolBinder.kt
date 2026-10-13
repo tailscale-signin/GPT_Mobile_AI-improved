@@ -17,7 +17,8 @@ internal object LocalAssistToolBinder {
         profileAllowed: suspend (PlatformV2) -> Boolean,
         generate: suspend (PlatformV2, String, Int) -> String,
         notice: suspend (String) -> Unit,
-        stillEnabled: suspend () -> Boolean
+        stillEnabled: suspend () -> Boolean,
+        producerInvocationId: () -> String? = { null }
     ): List<ResolvedAgentTool> {
         if (!enabled) return tools
         AssistReadinessResolver.publish(AssistReadiness.CHECKING, "Local Assist ready · waiting for an eligible evidence task", policy.profileUid)
@@ -29,7 +30,7 @@ internal object LocalAssistToolBinder {
             val ready = profileAllowed(target) && eligible(target)
             if (!ready) notice(AssistReadinessResolver.state.value.reason)
             ready
-        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId)
+        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId)
         return tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
     }
 }

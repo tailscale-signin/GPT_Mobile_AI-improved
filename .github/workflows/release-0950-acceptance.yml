@@ -1,7 +1,7 @@
 name: v0.9.50 Android acceptance
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
   workflow_dispatch:
 permissions:

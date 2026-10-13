@@ -11,7 +11,7 @@ on:
       - 'gradle.properties'
       - '.github/workflows/audit-workspace.yml'
   pull_request:
-    branches: [main]
+    branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths:
       - 'app/**'
       - 'gradle/**'
@@ -45,9 +45,11 @@ jobs:
           java-version: '21'
       - name: Resource, whitespace and changed-source formatting checks
         shell: bash
+        env:
+          CHANGE_BASE: ${{ github.event.pull_request.base.sha || '63bfbebde4c1ce1b74890a91c20517ae2dd4cc19' }}
         run: |
           set -euo pipefail
-          base=63bfbebde4c1ce1b74890a91c20517ae2dd4cc19
+          base=$(git merge-base "$CHANGE_BASE" HEAD)
           git diff --check "$base" HEAD
           bash scripts/validate.sh resources
           curl --fail --location --retry 3 https://github.com/ktlint/ktlint/releases/download/1.3.1/ktlint -o "$RUNNER_TEMP/ktlint"

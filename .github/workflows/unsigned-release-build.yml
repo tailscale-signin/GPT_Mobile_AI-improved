@@ -3,7 +3,7 @@ name: Build Unsigned Release
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, feat/unified-reliability-v2-2026-10-13]
 
 permissions:
   contents: read

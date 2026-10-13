@@ -90,7 +90,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                 }
                 val desired = facts.associateBy { it.id }
                 factVectors.keys.retainAll(desired.keys)
-                val changed = facts.filter { factVectors[it.id]?.fingerprint != fingerprint(it) }
+                val changed = facts.filter { factVectors[it.id]?.let { cached -> cached.fingerprint == fingerprint(it) && cached.scope == it.scope } != true }
                 val batch = changed.take(batchSize.coerceIn(1, 16384))
                 batch.forEach { fact ->
                     currentCoroutineContext().ensureActive()

@@ -15,7 +15,7 @@ This file records implemented behavior and the available verification. The deleg
 
 `FactVaultRepository`, local graph tools, backup integration, and the memory screens use the canonical store. Facts retain type, validity, provenance, and local-only policy. Local-only memory in a response or revision prevents that history from being forwarded to an ineligible destination. Memory initialization failure does not disable ordinary chat; cancellation still propagates.
 
-Tests: `MemoryRebuildPolicyTest`, `FactVaultRepositoryTest`, `ChatRepositoryImplTest`, `ChatDatabaseV2MigrationsTest`, and `MemoryDurabilityInstrumentedTest`.
+Tests: `MemoryRebuildPolicyTest`, `FactVaultRepositoryTest`, `ChatRepositoryImplTest`, `ChatDatabaseV2MigrationsTest`, and `MemoryDurabilityInstrumentedTest`. `LocalSemanticMemoryInstrumentedTest` exercises the packaged encoder and ObjectBox JNI, verifies document-vector reopening, checks that fact vectors are absent from disk and rebuilt from a canonical snapshot, and verifies scope changes and deletion.
 
 ### Diagnostic reliability
 
@@ -70,6 +70,8 @@ At commit `f7dcb7a3d5a52e52472ea4325b2d7831a2a3d3e3`:
 Locally, schema history, Android regex compatibility, changed-file ktlint, and whitespace checks passed. Focused source-level JVM harnesses passed memory/policy (49 tests), research contracts (20 tests), and durable budgets (12 tests). These harnesses stub Android storage boundaries where necessary and are not substitutes for Android CI. The local full Gradle build could not resolve the Android plugin in this environment; full builds run in repository CI.
 
 At commit `9826dbf4b97c4c16c547a3a9b3de042d9403dd79`, the expanded JVM suite passed 2,625 of 2,626 tests. The new incident replay had omitted the primary profile's delegation opt-in; the following commit corrects that fixture and adds review-artifact retention coverage.
+
+At commit `8e854b86f80c2e614695cc6f21efed1167eac789`, all **2,628 JVM tests passed, with zero failures, errors, or skips**, including the production-path incident replay: https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/38353935487. Kotlin lint, Marketplace contracts, and CodeQL passed. The native smoke test exposed an obsolete assertion that fact vectors survive independently on disk; the following change tests canonical rehydration and retained document-vector durability instead, and fixes a fact-cache scope-change defect. Use the latest PR checks for that native regression result and the final Android build/acceptance status.
 
 ## Qualification still required before release
 

@@ -34,6 +34,9 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     }.asCoroutineDispatcher()
     private val mutex = Mutex()
     private var store: BoxStore? = null
+    private data class FactVector(val scope: String, val fingerprint: String, val vector: FloatArray)
+    private val factVectors = linkedMapOf<String, FactVector>()
+    private var legacyFactsPurged = false
     private var embedder: TextEmbedder? = null
     private var embedderGeneration = 0
     private var lastReleaseReason = "first_use"
@@ -80,18 +83,21 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         mutex.withLock {
             if (retryDeferred()) return@withLock
             try {
-                val box = box()
-                val existing = box.all.filterNot { it.factId.startsWith("doc:") }.associateBy { it.factId }
-                val desired = facts.associateBy { it.id }
-                box.remove(*existing.values.filter { it.factId !in desired }.map { it.id }.toLongArray())
-                val changed = facts.filter { existing[it.id]?.fingerprint != fingerprint(it) }
-                val updated = changed.take(batchSize.coerceIn(1, 16384)).map { fact ->
-                    currentCoroutineContext().ensureActive()
-                    MemoryVector(existing[fact.id]?.id ?: 0, fact.id, fact.scope, fingerprint(fact), embed(text(fact)))
+                if (!legacyFactsPurged) {
+                    val legacy = box()
+                    legacy.remove(*legacy.all.filterNot { it.factId.startsWith("doc:") }.map { it.id }.toLongArray())
+                    legacyFactsPurged = true
                 }
-                box.put(updated)
-                val indexed = facts.size - changed.size + updated.size
-                _status.value = SemanticMemoryStatus(indexed, facts.size, detail = if (indexed == facts.size) "Ready · 100-dimensional HNSW" else "Indexing · $indexed of ${facts.size}")
+                val desired = facts.associateBy { it.id }
+                factVectors.keys.retainAll(desired.keys)
+                val changed = facts.filter { factVectors[it.id]?.fingerprint != fingerprint(it) }
+                val batch = changed.take(batchSize.coerceIn(1, 16384))
+                batch.forEach { fact ->
+                    currentCoroutineContext().ensureActive()
+                    factVectors[fact.id] = FactVector(fact.scope, fingerprint(fact), embed(text(fact)))
+                }
+                val indexed = facts.size - changed.size + batch.size
+                _status.value = SemanticMemoryStatus(indexed, facts.size, detail = if (indexed == facts.size) "Ready · protected in-memory fact search" else "Search updating · $indexed of ${facts.size}")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -107,6 +113,15 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             if (retryDeferred()) return@withLock emptyMap()
             try {
                 if (query.isBlank()) return@withLock emptyMap()
+                if (!scope.startsWith("document:")) {
+                    val vector = embed(query)
+                    val allowed = inheritedScopes + scope + if (includePersonal) setOf("personal") else emptySet()
+                    return@withLock factVectors.entries.filter { it.value.scope in allowed }.map { (id, record) ->
+                        val dot = vector.indices.sumOf { vector[it].toDouble() * record.vector[it] }
+                        val norm = kotlin.math.sqrt(vector.sumOf { it.toDouble() * it } * record.vector.sumOf { it.toDouble() * it })
+                        id to if (norm > 0) (dot / norm).coerceIn(-1.0, 1.0) else 0.0
+                    }.sortedByDescending { it.second }.take(limit.coerceIn(1, 256)).toMap()
+                }
                 var allowedScope = if (includePersonal) MemoryVector_.scope.equal("personal").or(MemoryVector_.scope.equal(scope)) else MemoryVector_.scope.equal(scope)
                 inheritedScopes.forEach { allowedScope = allowedScope.or(MemoryVector_.scope.equal(it)) }
                 box().query(allowedScope.and(MemoryVector_.embedding.nearestNeighbors(embed(query), limit.coerceIn(1, 256))))
@@ -165,6 +180,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     /** Fact maintenance must never remove document RAG vectors from this shared index. */
     suspend fun clearFacts() = withContext(ownerDispatcher) {
         mutex.withLock {
+            factVectors.clear()
             if (store != null || File(context.noBackupFilesDir, "memory-vectors-use-qa-v1").exists()) {
                 val vectors = box()
                 vectors.remove(*vectors.all.filterNot { it.factId.startsWith("doc:") }.map { it.id }.toLongArray())
@@ -176,6 +192,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
 
     suspend fun clear() = withContext(ownerDispatcher) {
         mutex.withLock {
+            factVectors.clear()
             // Deletion failures must be visible; never report forgotten vectors as removed.
             if (store != null || File(context.noBackupFilesDir, "memory-vectors-use-qa-v1").exists()) box().removeAll()
             closeEmbedder("memory_cleared")

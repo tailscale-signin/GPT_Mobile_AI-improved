@@ -220,6 +220,7 @@ class ChatRepositoryImpl(
     private val delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore? = null,
     private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null
 ) : ChatRepository {
+    private val privateMemoryRuns = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
@@ -752,6 +753,7 @@ class ChatRepositoryImpl(
     }
 
     private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool>? = null, finalizationRepairAttempted: Boolean = false, requestRole: String = "delegate"): String {
+        check(parentRunId !in privateMemoryRuns || target.compatibleType == ClientType.LITERT_LM) { "This run contains local-only memory. Choose a local reviewer or delegate." }
         val reviewing = requestRole == "reviewer"
         val followingUp = requestRole == "follow_up"
         val conciseKey = "${target.uid}|${target.model}"
@@ -762,7 +764,7 @@ class ChatRepositoryImpl(
         // authorized tools, but never receive delegate_to_model itself. This enables
         // local -> remote tool use and remote -> local tool use without recursion.
         val inheritedTools = authorizedTools.orEmpty()
-            .filterNot { it.realToolName == "delegate_to_model" }
+            .filterNot { it.realToolName == "delegate_to_model" || !target.isPrivateDestination() && it.realToolName in setOf("memory", "memory_recall", "read_graph", "search_nodes", "open_nodes", "memory_read_document", "memory_search_documents") }
             .distinctBy { it.modelToolName }
             .sortedWith(compareBy<ResolvedAgentTool> { !(isGitHubTask(task) && it.isGitHubTool()) }.thenBy { delegatedToolPriority(it) })
         val childTools: MutableList<AgentTool> = if (!allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled) {
@@ -1462,6 +1464,7 @@ class ChatRepositoryImpl(
                         latestUser.chatId,
                         latestUser.id,
                         isLocal = platform.isPrivateDestination(),
+                        includeLocalOnly = platform.compatibleType == ClientType.LITERT_LM,
                         previousContext = effectiveUserMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
                     ) ?: FactRecall()
                     if (factVault?.state?.value?.settings?.localModelLearning == true) {
@@ -1490,7 +1493,7 @@ class ChatRepositoryImpl(
                 FactRecall()
             }
             val recalled = recallTurnMemory()
-            if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
+            if (recalled.facts.any { it.localOnly }) privateMemoryRuns.add(runId)
             val initialDelegationSettings = effectiveDelegationSettings()
             val processingOwnership = initialDelegationSettings.processingOwnership
             val requiresReviewedPreparation = !synthesisRun && initialDelegationSettings.enabled && processingOwnership == 0 && taskRoutedTools.any { it.realToolName == "delegate_to_model" }
@@ -1898,6 +1901,7 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.remove(runId)
                 statusJob.cancelAndJoin()
                 toolEventRecorder.cancelRun(runId, currentEpochSeconds())
+                privateMemoryRuns.remove(runId)
             }
         }
     }.flowOn(Dispatchers.Default).catch { error ->
@@ -1954,6 +1958,11 @@ class ChatRepositoryImpl(
             )
         }
         suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
+            factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+            if (!platform.isPrivateDestination()) {
+                require(turns.none { turn -> turn.assistantMessage?.timeline?.any { item -> item.recalledFacts.any { it.localOnly } } == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
+            }
+            if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints).copy(requestRole = kind)
             workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan.copy(tools = if (textOnly) emptyList() else contextPlan.tools), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
             try {

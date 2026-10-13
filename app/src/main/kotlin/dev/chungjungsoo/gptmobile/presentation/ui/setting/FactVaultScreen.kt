@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,12 +15,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +32,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -48,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,6 +87,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     var editing by remember { mutableStateOf<VaultFact?>(null) }
     var adding by remember { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
+    var draftLocalOnly by rememberSaveable { mutableStateOf(false) }
+    var draftType by rememberSaveable { mutableStateOf("NOTE") }
     var selectedMemories by remember { mutableStateOf<Set<String>>(emptySet()) }
     var restructuring by remember { mutableStateOf(false) }
     var replacementText by remember { mutableStateOf("") }
@@ -96,8 +102,9 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
             onDismissRequest = { inspecting = null },
             title = { Text(stringResource(R.string.ui_v2_memory_provenance)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(entry.fact.target.name)
+                    Text(if (entry.localOnly) "Available only to local AI" else "Remote sharing follows your settings")
                     Text("Source: ${entry.source.replace('_', ' ')}")
                     Text("Scope: ${entry.scope}")
                     Text(if (entry.source == "manual") "Added or corrected by you" else "Source-bound extraction · verify against the original message")
@@ -114,6 +121,36 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         }}"
                     )
                     Text("${entry.occurrences} supporting messages · ${entry.previousValues.size} recorded edits")
+                    if (entry.previousValues.isNotEmpty()) {
+                        Text("History", style = MaterialTheme.typography.titleSmall)
+                        entry.previousValues.asReversed().forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    }
+                    if (entry.sourceChatId > 0) TextButton(onClick = { onOpenConversation(entry.sourceChatId, entry.sourceMessageId.takeIf { it > 0 }) }) { Text("Open original message") }
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        TextButton(onClick = {
+                            editing = entry
+                            draft = entry.fact.target.name
+                            draftLocalOnly = entry.localOnly
+                            draftType = entry.memoryType
+                            inspecting = null
+                        }) { Text("Edit") }
+                        TextButton(onClick = {
+                            viewModel.pin(entry.id, !entry.pinned)
+                            inspecting = null
+                        }) { Text(if (entry.pinned) "Unpin" else "Pin") }
+                        TextButton(onClick = {
+                            viewModel.setFactEnabled(entry.id, !entry.enabled)
+                            inspecting = null
+                        }) { Text(if (entry.enabled) "Archive" else "Restore") }
+                        TextButton(onClick = {
+                            deleting = entry.id
+                            inspecting = null
+                        }) { Text("Delete") }
+                    }
+                    TextButton(onClick = {
+                        selectedMemories = selectedMemories + entry.id
+                        inspecting = null
+                    }) { Text("Select for merge or split") }
                 }
             },
             confirmButton = { TextButton(onClick = { inspecting = null }) { Text(stringResource(R.string.local_tools_settings_panel_label_12)) } }
@@ -125,12 +162,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_memory)) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
-                actions = {
-                    IconButton(onClick = {
-                        adding = true
-                        draft = ""
-                    }, enabled = !busy) { Icon(Icons.Rounded.Add, "Add a memory", tint = MaterialTheme.colorScheme.primary) }
-                }
+                actions = { SettingsHelpIcon("Saving happens on this phone. Selected memory may be sent to remote AI only when your sharing settings allow it. Temporary chats do not save or recall memory.") }
             )
         }) { padding ->
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -139,39 +171,36 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(stringResource(R.string.ui_v2_memory_overview), style = MaterialTheme.typography.titleLarge)
+                                    Text(if (vault.enabled) "Memory is on" else "Memory is off", style = MaterialTheme.typography.titleMedium)
                                     SettingsHelpIcon("Private saved facts, recurring topics, semantic recall, and indexed documents are managed here.")
                                 }
                                 Switch(vault.enabled, viewModel::setEnabled, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Enable Local Memory" })
                             }
-                            Text("${vault.facts.size} memories · ${documents.size} indexed documents", style = MaterialTheme.typography.labelLarge)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("${vault.facts.count { it.awaitingReview || it.pendingReplacements.isNotEmpty() }} pending · ${vault.facts.count { !it.enabled && !it.awaitingReview && it.pendingReplacements.isEmpty() && it.supersededBy == null }} disabled", style = MaterialTheme.typography.bodySmall)
-                                SettingsHelpIcon(semanticStatus.detail + " Auto-recall skips Free profiles.")
-                            }
+                            Text(if (settings.allowCloudRecall) "Remote sharing allowed for eligible memories" else "Remote sharing is off", style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { tab = "Overview" }) { Text("Activity and search status") }
                         }
                     }
                 }
                 item {
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Memories", "Review", "Overview").forEach { label ->
-                            val title = when (label) {
-                                "Memories" -> "Library"
-                                "Overview" -> "Activity"
-                                else -> label
-                            }
-                            FilterChip(tab == label, {
-                                tab = label
-                                query = ""
-                            }, label = { Text(title) })
+                    val selectedTab = when (tab) {
+                        "Review" -> 1
+                        "Controls", "Overview" -> 2
+                        else -> 0
+                    }
+                    TabRow(selectedTabIndex = selectedTab) {
+                        listOf("Library", "Review", "Settings").forEachIndexed { index, title ->
+                            Tab(selected = selectedTab == index, onClick = { tab = listOf("Memories", "Review", "Controls")[index] }, text = {
+                                val pending = vault.facts.count { it.awaitingReview || it.pendingReplacements.isNotEmpty() }
+                                Text(if (index == 1 && pending > 0) "$title ($pending)" else title)
+                            })
                         }
                     }
-                }
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        TextButton(onClick = { tab = "Controls" }) { Text("Controls") }
-                        TextButton(onClick = { tab = "Documents" }) { Text("Sources") }
-                        TextButton(onClick = { tab = "Topics" }) { Text("Topics") }
+                    if (selectedTab == 0) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Memories" to "Saved", "Documents" to "Sources", "Topics" to "Topics").forEach { (route, label) ->
+                                FilterChip(tab == route, { tab = route }, label = { Text(label) })
+                            }
+                        }
                     }
                 }
                 if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
@@ -207,10 +236,23 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         }
                     }
                     "Memories", "Review" -> {
+                        if (tab == "Memories") {
+                            item {
+                                Button(onClick = {
+                                    adding = true
+                                    draft = ""
+                                    draftLocalOnly = false
+                                    draftType = "NOTE"
+                                }) {
+                                    Icon(Icons.Rounded.Add, null)
+                                    Text("Add memory", Modifier.padding(start = 8.dp))
+                                }
+                            }
+                        }
                         item {
                             OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.ui_v2_find_a_memory)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("All", "Pinned", "Disabled").forEach { label -> FilterChip(filter == label, { filter = label }, label = { Text(label) }) }
+                                listOf("All", "Pinned", "Archived", "History").forEach { label -> FilterChip(filter == label, { filter = label }, label = { Text(label) }) }
                             }
                         }
                         if (selectedMemories.isNotEmpty()) {
@@ -235,17 +277,22 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         val shown = vault.facts.filter {
                             "${it.fact.entity.name} ${it.fact.target.name}".contains(query, true) &&
                                 (filter != "Pinned" || it.pinned) &&
-                                (filter != "Disabled" || !it.enabled && !it.awaitingReview && it.pendingReplacements.isEmpty() && it.supersededBy == null) &&
+                                (
+                                    tab == "Review" ||
+                                        when (filter) {
+                                            "Archived" -> !it.enabled && !it.awaitingReview && it.pendingReplacements.isEmpty() && it.supersededBy == null
+                                            "History" -> it.supersededBy != null || it.validUntilMillis?.let { end -> end <= System.currentTimeMillis() } == true
+                                            else -> it.enabled && !it.awaitingReview && it.supersededBy == null && (it.validUntilMillis == null || it.validUntilMillis > System.currentTimeMillis())
+                                        }
+                                    ) &&
                                 (tab != "Review" || it.awaitingReview || it.pendingReplacements.isNotEmpty())
                         }.sortedWith(compareByDescending<VaultFact> { it.pinned }.thenByDescending { it.savedAtMillis })
                         if (shown.isEmpty()) item { Text(if (tab == "Review") "All caught up. New suggestions and conflicting changes appear here." else "No matching memories. Add a fact, preference, or useful note.", style = MaterialTheme.typography.bodyMedium) }
                         items(shown, key = { it.id }) { entry ->
-                            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                            Card(Modifier.fillMaxWidth().clickable { inspecting = entry }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(if (entry.fact.relation.relationType == "REMEMBERS" || entry.source == "local_model_observation") entry.fact.target.name else "${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.titleMedium)
-                                    Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                    Text("${entry.scope} · ${entry.occurrences} supporting messages · revision ${entry.revision}", style = MaterialTheme.typography.labelSmall)
-                                    TextButton(onClick = { inspecting = entry }) { Text(stringResource(R.string.ui_v2_source_and_history)) }
+                                    Text(if (entry.fact.relation.relationType == "REMEMBERS" || entry.source == "local_model_observation") entry.fact.target.name else "${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text("${entry.memoryType.lowercase().replaceFirstChar { it.titlecase() }} · ${if (entry.source == "manual") "Confirmed by you" else "From a conversation"}${if (entry.localOnly) " · Local only" else ""}${if (entry.pinned) " · Pinned" else ""}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (entry.awaitingReview && entry.pendingReplacements.isEmpty()) {
                                         Row {
                                             TextButton(onClick = { viewModel.setFactEnabled(entry.id, true) }, enabled = !busy) { Text("Accept") }
@@ -265,30 +312,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                             TextButton(onClick = { viewModel.delete(entry.id) }, enabled = !busy) { Text(stringResource(R.string.ui_v2_keep_existing)) }
                                         }
                                     }
-                                    entry.supersededBy?.let { replacement ->
-                                        Text("Replaced by a newer memory: ${vault.facts.firstOrNull { it.id == replacement }?.fact?.target?.name ?: "unavailable"}", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    if (entry.previousValues.isNotEmpty()) {
-                                        var historyVisible by remember(entry.id) { mutableStateOf(false) }
-                                        TextButton(onClick = { historyVisible = !historyVisible }) { Text(if (historyVisible) "Hide edit history" else "Edit history · ${entry.previousValues.size}") }
-                                        if (historyVisible) entry.previousValues.asReversed().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                                    }
-                                    if (entry.sourceChatId > 0) TextButton(onClick = { onOpenConversation(entry.sourceChatId, entry.sourceMessageId.takeIf { it > 0 }) }) { Text(stringResource(R.string.ui_v2_view_original_message)) }
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(stringResource(R.string.ui_v2_recall_details), style = MaterialTheme.typography.labelSmall)
-                                        SettingsHelpIcon("Recall uses ${if (entry.pinned) "pinned priority, " else ""}query terms and aliases, semantic similarity when available, recency, and repeated support. The current request scope always applies.")
-                                    }
-                                    if (entry.source == "recurring_topic") TextButton(onClick = { deleting = entry.id }) { Text(stringResource(R.string.ui_v2_wrong_topic_forget)) }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        androidx.compose.material3.Checkbox(entry.id in selectedMemories, { selectedMemories = if (it) selectedMemories + entry.id else selectedMemories - entry.id }, enabled = !busy)
-                                        Switch(entry.enabled, { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy && entry.pendingReplacements.isEmpty(), modifier = Modifier.semantics { contentDescription = "Recall this memory" })
-                                        TextButton(onClick = {
-                                            editing = entry
-                                            draft = entry.fact.target.name
-                                        }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.fact_vault_screen_label_12)) }
-                                        IconButton(onClick = { viewModel.pin(entry.id, !entry.pinned) }, enabled = !busy) { Icon(Icons.Rounded.PushPin, if (entry.pinned) "Unpin" else "Pin", tint = if (entry.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline) }
-                                        IconButton(onClick = { deleting = entry.id }, enabled = !busy) { Icon(Icons.Rounded.Delete, "Forget memory") }
-                                    }
+                                    if (entry.id in selectedMemories) Text("Selected", color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -398,13 +422,15 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                         }
                                     }
 
+                                    Text("Learning", style = MaterialTheme.typography.titleMedium)
                                     VaultToggle("Learn From New Messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
                                     VaultToggle("Forget Memories When Their Conversation Is Deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
+                                    Text("Recall and sharing", style = MaterialTheme.typography.titleMedium)
                                     VaultToggle("Recall Saved Memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
                                     VaultToggle("Semantic Recall · Fully On-Device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
                                     Text("${semanticStatus.indexed} / ${semanticStatus.total} semantic memories · no server required", style = MaterialTheme.typography.bodySmall)
                                     TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text(stringResource(R.string.ui_v2_rebuild_semantic_index)) }
-                                    VaultToggle("Prioritize Pinned Memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled, "Up to two pinned memories get priority within the recall count and estimated token budget. Scope and cloud permissions always apply.") { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
+                                    VaultToggle("Prioritize Pinned Memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled, "Relevant pinned memories get priority within the recall count and conservative context budget. Scope and cloud permissions always apply.") { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
                                     VaultToggle("Allow Recall In Cloud Requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
                                     VaultToggle("Recall Only Within The Original Chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
                                     VaultToggle("Review New Memories Before Use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
@@ -414,7 +440,9 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                     VaultToggle("Prioritize Recent Memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
                                     VaultToggle("Prioritize Repeated Information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
                                     VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
+                                    Text("Local assistance", style = MaterialTheme.typography.titleMedium)
                                     VaultToggle("Use Local Model For Richer Learning", settings.localModelLearning, !busy, "Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.") { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
+                                    Text("Storage and maintenance", style = MaterialTheme.typography.titleMedium)
                                     VaultToggle("Make Room For New Automatic Memories", settings.rotateAutomaticFacts, !busy, "Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.") { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
                                     VaultLimit("New Facts Per Message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
                                     VaultLimit("Recall Token Budget · Estimate", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
@@ -476,13 +504,19 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(draft, { draft = it.take(1000) }, enabled = !busy, label = { Text(stringResource(R.string.ui_v2_fact_preference_or_note)) }, supportingText = { Text("${draft.length}/1000") })
+                        VaultToggle("Keep on this phone only", draftLocalOnly, !busy) { draftLocalOnly = it }
+                        Row(Modifier.horizontalScroll(rememberScrollState())) {
+                            listOf("NOTE", "FACT", "PREFERENCE", "PROCEDURE", "CONTINUITY").forEach { type ->
+                                FilterChip(draftType == type, { draftType = type }, label = { Text(type.lowercase().replaceFirstChar { it.titlecase() }) })
+                            }
+                        }
                         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                 },
                 confirmButton = {
                     TextButton(enabled = draft.isNotBlank() && !busy, onClick = {
-                        viewModel.saveFact(draft, editing?.id) {
+                        viewModel.saveFact(draft, editing?.id, editing?.revision, draftLocalOnly, draftType) {
                             adding = false
                             editing = null
                             draft = ""
@@ -559,26 +593,26 @@ private fun memorySettingTitle(value: String): String =
     }
 
 internal val memoryControlSearchEntries = listOf(
-    SettingsSearchEntry("memory.control.0", "Learn From New Messages", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Learn From New Messages"),
-    SettingsSearchEntry("memory.control.1", "Forget Memories When Their Conversation Is Deleted", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Forget Memories When Their Conversation Is Deleted"),
-    SettingsSearchEntry("memory.control.2", "Recall Saved Memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Recall Saved Memories"),
-    SettingsSearchEntry("memory.control.3", "Semantic Recall · Fully On-Device", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Semantic Recall · Fully On-Device"),
-    SettingsSearchEntry("memory.control.4", "Prioritize Pinned Memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Always Include Pinned Memories"),
-    SettingsSearchEntry("memory.control.5", "Allow Recall In Cloud Requests", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Allow Recall In Cloud Requests"),
-    SettingsSearchEntry("memory.control.6", "Recall Only Within The Original Chat", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Recall Only Within The Original Chat"),
-    SettingsSearchEntry("memory.control.7", "Review New Memories Before Use", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Review New Memories Before Use"),
-    SettingsSearchEntry("memory.control.8", "Learn Preferences", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Learn Preferences"),
-    SettingsSearchEntry("memory.control.9", "Learn Relationships", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Learn Relationships"),
-    SettingsSearchEntry("memory.control.10", "Learn Recurring Topics", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Learn Recurring Topics"),
-    SettingsSearchEntry("memory.control.11", "Prioritize Recent Memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Prioritize Recent Memories"),
-    SettingsSearchEntry("memory.control.12", "Prioritize Repeated Information", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Prioritize Repeated Information"),
-    SettingsSearchEntry("memory.control.13", "Mentions before learning a topic", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Mentions before learning a topic"),
-    SettingsSearchEntry("memory.control.14", "Use Local Model For Richer Learning", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Use Local Model For Richer Learning"),
-    SettingsSearchEntry("memory.control.15", "Make Room For New Automatic Memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Make Room For New Automatic Memories"),
-    SettingsSearchEntry("memory.control.16", "New Facts Per Message", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:New Facts Per Message"),
-    SettingsSearchEntry("memory.control.17", "Recall Token Budget · Estimate", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Recall Token Budget · Estimate"),
-    SettingsSearchEntry("memory.control.18", "Memories Per Response", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Memories Per Response"),
-    SettingsSearchEntry("memory.control.19", "Memory Capacity", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Memory Capacity"),
-    SettingsSearchEntry("memory.control.20", "Retention days · 0 keeps memories", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Retention days · 0 keeps memories"),
-    SettingsSearchEntry("memory.control.21", "Automatically Recall From Selected MCPs", "Memory › Controls", SettingsSearchDestination.MEMORY, "Controls:Automatically Recall From Selected MCPs")
+    SettingsSearchEntry("memory.control.0", "Learn From New Messages", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn From New Messages"),
+    SettingsSearchEntry("memory.control.1", "Forget Memories When Their Conversation Is Deleted", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Forget Memories When Their Conversation Is Deleted"),
+    SettingsSearchEntry("memory.control.2", "Recall Saved Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Recall Saved Memories"),
+    SettingsSearchEntry("memory.control.3", "Semantic Recall · Fully On-Device", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Semantic Recall · Fully On-Device"),
+    SettingsSearchEntry("memory.control.4", "Prioritize Pinned Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Always Include Pinned Memories"),
+    SettingsSearchEntry("memory.control.5", "Allow Recall In Cloud Requests", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Allow Recall In Cloud Requests"),
+    SettingsSearchEntry("memory.control.6", "Recall Only Within The Original Chat", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Recall Only Within The Original Chat"),
+    SettingsSearchEntry("memory.control.7", "Review New Memories Before Use", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Review New Memories Before Use"),
+    SettingsSearchEntry("memory.control.8", "Learn Preferences", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn Preferences"),
+    SettingsSearchEntry("memory.control.9", "Learn Relationships", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn Relationships"),
+    SettingsSearchEntry("memory.control.10", "Learn Recurring Topics", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn Recurring Topics"),
+    SettingsSearchEntry("memory.control.11", "Prioritize Recent Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Prioritize Recent Memories"),
+    SettingsSearchEntry("memory.control.12", "Prioritize Repeated Information", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Prioritize Repeated Information"),
+    SettingsSearchEntry("memory.control.13", "Mentions before learning a topic", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Mentions before learning a topic"),
+    SettingsSearchEntry("memory.control.14", "Use Local Model For Richer Learning", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Use Local Model For Richer Learning"),
+    SettingsSearchEntry("memory.control.15", "Make Room For New Automatic Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Make Room For New Automatic Memories"),
+    SettingsSearchEntry("memory.control.16", "New Facts Per Message", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:New Facts Per Message"),
+    SettingsSearchEntry("memory.control.17", "Recall Token Budget · Estimate", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Recall Token Budget · Estimate"),
+    SettingsSearchEntry("memory.control.18", "Memories Per Response", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Memories Per Response"),
+    SettingsSearchEntry("memory.control.19", "Memory Capacity", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Memory Capacity"),
+    SettingsSearchEntry("memory.control.20", "Retention days · 0 keeps memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Retention days · 0 keeps memories"),
+    SettingsSearchEntry("memory.control.21", "Automatically Recall From Selected MCPs", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Automatically Recall From Selected MCPs")
 )

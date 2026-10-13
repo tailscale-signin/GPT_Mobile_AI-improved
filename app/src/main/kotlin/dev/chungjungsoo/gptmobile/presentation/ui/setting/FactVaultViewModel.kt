@@ -100,8 +100,9 @@ class FactVaultViewModel @Inject constructor(
     fun restructure(ids: Set<String>, replacements: List<String>) = perform { repository.restructure(ids, replacements) }
     fun reviewFacts(ids: Set<String>, enabled: Boolean) = perform { repository.reviewFacts(ids, enabled) }
     fun delete(id: String) = perform { repository.deleteFact(id) }
-    fun saveFact(text: String, id: String? = null, onSaved: () -> Unit = {}) = perform {
-        repository.saveManual(text, id)
+    fun saveFact(text: String, id: String? = null, expectedRevision: Int? = null, localOnly: Boolean? = null, memoryType: String? = null, onSaved: () -> Unit = {}) = perform {
+        repository.saveManual(text, id, expectedRevision = expectedRevision, localOnly = localOnly, memoryType = memoryType)
+        _status.value = "Saved. Search updates in the background."
         onSaved()
     }
     fun clear() = perform { repository.clear() }

@@ -47,7 +47,11 @@ object ResilientStreamingClient {
 
                 // Calculate exponential backoff with jitter
                 val jitter = (currentDelay * config.jitterRatio * (Math.random() * 2 - 1)).toLong()
-                val sleepDuration = min(config.maxDelayMs, (currentDelay + jitter).coerceAtLeast(100L))
+                val http = generateSequence(e) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<io.ktor.client.plugins.ResponseException>().firstOrNull()
+                val rateLimited = http?.response?.status?.value == 429 || e.message.orEmpty().contains("429") || e.message.orEmpty().contains("rate limit", true)
+                val typed = generateSequence(e) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<ProviderHttpFailure>().firstOrNull()
+                val retryAfter = typed?.retryAfterMs ?: http?.response?.headers?.get("Retry-After")?.let { ProviderRetryPolicy.retryAfterMillis(it, System.currentTimeMillis()) }
+                val sleepDuration = if (rateLimited) maxOf(retryAfter ?: 0, 5_000L * currentAttempt, (currentDelay + jitter).coerceAtLeast(0)) else min(config.maxDelayMs, (currentDelay + jitter).coerceAtLeast(100L))
 
                 onRetry?.invoke(currentAttempt, sleepDuration, e)
                 delay(sleepDuration)
@@ -62,7 +66,7 @@ object ResilientStreamingClient {
      */
     fun isRetryable(throwable: Throwable): Boolean {
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
-        if (causes.any { it is CancellationException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
+        if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
         var current: Throwable? = throwable
         repeat(8) {
             val value = current ?: return false

@@ -343,7 +343,8 @@ internal fun benchmarkInfrastructureFailure(sample: BenchmarkSample): Boolean {
     val detail = listOfNotNull(sample.error).plus(sample.delegation?.diagnosticEvents.orEmpty().map { it.message }).joinToString("\n")
     return listOf(
         "unable to resolve host", "unknownhostexception", "no route to host", "connection refused",
-        "sslhandshakeexception", "certificate verification failed", "http 401", "http 403", "invalid api key"
+        "sslhandshakeexception", "certificate verification failed", "http 401", "http 403", "invalid api key",
+        "input tensor not found", "engine_initialization", "missing_asset", "not downloaded", "http 429", "rate limit"
     ).any { detail.contains(it, ignoreCase = true) }
 }
 
@@ -364,7 +365,7 @@ suspend fun runBenchmarkSuite(
         }
         if (reason != null) {
             for (remaining in suite.drop(index + 1)) {
-                onSample(BenchmarkSample(remaining.id, remaining.label, remaining.category, BenchmarkOutcome.SKIPPED, error = reason, failureCategory = "SKIPPED", tokenBasis = ReferenceTextTokenizer.VERSION, warmup = remaining.warmup, workload = remaining.workload))
+                onSample(BenchmarkSample(remaining.id, remaining.label, remaining.category, BenchmarkOutcome.SKIPPED, error = reason, failureCategory = "SKIPPED_DEPENDENCY", tokenBasis = ReferenceTextTokenizer.VERSION, warmup = remaining.warmup, workload = remaining.workload))
             }
             return reason
         }

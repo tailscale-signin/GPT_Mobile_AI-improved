@@ -296,13 +296,13 @@ class FactVaultRepositoryTest {
     }
 
     @Test
-    fun `keep both leaves existing assertion intact`() = runBlocking {
+    fun `keep both requires distinct validity before enabling contradictions`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.setEnabled(true)
         repository.prepareTurn("I prefer coffee", 1, 1, isLocal = true)
         repository.prepareTurn("I avoid coffee", 1, 2, isLocal = true)
-        repository.keepBoth(repository.state.value.facts.single { !it.enabled }.id)
-        assertEquals(2, repository.state.value.facts.count { it.enabled && it.supersededBy == null })
+        assertTrue(runCatching { repository.keepBoth(repository.state.value.facts.single { !it.enabled }.id) }.isFailure)
+        assertEquals(1, repository.state.value.facts.count { it.enabled && it.supersededBy == null })
     }
 
     @Test

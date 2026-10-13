@@ -152,6 +152,7 @@ class OpenAIAPIImpl @Inject constructor(
 
             val executeRequest: suspend () -> Unit = {
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
+                ProviderCooldown.await(config)
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -179,7 +180,7 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                         }
                         if (response.status.value in listOf(429, 502, 503, 504)) {
-                            throw java.io.IOException("HTTP ${response.status.value}: transient provider failure")
+                            throw ProviderHttpFailure(response.status.value, if (response.status.value == 429) ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]) else ProviderRetryPolicy.retryAfterMillis(response.headers[HttpHeaders.RetryAfter].orEmpty(), System.currentTimeMillis()))
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
@@ -403,6 +404,7 @@ class OpenAIAPIImpl @Inject constructor(
                     )
                 }
             ) {
+                ProviderCooldown.await(config)
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -426,7 +428,7 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                         }
                         if (response.status.value in listOf(429, 502, 503, 504)) {
-                            throw java.io.IOException("HTTP ${response.status.value}: transient provider failure")
+                            throw ProviderHttpFailure(response.status.value, if (response.status.value == 429) ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]) else ProviderRetryPolicy.retryAfterMillis(response.headers[HttpHeaders.RetryAfter].orEmpty(), System.currentTimeMillis()))
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 

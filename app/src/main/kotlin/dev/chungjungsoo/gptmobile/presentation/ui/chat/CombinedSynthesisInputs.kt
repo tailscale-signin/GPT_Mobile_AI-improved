@@ -45,7 +45,8 @@ internal fun combinedSynthesisInputs(
             completionStatus = status,
             qualityScore = assessment.qualityScore,
             sourceIds = original?.sourceIds.orEmpty(),
-            evidenceRefs = original?.evidenceRefs.orEmpty()
+            evidenceRefs = original?.evidenceRefs.orEmpty(),
+            localOnly = original?.localOnly == true || message.timeline.any { item -> item.recalledFacts.any { it.localOnly } }
         )
     }
     if (sources.isEmpty()) return null

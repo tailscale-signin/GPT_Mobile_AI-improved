@@ -82,7 +82,8 @@ data class CombinedModelResponse(
     val completionStatus: String = "COMPLETED",
     val qualityScore: Int = 100,
     val sourceIds: List<String> = emptyList(),
-    val evidenceRefs: List<String> = emptyList()
+    val evidenceRefs: List<String> = emptyList(),
+    val localOnly: Boolean = false
 )
 
 @Serializable

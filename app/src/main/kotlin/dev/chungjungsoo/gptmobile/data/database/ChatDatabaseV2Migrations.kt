@@ -403,6 +403,13 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_37_38 = object : Migration(37, 38) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `memory_records` (`id` TEXT NOT NULL, `kind` TEXT NOT NULL, `generation` INTEGER NOT NULL, `scope` TEXT NOT NULL, `payload` BLOB NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_records_kind` ON `memory_records` (`kind`)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -430,7 +437,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_33_34,
         MIGRATION_34_35,
         MIGRATION_35_36,
-        MIGRATION_36_37
+        MIGRATION_36_37,
+        MIGRATION_37_38
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

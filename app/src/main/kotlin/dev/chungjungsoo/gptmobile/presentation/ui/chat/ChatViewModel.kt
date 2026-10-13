@@ -1967,7 +1967,7 @@ class ChatViewModel @Inject constructor(
             _platformsInApp.value.firstOrNull { it.uid == source.platformUid && it.enabled }
                 ?.let(::resolvePlatformModel)
         }
-        val leadPlatform = candidates.firstOrNull { platform ->
+        val leadPlatform = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.firstOrNull { platform ->
             if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
                 true
             } else {
@@ -1977,6 +1977,10 @@ class ChatViewModel @Inject constructor(
             }
         }
         if (leadPlatform == null) {
+            if (sources.any { it.localOnly }) {
+                _attachmentNotice.update { "These responses contain local-only memory. Choose a local AI profile to combine them; the individual responses remain available." }
+                return
+            }
             val coolingProvider = candidates.firstNotNullOfOrNull { platform ->
                 if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) return@firstNotNullOfOrNull null
                 val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl) ?: return@firstNotNullOfOrNull null

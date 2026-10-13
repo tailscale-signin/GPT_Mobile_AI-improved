@@ -121,6 +121,17 @@ class ContextBuilderTest {
         assertTrue(turns.last().userMessage.attachments.isEmpty())
     }
 
+    @Test
+    fun `llama final admission receives history beyond old character and turn windows`() {
+        val profile = localPlatform().copy(compatibleType = ClientType.LLAMA)
+        val users = (1..12).map { MessageV2(content = "Full task $it " + "evidence ".repeat(400), platformType = null) }
+        val replies = users.map { listOf(MessageV2(content = "Answer", platformType = profile.uid)) }
+        val turns = ContextBuilder().build(users, replies, profile)
+        assertEquals(12, turns.size)
+        assertEquals(users.first().content, turns.first().userMessage.content)
+        assertEquals(users.last().content, turns.last().userMessage.content)
+    }
+
     private fun localPlatform() = PlatformV2(
         uid = "local",
         name = "Local",

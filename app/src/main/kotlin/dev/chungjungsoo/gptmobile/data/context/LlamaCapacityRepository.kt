@@ -61,7 +61,7 @@ internal fun parseLlamaCapacity(body: String, config: ProviderRequestConfig, mod
     val template = (root["chat_template"] as? JsonPrimitive)?.contentOrNull ?: return null
     val revision = researchHash(listOf(root["model_path"], root["build_info"], root["runtime_epoch"]).joinToString("|"))
     return CapacitySnapshot(
-        RuntimeFingerprint(config.profileUid ?: "unbound", config.apiUrl.trim().trimEnd('/'), researchHash(config.token.orEmpty()), model, resolved ?: model, revision, researchHash(template), "n_ctx=$allocation;slots=${root["total_slots"]}"),
+        RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl.trim().trimEnd('/'))}", researchHash(config.token.orEmpty()), model, resolved ?: model, revision, researchHash(template), "n_ctx=$allocation;slots=${root["total_slots"]}"),
         allocation,
         provenance = CapacityProvenance.VERIFIED_ROUTE,
         observedAtMillis = now

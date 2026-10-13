@@ -1237,6 +1237,10 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = channelFlow {
         suspend fun emit(state: ApiState) = send(state)
+        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { journal ->
+            val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
+            journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
+        }
         val recoveryAction = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(userMessages.lastOrNull()?.content.orEmpty())
         val savedUserTurns = if (recoveryAction != null) {
             userMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
@@ -1853,7 +1857,8 @@ class ChatRepositoryImpl(
             val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                 tools = authorizedBoundedTools,
                 candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
-                enabled = runFeatures.assistEnabled() && platform.compatibleType != ClientType.LITERT_LM,
+                enabled = runFeatures.assistEnabled(),
+                supportsPrimaryRuntime = platform.compatibleType != ClientType.LITERT_LM,
                 policy = runFeatures.effectiveAssistPolicy(),
                 policySnapshot = runFeatures.resolveAssistPolicy(),
                 goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
@@ -2614,7 +2619,7 @@ class ChatRepositoryImpl(
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "Attachment indexing failed for chat ${message.chatId}", "E")
                     }
                 }
-                if (document in textOnlyDocuments) "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text.take(12000)}" else null
+                if (document in textOnlyDocuments) "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${if (platform.compatibleType == ClientType.LLAMA) extracted.text else extracted.text.take(12000)}" else null
             }
         }
         return message.copy(
@@ -2789,7 +2794,9 @@ class ChatRepositoryImpl(
                 emptyList()
             }
         }
+        val journal = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.snapshot(runIds)
         kotlinx.serialization.json.buildJsonObject {
+            journal?.let { put("runJournal", json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.diagnostics.RunJournalSnapshot.serializer(), it)) }
             put("runs", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(AgentRun.serializer()), runs))
             put("toolEvents", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent.serializer()), events))
             put("invocations", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation.serializer()), invocations))
@@ -2888,10 +2895,19 @@ class ChatRepositoryImpl(
         status: String,
         completedAt: Long,
         terminalError: String?
-    ): Boolean = agentPersistenceDao.finishRunningWithMessage(message, runId, status, completedAt, terminalError)
+    ): Boolean {
+        val committed = agentPersistenceDao.finishRunningWithMessage(message, runId, status, completedAt, terminalError)
+        if (committed) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RUN_TERMINAL, fence = message.ownershipFence, visibleBytes = message.content.toByteArray(Charsets.UTF_8).size.toLong(), successful = status == AgentRunStatus.COMPLETED)
+        return committed
+    }
 
     override suspend fun updateAgentMessage(message: MessageV2) {
-        agentPersistenceDao.checkpointRunningMessage(message)
+        val committed = agentPersistenceDao.checkpointRunningMessage(message)
+        if (committed) {
+            message.currentRunId?.let { run ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(run, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.SEGMENT_COMMITTED, fence = message.ownershipFence, visibleBytes = message.content.toByteArray(Charsets.UTF_8).size.toLong())
+            }
+        }
     }
 
     override suspend fun interruptActiveAgentRuns(completedAt: Long): Int = agentRunDao.interruptActiveRuns(completedAt)
@@ -2988,7 +3004,14 @@ class ChatRepositoryImpl(
 
     override suspend fun updateTemporary(chatRoom: ChatRoomV2, enabled: Boolean): ChatRoomV2 {
         val updated = chatRoom.copy(isTemporary = enabled)
-        if (updated.id > 0) chatRoomV2Dao.updateTemporary(updated.id, enabled)
+        if (updated.id > 0) {
+            chatRoomV2Dao.updateTemporary(updated.id, enabled)
+            if (enabled) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
+                    agentRunDao.getByChatId(updated.id).forEach { journal.revokeRun(it.runId) }
+                }
+            }
+        }
         return updated
     }
 
@@ -2999,6 +3022,9 @@ class ChatRepositoryImpl(
     override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) {
         factVault?.load()
         chatRooms.forEach { room ->
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
+                agentRunDao.getByChatId(room.id).forEach { journal.revokeRun(it.runId) }
+            }
             memoryEnrichment?.cancelChat(room.id)
             if ((!room.isTemporary || conversationDeletion == null) && (room.isTemporary || factVault?.state?.value?.settings?.forgetWithConversation == true)) factVault?.forgetChat(room.id, preventFutureCapture = true)
         }

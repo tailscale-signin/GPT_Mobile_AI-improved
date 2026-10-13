@@ -429,6 +429,7 @@ class AgentRunCoordinator @Inject constructor(
                     }
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastCheckpointAt >= 500L) {
+                        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REDUCER_CHECKPOINT, fence = assistantMessage.ownershipFence, visibleBytes = content.toByteArray(Charsets.UTF_8).size.toLong(), reasoningBytes = thoughts.toByteArray(Charsets.UTF_8).size.toLong())
                         chatRepository.updateAgentMessage(assistantMessage)
                         lastCheckpointAt = now
                     }

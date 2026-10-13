@@ -292,7 +292,7 @@ class ChatViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val invocationDiagnostics = (invocationLedger?.diagnostics ?: flowOf(emptyList()))
+    val invocationDiagnostics = (invocationLedger?.diagnosticsForChat(chatRoomId) ?: flowOf(emptyList()))
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
@@ -1346,7 +1346,7 @@ class ChatViewModel @Inject constructor(
             check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
             val room = _chatRoom.value
             val visible = persistableMessages(_groupedMessages.value)
-            val profiles = _platformsInApp.value.filter { it.uid in enabledPlatformsInChat }.toList()
+            val allProfiles = _platformsInApp.value.toList()
             val tools = _chatToolConfig.value
             val features = featureSettings.value
             val draft = question.text.toString()
@@ -1358,6 +1358,19 @@ class ChatViewModel @Inject constructor(
                     live.filter { it.id > 0 }.forEach { put(it.id, it) }
                 }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
             }
+            val dependencyIds = buildSet {
+                addAll(enabledPlatformsInChat)
+                messages.forEach { message ->
+                    message.platformType?.let(::add)
+                    message.combinedSources.forEach { add(it.platformUid) }
+                    (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
+                }
+                (records["invocations"] as? kotlinx.serialization.json.JsonArray).orEmpty().forEach { row ->
+                    ((row as? kotlinx.serialization.json.JsonObject)?.get("profileUid") as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(::add)
+                }
+                features.localAssistPolicy.profileUid?.let(::add)
+            }
+            val profiles = allProfiles.filter { it.uid in dependencyIds }
             val research = researchSessionStore?.exportChat(room.id).orEmpty()
             val json = kotlinx.serialization.json.Json {
                 encodeDefaults = true

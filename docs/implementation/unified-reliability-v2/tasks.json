@@ -207,7 +207,7 @@
       "V08",
       "V09"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LC-T05",
       "LC-T06",
@@ -216,7 +216,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Llama history and extracted attachments now reach final admission intact. Token-cost tool exposure, re-plan and mandatory interface qualification remain."
+    ]
   },
   {
     "id": "V11",
@@ -841,7 +843,7 @@
       "V15",
       "V29"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA32",
       "LC-T18",
@@ -851,7 +853,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Typed schema-5 metadata journal integrated at request, invocation, reducer and commit boundaries; remaining lifecycle/evidence/recovery event seams and qualification remain."
+    ]
   },
   {
     "id": "V39",
@@ -861,7 +865,7 @@
       "V04",
       "V38"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA31",
       "LA-QA32",
@@ -873,7 +877,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "New metadata journal stores typed allowlisted values through the AES-GCM SecretVault, with temporary-chat capture exclusion and visible storage/gap reporting. Legacy logging audit and separately consented content capture remain."
+    ]
   },
   {
     "id": "V40",
@@ -934,7 +940,7 @@
       "V38",
       "V40"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA23",
       "LA-QA30",
@@ -945,7 +951,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Conversation-scoped invocation query replaces global recent-100 data for chat cards; journal and helper dependencies added to export. Unified UI projection and detail controls remain."
+    ]
   },
   {
     "id": "V43",

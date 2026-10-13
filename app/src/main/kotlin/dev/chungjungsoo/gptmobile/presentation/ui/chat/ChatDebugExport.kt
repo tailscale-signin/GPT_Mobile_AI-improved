@@ -29,6 +29,8 @@ internal fun buildChatDebugExport(
     research: List<ResearchSession>,
     json: Json
 ): String {
+    val credentials = profiles.mapNotNull { it.token }
+    fun exportedBody(text: String): String = (redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(text), credentials) as kotlinx.serialization.json.JsonPrimitive).content
     val raw = buildJsonObject {
         put("schema", "gptmobile.conversation.debug.v2")
         put("exportedAt", java.time.Instant.now().toString())
@@ -65,8 +67,9 @@ internal fun buildChatDebugExport(
                         put("userMessageId", message.linkedMessageId)
                         put("runId", message.currentRunId)
                         put("profileUid", message.platformType)
-                        put("bodySha256", debugBodyDigest(message.content))
-                        put("selectedBodySha256", debugBodyDigest(message.effectiveContent()))
+                        put("digestRepresentation", "redacted-export-body-utf8")
+                        put("bodySha256", debugBodyDigest(exportedBody(message.content)))
+                        put("selectedBodySha256", debugBodyDigest(exportedBody(message.effectiveContent())))
                         put("characters", message.content.length)
                         put("activeRevisionIndex", message.activeRevisionIndex)
                         put(
@@ -76,7 +79,7 @@ internal fun buildChatDebugExport(
                                     buildJsonObject {
                                         put("index", index)
                                         put("runId", revision.runId)
-                                        put("bodySha256", debugBodyDigest(revision.content))
+                                        put("bodySha256", debugBodyDigest(exportedBody(revision.content)))
                                     }
                                 }
                             )
@@ -88,7 +91,7 @@ internal fun buildChatDebugExport(
                                     buildJsonObject {
                                         put("id", "C${index + 1}")
                                         put("profileUid", source.platformUid)
-                                        put("bodySha256", debugBodyDigest(source.content))
+                                        put("bodySha256", debugBodyDigest(exportedBody(source.content)))
                                         put("characters", source.content.length)
                                     }
                                 }
@@ -100,7 +103,7 @@ internal fun buildChatDebugExport(
             )
         )
     }
-    return json.encodeToString(JsonElement.serializer(), redactChatDebugData(raw, profiles.mapNotNull { it.token }))
+    return json.encodeToString(JsonElement.serializer(), redactChatDebugData(raw, credentials))
 }
 
 internal fun debugBodyDigest(text: String): String = MessageDigest.getInstance("SHA-256")

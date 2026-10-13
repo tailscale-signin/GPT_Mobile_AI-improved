@@ -62,11 +62,16 @@ object AppLogRecorder {
         } else {
             privateSessions.remove(owner)
         }
+        RunDiagnostics.journal?.privateSession = privateSessions.isNotEmpty()
     }
 
     @Synchronized fun initialize(application: Application) {
         if (app != null) return
         app = application.applicationContext
+        RunDiagnostics.journal = RunDiagnosticJournal(
+            dev.chungjungsoo.gptmobile.data.security.AndroidSecretVault(application, "gptmobile-diagnostic-metadata-v1", "run_diagnostics_v1"),
+            scope
+        )
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         if (previousHandler != null) {
             Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
@@ -116,6 +121,7 @@ object AppLogRecorder {
 
     @Synchronized fun setEnabled(value: Boolean) {
         mutableEnabled.value = value
+        RunDiagnostics.journal?.enabled = value
         FrameTimingRecorder.refresh()
         app?.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE)?.edit()?.putBoolean("tracking", value)?.apply()
         if (!value) {
@@ -184,6 +190,7 @@ object AppLogRecorder {
 
     fun clear() {
         scope.launch {
+            RunDiagnostics.journal?.clear()
             synchronized(fileLock) {
                 while (queue.tryReceive().isSuccess) Unit
                 recent.clear()

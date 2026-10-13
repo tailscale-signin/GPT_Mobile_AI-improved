@@ -18,6 +18,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatDebugExportTest {
+    @Test fun exportedDigestMatchesRedactedBodyRatherThanPrivateOriginal() {
+        val message = MessageV2(id = 2, chatId = 1, platformType = "lead", content = "Bearer test-private-credential")
+        val body = buildChatDebugExport(ChatRoomV2(id = 1, title = "Synthetic"), listOf(message), listOf(PlatformV2(uid = "lead", name = "Lead")), ChatMcpToolConfig(), AppFeatureSettings(), "", buildJsonObject {}, emptyList(), Json { encodeDefaults = true })
+        val raw = Json.parseToJsonElement(body).jsonObject
+        val exported = raw.getValue("messages").jsonArray.single().jsonObject.getValue("content").jsonPrimitive.content
+        val mapping = raw.getValue("responseMapping").jsonArray.single().jsonObject
+        assertFalse(body.contains("test-private-credential"))
+        assertEquals(debugBodyDigest(exported), mapping.getValue("bodySha256").jsonPrimitive.content)
+        assertEquals("redacted-export-body-utf8", mapping.getValue("digestRepresentation").jsonPrimitive.content)
+    }
+
     @Test fun fullRawExportRetainsPromptsThinkingRevisionsAndExactResponseRunMapping() {
         val answer = MessageV2(
             id = 2,

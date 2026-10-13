@@ -70,6 +70,9 @@ interface InvocationDao {
     @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
     suspend fun forChat(chatId: Int): List<ModelInvocation>
 
+    @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
+    fun observeForChat(chatId: Int): Flow<List<ModelInvocation>>
+
     @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 100")
     fun recent(): Flow<List<ModelInvocation>>
 
@@ -126,6 +129,15 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
     // Live observations never replace the database reservations used by the token allowance.
     val diagnostics = combine(recent, active, LocalDiagnosticsPolicy.state) { saved, live, enabled ->
         if (enabled) (live.values + saved.filterNot { it.id in live || it.status == "RUNNING" }).distinctBy { it.id }.sortedByDescending { it.startedAt }.take(100) else emptyList()
+    }
+
+    fun diagnosticsForChat(chatId: Int): Flow<List<ModelInvocation>> = combine(dao.observeForChat(chatId), active, LocalDiagnosticsPolicy.state) { saved, live, enabled ->
+        if (!enabled) {
+            emptyList()
+        } else {
+            val scoped = live.values.filter { it.turnKey.substringBefore(':') == chatId.toString() || saved.any { row -> row.id == it.id } }
+            (saved.associateBy { it.id } + scoped.associateBy { it.id }).values.sortedByDescending { it.startedAt }
+        }
     }
 
     suspend fun recover() {
@@ -199,8 +211,9 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 emit(ProviderEvent.Completed)
                 return@flow
             }
-            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet())
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id)
             onInvocation(record.id)
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_STARTED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
             val started = System.nanoTime()
             var first: Long? = null
@@ -297,6 +310,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 throw error
             } finally {
                 withContext(NonCancellable) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = input != null && output != null)
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {

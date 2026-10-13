@@ -22,11 +22,16 @@ internal object LocalAssistToolBinder {
         contextTokens: () -> Int = { 16_384 },
         runtimeFingerprint: () -> String = { "unverified" },
         status: suspend (AssistTaskState) -> Unit = {},
-        policySnapshot: EffectiveAssistPolicy? = null
+        policySnapshot: EffectiveAssistPolicy? = null,
+        supportsPrimaryRuntime: Boolean = true
     ): List<ResolvedAgentTool> {
         val expected = AssistTaskState(taskId = "expected:$turnId", profileUid = policy.profileUid, policySnapshot = policySnapshot)
         if (!enabled) {
             status(expected.copy(admission = AssistAdmission.OFF, execution = AssistExecution.SKIPPED, reason = "ASSIST_OFF"))
+            return tools
+        }
+        if (!supportsPrimaryRuntime) {
+            status(expected.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "PRIMARY_RUNTIME_CANNOT_YIELD_TO_HELPER"))
             return tools
         }
         status(expected)
@@ -37,6 +42,10 @@ internal object LocalAssistToolBinder {
             return tools
         }
         status(expected.copy(sequence = 1, profileUid = target.uid, model = target.model, admission = if (target.enabled) AssistAdmission.CHECKING else AssistAdmission.INELIGIBLE, execution = if (target.enabled) AssistExecution.NOT_STARTED else AssistExecution.SKIPPED, reason = if (target.enabled) "WAITING_FOR_ELIGIBLE_TASK" else "PROFILE_DISABLED"))
+        if (!profileAllowed(target)) {
+            status(expected.copy(sequence = 2, profileUid = target.uid, model = target.model, admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "HELPER_PROCESSING_PERMISSION_REQUIRED"))
+            return tools
+        }
         val assist = AssistCoordinator(goal, {
             val ready = profileAllowed(target) && eligible(target)
             if (!ready) notice(AssistReadinessResolver.state.value.reason)

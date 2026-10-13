@@ -22,7 +22,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val declared = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()
         val context = listOfNotNull(discovered?.contextTokens, catalog?.context?.toLong(), declared).minOrNull()
         val snapshot = discovered?.copy(contextTokens = context) ?: CapacitySnapshot(
-            RuntimeFingerprint(config.profileUid ?: "unbound", config.apiUrl, researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
+            RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
             context,
             outputTokens = catalog?.output?.toLong(),
             provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN

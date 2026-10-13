@@ -212,6 +212,10 @@ internal fun LocalMarketplaceScreen(
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2ffd1f3e99, item.entry.maxContextTokens.takeIf { it > 0 } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_14c4849191), item.entry.minRamGb.takeIf { it > 0 }?.let { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e5f04740a4, (it).toString()) } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_14c4849191)))
                         if (decision.reasons.isNotEmpty()) {
                             decision.reasons.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+                            if (item.status == LocalModelItemStatus.READY && item.entry.supportedAccelerators.isEmpty()) {
+                                TextButton(onClick = { runtimeViewModel.createProfile(item.entry, onOpenProfile) }) { Text(stringResource(R.string.local_ai_needs_verification)) }
+                                TextButton(onClick = { viewModel.onDeleteClick(item.entry) }) { Text(stringResource(R.string.delete)) }
+                            }
                             if (decision.action == dev.chungjungsoo.gptmobile.data.catalog.CatalogAction.VIEW_BUILD) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_the_geniex_apk_is_a_separate_installation_its_dedfc))
                         } else {
                             LocalModelItem(

@@ -208,7 +208,7 @@ object LocalModelLocator {
                     check(destination.mkdirs() || destination.isDirectory)
                     finalFile = File(destination, "model.litertlm")
                     if (finalFile.isFile) {
-                        check(PackageDigest.sha256(finalFile) == hash) { "Existing content identity does not match" }
+                        check(PackageDigest.sha256(finalFile, checkCurrent) == hash) { "Existing content identity does not match" }
                         targetFile.delete()
                     } else if (!targetFile.renameTo(finalFile)) {
                         targetFile.delete()

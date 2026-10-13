@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
@@ -27,6 +29,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -84,6 +88,9 @@ fun LocalModelsScreen(
     var pendingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingFolder by rememberSaveable { mutableStateOf(false) }
     val importStatus by viewModel.importStatus.collectAsStateWithLifecycle()
+    val importedModelId by viewModel.importedModelId.collectAsStateWithLifecycle()
+    val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
+    val activeRuntime by runtimeViewModel.active.collectAsStateWithLifecycle()
     val profiles by runtimeViewModel.profiles.collectAsStateWithLifecycle()
     val settings by runtimeViewModel.settings.collectAsStateWithLifecycle()
     val local = profiles.filter { it.compatibleType == ClientType.LITERT_LM }.sortedWith(compareByDescending<dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2> { it.isFavorite }.thenBy { it.id })
@@ -103,12 +110,39 @@ fun LocalModelsScreen(
         }
     }
     if (pendingUri != null) {
+        val sourceUri = requireNotNull(pendingUri)
+        var inspectionError by remember(pendingUri) { mutableStateOf<String?>(null) }
+        val preview by produceState<dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview?>(null, pendingUri, pendingFolder) {
+            value = null
+            try {
+                value = viewModel.inspectImport(android.net.Uri.parse(sourceUri), pendingFolder)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                inspectionError = failure.message ?: context.getString(R.string.local_ai_inspect_failed)
+            }
+        }
         AlertDialog(
             onDismissRequest = { pendingUri = null },
             title = { Text(stringResource(R.string.local_ai_import_review)) },
-            text = { Text(stringResource(if (pendingFolder) R.string.local_ai_folder_review else R.string.local_ai_file_review)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    inspectionError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    if (preview == null && inspectionError == null) CircularProgressIndicator()
+                    preview?.let { details ->
+                        Text(details.name, style = MaterialTheme.typography.titleMedium)
+                        Text(details.runtime)
+                        details.sourceBytes?.let { Text(stringResource(R.string.local_ai_source_size, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
+                        details.installedBytes?.let { Text(stringResource(R.string.local_ai_installed_size, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
+                        if (details.backends.isNotEmpty()) Text(stringResource(R.string.local_ai_declared_processors, details.backends.joinToString().uppercase()))
+                        details.contextTokens?.let { Text(stringResource(R.string.local_ai_import_context, it, details.assets)) }
+                        Text(stringResource(if (pendingFolder) R.string.local_ai_folder_review else R.string.local_ai_file_review))
+                        Text(stringResource(R.string.local_ai_import_verification), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
             confirmButton = {
-                TextButton(onClick = {
+                TextButton(enabled = preview != null && !importActive, onClick = {
                     pendingUri?.let { viewModel.importCustomModel(context.contentResolver, android.net.Uri.parse(it), pendingFolder) }
                     pendingUri = null
                 }) { Text(stringResource(R.string.local_ai_import)) }
@@ -159,10 +193,15 @@ fun LocalModelsScreen(
                         }
                     }
                     item(key = "import") { LocalAiActionCard(Icons.Rounded.FileOpen, stringResource(R.string.local_ai_import), stringResource(R.string.local_ai_import_description), { importOpen = true }) }
+                    runtimeStatus?.let { status -> item(key = "runtime-status") { Text(status) } }
                     importStatus?.let { status ->
                         item(key = "import-status") {
                             Text(status)
                             if (importActive) TextButton(onClick = viewModel::cancelImport) { Text(stringResource(R.string.cancel)) }
+                            importedModelId?.let { id ->
+                                val item = ui.allItems.firstOrNull { it.entry.id == id }
+                                TextButton(enabled = item != null, onClick = { item?.let { runtimeViewModel.createProfile(it.entry, onOpenProfile) } }) { Text(stringResource(R.string.local_ai_create)) }
+                            }
                         }
                     }
                     item(key = "profiles-title") {
@@ -220,7 +259,21 @@ fun LocalModelsScreen(
                                     }
                                 }
                                 Text(artifact?.entry?.displayName ?: profile.model, style = MaterialTheme.typography.bodyMedium)
-                                Text(stringResource(if (installed) R.string.local_ai_installed else R.string.local_ai_missing), style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    stringResource(
+                                        if (ui.isLoading) {
+                                            R.string.local_ai_checking
+                                        } else if (installed) {
+                                            R.string.local_ai_installed
+                                        } else {
+                                            R.string.local_ai_missing
+                                        }
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                val loadedPath = activeRuntime.engineSpec?.modelPath.orEmpty().replace('\\', '/')
+                                if (loadedPath.contains("/models/${profile.model}/")) Text(stringResource(R.string.local_ai_loaded), color = MaterialTheme.colorScheme.primary)
+                                if (profile.uid in settings.lastChatProfileUids) Text(stringResource(R.string.local_ai_last_selected), style = MaterialTheme.typography.bodySmall)
                                 if (settings.localAssistPolicy.profileUid == profile.uid) Text(stringResource(R.string.local_ai_assigned), color = MaterialTheme.colorScheme.primary)
                                 Button(onClick = {
                                     if (installed) {
@@ -229,7 +282,7 @@ fun LocalModelsScreen(
                                         marketplace = true
                                         viewModel.updateSearchQuery(profile.model)
                                     }
-                                }, enabled = profile.enabled) { Text(stringResource(if (installed) R.string.local_ai_use else R.string.local_ai_repair)) }
+                                }, enabled = !ui.isLoading && (profile.enabled || !installed)) { Text(stringResource(if (installed) R.string.local_ai_use else R.string.local_ai_repair)) }
                             }
                         }
                         if (delete) {

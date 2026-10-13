@@ -189,7 +189,7 @@ class LocalModelRepositoryImpl(
                 inputStream.close()
                 return@withContext LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.UNSUPPORTED_FORMAT, "This package needs the separate GenieX build.")
             }
-            dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root, checkCurrent = checkCurrent, stagingId = stagingId)
+            dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root, checkCurrent = checkCurrent, stagingId = stagingId, onProgress = progress)
         } else if (fileName.endsWith(".gguf", true)) {
             dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.install(inputStream, root, checkCurrent, progress, stagingId)
         } else {
@@ -239,7 +239,7 @@ class LocalModelRepositoryImpl(
                             familyId = result.record.catalogEntryId,
                             variantLabel = "LITERT_LM",
                             runtimeRequirement = "litert-lm",
-                            supportedAccelerators = listOf("cpu", "gpu")
+                            supportedAccelerators = emptyList()
                         )
                     )
                 }

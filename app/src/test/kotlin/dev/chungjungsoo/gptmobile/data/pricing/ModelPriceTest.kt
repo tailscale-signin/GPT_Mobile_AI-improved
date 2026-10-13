@@ -58,4 +58,12 @@ class ModelPriceTest {
         assertFalse(price().copy(outputPerMillion = "").valid())
         assertFalse(price().copy(currency = "usd").valid())
     }
+
+    @Test fun blankConnectionsRemainIsolatedAndInvalidExtrasAreRejected() {
+        val first = PlatformV2(uid = "first", name = "one", providerConnectionUid = "")
+        assertNotEquals(priceContextKey(first), priceContextKey(first.copy(uid = "second")))
+        assertFalse(price().copy(extras = mapOf("request" to "-1")).valid())
+        assertFalse(price().copy(extras = mapOf("request" to "NaN")).valid())
+        assertTrue(price().copy(extras = mapOf("request" to "0")).valid())
+    }
 }

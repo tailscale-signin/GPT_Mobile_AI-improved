@@ -40,7 +40,10 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                 Text(
                     when {
                         !settings.localAssist -> "Off"
+                        target == null && policy.profileUid != null -> stringResource(R.string.local_ai_assist_worker_missing)
                         target == null -> "Automatic · eligible warm model only"
+                        !target.enabled -> stringResource(R.string.local_ai_assist_worker_disabled)
+                        active.engineSpec?.modelPath?.contains("/models/${target.model}/") != true -> stringResource(R.string.local_ai_assist_worker_waiting)
                         active.engineSpec == null -> "Waiting for a warm model"
                         else -> "Worker selected · readiness checked before each task"
                     },

@@ -7,16 +7,21 @@ import java.util.zip.ZipInputStream
 
 /** A .localmodel ZIP starts with manifest.json; only declared data assets are extracted. */
 internal object ModelBundleInstaller {
-    fun install(input: InputStream, storageRoot: File, expectedCatalogId: String? = null, checkCurrent: () -> Unit = {}, stagingId: String? = null): LocalModelImportResult {
+    fun install(input: InputStream, storageRoot: File, expectedCatalogId: String? = null, checkCurrent: () -> Unit = {}, stagingId: String? = null, onProgress: (Long) -> Unit = {}): LocalModelImportResult {
         val staging = File(storageRoot, "models/.staging-${importWorkspaceId(stagingId)}")
         if (stagingId != null) staging.deleteRecursively() // Only this persisted WorkManager job owns this directory.
         return try {
             check(staging.mkdirs())
             val manifestFile = File(staging, "manifest.json")
+            var copied = 0L
+            val advance: (Long) -> Unit = { delta ->
+                copied += delta
+                onProgress(copied)
+            }
             val manifest = ZipInputStream(input).use { archive ->
                 val first = archive.nextEntry
                 require(first?.name == "manifest.json" && !first.isDirectory) { "Bundle must begin with manifest.json" }
-                copyBounded(archive, manifestFile, 262_144, exact = false, checkCurrent = checkCurrent)
+                copyBounded(archive, manifestFile, 262_144, exact = false, checkCurrent = checkCurrent, progress = advance)
                 val artifact = ArtifactManifestStore.read(manifestFile)
                 require(artifact.files.size in 1..256 && artifact.files.none { it.path == "manifest.json" })
                 require(artifact.files.all { it.sizeBytes in 1..16_000_000_000L })
@@ -35,13 +40,13 @@ internal object ModelBundleInstaller {
                         throw IllegalArgumentException("Archive entry escapes installation")
                     }
                     check(target.parentFile?.mkdirs() == true || target.parentFile?.isDirectory == true)
-                    copyBounded(archive, target, asset.sizeBytes, exact = true, checkCurrent = checkCurrent)
+                    copyBounded(archive, target, asset.sizeBytes, exact = true, checkCurrent = checkCurrent, progress = advance)
                 }
                 require(extracted == declared.keys) { "Missing bundle assets" }
                 // Imported assertions cannot manufacture a device verification badge.
                 artifact.copy(evidence = ArtifactEvidence.DISCOVERED, validations = emptyList())
             }
-            manifest.validate(staging)
+            manifest.validate(staging, checkCurrent = checkCurrent)
             require(manifest.runtime in setOf(ArtifactRuntime.GENIEX_QAIRT, ArtifactRuntime.GENIEX_LLAMA_CPP)) { "This bundle importer supports GenieX QAIRT/GGUF. Import LiteRT as .litertlm; legacy Genie needs a qualified native SDK." }
             ArtifactManifestStore.write(manifestFile, manifest)
             val digest = PackageDigest.sha256(manifestFile)
@@ -54,7 +59,7 @@ internal object ModelBundleInstaller {
             // Content-addressed installs never overwrite an in-use artifact.
             checkCurrent()
             if (destination.exists()) {
-                ArtifactManifestStore.read(File(destination, "manifest.json")).validate(destination)
+                ArtifactManifestStore.read(File(destination, "manifest.json")).validate(destination, checkCurrent = checkCurrent)
                 staging.deleteRecursively()
             } else {
                 java.nio.file.Files.move(staging.toPath(), destination.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
@@ -74,7 +79,7 @@ internal object ModelBundleInstaller {
         }
     }
 
-    private fun copyBounded(input: InputStream, file: File, limit: Long, exact: Boolean, checkCurrent: () -> Unit) {
+    private fun copyBounded(input: InputStream, file: File, limit: Long, exact: Boolean, checkCurrent: () -> Unit, progress: (Long) -> Unit) {
         var count = 0L
         FileOutputStream(file).use { output ->
             val buffer = ByteArray(64 * 1024)
@@ -85,6 +90,7 @@ internal object ModelBundleInstaller {
                 count += read
                 require(count <= limit) { "Expanded archive asset exceeds its declared size" }
                 output.write(buffer, 0, read)
+                progress(read.toLong())
             }
             output.fd.sync()
         }

@@ -8,7 +8,7 @@ import java.nio.file.StandardCopyOption
 
 /** Self-contained text GGUF only; models needing a projector or shards use a manifest bundle. */
 internal object GgufImportAdapter {
-    fun inspect(file: File): Map<String, String> = RandomAccessFile(file, "r").use { input ->
+    fun inspect(file: File, checkCurrent: () -> Unit = {}): Map<String, String> = RandomAccessFile(file, "r").use { input ->
         require(input.readInt() == 0x47475546) { "Not a GGUF file" }
         fun u32() = java.lang.Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
         fun u64() = java.lang.Long.reverseBytes(input.readLong()).also { require(it >= 0) }
@@ -23,6 +23,7 @@ internal object GgufImportAdapter {
         val count = u64()
         require(count in 1..100_000)
         fun value(type: Long, depth: Int = 0): String? {
+            checkCurrent()
             require(depth <= 1 && input.filePointer <= 64L * 1024 * 1024) { "GGUF metadata exceeds inspection bounds" }
             return when (type) {
                 0L, 1L, 7L -> input.readUnsignedByte().toString()
@@ -78,22 +79,22 @@ internal object GgufImportAdapter {
                 }
                 output.fd.sync()
             }
-            val metadata = inspect(model)
+            val metadata = inspect(model, checkCurrent)
             val architecture = requireNotNull(metadata["general.architecture"]) { "GGUF architecture is missing" }
             require(architecture !in setOf("clip", "whisper", "wavtokenizer", "mamba")) { "This artifact needs a qualified manifest and its exact companion assets" }
             require((metadata["split.count"]?.toIntOrNull() ?: 1) == 1) { "Import all GGUF shards using a manifest bundle" }
             require(!metadata["tokenizer.chat_template"].isNullOrBlank()) { "No embedded chat template; use an explicit manifest package" }
             val tokens = metadata["$architecture.context_length"]?.toIntOrNull()?.takeIf { it > 0 } ?: error("Context metadata missing; use a manifest bundle")
-            val digest = PackageDigest.sha256(model)
+            val digest = PackageDigest.sha256(model, checkCurrent)
             val id = "local_gguf_${digest.take(32)}"
             val manifest = ModelArtifactManifest(schemaVersion = 2, familyId = metadata["general.name"]?.take(160) ?: architecture, artifactId = id, runtime = ArtifactRuntime.GENIEX_LLAMA_CPP, format = "gguf", entryFile = model.name, files = listOf(ArtifactFile(model.name, model.length(), digest)), contextTokens = tokens, supportedBackends = setOf("cpu", "gpu"), architecture = architecture, weightPrecision = metadata["general.file_type"]?.let { "GGUF type $it" }, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_VERSION)
-            manifest.validate(staging)
+            manifest.validate(staging, checkCurrent = checkCurrent)
             ArtifactManifestStore.write(File(staging, "manifest.json"), manifest)
             val relative = LocalModelDownloadPaths.relativeDirectory(id, LocalModelLocator.LOCAL_COMMIT_HASH)
             val destination = File(root, relative)
             check(destination.parentFile?.mkdirs() == true || destination.parentFile?.isDirectory == true)
             checkCurrent()
-            if (destination.exists()) ArtifactManifestStore.read(File(destination, "manifest.json")).validate(destination) else Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            if (destination.exists()) ArtifactManifestStore.read(File(destination, "manifest.json")).validate(destination, checkCurrent = checkCurrent) else Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
             LocalModelImportResult.Success(LocalModelRecord(id, LocalModelLocator.LOCAL_COMMIT_HASH, "manifest.json", relative, LocalModelStatus.READY), File(destination, "manifest.json").absolutePath, manifest.files.sumOf { it.sizeBytes })
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled

@@ -70,7 +70,7 @@ class LocalModelImportWorker @AssistedInject constructor(
                 }
             }
             when (result) {
-                is LocalModelImportResult.Success -> Result.success(Data.Builder().putString(MESSAGE, applicationContext.getString(R.string.local_ai_import_done)).build())
+                is LocalModelImportResult.Success -> Result.success(Data.Builder().putString(MESSAGE, applicationContext.getString(R.string.local_ai_import_done)).putString("modelId", result.record.catalogEntryId).build())
                 is LocalModelImportResult.Failure -> Result.failure(Data.Builder().putString(MESSAGE, result.message.take(1000)).build())
             }
         } catch (cancelled: CancellationException) {

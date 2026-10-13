@@ -17,10 +17,11 @@ data class ResearchAttempt(
     val dispatched: Boolean = true,
     val cacheHit: Boolean = false,
     val transportId: String = "native",
-    val owner: String = "phone"
+    val owner: String = "phone",
+    val schemaVersion: Int = 1
 )
 
-data class ResearchEngineRollup(val attempts: Int, val successes: Int, val failures: Int, val cached: Int, val skipped: Int, val empty: Int = 0, val canceled: Int = 0, val transportSuccesses: Int = 0) {
+data class ResearchEngineRollup(val attempts: Int, val successes: Int, val failures: Int, val cached: Int, val skipped: Int, val empty: Int = 0, val canceled: Int = 0, val transportSuccesses: Int = 0, val transportFailures: Int = 0, val transportCanceled: Int = 0) {
     val successPercent: Double? get() = if (attempts == 0) null else successes * 100.0 / attempts
     val lowSample: Boolean get() = attempts < 20
 }
@@ -54,9 +55,10 @@ class ResearchTelemetryStore(private val directory: File) {
             val file = File(directory, "${event.eventId}.json")
             if (file.isFile) return@runCatching
             val temporary = File(directory, "${event.eventId}.tmp")
-            temporary.outputStream().use { it.write(json.encodeToString(event).toByteArray()) }
+            val stored = event.copy(schemaVersion = 2)
+            temporary.outputStream().use { it.write(json.encodeToString(stored).toByteArray()) }
             check(temporary.renameTo(file))
-            index.events[event.eventId] = event
+            index.events[event.eventId] = stored
             index.rollups.keys.removeAll { it.first == event.engineId }
             if (index.events.size > MAX_EVENTS) {
                 val oldest = index.events.entries.first()
@@ -73,16 +75,20 @@ class ResearchTelemetryStore(private val directory: File) {
         if (index.rollups.size >= 128) index.rollups.clear()
         index.rollups.getOrPut(engineId to since) {
             val events = index.events.values.filter { it.engineId == engineId && it.recordedAt >= since }
-            val live = events.filter { it.dispatched && !it.cacheHit && it.outcome in setOf("SUCCESS", "EMPTY", "FAILED", "INVALID_RESPONSE", "CANCELLED") }
-            ResearchEngineRollup(live.size, live.count { it.outcome == "SUCCESS" }, live.count { it.outcome in setOf("FAILED", "INVALID_RESPONSE") }, events.count { it.cacheHit }, events.count { !it.dispatched }, live.count { it.outcome == "EMPTY" }, live.count { it.outcome == "CANCELLED" }, events.count { it.outcome == "TRANSPORT_SUCCESS" })
+            fun legacyTransport(event: ResearchAttempt) = event.schemaVersion < 2 && event.operation in setOf("lookup_search", "read")
+            val live = events.filter { !legacyTransport(it) && it.dispatched && !it.cacheHit && it.outcome in setOf("SUCCESS", "EMPTY", "FAILED", "INVALID_RESPONSE", "CANCELLED") }
+            ResearchEngineRollup(live.size, live.count { it.outcome == "SUCCESS" }, live.count { it.outcome in setOf("FAILED", "INVALID_RESPONSE") }, events.count { it.cacheHit }, events.count { !it.dispatched && !it.cacheHit }, live.count { it.outcome == "EMPTY" }, live.count { it.outcome == "CANCELLED" }, events.count { it.outcome == "TRANSPORT_SUCCESS" || legacyTransport(it) && it.outcome == "SUCCESS" }, events.count { it.outcome == "TRANSPORT_FAILED" || legacyTransport(it) && it.outcome == "FAILED" }, events.count { it.outcome == "TRANSPORT_CANCELLED" || legacyTransport(it) && it.outcome == "CANCELLED" })
         }
     }
 
-    fun writeExport(output: java.io.OutputStream) = synchronized(index) {
-        load()
+    fun writeExport(output: java.io.OutputStream) {
+        val snapshot = synchronized(index) {
+            load()
+            index.events.values.toList()
+        }
         output.bufferedWriter().use { writer ->
             writer.write("{\"schemaVersion\":1,\"events\":[")
-            index.events.values.forEachIndexed { index, event ->
+            snapshot.forEachIndexed { index, event ->
                 if (index > 0) writer.write(",")
                 writer.write(json.encodeToString(event))
             }

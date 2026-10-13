@@ -50,6 +50,9 @@ data class ModelPrice(
         decimalRate(inputPerMillion) != null &&
         decimalRate(outputPerMillion) != null &&
         (cachedInputPerMillion == null || decimalRate(cachedInputPerMillion) != null) &&
+        extras.size <= 32 &&
+        extras.all { (key, value) -> key.length in 1..120 && decimalRate(value) != null } &&
+        sourceUrl.length <= 1000 &&
         (source != PriceSource.PROVIDER_API || validatedAt > 0) &&
         adapterVersion == 1
 }
@@ -81,4 +84,4 @@ fun billingProvider(profile: PlatformV2): String? {
 }
 
 /** Local-only scope; no endpoint, credential, or contract note is published. */
-fun priceContextKey(profile: PlatformV2): String = listOf(profile.providerConnectionUid ?: profile.uid, profile.apiUrl.trimEnd('/'), profile.compatibleType.name, profile.model, profile.batchMode.toString(), profile.openRouterRouting.orEmpty()).joinToString("\u0000")
+fun priceContextKey(profile: PlatformV2): String = listOf(profile.providerConnectionUid?.takeIf(String::isNotBlank) ?: profile.uid, profile.apiUrl.trimEnd('/'), profile.compatibleType.name, profile.model, profile.batchMode.toString(), profile.openRouterRouting.orEmpty()).joinToString("\u0000")

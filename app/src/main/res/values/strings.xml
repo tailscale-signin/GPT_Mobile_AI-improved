@@ -1026,4 +1026,18 @@
     <string name="new_chat_insights_settings_panel_4">Source URL or contract note</string>
     <string name="new_chat_insights_settings_panel_5">Reviewed (YYYY-MM-DD)</string>
     <string name="new_chat_insights_settings_panel_6">Expires (YYYY-MM-DD)</string>
+    <string name="local_ai_inspect_failed">This source could not be inspected. Choose it again.</string>
+    <string name="local_ai_source_size">Source: %1$s</string>
+    <string name="local_ai_installed_size">Model assets: %1$s</string>
+    <string name="local_ai_declared_processors">Declared processors: %1$s</string>
+    <string name="local_ai_import_context">Declared context: %1$d tokens · %2$d assets</string>
+    <string name="local_ai_import_verification">Structural checks continue during import. Installation does not certify native execution. Folder imports also need temporary space for an uncompressed package.</string>
+    <string name="local_ai_loaded">Loaded in memory</string>
+    <string name="local_ai_last_selected">Selected for the last new chat</string>
+    <string name="local_ai_needs_verification">Inspect processors and create profile</string>
+    <string name="local_ai_assist_worker_missing">Assigned worker is missing. Choose another profile.</string>
+    <string name="local_ai_assist_worker_disabled">Assigned worker is disabled. Enable it in profile settings.</string>
+    <string name="local_ai_assist_worker_waiting">Waiting for the assigned model to be loaded and idle</string>
+    <string name="insights_refreshing">Checking prices…</string>
+    <string name="local_ai_checking">Checking installation…</string>
 </resources>

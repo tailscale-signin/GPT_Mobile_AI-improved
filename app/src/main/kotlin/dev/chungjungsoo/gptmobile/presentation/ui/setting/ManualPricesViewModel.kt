@@ -28,10 +28,10 @@ class ManualPricesViewModel @Inject constructor(private val repository: SettingR
     fun refresh() = viewModelScope.launch { pricing.refresh(repository.fetchPlatformV2s(), true) }
     fun remove(profile: PlatformV2) = viewModelScope.launch { repository.mutateFeatureSettings { current -> current.copy(manualPrices = current.manualPrices.filterNot { it.contextKey == priceContextKey(profile) }) } }
     fun save(profile: PlatformV2, input: String, output: String, currency: String, source: String, reviewed: String, expiry: String) = viewModelScope.launch {
-        val date = reviewTime(reviewed)
-        val end = reviewTime(expiry)
-        val price = ModelPrice(billingProvider(profile) ?: "CUSTOM", profile.model, input.trim(), output.trim(), currency.trim().uppercase(), PriceSource.ACCOUNT_OVERRIDE, source.trim(), reviewedOn = reviewed, validUntil = end)
-        if (!price.valid() || date == null || date > System.currentTimeMillis() || end == null || end <= System.currentTimeMillis() || end <= date || source.isBlank() || source.length > 1000) {
+        val date = reviewTime(reviewed.trim())
+        val end = reviewTime(expiry.trim())
+        val price = ModelPrice(billingProvider(profile) ?: "CUSTOM", profile.model, input.trim(), output.trim(), currency.trim().uppercase(), PriceSource.ACCOUNT_OVERRIDE, source.trim(), reviewedOn = reviewed.trim(), validUntil = end)
+        if (!price.valid() || price.freshness(System.currentTimeMillis()) == dev.chungjungsoo.gptmobile.data.pricing.PriceFreshness.EXPIRED || date == null || date > System.currentTimeMillis() || end == null || end <= System.currentTimeMillis() || end <= date || source.isBlank() || source.length > 1000) {
             status.value = "Enter nonnegative decimal rates, a 3-letter currency, a source, a valid review date and a future expiry date (YYYY-MM-DD)."
             return@launch
         }

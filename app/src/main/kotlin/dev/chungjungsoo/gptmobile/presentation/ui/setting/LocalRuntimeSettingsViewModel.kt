@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
+import dev.chungjungsoo.gptmobile.data.localruntime.removeModelFilesIfIdle
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
@@ -92,12 +93,9 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     fun pinProfile(profile: PlatformV2) = perform { repository.updatePlatformV2(profile.copy(isFavorite = !profile.isFavorite)) }
     fun duplicateProfile(profile: PlatformV2) = perform { repository.addPlatformV2(profile.copy(id = 0, uid = java.util.UUID.randomUUID().toString(), name = "${profile.name} (copy)", isFavorite = false)) }
     suspend fun deleteModelSafely(id: String) {
-        check(!runtime.isBusy) { "Finish the active local response before deleting model files." }
-        runtime.runExclusive {
-            val path = models.resolveDownloadedPath(id)
-            if (path != null && loadedEngineSpec()?.modelPath == path) check(unloadIfIdle(0)) { "The model is still in use; retry when it is idle." }
-            models.deleteModel(id)
-        }
+        dev.chungjungsoo.gptmobile.data.localmodel.LocalModelDownloadPaths.requireValidPathSegments(id)
+        val roots = listOfNotNull(context.filesDir, context.getExternalFilesDir(null)).map { java.io.File(it, "models/$id") }
+        runtime.removeModelFilesIfIdle(roots) { models.deleteModel(id) }
     }
     fun deleteProfile(profile: PlatformV2) = perform { repository.deletePlatformV2(profile) }
     fun setMemoryReserve(value: Int) = perform { repository.mutateFeatureSettings { it.copy(localMemoryReserveMb = value.coerceIn(256, 4096)) } }
@@ -161,23 +159,36 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         _status.value = if (runtime.unloadIfIdle(0L)) "Idle model memory released" else "No idle model to release; active responses are kept running"
     }
     fun createProfile(entry: CatalogEntry, onCreated: (String) -> Unit) = perform {
-        val support = dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogCompatibilityResolver.resolve(entry, dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED, soc, installed = true)
-        require(support.reasons.isEmpty()) { support.reasons.joinToString("; ") }
         val modelPath = checkNotNull(models.resolveDownloadedPath(entry.id)) { "Download this model first" }
+        val capabilities = runtime.inspectModel(modelPath)
+        val declared = capabilities?.backends.orEmpty()
+        val inspected = if (declared.isEmpty()) {
+            entry
+        } else {
+            entry.copy(
+                supportedAccelerators = if (entry.supportedAccelerators.isEmpty()) declared.sorted() else entry.supportedAccelerators.filter { it in declared },
+                socToModelFiles = if (entry.socToModelFiles.isEmpty() && "npu" in declared && !capabilities?.soc.isNullOrBlank()) {
+                    mapOf(requireNotNull(capabilities?.soc) to dev.chungjungsoo.gptmobile.data.catalog.SocVariant(modelFile = java.io.File(modelPath).name, contextSize = capabilities?.contextTokens ?: entry.maxContextTokens))
+                } else {
+                    entry.socToModelFiles
+                }
+            )
+        }
+        val support = dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogCompatibilityResolver.resolve(inspected, dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED, soc, installed = true)
+        require(support.reasons.isEmpty()) { support.reasons.joinToString("; ") }
         dev.chungjungsoo.gptmobile.data.localmodel.LocalModelCompatibility.installedPackageIssue(entry.downloadUrl, modelPath)?.let { error("Blocked package: $it") }
         val existing = repository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.model == entry.id }
         if (existing != null) {
             onCreated(existing.uid)
             return@perform
         }
-        check(LocalAccelerators.choices(entry, soc).any { it.enabled }) { "This package does not match this phone. Choose a compatible download in the marketplace." }
-        val capabilities = runtime.inspectModel(modelPath)
+        check(LocalAccelerators.choices(inspected, soc).any { it.enabled }) { "This package does not match this phone. Choose a compatible download in the marketplace." }
         val profile = PlatformV2(
             name = entry.displayName,
             compatibleType = ClientType.LITERT_LM,
             model = entry.id,
-            accelerator = LocalAccelerators.defaultFrom(entry.supportedAccelerators, entry.socToModelFiles, soc),
-            maxTokens = entry.defaultConfig.maxTokens,
+            accelerator = LocalAccelerators.defaultFrom(inspected.supportedAccelerators, inspected.socToModelFiles, soc),
+            maxTokens = minOf(entry.defaultConfig.maxTokens, capabilities?.contextTokens ?: entry.defaultConfig.maxTokens).coerceAtLeast(1),
             temperature = entry.defaultConfig.temperature,
             topP = entry.defaultConfig.topP,
             topK = entry.defaultConfig.topK,

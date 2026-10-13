@@ -58,6 +58,10 @@ class ProviderPricingRepository @Inject constructor(
                 mutableState.value = mutableState.value.copy(refreshing = true, message = null)
                 try {
                     val models = openRouter.fetchModels(force).getOrThrow()
+                    if (existing.any { it.validatedAt == openRouter.sourceValidatedAt }) {
+                        mutableState.value = mutableState.value.copy(message = "Recent OpenRouter check retained. Missing models and older quotes keep their original dates.")
+                        return@withLock
+                    }
                     val fresh = models.mapNotNull { model ->
                         val p = model.pricing ?: return@mapNotNull null
                         ModelPrice(
@@ -69,7 +73,7 @@ class ProviderPricingRepository @Inject constructor(
                     }.filter(ModelPrice::valid)
                     check(fresh.isNotEmpty()) { "No valid rates returned; last known prices retained." }
                     // Partial/parser omissions do not silently erase the last usable quote.
-                    val merged = (fresh + existing).distinctBy { it.model }
+                    val merged = (fresh + existing.filter { it.freshness(now) != PriceFreshness.EXPIRED }).distinctBy { it.model }.take(10_000)
                     check(preferences.edit().putString("catalogue", json.encodeToString(PriceCatalogue(revision = now.toString(), entries = merged))).commit()) { "Prices could not be saved." }
                     mutableState.value = PricingState(mutableState.value.entries.filterNot { it.provider == "OPENROUTER" } + merged, message = "OpenRouter prices checked. Route and account charges may differ.")
                 } catch (cancelled: CancellationException) {

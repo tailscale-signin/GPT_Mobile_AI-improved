@@ -89,7 +89,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
                 if (health == null || health.attempts == 0) {
                     "Unknown · No requests yet"
                 } else {
-                    "${health.successes}/${health.attempts} useful outcomes · ${health.empty} empty · ${health.canceled} canceled · ${health.failures} failures · ${health.transportSuccesses} HTTP completions${if (health.lowSample) " · Low sample" else ""}"
+                    "${health.successes}/${health.attempts} useful outcomes · ${health.empty} empty · ${health.canceled} canceled · ${health.failures} failures · ${health.transportSuccesses} HTTP completions · ${health.transportFailures} HTTP failures · ${health.transportCanceled} transport cancellations${if (health.lowSample) " · Low sample" else ""}"
                 },
                 style = MaterialTheme.typography.bodySmall
             )

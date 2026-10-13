@@ -107,7 +107,8 @@ internal fun NewChatProfileInsights(insight: ProfileInsight, refresh: () -> Unit
                     price?.extras?.forEach { (dimension, value) -> Text("$dimension: ${price.currency} $value") }
                     if (price?.conditionalPricing == true) Text(stringResource(R.string.insights_conditional))
                     if (price?.sourceUrl?.startsWith("https://") == true) TextButton(onClick = { uri.openUri(price.sourceUrl) }) { Text(stringResource(R.string.insights_source)) }
-                    TextButton(onClick = refresh) { Text(stringResource(R.string.insights_refresh)) }
+                    TextButton(onClick = refresh, enabled = !insight.priceRefreshing) { Text(stringResource(if (insight.priceRefreshing) R.string.insights_refreshing else R.string.insights_refresh)) }
+                    insight.priceMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }, confirmButton = { TextButton(onClick = { detail = null }) { Text(stringResource(R.string.close)) } })

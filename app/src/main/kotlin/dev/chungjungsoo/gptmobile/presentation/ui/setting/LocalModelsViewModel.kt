@@ -171,6 +171,8 @@ class LocalModelsViewModel @Inject constructor(
             val snapshot = modelCatalogRepository.getSnapshot()
             mutableCatalogStatus.value = snapshot
             catalogEntries.value = snapshot.entries
+            var storageIdentity: List<String>? = null
+            var measuredStorage = 0L
             combine(
                 catalogEntries,
                 localModelRepository.observeAll(),
@@ -183,10 +185,15 @@ class LocalModelsViewModel @Inject constructor(
                     localModels.associate { it.catalogEntryId to localModelRepository.diskPartialBytes(it) },
                     deviceSocModel = deviceSocModel
                 )
-                val storage = localModels
-                    .filter { it.status == LocalModelStatus.READY }
-                    .sumOf { it.totalBytes }
-                items to storage
+                val identity = localModels.filter { it.status == LocalModelStatus.READY }
+                    .map { "${it.catalogEntryId}:${it.commitHash}:${it.updatedAt}" }.sorted()
+                if (storageIdentity != identity) {
+                    // Bundle rows track manifest length for integrity checks, not the
+                    // multi-file installation size. Scan on install/delete, not progress.
+                    measuredStorage = localModelRepository.totalStorageUsed()
+                    storageIdentity = identity
+                }
+                items to measuredStorage
             }.collect { (items, storage) ->
                 val scores = localBenchmarkScores(benchmarkStore.history.value)
                 localListState.update {
@@ -300,13 +307,51 @@ class LocalModelsViewModel @Inject constructor(
 
     val importStatus = MutableStateFlow<String?>(null)
     val importActive = MutableStateFlow(false)
+    val importedModelId = MutableStateFlow<String?>(null)
+
+    suspend fun inspectImport(uri: Uri, folder: Boolean): dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val resolver = checkNotNull(importContext).contentResolver
+        var name = uri.lastPathSegment.orEmpty()
+        var size: Long? = null
+        val source = if (folder) {
+            val parent = android.provider.DocumentsContract.getTreeDocumentId(uri)
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(uri, parent)
+            val matches = resolver.query(children, arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
+                buildList {
+                    var count = 0
+                    while (cursor.moveToNext()) {
+                        require(++count <= 1024) { "Folder contains too many entries" }
+                        if (cursor.getString(1) == "manifest.json") add(cursor.getString(0))
+                    }
+                }
+            }.orEmpty()
+            require(matches.size == 1) { "Choose a model folder containing one manifest.json file." }
+            android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, matches.single())
+        } else {
+            resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    name = cursor.getString(0) ?: name
+                    size = if (cursor.isNull(1)) null else cursor.getLong(1).takeIf { it >= 0 }
+                }
+            }
+            uri
+        }
+        val input = resolver.openInputStream(source) ?: error("Source cannot be read; select it again.")
+        dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview.inspect(input, name, size, dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED, folder)
+    }
     init {
         importContext?.let { context ->
             viewModelScope.launch {
                 androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK).collect { jobs ->
-                    val latest = context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).getString("latest", null)
+                    val preferences = context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE)
+                    val latest = preferences.getString("latest", null)
                     val worker = jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.id.toString() == latest }
+                    if (worker?.state?.isFinished == true && worker.id.toString() == latest && preferences.getBoolean("ownsGrant", false)) {
+                        preferences.getString("source", null)?.let { source -> runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(source), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+                        preferences.edit().putBoolean("ownsGrant", false).apply()
+                    }
                     if (worker?.state == androidx.work.WorkInfo.State.SUCCEEDED) catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
+                    importedModelId.value = worker?.takeIf { it.state == androidx.work.WorkInfo.State.SUCCEEDED }?.outputData?.getString("modelId")
                     importActive.value = worker != null && !worker.state.isFinished
                     importStatus.value = worker?.let {
                         when (it.state) {
@@ -327,14 +372,29 @@ class LocalModelsViewModel @Inject constructor(
     fun importCustomModel(contentResolver: ContentResolver, uri: Uri, folder: Boolean = false) {
         val context = importContext ?: return
         if (importActive.value) return
+        val ownsGrant = contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }
         runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }.onFailure {
             importStatus.value = "This source cannot grant durable read access. Copy it to Documents and choose it again."
             return
         }
         val request = androidx.work.OneTimeWorkRequestBuilder<dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker>()
             .setInputData(androidx.work.Data.Builder().putString("source", uri.toString()).putBoolean("folder", folder).build()).build()
-        context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).edit().putString("latest", request.id.toString()).apply()
-        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK, androidx.work.ExistingWorkPolicy.KEEP, request)
+        importActive.value = true
+        importedModelId.value = null
+        context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).edit().putString("latest", request.id.toString()).putString("source", uri.toString()).putBoolean("ownsGrant", ownsGrant).apply()
+        viewModelScope.launch {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK, androidx.work.ExistingWorkPolicy.KEEP, request).result.get()
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                importActive.value = false
+                if (ownsGrant) runCatching { contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                customDialogState.value = LocalModelsDialog.ImportFailed("Import could not be queued. Choose the source again.")
+            }
+        }
     }
 
     fun startHuggingFaceSignIn(): Intent? = downloadActions.startHuggingFaceSignIn()

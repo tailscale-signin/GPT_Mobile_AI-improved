@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-internal data class ProfileInsight(val profile: PlatformV2, val score: ScoreboardEntry?, val community: Boolean, val price: ModelPrice?, val settings: AppFeatureSettings, val now: Long, val localRun: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun? = null)
+internal data class ProfileInsight(val profile: PlatformV2, val score: ScoreboardEntry?, val community: Boolean, val price: ModelPrice?, val settings: AppFeatureSettings, val now: Long, val localRun: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun? = null, val priceRefreshing: Boolean = false, val priceMessage: String? = null)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -56,7 +56,9 @@ class NewChatInsightsViewModel @Inject constructor(
                     if (features.newChatPrices) pricing.resolve(profile, features, prices.entries, now) else null,
                     features,
                     now,
-                    history.filter { it.local && it.finished && !it.canceled && it.stoppedReason == null && it.profileUid == profile.uid && it.model == profile.model && it.mode in setOf(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode.QUICK, dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode.FULL) }.maxByOrNull { it.startedAt }
+                    if (features.newChatScores && profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM) history.filter { it.local && it.finished && !it.canceled && it.stoppedReason == null && it.profileUid == profile.uid && it.model == profile.model && it.mode in setOf(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode.QUICK, dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode.FULL) }.maxByOrNull { it.startedAt } else null,
+                    prices.refreshing,
+                    prices.message
                 )
             }
         }.onStart {

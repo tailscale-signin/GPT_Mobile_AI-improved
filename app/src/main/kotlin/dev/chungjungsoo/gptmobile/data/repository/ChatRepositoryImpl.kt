@@ -1664,6 +1664,15 @@ class ChatRepositoryImpl(
                 goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                 turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
                 eligible = { runtimeEligibleForAssist(it) },
+                profileAllowed = { original ->
+                    settingRepository.fetchPlatformV2s().any { current ->
+                        current.uid == original.uid &&
+                            current.enabled &&
+                            !current.excludesMemory() &&
+                            current.compatibleType == ClientType.LITERT_LM &&
+                            dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(current) == dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(original)
+                    }
+                },
                 generate = { target, task, cap -> delegateToProfile(target, task, cap, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
                 notice = { emit(ApiState.Notice(it)) },
                 stillEnabled = {

@@ -290,10 +290,10 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                     throw error
                 }
                 val execution = currentCoroutineContext()
-                val installed = dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(outputTmpFile.inputStream(), transferRoot(), catalogEntryId) {
+                val installed = dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(outputTmpFile.inputStream(), transferRoot(), catalogEntryId, checkCurrent = {
                     execution.ensureActive()
                     if (isStopped) throw CancellationException("Bundle installation cancelled")
-                }
+                })
                 check(installed is dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult.Success) { "Bundle installation failed; review the package manifest and assets" }
                 val destination = File(installed.absoluteFilePath).parentFile!!
                 val metadata = File(outputDir, ".catalog.json")

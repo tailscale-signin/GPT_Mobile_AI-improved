@@ -43,6 +43,10 @@ fun researchStartBlockReason(selection: MultiSearchResearchSelection, settings: 
     else -> null
 }
 
-fun academicUnlockReason(selection: MultiSearchResearchSelection, settings: AppFeatureSettings, profileUid: String, networkAllowed: Boolean): String? =
+fun researchReadinessReason(selection: MultiSearchResearchSelection, settings: AppFeatureSettings, profileUid: String, networkAllowed: Boolean): String? =
     researchStartBlockReason(selection, settings, profileUid, networkAllowed)
         ?: if (selection.scope != ResearchContentScope.WEB_ONLY && !settings.delegationFor(profileUid).deepResearch.academicSources) "Enable Papers and studies consent" else null
+
+/** Academic execution remains blocked in Web only, even when web research is ready. */
+fun academicUnlockReason(selection: MultiSearchResearchSelection, settings: AppFeatureSettings, profileUid: String, networkAllowed: Boolean): String? =
+    if (selection.scope == ResearchContentScope.WEB_ONLY) "Web-only scope selected" else researchReadinessReason(selection, settings, profileUid, networkAllowed)

@@ -167,7 +167,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             val probe = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selected.path, LocalAccelerators.normalize(profile.accelerator), 2048, tuningLocked = true)
             allowVerification(probe)
             val metadata = inspectModel(selected.path)
-            val spec = probe.copy(maxTokens = metadata?.contextTokens?.takeIf { !metadata.dynamicContext } ?: minOf(metadata?.contextTokens ?: 2048, 4096))
+            val spec = probe.copy(maxTokens = metadata?.takeIf { !it.dynamicContext }?.contextTokens ?: minOf(metadata?.contextTokens ?: 2048, 4096))
             metadata?.validate(spec)
             allowVerification(spec)
             loadEngine(spec)

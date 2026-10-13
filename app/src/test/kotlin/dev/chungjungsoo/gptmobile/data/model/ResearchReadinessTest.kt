@@ -11,7 +11,8 @@ class ResearchReadinessTest {
 
     @Test fun `web research does not require academic consent or delegation`() {
         assertNull(researchStartBlockReason(selection, enabled, "profile", true))
-        assertNull(academicUnlockReason(selection, enabled, "profile", true))
+        assertNull(researchReadinessReason(selection, enabled, "profile", true))
+        assertEquals("Web-only scope selected", academicUnlockReason(selection, enabled, "profile", true))
         assertEquals("Enable Papers and studies consent", academicUnlockReason(selection.copy(scope = ResearchContentScope.PAPERS_ONLY), enabled, "profile", true))
     }
 

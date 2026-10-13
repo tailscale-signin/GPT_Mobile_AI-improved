@@ -1961,6 +1961,11 @@ class ChatRepositoryImpl(
                     preparedEvidenceComplete = research.pagesRead > 0
                     preparedEvidenceReviewed = false
                     if (research.handoff.isNotBlank()) appendPreparedEvidence(research.handoff)
+                    if (research.pagesRead == 0) {
+                        appendPreparedEvidence("Research acquisition returned no readable source text. Discovery metadata or search snippets are not full-text evidence. Do not claim that research completed or that sources were read. Explain the missing evidence.")
+                        emit(ApiState.Notice("Research returned no readable sources. Check the engine status and connection credentials in Plugins & Tools; any discovery leads remain in Research history.", persistent = true))
+                    }
+                    AppLogRecorder.record("Research", "ACQUISITION_FINISHED · pagesRead=${research.pagesRead} · reviewed=false · status=${if (research.pagesRead > 0) "EVIDENCE_AVAILABLE" else "NO_READABLE_SOURCES"}", if (research.pagesRead > 0) "I" else "W")
                     emit(ApiState.Notice("Deep Research retained ${research.pagesRead}/${directConfig.deepResearch.maxPages} readable sources. Evidence is unreviewed; see source coverage and stop reasons.", persistent = false))
                 }
                 if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && (processingOwnership == 0 || !isGitHubTask(latestUser.content)) && contextPlan.tools.any { it.name == "delegate_to_model" }) {

@@ -606,7 +606,7 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         AttachmentPayloadCache.clear()
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, false)
+        if (!exitOwnsDiagnosticPrivacy) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, false)
         super.onCleared()
     }
 
@@ -1100,11 +1100,7 @@ class ChatViewModel @Inject constructor(
         if (assistantIndex >= _indexStates.value.size || assistantIndex < 0) return
         if (platformIndex >= enabledPlatformsInChat.size || platformIndex < 0) return
 
-        _indexStates.update {
-            val updatedIndex = it.toMutableList()
-            updatedIndex[assistantIndex] = platformIndex
-            updatedIndex
-        }
+        _indexStates.update { states -> states.mapIndexed { index, value -> if (index == assistantIndex) platformIndex else value } }
     }
 
     fun addSelectedFile(filePath: String) {
@@ -1226,6 +1222,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private var leavingConversation = false
+    private var exitOwnsDiagnosticPrivacy = false
 
     fun leaveConversation(done: () -> Unit) {
         if (leavingConversation) return
@@ -1234,10 +1231,15 @@ class ChatViewModel @Inject constructor(
         val text = question.text.toString()
         val attachments = _selectedAttachments.value.mapNotNull { it.attachment }
         val saveDraft = composerRestored
+        exitOwnsDiagnosticPrivacy = room.isTemporary
         conversationExitWork.enqueue(room.id) {
             if (room.isTemporary) {
-                agentRunCoordinator.cancelChatAndJoin(room.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
-                chatRepository.deleteChatsV2(listOf(room))
+                try {
+                    agentRunCoordinator.cancelChatAndJoin(room.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
+                    chatRepository.deleteChatsV2(listOf(room))
+                } finally {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, false)
+                }
             } else if (room.id > 0 && saveDraft) {
                 draftMutex.withLock {
                     val encoded = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), attachments)

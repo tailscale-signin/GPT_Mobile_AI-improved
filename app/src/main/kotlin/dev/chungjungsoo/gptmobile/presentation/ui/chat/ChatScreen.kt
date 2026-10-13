@@ -870,7 +870,7 @@ fun ChatScreen(
                 delegationProfiles = appAllPlatforms.filter { it.enabled && it.uid !in activePlatformUids && !it.excludesMemory() },
                 usesDefaultDelegation = chatToolConfig.delegation == null,
                 researchSelection = chatToolConfig.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(currentProfileUid).strategy),
-                researchUnlockReason = dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(chatToolConfig.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(), featureSettings, currentProfileUid, appAllPlatforms.firstOrNull { it.uid == currentProfileUid }?.let { !it.disableAllTools && !it.disableRemoteTools } == true),
+                researchUnlockReason = dev.chungjungsoo.gptmobile.data.model.researchReadinessReason(chatToolConfig.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(), featureSettings, currentProfileUid, appAllPlatforms.firstOrNull { it.uid == currentProfileUid }?.let { !it.disableAllTools && !it.disableRemoteTools } == true),
                 academicGateways = academicGateways,
                 onResearchChanged = chatViewModel::setConversationResearch,
                 onAcademicConsent = { chatViewModel.grantAcademicResearch(currentProfileUid, chatToolConfig.research?.scope != dev.chungjungsoo.gptmobile.data.model.ResearchContentScope.WEB_ONLY) },

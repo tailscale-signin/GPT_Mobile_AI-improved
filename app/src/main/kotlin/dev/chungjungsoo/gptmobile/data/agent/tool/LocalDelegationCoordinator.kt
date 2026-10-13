@@ -120,6 +120,7 @@ internal class LocalDelegationCoordinator(
     private val quarantinedWorkerUids = ConcurrentHashMap.newKeySet<String>()
     private val observedRequestOverheadTokens = ConcurrentHashMap<String, AtomicLong>()
     private val delegationCanceledByUser = AtomicBoolean(false)
+    private val cancellationCause = AtomicReference<dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin?>(null)
     private val userSelectedRecoveryProfile = AtomicReference<PlatformV2?>(null)
     private val lastFailure = AtomicReference<String?>(null)
     private val activeRequests = ConcurrentHashMap.newKeySet<Deferred<String?>>()
@@ -177,7 +178,8 @@ internal class LocalDelegationCoordinator(
         }
     }
 
-    fun cancelDelegation() {
+    fun cancelDelegation(origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.UNKNOWN) {
+        cancellationCause.compareAndSet(null, origin)
         synchronized(reviewStateLock) { delegationCanceledByUser.set(true) }
         activeRequests.forEach { it.cancel(CancellationException("PRIMARY_ONLY_HANDOFF")) }
     }
@@ -1180,7 +1182,7 @@ internal class LocalDelegationCoordinator(
             }
             when (decision) {
                 DelegationRecoveryDecision.PrimaryOnly -> {
-                    cancelDelegation()
+                    cancelDelegation(if (candidates.isEmpty()) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PARENT_FAILURE else dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_PRIMARY_ONLY)
                     val detail = if (candidates.isEmpty()) {
                         "no eligible fallback delegate"
                     } else {
@@ -1196,7 +1198,7 @@ internal class LocalDelegationCoordinator(
                 is DelegationRecoveryDecision.SwitchProfile -> {
                     val selected = candidates.firstOrNull { it.uid == decision.profileUid }
                     if (selected == null) {
-                        cancelDelegation()
+                        cancelDelegation(dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PERMISSION_REVOKED)
                         AppLogRecorder.record("Delegation", "Selected failover no longer eligible · failed=$failedUid · selected=${decision.profileUid}", "W")
                         return null
                     }
@@ -1590,6 +1592,7 @@ internal class LocalDelegationCoordinator(
                         generate = { prompt, tokens -> workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true) },
                         journal = researchJournal,
                         monotonicMs = nowMs,
+                        cancellationOrigin = { cancellationCause.get()?.name ?: researchJournal?.cancellationOrigin() ?: "UNKNOWN" },
                         stillEnabled = { !delegationCanceledByUser.get() }
                     ).run(LongResponsePolicy.evidenceTask(task), "$callId:$requestIndex")
                 } else {

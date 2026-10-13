@@ -624,4 +624,14 @@ class AndroidResearchWorkflowTest {
         assertEquals(1, journal.snapshot!!.claims.size)
         assertTrue(journal.snapshot!!.claims.single().exactQuoteVerified)
     }
+
+    @Test fun disabledResearchUsesExplicitOriginAndNeverInfersUserStopOrRevocation() = runBlocking {
+        for (origin in listOf("UNKNOWN", "USER_PRIMARY_ONLY", "PERMISSION_REVOKED")) {
+            val journal = Journal()
+            AndroidResearchWorkflow(config(), emptyList(), { _, _ -> error("Stopped work must not dispatch") }, journal, stillEnabled = { false }, cancellationOrigin = { origin }).run("Research fixture", "stopped-$origin")
+            assertEquals(origin, journal.snapshot!!.cancellationOrigin)
+            assertEquals(if (origin == "PERMISSION_REVOKED") "Permission revoked" else "Stopped", journal.snapshot!!.phase)
+            assertFalse(journal.snapshot!!.complete)
+        }
+    }
 }

@@ -1442,11 +1442,13 @@ class ChatRepositoryImpl(
                 }
             )
             delegationControlJob = launch {
-                while (isActive) {
+                while (isActive && admittedPolicy.enabled && !resumeWriterOnly && taskRecovery?.primaryOnly != true) {
                     val control = dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.modes.value[runId]
                     if (control == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PRIMARY_ONLY || !effectiveDelegationSettings().enabled || admittedPolicy.remoteWorkersAllowed() && !effectiveDelegationSettings().remoteWorkersAllowed()) {
+                        val origin = if (control == dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.Mode.PRIMARY_ONLY) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PERMISSION_REVOKED
+                        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]?.mark(origin)
                         dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.primaryOnly(runId)
-                        localDelegation.cancelDelegation()
+                        localDelegation.cancelDelegation(origin)
                         break
                     }
                     delay(250L)

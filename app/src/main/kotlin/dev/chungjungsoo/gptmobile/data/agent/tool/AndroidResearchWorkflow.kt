@@ -54,7 +54,8 @@ internal class AndroidResearchWorkflow(
     journal: ResearchJournal? = null,
     private val stillEnabled: suspend () -> Boolean = { true },
     private val now: () -> Long = System::currentTimeMillis,
-    private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 }
+    private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val cancellationOrigin: () -> String = { journal?.cancellationOrigin() ?: "UNKNOWN" }
 ) {
     private val journal = journal?.scoped(researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString()), tools.all { it.connectionUid == null })
     private val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(config.deepResearch)
@@ -268,18 +269,16 @@ internal class AndroidResearchWorkflow(
                 true
             }
             if (!collecting()) state = state.copy(notes = state.notes + "Collection stopped to preserve synthesis and review time; coverage may be incomplete.")
-            if (journal?.stopRequested() == true) state = state.copy(cancellationOrigin = journal.cancellationOrigin(), notes = state.notes + "Research stopped; origin=${journal?.cancellationOrigin() ?: "UNKNOWN"}; coverage may be incomplete.")
+            if (stopped()) state = state.copy(cancellationOrigin = cancellationOrigin(), notes = state.notes + "Research stopped; origin=${cancellationOrigin()}; coverage may be incomplete.")
             if (exhausted) state = state.copy(notes = state.notes + "Shared research execution budget reached; completed evidence was retained and downstream reservations were preserved.")
             checkpoint(
-                if (journal?.stopRequested() == true) {
-                    "Stopped"
+                if (stopped()) {
+                    if (state.cancellationOrigin == "PERMISSION_REVOKED") "Permission revoked" else "Stopped"
                 } else if (noResearchNeeded) {
                     "Not needed"
-                } else if (exhausted || !collecting() || !stillEnabled() || sources.values.readableWorkCount() < sourceTarget) {
+                } else if (exhausted || !collecting() || sources.values.readableWorkCount() < sourceTarget) {
                     if (exhausted || !collecting()) {
                         "User limit reached"
-                    } else if (!stillEnabled()) {
-                        "Permission revoked"
                     } else {
                         "No more eligible evidence"
                     }
@@ -292,7 +291,7 @@ internal class AndroidResearchWorkflow(
             )
         } catch (cancelled: CancellationException) {
             val cancellation = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
-            state = state.copy(cancellationOrigin = if (cancelled is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellation?.record?.origin?.name ?: "UNKNOWN")
+            state = state.copy(cancellationOrigin = if (cancelled is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellation?.record?.origin?.name ?: cancellationOrigin())
             withContext(NonCancellable) { checkpoint("Interrupted") }
             throw cancelled
         } catch (failure: Exception) {

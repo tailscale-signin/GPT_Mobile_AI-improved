@@ -269,7 +269,7 @@ class LocalRuntimeImpl(
         val finished = AtomicBoolean(false)
         val overflow = AtomicBoolean(false)
         fun offer(event: LocalRuntimeEvent) {
-            if (!buffer.offer(event) && overflow.compareAndSet(false, true)) {
+            if (!buffer.offer(event) && overflow.compareAndSet(false, true) && !completion.isCompleted) {
                 launch(Dispatchers.IO) { runCatching { activeConversation.cancelProcess() } }
             }
         }
@@ -334,7 +334,7 @@ class LocalRuntimeImpl(
                                         )
                                     )
                                 )
-                                offer(LocalRuntimeEvent.Done)
+                                acknowledgeNativeTerminal(completion) { offer(LocalRuntimeEvent.Done) }
                             } finally {
                                 completion.complete(Unit)
                             }
@@ -342,8 +342,9 @@ class LocalRuntimeImpl(
 
                         override fun onError(throwable: Throwable) {
                             if (!finished.compareAndSet(false, true)) return
-                            buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))
-                            completion.complete(Unit)
+                            acknowledgeNativeTerminal(completion) {
+                                buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))
+                            }
                         }
                     }
                 )

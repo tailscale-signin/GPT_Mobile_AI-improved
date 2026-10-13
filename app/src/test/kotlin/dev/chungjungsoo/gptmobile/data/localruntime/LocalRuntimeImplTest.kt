@@ -183,6 +183,7 @@ class LocalRuntimeImplTest {
         assertEquals(10, native?.decodeTokens)
         assertEquals(25.0, native?.decodeTokensPerSecond)
         verify(exactly = 1) { conversation.getBenchmarkInfo() }
+        verify(exactly = 0) { conversation.cancelProcess() }
     }
 
     @OptIn(ExperimentalApi::class)

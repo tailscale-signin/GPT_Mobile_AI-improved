@@ -305,14 +305,38 @@ class ChatRepositoryImpl(
 
     private val assistAdmission = dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission()
 
-    private suspend fun runtimeEligibleForAssist(target: PlatformV2): Boolean {
-        if (localRuntime.isBusy || assistAdmission.rejection(localRuntime.getHardwareState(), dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission.availableMemory(context), 128L * 1024 * 1024, 768L * 1024 * 1024, optional = true) != null) return false
-        val state = localRuntime.state.value
-        val record = state.engineSpec ?: return false
-        val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull() ?: return false
-        return record.modelPath == selection.path &&
-            !localRuntime.hasOpenConversation() &&
-            !localRuntime.getHardwareState().isThrottlingRequired
+    private suspend fun runtimeEligibleForAssist(target: PlatformV2, policy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy): Boolean {
+        fun status(state: dev.chungjungsoo.gptmobile.data.assist.AssistReadiness, reason: String) = dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(state, reason, target.uid)
+        val unavailable = dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.SKIPPED
+        if (localRuntime.isBusy) return status(unavailable, "Local Assist skipped: model busy")
+        if (localRuntime.hasOpenConversation()) return status(unavailable, "Local Assist skipped: interactive conversation is open")
+        assistAdmission.rejection(localRuntime.getHardwareState(), dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission.availableMemory(context), 128L * 1024 * 1024, 768L * 1024 * 1024, optional = true)?.let { return status(unavailable, it) }
+        val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull()
+            ?: return status(unavailable, "Local Assist unavailable: selected model is not installed")
+        val record = localRuntime.state.value.engineSpec
+        if (record != null) {
+            if (record.modelPath != selection.path || record.accelerator != dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)) return status(unavailable, "Local Assist skipped: another runtime configuration is loaded")
+            return status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready")
+        }
+        if (policy.preparation == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) return status(unavailable, "Local Assist skipped: warm-only policy; model is not loaded")
+        status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.PREPARING, "Preparing selected Local Assist model")
+        val prepared = try {
+            kotlinx.coroutines.withTimeoutOrNull(policy.validated().loadTimeoutSeconds * 1000L) {
+                localRuntime.tryRunExclusive {
+                    if (hasOpenConversation()) return@tryRunExclusive false
+                    val metadata = inspectModel(selection.path)
+                    val backend = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)
+                    check(metadata?.backends?.let { backend in it } != false) { "Selected backend is unsupported by this artifact" }
+                    loadEngine(dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selection.path, backend, minOf(metadata?.contextTokens ?: 4096, 4096), workload = "assist", expectedOutputTokens = 128))
+                    true
+                }
+            } == true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        return if (prepared) status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready") else status(unavailable, "Local Assist unavailable: preparation failed, timed out, or model became busy; see runtime diagnostics")
     }
 
     override suspend fun validateBenchmarkProfile(platform: PlatformV2) {
@@ -1232,14 +1256,18 @@ class ChatRepositoryImpl(
             requestRole: String = "delegate"
         ): String {
             activity.set(if (requestRole == "reviewer") "Reviewing helper result" else "Working with helper")
-            val invocation = UUID.randomUUID().toString()
-            val traceProfile = if (requestRole == "reviewer") "${target.name} · Reviewer" else target.name
-            send(ApiState.DelegationText(invocation, traceProfile, "", !target.isPrivateDestination()))
+            var invocation: String? = null
+            val traceProfile = when (requestRole) {
+                "reviewer" -> "${target.name} · Reviewer"
+                "assist" -> "${target.name} · Local Assist"
+                else -> target.name
+            }
             val delegateText = StringBuilder()
             var lastDelegateSnapshot = 0L
             try {
-                return delegateToProfile(target, admittedTemplate?.takeIf { requestRole != "reviewer" }?.let { it.description + "\n\n" + task } ?: task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${taskRecovery?.sourceMessageId ?: it.id}" } ?: runId, inputCap, { event ->
+                return delegateToProfile(target, admittedTemplate?.takeIf { requestRole == "delegate" }?.let { it.description + "\n\n" + task } ?: task, cap, runId, effectiveUserMessages.lastOrNull()?.let { "${it.chatId}:${taskRecovery?.sourceMessageId ?: it.id}" } ?: runId, inputCap, { event ->
                     progress(event)
+                    if (event.kind == DelegateProgressKind.INVOCATION_LINKED) invocation = event.invocationId
                     if (event.kind == DelegateProgressKind.TOOL_ACTIVITY) activity.set("Using helper tools")
                     event.textDelta?.let {
                         // This is the bounded UI preview only; delegateToProfile retains the full handoff.
@@ -1247,7 +1275,7 @@ class ChatRepositoryImpl(
                         val now = System.nanoTime()
                         if (now - lastDelegateSnapshot >= 100_000_000L) {
                             lastDelegateSnapshot = now
-                            trySend(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
+                            invocation?.let { trySend(ApiState.DelegationText(it, traceProfile, delegateText.toString(), !target.isPrivateDestination())) }
                         }
                     }
                 }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools.filter { (admittedTemplate == null && !admittedReadOnlyPlan) || it.shareableReadOnly } else emptyList(), requestRole = requestRole)
@@ -1255,7 +1283,7 @@ class ChatRepositoryImpl(
                 // A final suspending snapshot recovers any intermediate UI update
                 // skipped while the channel was busy. It is never the primary answer.
                 if (kotlinx.coroutines.currentCoroutineContext().isActive) {
-                    send(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
+                    invocation?.let { send(ApiState.DelegationText(it, traceProfile, delegateText.toString(), !target.isPrivateDestination())) }
                 }
             }
         }
@@ -1756,7 +1784,7 @@ class ChatRepositoryImpl(
                 policy = runFeatures.localAssistPolicy,
                 goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                 turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
-                eligible = { runtimeEligibleForAssist(it) },
+                eligible = { runtimeEligibleForAssist(it, runFeatures.localAssistPolicy) },
                 profileAllowed = { original ->
                     settingRepository.fetchPlatformV2s().any { current ->
                         current.uid == original.uid &&
@@ -1766,7 +1794,7 @@ class ChatRepositoryImpl(
                             dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(current) == dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(original)
                     }
                 },
-                generate = { target, task, cap -> delegateToProfile(target, task, cap, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
+                generate = { target, task, cap -> generateDelegate(target, task, cap, inputCap = 4096, allowTools = false, requestRole = "assist") },
                 notice = { emit(ApiState.Notice(it)) },
                 stillEnabled = {
                     val live = settingRepository.getFeatureSettings()

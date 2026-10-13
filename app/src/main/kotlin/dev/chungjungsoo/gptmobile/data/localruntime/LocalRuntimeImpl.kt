@@ -311,7 +311,7 @@ class LocalRuntimeImpl(
                                 val native = if (loadedSpec?.nativeMetricsEnabled == true) {
                                     runCatching {
                                         val info = activeConversation.getBenchmarkInfo()
-                                        NativeInferenceMetrics(info.lastPrefillTokenCount, info.lastDecodeTokenCount, info.lastPrefillTokensPerSecond, info.lastDecodeTokensPerSecond).takeIf { it.isValid }
+                                        NativeInferenceMetrics(info.lastPrefillTokenCount, info.lastDecodeTokenCount, info.lastPrefillTokensPerSecond, info.lastDecodeTokensPerSecond).takeIf { it.hasValidTokenCounts }
                                     }.getOrNull()
                                 } else {
                                     null

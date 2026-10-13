@@ -108,6 +108,7 @@ configurations.configureEach {
 }
 
 dependencies {
+    implementation(project(":local-gguf-runtime"))
     implementation("org.slf4j:slf4j-api:2.0.19")
     artifactTypes.maybeCreate("aar").attributes.attribute(privateMemoryAttribute, false)
     registerTransform(PrivateMemoryRuntime::class) {
@@ -127,6 +128,7 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("boolean", "LOCAL_INFERENCE_PROCESS", (providers.gradleProperty("localInferenceProcess").orNull != "false").toString())
         applicationId = if (geniexRuntime) "dev.melo.gptmobile.improved.geniex" else "dev.melo.gptmobile.improved"
         buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())
+        buildConfigField("boolean", "GGUF_ENABLED", (providers.gradleProperty("ggufRuntime").orNull != "false").toString())
         buildConfigField("String", "GENIEX_VERSION", "\"${libs.versions.geniex.get()}\"")
         // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.
         buildConfigField("boolean", "COMBINED_SECTION_RECOVERY", providers.gradleProperty("combinedSectionRecovery").map { (it != "false").toString() }.getOrElse("true"))

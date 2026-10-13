@@ -30,6 +30,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val active by viewModel.active.collectAsStateWithLifecycle()
+    val readiness by dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.state.collectAsStateWithLifecycle()
     val policy = settings.localAssistPolicy.validated()
     val target = profiles.firstOrNull { it.uid == policy.profileUid }
     var advanced by remember { mutableStateOf(false) }
@@ -45,7 +46,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                         !target.enabled -> stringResource(R.string.local_ai_assist_worker_disabled)
                         active.engineSpec?.modelPath?.contains("/models/${target.model}/") != true -> stringResource(R.string.local_ai_assist_worker_waiting)
                         active.engineSpec == null -> "Waiting for a warm model"
-                        else -> "Worker selected · readiness checked before each task"
+                        else -> readiness.reason
                     },
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -58,6 +59,15 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                     FilterChip(policy.profileUid == profile.uid, { viewModel.updateAssist { it.copy(profileUid = profile.uid) } }, label = { Text(profile.name) })
                 }
                 TextButton(onClick = onMarketplace) { Text(stringResource(R.string.local_assist_screen_4)) }
+            }
+        }
+        item {
+            SettingsPanel(stringResource(R.string.assist_preparation)) {
+                Text(stringResource(R.string.assist_preparation_help), style = MaterialTheme.typography.bodySmall)
+                dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.entries.forEach { mode ->
+                    FilterChip(policy.preparation == mode, { viewModel.updateAssist { it.copy(preparation = mode) } }, label = { Text(stringResource(if (mode == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) R.string.assist_warm_only else R.string.assist_auto_prepare)) })
+                }
+                if (settings.localAssist) Text(readiness.reason)
             }
         }
         item {

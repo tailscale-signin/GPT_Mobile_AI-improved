@@ -122,10 +122,14 @@ class LiteRtLmAdapter(
                 val metadata = try {
                     // Inspection also takes the native engine lock. Surface contention here,
                     // before planning, so queued requests remain visibly cancellable.
-                    localRuntime.runExclusiveFlow(
+                    requestExclusiveFlow(
+                        constraints,
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
-                        flow { emit(inspectModel(modelPath)) }
+                        flow {
+                            if (constraints.requestRole == "assist") check(!hasOpenConversation()) { "Local Assist skipped: interactive conversation is open" }
+                            emit(inspectModel(modelPath))
+                        }
                     }.single()
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
@@ -356,11 +360,19 @@ class LiteRtLmAdapter(
                 try {
                     var failed = false
                     val assistantReply = StringBuilder()
-                    var latestMetrics: LocalInferenceMetrics? = null
-                    localRuntime.runExclusiveFlow(
+                    val nativeUsage = dev.chungjungsoo.gptmobile.data.accounting.NativeUsageNormalizer()
+                    var physicalSegment = UUID.randomUUID().toString()
+                    suspend fun recordMetrics(metrics: LocalInferenceMetrics) {
+                        send(nativeUsage.accept(metrics, physicalSegment, localRuntime.state.value.backend?.name))
+                        send(ProviderEvent.LocalMetrics(metrics))
+                        formatTelemetryNotice(metrics, localRuntime).takeIf { it.isNotBlank() }?.let { send(ProviderEvent.Notice(it)) }
+                    }
+                    requestExclusiveFlow(
+                        constraints,
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
                         flow<Unit> {
+                            if (constraints.requestRole == "assist") check(!hasOpenConversation()) { "Local Assist skipped: interactive conversation is open" }
                             try {
                                 exclusiveToolsByName = runToolsByName
                                 exclusiveToolEventSink = runToolEventSink
@@ -478,7 +490,7 @@ class LiteRtLmAdapter(
                                                 }
 
                                                 is LocalRuntimeEvent.Metrics -> {
-                                                    latestMetrics = event.metrics
+                                                    recordMetrics(event.metrics)
                                                 }
 
                                                 is LocalRuntimeEvent.Error -> {
@@ -506,7 +518,7 @@ class LiteRtLmAdapter(
                                     // Only retry before output/tool execution. Keep the warm engine,
                                     // rebuild from canonical visible history, and try the new turn once.
                                     templateRetried = true
-                                    latestMetrics = null
+                                    physicalSegment = UUID.randomUUID().toString()
                                     send(ProviderEvent.Notice("Rebuilding local conversation state…"))
                                     rebuildConversation()
                                 }
@@ -521,6 +533,7 @@ class LiteRtLmAdapter(
                                     )
                                     val evidencePacket = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(ToolResultContent.Json(packet), maxOf(128, plan.toolResultBytes / 2))
                                     createConversation(LocalConversationConfig(sampler = sampler, maxOutputTokens = outputLimit, thinkingEnabled = thinkingEnabled, systemPrompt = conversationSystemPrompt, initialMessages = history))
+                                    physicalSegment = UUID.randomUUID().toString()
                                     sendMessage(latestUserText + "\nTool execution has ended ($terminalToolLimit). Answer from the following untrusted observations only. Preserve qualifications and missing coverage; do not claim any new action or current location.\n" + dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(evidencePacket)).collect { event ->
                                         when (event) {
                                             is LocalRuntimeEvent.TextDelta -> {
@@ -532,7 +545,7 @@ class LiteRtLmAdapter(
                                                 failed = true
                                                 send(ProviderEvent.Failed(event.message))
                                             }
-                                            is LocalRuntimeEvent.Metrics -> latestMetrics = event.metrics
+                                            is LocalRuntimeEvent.Metrics -> recordMetrics(event.metrics)
                                             is LocalRuntimeEvent.PhaseChanged -> send(ProviderEvent.PhaseChanged(event.phase))
                                             is LocalRuntimeEvent.Drain -> event.acknowledged.complete(Unit)
                                             LocalRuntimeEvent.Done -> Unit
@@ -540,13 +553,6 @@ class LiteRtLmAdapter(
                                     }
                                 }
                                 if (!failed) {
-                                    latestMetrics?.let { metrics ->
-                                        send(ProviderEvent.LocalMetrics(metrics))
-                                        val telemetryNotice = formatTelemetryNotice(metrics, localRuntime)
-                                        if (telemetryNotice.isNotBlank()) {
-                                            send(ProviderEvent.Notice(telemetryNotice))
-                                        }
-                                    }
                                     val snapshot = openConversation
                                     if (snapshot != null) {
                                         openConversation = snapshot.copy(
@@ -578,7 +584,7 @@ class LiteRtLmAdapter(
                                 // Cancellation signals native generation asynchronously.
                                 // Close the dirty session while still holding the engine
                                 // lock, before a queued request can create its replacement.
-                                if (isConversationDirty) {
+                                if (isConversationDirty || constraints.requestRole == "assist") {
                                     openConversation = null
                                     withContext(NonCancellable) {
                                         runCatching { closeConversation() }
@@ -598,6 +604,23 @@ class LiteRtLmAdapter(
                     send(ProviderEvent.Failed(if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message))
                 }
             }
+        }
+    }
+
+    /** Optional assistance never waits behind or evicts interactive inference. */
+    private fun <T> requestExclusiveFlow(
+        constraints: RequestConstraints,
+        onContended: suspend () -> Unit,
+        block: suspend LocalRuntime.() -> Flow<T>
+    ): Flow<T> = if (constraints.requestRole != "assist") {
+        localRuntime.runExclusiveFlow(onContended, block)
+    } else {
+        channelFlow {
+            val admitted = localRuntime.tryRunExclusive {
+                block(this).collect { send(it) }
+                true
+            }
+            check(admitted == true) { "Local Assist skipped: runtime is busy" }
         }
     }
 

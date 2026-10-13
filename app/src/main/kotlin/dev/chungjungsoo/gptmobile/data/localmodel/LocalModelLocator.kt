@@ -27,6 +27,7 @@ sealed interface LocalModelImportResult {
             UNREADABLE_SOURCE,
             UNSUPPORTED_FORMAT,
             INVALID_MODEL,
+            RUNTIME_UNAVAILABLE,
             DESTINATION_WRITE_FAILED
         }
     }

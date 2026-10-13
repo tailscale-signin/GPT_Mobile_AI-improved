@@ -20,8 +20,16 @@ internal object LocalAssistToolBinder {
         stillEnabled: suspend () -> Boolean
     ): List<ResolvedAgentTool> {
         if (!enabled) return tools
-        val target = candidates.firstOrNull { it.uid == policy.profileUid || policy.profileUid == null && eligible(it) } ?: return tools
-        val assist = AssistCoordinator(goal, { profileAllowed(target) && eligible(target) }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId)
+        AssistReadinessResolver.publish(AssistReadiness.CHECKING, "Local Assist ready · waiting for an eligible evidence task", policy.profileUid)
+        val target = candidates.firstOrNull { it.uid == policy.profileUid || policy.profileUid == null && profileAllowed(it) } ?: run {
+            notice("Local Assist skipped: no eligible selected profile")
+            return tools
+        }
+        val assist = AssistCoordinator(goal, {
+            val ready = profileAllowed(target) && eligible(target)
+            if (!ready) notice(AssistReadinessResolver.state.value.reason)
+            ready
+        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId)
         return tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
     }
 }

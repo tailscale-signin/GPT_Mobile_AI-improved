@@ -31,19 +31,25 @@ class LocalRuntimeRouter(
     private var tuningAtLoad: LocalEngineTuning? = null
 
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = if (modelPath.endsWith("manifest.json")) {
-        checkNotNull(artifactRuntime) { "This model requires the separate GenieX preview build. LiteRT cannot load a compiled GenieX bundle." }.inspectModel(modelPath)
+        checkNotNull(artifactRuntime) { "This build does not include an artifact runtime" }.inspectModel(modelPath)
     } else {
         liteRtRuntime.inspectModel(modelPath)
     }
 
-    override val deviceRamGb: Long get() = (activeLoadedRuntime ?: liteRtRuntime).deviceRamGb
-    override fun getHardwareState(): DeviceHardwareState = (activeLoadedRuntime ?: liteRtRuntime).getHardwareState()
+    override val deviceRamGb: Long get() = liteRtRuntime.deviceRamGb
+    override fun getHardwareState(): DeviceHardwareState = liteRtRuntime.getHardwareState()
     override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
-        (activeLoadedRuntime ?: liteRtRuntime).getAdaptiveThrottlingPolicy()
+        liteRtRuntime.getAdaptiveThrottlingPolicy()
     override fun loadedEngineSpec(): LocalEngineSpec? = state.value.engineSpec
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
-        if (spec.accelerator == LocalAccelerators.NPU) qnnRuntime.allowVerification(spec) else liteRtRuntime.allowVerification(spec)
+        if (spec.modelPath.endsWith("manifest.json")) {
+            checkNotNull(artifactRuntime).allowVerification(spec)
+        } else if (spec.accelerator == LocalAccelerators.NPU) {
+            qnnRuntime.allowVerification(spec)
+        } else {
+            liteRtRuntime.allowVerification(spec)
+        }
     }
 
     override suspend fun loadEngine(requested: LocalEngineSpec) {
@@ -63,10 +69,23 @@ class LocalRuntimeRouter(
         unloadEngine()
         try {
             if (spec.modelPath.endsWith("manifest.json")) {
-                val runtime = checkNotNull(artifactRuntime) { "Install the GenieX preview build to run this artifact" }
+                val runtime = checkNotNull(artifactRuntime) { "This build does not include an artifact runtime" }
+                dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.requireRuntime(dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(spec.modelPath)).runtime)
                 runtime.loadEngine(spec)
                 val family = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(spec.modelPath)).runtime
-                activate(runtime, if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.GENIEX_QAIRT) LocalRuntimeBackend.GENIEX_QAIRT else LocalRuntimeBackend.GENIEX_LLAMA_CPP, requested, spec, preferred)
+                activate(
+                    runtime,
+                    if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.GENIEX_QAIRT) {
+                        LocalRuntimeBackend.GENIEX_QAIRT
+                    } else if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP || !dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
+                        LocalRuntimeBackend.LLAMA_CPP
+                    } else {
+                        LocalRuntimeBackend.GENIEX_LLAMA_CPP
+                    },
+                    requested,
+                    spec,
+                    preferred
+                )
                 return
             }
             if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {

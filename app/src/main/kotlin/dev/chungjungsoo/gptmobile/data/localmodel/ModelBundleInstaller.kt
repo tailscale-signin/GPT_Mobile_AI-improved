@@ -7,7 +7,7 @@ import java.util.zip.ZipInputStream
 
 /** A .localmodel ZIP starts with manifest.json; only declared data assets are extracted. */
 internal object ModelBundleInstaller {
-    fun install(input: InputStream, storageRoot: File, expectedCatalogId: String? = null, checkCurrent: () -> Unit = {}, stagingId: String? = null, onProgress: (Long) -> Unit = {}): LocalModelImportResult {
+    fun install(input: InputStream, storageRoot: File, expectedCatalogId: String? = null, checkCurrent: () -> Unit = {}, stagingId: String? = null, onProgress: (Long) -> Unit = {}, runtimeAdmission: (ArtifactRuntime) -> Unit = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry::requireRuntime): LocalModelImportResult {
         val staging = File(storageRoot, "models/.staging-${importWorkspaceId(stagingId)}")
         if (stagingId != null) staging.deleteRecursively() // Only this persisted WorkManager job owns this directory.
         return try {
@@ -23,6 +23,7 @@ internal object ModelBundleInstaller {
                 require(first?.name == "manifest.json" && !first.isDirectory) { "Bundle must begin with manifest.json" }
                 copyBounded(archive, manifestFile, 262_144, exact = false, checkCurrent = checkCurrent, progress = advance)
                 val artifact = ArtifactManifestStore.read(manifestFile)
+                runtimeAdmission(artifact.runtime)
                 require(artifact.files.size in 1..256 && artifact.files.none { it.path == "manifest.json" })
                 require(artifact.files.all { it.sizeBytes in 1..16_000_000_000L })
                 val expanded = artifact.files.sumOf { it.sizeBytes }
@@ -47,7 +48,7 @@ internal object ModelBundleInstaller {
                 artifact.copy(evidence = ArtifactEvidence.DISCOVERED, validations = emptyList())
             }
             manifest.validate(staging, checkCurrent = checkCurrent)
-            require(manifest.runtime in setOf(ArtifactRuntime.GENIEX_QAIRT, ArtifactRuntime.GENIEX_LLAMA_CPP)) { "This bundle importer supports GenieX QAIRT/GGUF. Import LiteRT as .litertlm; legacy Genie needs a qualified native SDK." }
+            require(manifest.runtime in setOf(ArtifactRuntime.LLAMA_CPP, ArtifactRuntime.GENIEX_QAIRT, ArtifactRuntime.GENIEX_LLAMA_CPP)) { "This bundle importer supports GenieX QAIRT/GGUF. Import LiteRT as .litertlm; legacy Genie needs a qualified native SDK." }
             ArtifactManifestStore.write(manifestFile, manifest)
             val digest = PackageDigest.sha256(manifestFile)
             if (expectedCatalogId != null) require(manifest.artifactId == expectedCatalogId) { "Bundle identity differs from the selected artifact" }

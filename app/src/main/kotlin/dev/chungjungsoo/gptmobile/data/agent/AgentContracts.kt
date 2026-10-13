@@ -24,7 +24,10 @@ sealed interface ProviderEvent {
         val finishReason: String? = null,
         val effectiveSettingsConfirmed: Boolean = false,
         val retryDurationMs: Long? = null,
-        val retryAttempts: Int? = null
+        val retryAttempts: Int? = null,
+        val inputSource: String = "provider_reported",
+        val outputSource: String = "provider_reported",
+        val actualRuntime: String? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */

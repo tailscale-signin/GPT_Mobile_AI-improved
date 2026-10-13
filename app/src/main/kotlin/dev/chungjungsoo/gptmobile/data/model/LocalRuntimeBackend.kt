@@ -9,6 +9,7 @@ package dev.chungjungsoo.gptmobile.data.model
 enum class LocalRuntimeBackend(val displayName: String) {
     QUALCOMM_QNN("Qualcomm QNN · NPU"),
     LITERT_LM("LiteRT-LM"),
+    LLAMA_CPP("GGUF · CPU"),
     GENIEX_QAIRT("GenieX · QAIRT (Preview)"),
     GENIEX_LLAMA_CPP("GenieX · GGUF (Preview)");
 

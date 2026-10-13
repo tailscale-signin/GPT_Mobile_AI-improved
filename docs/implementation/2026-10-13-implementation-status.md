@@ -8,9 +8,9 @@ Runtime dependencies remain pinned; normal application identity remains unchange
 
 | Package | Requirements | Implementation | Validation |
 |---|---|---|---|
-| Profile picker | SP-01–SP-16, U01–U22, C01–C18 | In progress | Pending |
-| Native usage and Assist lifecycle | GGUF F03–F10, T05–T20; UAR-02, 05, 08, 17 | Pending | Pending |
-| Normal-app GGUF | GGUF F01–F02, T01–T04, T21 | Pending | Pending |
+| Profile picker | SP-01–SP-16, U01–U22, C01–C18 | Compact UID-keyed picker, details, labels and refresh lifecycle implemented | Unit/Compose CI pending; first compile import corrected |
+| Native usage and Assist lifecycle | GGUF F03–F10, T05–T20; UAR-02, 05, 08, 17 | Native segment accounting, explicit provenance, helper ownership cleanup and readiness implemented; handoff/consumption remaining | Regression fixtures added; Android CI pending |
+| Normal-app GGUF | GGUF F01–F02, T01–T04, T21 | Pinned CPU JNI module, v3 neutral imports, compatibility routing and inventory implemented | Host JNI real generation passed; Android/minified validation pending |
 | Unified execution policy and budgets | UAR-01–UAR-18 | Pending | Pending |
 | Research settings and statistics | RQ-01–RQ-04, NAV/UI/MET | Pending | Pending |
 | Research archive and restore | RQ-05–RQ-07, RQ-13–RQ-14, ARC/FRESH/DATA | Pending | Pending |
@@ -28,3 +28,7 @@ Implementation, deterministic fixtures, Android emulation, physical-device quali
 ## Picker caller inventory
 
 Picker: HomeScreen → SelectPlatformDialog. Insights: NewChatInsightsViewModel and NewChatProfileInsights. Labels: ProfileLabelComponents editor, HomeScreen conversation labels/filter, PlatformCheckBoxItem, AddPlatformScreen, PlatformSettingScreen and AiPlatformsScreen. FadingAlertDialog wraps Material AlertDialog; the new lazy picker uses a bounded dialog surface.
+
+## GGUF host evidence
+
+Production JNI built against immutable llama.cpp `4413a192410fad1f054e9216114087a3e01527a0` and passed three warm generations, partial cancellation counters, context-bound rejection, stale handle rejection and reopening on Linux x86-64. `scripts/prepare_gguf_smoke.py` verifies the upstream tiny fixture and derived metadata-only ChatML fixture hashes. This establishes host ABI/protocol behavior, not Android device speed, scientific quality, GPU/NPU support or phone qualification. The fixture is not shipped in the APK.

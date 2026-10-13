@@ -59,10 +59,14 @@ internal object GgufImportAdapter {
     }
 
     fun install(input: InputStream, root: File, checkCurrent: () -> Unit, progress: (Long) -> Unit, stagingId: String? = null): LocalModelImportResult {
+        if (!dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.ggufPackaged) {
+            input.close()
+            return LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.RUNTIME_UNAVAILABLE, "This app build does not include a compatible GGUF runtime")
+        }
         val staging = File(root, "models/.gguf-${importWorkspaceId(stagingId)}")
         if (stagingId != null) staging.deleteRecursively() // Only this persisted WorkManager job owns this directory.
         return try {
-            require(dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) { "GGUF needs the separate GenieX build; it cannot run through LiteRT-LM." }
+            dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.requireRuntime(ArtifactRuntime.LLAMA_CPP)
             check(staging.mkdirs())
             val model = File(staging, "model.gguf")
             model.outputStream().use { output ->
@@ -87,7 +91,7 @@ internal object GgufImportAdapter {
             val tokens = metadata["$architecture.context_length"]?.toIntOrNull()?.takeIf { it > 0 } ?: error("Context metadata missing; use a manifest bundle")
             val digest = PackageDigest.sha256(model, checkCurrent)
             val id = "local_gguf_${digest.take(32)}"
-            val manifest = ModelArtifactManifest(schemaVersion = 2, familyId = metadata["general.name"]?.take(160) ?: architecture, artifactId = id, runtime = ArtifactRuntime.GENIEX_LLAMA_CPP, format = "gguf", entryFile = model.name, files = listOf(ArtifactFile(model.name, model.length(), digest)), contextTokens = tokens, supportedBackends = setOf("cpu", "gpu"), architecture = architecture, weightPrecision = metadata["general.file_type"]?.let { "GGUF type $it" }, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_VERSION)
+            val manifest = ModelArtifactManifest(schemaVersion = 3, familyId = metadata["general.name"]?.take(160) ?: architecture, artifactId = id, runtime = ArtifactRuntime.LLAMA_CPP, format = "gguf", entryFile = model.name, files = listOf(ArtifactFile(model.name, model.length(), digest)), contextTokens = tokens, supportedBackends = setOf("cpu"), architecture = architecture, weightPrecision = metadata["general.file_type"]?.let { "GGUF type $it" }, runtimeVersion = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION)
             manifest.validate(staging, checkCurrent = checkCurrent)
             ArtifactManifestStore.write(File(staging, "manifest.json"), manifest)
             val relative = LocalModelDownloadPaths.relativeDirectory(id, LocalModelLocator.LOCAL_COMMIT_HASH)

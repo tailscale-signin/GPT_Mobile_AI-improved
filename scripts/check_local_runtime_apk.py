@@ -55,6 +55,12 @@ def check_apk(apk_path, manifest):
         for abi in abis:
             for library in ("libobjectbox-jni.so", "libmediapipe_tasks_jni.so", "libmediapipe_tasks_textgenai_jni.so"):
                 assert f"lib/{abi}/{library}" in names, f"Missing memory runtime {abi}/{library}"
+        gguf = json.loads(apk.read("assets/gguf-runtime-inventory.json"))
+        assert gguf["revision"] == "4413a192410fad1f054e9216114087a3e01527a0"
+        assert gguf["backends"] == ["cpu"]
+        for abi in abis:
+            assert f"lib/{abi}/libgptmobile_gguf.so" in names, f"Missing GGUF CPU runtime for {abi}"
+        assert not any(Path(name).name in {"libllama.so", "libggml.so", "libggml-cpu.so", "libggml-base.so"} for name in names), "Unexpected dynamic GGUF dependency"
         checked = 0
         for name, expected in manifest["libraries"].items():
             if name.split("/")[1] not in abis:

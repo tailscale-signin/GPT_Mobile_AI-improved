@@ -240,11 +240,12 @@ internal class GenieXRuntimeAdapter(private val context: Context) : LocalRuntime
                                     timeToFirstTokenMs = metrics.ttftMs.toLong(),
                                     totalDurationMs = SystemClock.elapsedRealtime() - started,
                                     totalCharacters = output.length,
-                                    native = NativeInferenceMetrics(metrics.promptTokens.toInt(), metrics.generatedTokens.toInt(), metrics.prefillSpeed, metrics.decodingSpeed).takeIf { it.isValid },
+                                    native = NativeInferenceMetrics(metrics.promptTokens.toInt(), metrics.generatedTokens.toInt(), metrics.prefillSpeed, metrics.decodingSpeed).takeIf { it.hasValidTokenCounts },
                                     metricSource = "native_segment",
                                     firstVisibleAnswerMs = firstVisible,
                                     decodeDurationMs = metrics.decodeTimeMs.toLong(),
-                                    segmentId = java.util.UUID.randomUUID().toString()
+                                    segmentId = java.util.UUID.randomUUID().toString(),
+                                    finishReason = metrics.stopReason
                                 )
                             )
                         )

@@ -1743,6 +1743,47 @@ class LiteRtLmAdapterTest {
         assertEquals(1, runtime.closeConversationCalls)
     }
 
+    @Test
+    fun `three assist sessions close their own conversation and retain warm engine`() = runBlocking {
+        val native = FakeLocalRuntime().apply { scriptedEvents = List(3) { listOf(LocalRuntimeEvent.TextDelta("[0]"), LocalRuntimeEvent.Done) } }
+        val runtime = LocalEngineHolder(native) { 1000L }
+        val adapter = adapter(runtime)
+        repeat(3) {
+            val events = adapter.openSession(turns("select records"), localPlatform(), constraints = RequestConstraints(allowTools = false, requestRole = "assist")).streamRound(emptyList(), emptyList()).toList()
+            assertTrue(events.last() is ProviderEvent.Completed)
+            assertFalse(native.hasOpenConversation())
+        }
+        assertEquals(3, native.closeConversationCalls)
+        assertEquals(1, native.loadEngineCalls.size)
+    }
+
+    @Test
+    fun `assist cannot evict an interactive conversation`() = runBlocking {
+        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("answer"), LocalRuntimeEvent.Done)) }
+        val adapter = adapter(LocalEngineHolder(native) { 1000L })
+        adapter.openSession(turns("chat"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+        val events = adapter.openSession(turns("assist"), localPlatform(), constraints = RequestConstraints(allowTools = false, requestRole = "assist")).streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.Failed && "interactive" in it.message })
+        assertEquals(0, native.closeConversationCalls)
+        assertEquals(listOf("chat"), native.sendMessageCalls)
+    }
+
+    @Test
+    fun `native counts survive output limit and missing speed through provider boundary`() = runBlocking {
+        val metrics = LocalInferenceMetrics(segmentId = "segment", native = dev.chungjungsoo.gptmobile.data.localruntime.NativeInferenceMetrics(240, 37, 0.0, 0.0), finishReason = "length")
+        val native = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("partial"), LocalRuntimeEvent.Metrics(metrics), LocalRuntimeEvent.Metrics(metrics), LocalRuntimeEvent.Error("output limit")))
+        }
+        val events = adapter(native).openSession(turns("hello"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+        val usage = events.filterIsInstance<ProviderEvent.Usage>().last()
+        assertEquals(240, usage.inputTokens)
+        assertEquals(37, usage.outputTokens)
+        assertEquals("runtime_reported", usage.outputSource)
+        assertEquals("length", usage.finishReason)
+        assertTrue(events.any { it is ProviderEvent.Failed })
+        assertFalse(events.any { it is ProviderEvent.Completed })
+    }
+
     private fun installedModel(id: String, file: String) = LocalModel(
         catalogEntryId = id,
         commitHash = "revision",

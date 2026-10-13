@@ -46,7 +46,11 @@ data class ModelInvocation(
     val profileUid: String? = null,
     val costMicros: Long? = null,
     val currency: String? = null,
-    val priceSource: String? = null
+    val priceSource: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "'estimated'") val inputTokenSource: String = "estimated",
+    @androidx.room.ColumnInfo(defaultValue = "'estimated'") val outputTokenSource: String = "estimated",
+    val finishReason: String? = null,
+    val actualRuntime: String? = null
 )
 
 class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
@@ -165,6 +169,9 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var first: Long? = null
             var input: Int? = null
             var output: Int? = null
+            var inputSource = "estimated"
+            var outputSource = "estimated"
+            var actualRuntime: String? = null
             var generatedBytes = 0L
             var visibleBytes = 0L
             var reasoningBytes = 0L
@@ -192,8 +199,11 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
                         )
                         is ProviderEvent.Usage -> {
-                            input = mergeUsageCount(input, event.inputTokens, event.cumulative)
-                            output = mergeUsageCount(output, event.outputTokens, event.cumulative)
+                            input = if (event.inputSource == "runtime_reported" && inputSource != "runtime_reported") event.inputTokens ?: input else mergeUsageCount(input, event.inputTokens, event.cumulative)
+                            output = if (event.outputSource == "runtime_reported" && outputSource != "runtime_reported") event.outputTokens ?: output else mergeUsageCount(output, event.outputTokens, event.cumulative)
+                            if (event.inputTokens != null && event.inputSource != "unavailable") inputSource = event.inputSource
+                            if (event.outputTokens != null && event.outputSource != "unavailable") outputSource = event.outputSource
+                            actualRuntime = event.actualRuntime ?: actualRuntime
                             finishReason = event.finishReason?.take(80) ?: finishReason
                             settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
                         }
@@ -212,7 +222,11 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                                 record.id to record.copy(
                                     inputTokens = input ?: record.inputTokens,
                                     outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                                    estimated = input == null || output == null,
+                                    estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
+                                    inputTokenSource = inputSource,
+                                    outputTokenSource = outputSource,
+                                    finishReason = finishReason,
+                                    actualRuntime = actualRuntime,
                                     durationMs = (now - started) / 1_000_000,
                                     firstTokenMs = first
                                 )
@@ -231,14 +245,18 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             } finally {
                 withContext(NonCancellable) {
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=${if (input == null) "estimated" else "provider"} · outputSource=${if (output == null) "estimated" else "provider"} · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             dao.save(
                                 record.copy(
                                     inputTokens = input ?: record.inputTokens,
                                     outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                                    estimated = input == null || output == null,
+                                    estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
+                                    inputTokenSource = inputSource,
+                                    outputTokenSource = outputSource,
+                                    finishReason = finishReason,
+                                    actualRuntime = actualRuntime,
                                     status = status,
                                     costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
                                     durationMs = (System.nanoTime() - started) / 1_000_000,

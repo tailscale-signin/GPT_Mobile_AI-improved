@@ -1057,4 +1057,8 @@
     <string name="picker_qualified_rate">Rate has qualifications; open details for source, freshness and conditions.</string>
     <plurals name="picker_selected_count"><item quantity="one">%d selected</item><item quantity="other">%d selected</item></plurals>
     <plurals name="picker_hidden_count"><item quantity="one">%d hidden by filters</item><item quantity="other">%d hidden by filters</item></plurals>
+    <string name="assist_preparation">Model preparation</string>
+    <string name="assist_preparation_help">Warm only skips unloaded models. Automatic preparation may load your selected model for an eligible task; it never closes an interactive chat. Device pressure and permissions still apply.</string>
+    <string name="assist_warm_only">Warm only</string>
+    <string name="assist_auto_prepare">Prepare automatically</string>
 </resources>

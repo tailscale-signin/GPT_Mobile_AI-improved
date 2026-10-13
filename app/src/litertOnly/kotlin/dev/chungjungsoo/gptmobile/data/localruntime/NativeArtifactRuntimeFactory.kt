@@ -3,5 +3,5 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 import android.content.Context
 
 internal object NativeArtifactRuntimeFactory {
-    fun create(context: Context): LocalRuntime? = null
+    fun create(context: Context): LocalRuntime = GgufRuntimeAdapter(context)
 }

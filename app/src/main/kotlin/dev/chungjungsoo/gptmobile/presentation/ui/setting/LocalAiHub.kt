@@ -111,7 +111,7 @@ fun LocalModelsScreen(
     }
     if (pendingUri != null) {
         val sourceUri = requireNotNull(pendingUri)
-        var inspectionError by remember(pendingUri) { mutableStateOf<String?>(null) }
+        var inspectionFailure by remember(pendingUri) { mutableStateOf<Exception?>(null) }
         val preview by produceState<dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview?>(null, pendingUri, pendingFolder) {
             value = null
             try {
@@ -119,9 +119,10 @@ fun LocalModelsScreen(
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                inspectionError = failure.message ?: context.getString(R.string.local_ai_inspect_failed)
+                inspectionFailure = failure
             }
         }
+        val inspectionError = inspectionFailure?.let { it.message ?: stringResource(R.string.local_ai_inspect_failed) }
         AlertDialog(
             onDismissRequest = { pendingUri = null },
             title = { Text(stringResource(R.string.local_ai_import_review)) },

@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -32,10 +33,11 @@ import dev.chungjungsoo.gptmobile.data.pricing.formatRate
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.text.DateFormat
 import java.util.Date
-import java.util.Locale
 
 @Composable
 internal fun NewChatProfileInsights(insight: ProfileInsight, refresh: () -> Unit) {
+    val locale = LocalLocale.current.platformLocale
+    val dateFormat = DateFormat.getDateTimeInstance(DateFormat.DEFAULT, DateFormat.DEFAULT, locale)
     var detail by remember(insight.profile.model, insight.profile.apiUrl) { mutableStateOf<String?>(null) }
     val local = insight.profile.compatibleType == ClientType.LITERT_LM
     val score = insight.score
@@ -43,11 +45,11 @@ internal fun NewChatProfileInsights(insight: ProfileInsight, refresh: () -> Unit
     val green = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) Color(0xFF81C784) else Color(0xFF256B2A)
     val benchmarkText = when {
         local -> stringResource(R.string.insights_device_benchmark)
-        score != null -> stringResource(R.string.insights_score, String.format(Locale.getDefault(), "%.0f", score.score), if (insight.community) stringResource(R.string.insights_community) else stringResource(R.string.insights_my_best), score.submission.plan.label)
+        score != null -> stringResource(R.string.insights_score, String.format(locale, "%.0f", score.score), if (insight.community) stringResource(R.string.insights_community) else stringResource(R.string.insights_my_best), score.submission.plan.label)
         else -> stringResource(R.string.insights_not_benchmarked)
     }
     val freshness = price?.let {
-        val date = it.reviewedOn ?: DateFormat.getDateTimeInstance().format(Date(it.validatedAt))
+        val date = it.reviewedOn ?: dateFormat.format(Date(it.validatedAt))
         val source = when (it.source) {
             PriceSource.PROVIDER_API -> stringResource(R.string.insights_api)
             PriceSource.REVIEWED -> stringResource(R.string.insights_reviewed)
@@ -86,15 +88,15 @@ internal fun NewChatProfileInsights(insight: ProfileInsight, refresh: () -> Unit
                     Text(stringResource(R.string.insights_benchmark_scope))
                     if (insight.community) Text(stringResource(R.string.insights_community_scope))
                     score?.let { result ->
-                        Text("${result.submission.plan.label} · Suite ${result.submission.suiteVersion} · ${DateFormat.getDateTimeInstance().format(Date(result.submission.startedAt))}")
-                        result.metrics.forEach { Text("${it.label}: ${it.value?.let { number -> String.format(Locale.getDefault(), "%.1f", number) } ?: "—"} ${it.unit}") }
+                        Text("${result.submission.plan.label} · Suite ${result.submission.suiteVersion} · ${dateFormat.format(Date(result.submission.startedAt))}")
+                        result.metrics.forEach { Text("${it.label}: ${it.value?.let { number -> String.format(locale, "%.1f", number) } ?: "—"} ${it.unit}") }
                     }
                     insight.localRun?.let { run ->
                         Text(stringResource(R.string.insights_local_recorded))
                         Text("${run.device} · ${run.backend.orEmpty()} · ${run.accelerator.orEmpty()}")
-                        Text("${run.mode.label} · ${DateFormat.getDateTimeInstance().format(Date(run.startedAt))}")
+                        Text("${run.mode.label} · ${dateFormat.format(Date(run.startedAt))}")
                         val metrics = run.samples.mapNotNull { it.nativeMetrics?.takeIf { metric -> metric.isValid } }
-                        metrics.map { it.decodeTokensPerSecond }.sorted().let { speeds -> if (speeds.isNotEmpty()) Text(stringResource(R.string.insights_local_speed, String.format(Locale.getDefault(), "%.1f", speeds[speeds.size / 2]))) }
+                        metrics.map { it.decodeTokensPerSecond }.sorted().let { speeds -> if (speeds.isNotEmpty()) Text(stringResource(R.string.insights_local_speed, String.format(locale, "%.1f", speeds[speeds.size / 2]))) }
                         run.peakClientPssKb?.let { Text(stringResource(R.string.insights_local_memory, it / 1024)) }
                         run.samples.mapNotNull { it.firstTextMs }.sorted().let { times -> if (times.isNotEmpty()) Text(stringResource(R.string.insights_local_latency, times[times.size / 2])) }
                     }

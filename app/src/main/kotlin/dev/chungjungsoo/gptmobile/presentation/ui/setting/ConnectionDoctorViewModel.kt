@@ -21,11 +21,13 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 @HiltViewModel
 class ConnectionDoctorViewModel @Inject constructor(
@@ -73,19 +75,32 @@ class ConnectionDoctorViewModel @Inject constructor(
             require(!profile.apiUrl.contains('?') && !profile.apiUrl.contains('@')) { "Use a clean provider URL and the credential field." }
             val base = profile.apiUrl.trimEnd('/')
             val modelsUrl = if (profile.compatibleType == ClientType.OLLAMA && !base.endsWith("/v1")) "$base/api/tags" else "$base/models"
-            val response = network().get(modelsUrl) { profile.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) } }
-            val modelBody = response.bodyAsText()
-            lines += "Model discovery: HTTP ${response.status.value} (${modelBody.length} response characters)"
-            if (response.status.value == 200) {
-                dev.chungjungsoo.gptmobile.data.context.discoverContextCeiling(modelBody, profile.model)?.let { ceiling ->
-                    detectedContext.value = profile.uid to ceiling
-                    lines += "Server reports a context ceiling of $ceiling tokens. Apply it below to constrain this profile."
+            val discovery = try {
+                withTimeoutOrNull(5000L) {
+                    val response = network().get(modelsUrl) { profile.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) } }
+                    response.status.value to response.bodyAsText()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             }
-            if (response.status.value in setOf(401, 403)) lines += "Authentication was rejected. Reconnect or replace the credential."
+            if (discovery == null) {
+                lines += "Model catalog unavailable or timed out. Serving-capacity checks continue independently."
+            } else {
+                val (status, modelBody) = discovery
+                lines += "Model discovery: HTTP $status (${modelBody.length} response characters)"
+                if (status == 200) {
+                    dev.chungjungsoo.gptmobile.data.context.discoverContextCeiling(modelBody, profile.model)?.let { ceiling ->
+                        detectedContext.value = profile.uid to ceiling
+                        lines += "Model catalog declares a context ceiling of $ceiling tokens. A verified serving allocation can constrain it further."
+                    }
+                }
+                if (status in setOf(401, 403)) lines += "Authentication was rejected. Reconnect or replace the credential."
+            }
             if (profile.compatibleType == ClientType.LLAMA) {
                 val capabilities = try {
-                    gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token))
+                    withTimeoutOrNull(5000L) { gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token)) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -134,6 +149,8 @@ class ConnectionDoctorViewModel @Inject constructor(
         job = viewModelScope.launch(Dispatchers.IO) {
             try {
                 withTimeout(180_000) { block() }
+            } catch (_: TimeoutCancellationException) {
+                report.value = "Connection inspection timed out. No generation request was sent; check the route and server availability."
             } catch (e: CancellationException) {
                 report.value = "Canceled. The request was stopped on this client."
                 throw e

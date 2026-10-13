@@ -452,7 +452,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Shared producers now survive individual subscriber cancellation, recheck each subscriber permission/runtime, retain subscriber links and cancel with no subscribers. Root-priority fairness, explicit queue deadlines and device concurrency qualification remain."
+      "Shared producers revalidate individual subscribers, retain subscriber links and survive cancellation until none remain. Native resource scheduling now prioritizes visible work with bounded bypass, aging and root alternation. Preparation/queue and generation use independent deadlines with explicit rejection reasons. Queue position/wait projection and device concurrency qualification remain."
     ]
   },
   {
@@ -640,7 +640,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Frozen synthesis input, full task identity, prior primary history and pinned primary added; full process-resume consumption and explicit primary replacement UI remain."
+      "Explicit Combined retry now reloads the original frozen prompt/history/sources with pinned-profile/configuration validation and verified committed segments. Explicit primary replacement UI and complete device restart qualification remain."
     ]
   },
   {
@@ -708,7 +708,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Append-only checked answer segments remove the old 160000-character truncation; full restart recovery verification remains."
+      "Append-only checked answer segments preserve complete prefixes; explicit recovery re-fences and copies verified segments, including text-only native continuation. Terminal errors stay outside answer text. Process-death and long-answer device qualification remain."
     ]
   },
   {

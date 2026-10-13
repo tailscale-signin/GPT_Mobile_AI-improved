@@ -20,6 +20,36 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class CombinedOwnershipTest {
+    @Test fun explicitRecoveryCopiesOnlyVerifiedPrefixIntoTheNewOwnerAndKeepsFrozenInputs() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
+        try {
+            val platform = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "primary", name = "Primary", model = "test", enabled = true)
+            val user = MessageV2(id = 2, chatId = 1, content = "Full task", platformType = null)
+            val answer = MessageV2(id = 3, chatId = 1, content = "Saved chapter", platformType = "primary", currentRunId = "combined-synthesis:old", ownershipFence = 3)
+            val snapshot = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(userMessage = user, history = emptyList(), replies = emptyList(), sources = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = "Original contribution")), prompt = "Full frozen prompt", profileUid = "primary", model = "test", systemPrompt = "", configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform))
+            val json = kotlinx.serialization.json.Json
+            val raw = json.encodeToString(dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot.serializer(), snapshot)
+            val oldRun = AgentRun("combined-synthesis:old", 1, 2, 3, "primary", "CUSTOM", "test", "INTERRUPTED", ownershipFence = 3, synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(raw), synthesisSnapshot = raw)
+            db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Combined", combinedPrimaryUid = "primary"))
+            db.messageDao().addMessages(user, answer)
+            db.agentRunDao().upsert(oldRun)
+            val dao = db.agentPersistenceDao()
+            dao.preserveCombinedPrefix(answer)
+            val resumed = dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(oldRun, answer, "primary", platform, dao.answerSegments(oldRun.runId))
+            val frozen = json.encodeToString(dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot.serializer(), resumed)
+            val next = dao.persistAgentRetry(PersistAgentRetryRequest(user, answer, AgentRunDraft("combined-synthesis:new", "primary", "CUSTOM", "test", synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(frozen), synthesisSnapshot = frozen), resumeCombinedFrom = oldRun.runId))
+            assertEquals("Saved chapter", next.assistantMessage.content)
+            assertEquals(4L, next.assistantMessage.ownershipFence)
+            assertEquals("Saved chapter", dao.answerSegments(next.run.runId).joinToString("") { it.text })
+            db.agentRunDao().markRunning(next.run.runId, 1)
+            assertFalse(dao.checkpointRunningMessage(answer.copy(content = "Late old writer")))
+            assertTrue(dao.checkpointRunningMessage(next.assistantMessage.copy(content = "Saved chapter and continuation")))
+            assertEquals("Saved chapter", dao.answerSegments(oldRun.runId).joinToString("") { it.text })
+        } finally {
+            db.close()
+        }
+    }
+
     @Test
     fun ix08NewCorpusCannotBeOverwrittenByOldWriterAndDuplicateStartAttaches() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()

@@ -418,8 +418,11 @@ class AgentRunCoordinator @Inject constructor(
                 request.chatToolConfig
             ).collectApiStateUpdates(
                 onUpdate = { content, thoughts, timeline ->
+                    val committedPrefix = request.assistantMessage.content.takeIf { request.runId.startsWith("combined-synthesis:") }.orEmpty()
+                    val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
+                    require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
                     assistantMessage = assistantMessage.copy(
-                        content = content,
+                        content = retained,
                         thoughts = thoughts,
                         timeline = recoveryMarkers + timeline
                     )
@@ -513,6 +516,12 @@ internal fun resolvePublishInterval(
 internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long): MessageV2 {
     if (error == null) return message.copy(createdAt = completedAt).resetActiveRevision()
 
+    if (message.currentRunId?.startsWith("combined-synthesis:") == true) {
+        return message.copy(
+            timeline = message.timeline + dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Response stopped: $error"),
+            createdAt = completedAt
+        ).resetActiveRevision()
+    }
     val updatedContent = buildAssistantErrorContent(message.content, error)
     val appendedError = assistantErrorAppendedText(message.content, updatedContent)
     return message.copy(

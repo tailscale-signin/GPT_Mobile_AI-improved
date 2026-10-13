@@ -7,7 +7,6 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 
 /**
@@ -31,7 +30,7 @@ class LocalEngineHolder(
 
     override fun loadedEngineSpec(): LocalEngineSpec? = delegate.loadedEngineSpec()
 
-    private val mutex = Mutex()
+    private val mutex = FairNativeLock(timeProvider)
     private val queued = java.util.concurrent.atomic.AtomicInteger()
     private var loadedSpec: LocalEngineSpec? = null
 
@@ -191,20 +190,20 @@ class LocalEngineHolder(
         }
     }
 
-    /** Mutex hands ownership to suspended waiters in FIFO order. Cancellation removes a waiter. */
+    /** Cancellation removes only this waiter; visible priority has bounded bypass and aging. */
     private suspend fun acquireGenerationLock(onContended: suspend () -> Unit = {}) {
         if (mutex.tryLock()) return
         val position = queued.incrementAndGet()
         var acquired = false
         try {
-            check(position <= 128) { "NATIVE_QUEUE_FULL: no model request was dispatched" }
+            if (position > 128) throw NativeAdmissionRejected("NATIVE_QUEUE_FULL")
             onContended()
             val admitted = kotlinx.coroutines.withTimeoutOrNull(180_000L) {
                 mutex.lock()
                 acquired = true
                 true
             }
-            check(admitted == true) { "NATIVE_QUEUE_DEADLINE: no model request was dispatched" }
+            if (admitted != true) throw NativeAdmissionRejected("NATIVE_QUEUE_DEADLINE")
         } catch (error: Throwable) {
             if (acquired) mutex.unlock()
             throw error

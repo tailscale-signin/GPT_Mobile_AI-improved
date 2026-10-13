@@ -2271,13 +2271,21 @@ class ChatRepositoryImpl(
         }
         val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY
         val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
-        val restoredDraft = checkpoint?.restore().orEmpty()
+        val frozenResume = if (editorialPass) {
+            agentPersistenceDao.recoveryRun(runId)?.synthesisSnapshot?.let {
+                kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(it)
+            }
+        } else {
+            null
+        }
+        val restoredDraft = if (frozenResume?.resumeFromRunId != null) frozenResume.committedPrefix else checkpoint?.restore().orEmpty()
         val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
             openPrimarySession(contextPlan.turns),
             maxContinuations = continuationLimit,
             targetWords = remainingWordGoal,
             recoverTransientFailures = true,
             initialDraft = restoredDraft,
+            allowInternalToolRecovery = editorialPass,
             effectiveOutputCap = resolvedOutputCap,
             maxAnswerCharacters = budgetSettings.responseCharacterLimit,
             saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
@@ -2761,6 +2769,13 @@ class ChatRepositoryImpl(
         }
         combined.sortByDescending { it.updatedAt }
         return combined
+    }
+
+    override suspend fun prepareCombinedRetry(runId: String, platform: PlatformV2): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = withContext(Dispatchers.IO) {
+        val run = agentPersistenceDao.recoveryRun(runId) ?: return@withContext null
+        val message = agentPersistenceDao.recoveryMessage(run.assistantMessageId) ?: return@withContext null
+        val room = agentPersistenceDao.getChatRoom(run.chatId) ?: return@withContext null
+        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), platform, agentPersistenceDao.answerSegments(runId))
     }
 
     override suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = withContext(Dispatchers.IO) {

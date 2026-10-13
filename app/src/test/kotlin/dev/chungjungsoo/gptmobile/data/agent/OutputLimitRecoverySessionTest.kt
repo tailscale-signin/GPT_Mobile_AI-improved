@@ -12,6 +12,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
+    @Test fun textOnlyNativeRecoveryResumesVerifiedPrefixWithoutSendingAnInitialRequest() = runTest {
+        val native = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow { error("Initial generation must not repeat") }
+        }
+        val wrapper = OutputLimitRecoverySession(native, initialDraft = "Saved prefix. ", allowInternalToolRecovery = true) { draft, _ ->
+            assertEquals("Saved prefix. ", draft)
+            session {
+                emit(ProviderEvent.TextDelta("Remaining section."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Saved prefix. Remaining section.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
     @Test fun transientRecoveryDoesNotReplayAnInitialToolBearingRequest() = runTest {
         val wrapper = OutputLimitRecoverySession(session { emit(ProviderEvent.Failed("Service overloaded")) }, recoverTransientFailures = true) { _, _ -> error("No tool request replay") }
         val events = wrapper.streamRound(listOf(AgentToolDefinition("write", "", buildJsonObject {})), emptyList()).toList()

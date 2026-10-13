@@ -4,7 +4,6 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
-import dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary
 import dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptRejected
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.util.UUID
@@ -12,7 +11,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -151,9 +149,10 @@ internal class AssistCoordinator(
             publishStatus(current.copy(execution = AssistExecution.QUEUED, reason = "WAITING_FOR_RUNTIME"))
             notify("Local Assist: $kind")
             return try {
-                val reply = withTimeoutOrNull(policy.validated().taskTimeoutSeconds * 1000L) {
-                    withContext(
-                        PhysicalAttemptBoundary {
+                val reply = withContext(dev.chungjungsoo.gptmobile.data.localruntime.NativeWorkPriority(dev.chungjungsoo.gptmobile.data.localruntime.NativeWorkClass.ENRICHMENT, turnId)) {
+                    withAssistAttemptDeadline(
+                        generationMillis = policy.validated().taskTimeoutSeconds * 1000L,
+                        authorize = {
                             if (!allowed() || runtimeFingerprint() != fingerprint) throw PhysicalAttemptRejected("PERMISSION_OR_RUNTIME_CHANGED")
                             if (!reserveAttempt()) throw PhysicalAttemptRejected("PHYSICAL_ATTEMPT_ALLOWANCE")
                             publishStatus(current.copy(execution = AssistExecution.RUNNING, reason = "PHYSICAL_DISPATCH"))
@@ -172,6 +171,9 @@ internal class AssistCoordinator(
                     else -> reply to current.copy(execution = AssistExecution.COMPLETED, producerInvocationId = producerInvocationId())
                 }
             } catch (rejected: PhysicalAttemptRejected) {
+                publishStatus(current.copy(execution = AssistExecution.SKIPPED, reason = rejected.reason, unprocessedSpanIds = spanIds, examinedSpanIds = emptyList()))
+                null
+            } catch (rejected: dev.chungjungsoo.gptmobile.data.localruntime.NativeAdmissionRejected) {
                 publishStatus(current.copy(execution = AssistExecution.SKIPPED, reason = rejected.reason, unprocessedSpanIds = spanIds, examinedSpanIds = emptyList()))
                 null
             } catch (cancelled: CancellationException) {

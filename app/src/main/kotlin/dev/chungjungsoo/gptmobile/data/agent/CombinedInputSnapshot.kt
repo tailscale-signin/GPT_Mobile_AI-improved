@@ -17,5 +17,7 @@ data class CombinedInputSnapshot(
     val model: String,
     val systemPrompt: String,
     val configKey: String,
-    val lineage: ContributionLineage? = null
+    val lineage: ContributionLineage? = null,
+    val resumeFromRunId: String? = null,
+    val committedPrefix: String = ""
 )

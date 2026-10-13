@@ -12,6 +12,7 @@ internal class OutputLimitRecoverySession(
     private val targetWords: Int? = null,
     private val recoverTransientFailures: Boolean = false,
     initialDraft: String = "",
+    private val allowInternalToolRecovery: Boolean = false,
     private var effectiveOutputCap: Int? = null,
     private val maxAnswerCharacters: Int = 1_048_576,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
@@ -30,7 +31,7 @@ internal class OutputLimitRecoverySession(
     override val handlesToolsInternally: Boolean get() = active.handlesToolsInternally
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
-        if (handlesToolsInternally) {
+        if (handlesToolsInternally && !allowInternalToolRecovery) {
             emitAll(active.streamRound(tools, exchanges))
             return@flow
         }

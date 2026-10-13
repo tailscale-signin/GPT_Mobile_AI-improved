@@ -13,14 +13,19 @@ internal object RuntimeEvidenceIdentity {
 
     suspend fun key(context: Context, spec: LocalEngineSpec, sampler: String = "runtime_default", workload: String = "plain_text"): RuntimeQualificationKey = withContext(Dispatchers.IO) {
         val cache = File(context.noBackupFilesDir, "model-identity-cache")
-        val artifact = PackageDigest.validateInstalledCached(File(spec.modelPath), cache)
-        val dispatch = context.applicationInfo.nativeLibraryDir?.let(::File)?.listFiles().orEmpty()
-            .filter { it.name.contains("Dispatch", true) || it.name.startsWith("libQnn") || it.name.contains("litertlm", true) || it.name.contains("geniex", true) || it.name.contains("llama", true) || it.name.contains("mtmd", true) }
-            .sortedBy { it.name }.joinToString("|") { it.name + ":" + PackageDigest.journalIdentity(it, cache) }
+        val artifact = artifactDigest(File(spec.modelPath), cache)
+        val artifactRuntime = if (spec.modelPath.endsWith("manifest.json")) dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(File(spec.modelPath)).runtime else null
+        val scope = RuntimeBinaryScope.resolve(artifactRuntime, spec.accelerator, spec.visionAccelerator.takeIf { spec.isVisionEnabled }, BuildConfig.GENIEX_ENABLED)
+        val libraryDirectories = listOfNotNull(context.applicationInfo.nativeLibraryDir, spec.litertDispatchLibDir).distinct()
+        val dispatch = libraryDirectories.flatMapIndexed { index, path ->
+            File(path).listFiles().orEmpty().filter { scope.includesLibrary(it.name) }.map { file ->
+                "$index:${file.name}:" + PackageDigest.journalIdentity(file, cache)
+            }
+        }.sorted().joinToString("|")
         RuntimeQualificationKey(
             deviceIdentity = hash("${Build.MANUFACTURER}|${Build.MODEL}|${Build.SOC_MODEL}|${android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)}"),
             firmwareDigest = hash(Build.FINGERPRINT),
-            runtimeIdentity = "${BuildConfig.LITERT_LM_VERSION}|${BuildConfig.QAIRT_VERSION}|${BuildConfig.GENIEX_ENABLED}|${BuildConfig.GENIEX_VERSION}",
+            runtimeIdentity = scope.identity(RuntimeBinaryVersions(BuildConfig.LITERT_LM_VERSION, BuildConfig.QAIRT_VERSION, BuildConfig.GENIEX_VERSION, RuntimeCapabilityRegistry.GGUF_REVISION)),
             dispatchDigest = hash(dispatch),
             artifactDigest = artifact,
             backend = spec.accelerator,
@@ -32,6 +37,21 @@ internal object RuntimeEvidenceIdentity {
             cpuThreads = spec.cpuThreads,
             cacheEnabled = spec.cacheEnabled
         )
+    }
+
+    internal fun artifactDigest(model: File, cache: File): String {
+        val manifestDigest = PackageDigest.validateInstalledCached(model, cache)
+        if (!model.name.endsWith("manifest.json")) return manifestDigest
+        val manifest = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(model)
+        require(manifest.files.isNotEmpty() && manifest.files.size <= 256 && manifest.files.map { it.path.lowercase() }.distinct().size == manifest.files.size) { "Invalid artifact file inventory" }
+        val actualFiles = manifest.files.sortedBy { it.path }.map { declared ->
+            val file = dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest.safeFile(requireNotNull(model.parentFile), declared.path)
+            require(file.isFile && file.length() == declared.sizeBytes && declared.sizeBytes > 0) { "Missing or truncated model asset" }
+            val actual = PackageDigest.journalIdentity(file, cache)
+            require(actual.equals(declared.sha256, ignoreCase = true)) { "Model asset checksum mismatch; native initialization blocked" }
+            declared.path + ":" + actual
+        }
+        return hash(manifestDigest + "|" + actualFiles.joinToString("|"))
     }
 
     fun plan(key: RuntimeQualificationKey): LocalExecutionPlan = LocalExecutionPlan(

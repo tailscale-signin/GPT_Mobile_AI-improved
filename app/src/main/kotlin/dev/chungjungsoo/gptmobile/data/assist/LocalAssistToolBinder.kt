@@ -52,9 +52,7 @@ internal object LocalAssistToolBinder {
             return tools
         }
         val assist = AssistCoordinator(goal, {
-            val ready = profileAllowed(target) && eligible(target)
-            if (!ready) notice(AssistReadinessResolver.state.value.reason)
-            ready
+            profileAllowed(target) && eligible(target)
         }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) })
         return tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
     }

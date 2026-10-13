@@ -1,0 +1,97 @@
+{
+  "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+  "tree": "4b1cb4f7391904aef25b33fca20c86299aedf207",
+  "execution": "JDK 21, Gradle 9.8, Android JVM unit tests; native device and live server qualification not performed",
+  "suite_totals": {
+    "tests": 2762,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suite_outcome": "FAIL",
+  "suite_limitation": "One existing memory synonym-recall regression failed; the fix is a later commit. The fixture passes listed here do not assert that the entire suite or specification passed.",
+  "acceptance_fixtures": {
+    "LA-QA07": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.assist.EffectiveAssistPolicyTest",
+        "test": "explicitPermissionIsIndependentOfMemorySettingsAndProfileStillMustBeEnabled",
+        "outcome": "PASS",
+        "seconds": 0.001
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.assist.EffectiveAssistPolicyTest",
+        "test": "migrationPreservesExplicitLimitsAndDoesNotAuthorizeNewProfiles",
+        "outcome": "PASS",
+        "seconds": 0.001
+      }
+    ],
+    "LA-QA09": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.assist.AssistReliabilityTest",
+        "test": "laQa09OldCharacterBoundariesDoNotGateTasks",
+        "outcome": "PASS",
+        "seconds": 0.003
+      }
+    ],
+    "LA-QA11": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.assist.AssistReliabilityTest",
+        "test": "laQa11LongFieldsAndShortSnippetsRetainExactOffsets",
+        "outcome": "PASS",
+        "seconds": 0.001
+      }
+    ],
+    "LC-T01": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest",
+        "test": "lcT01BoundaryPassesOneTokenOverflowBlocksAndWireCannotChange",
+        "outcome": "PASS",
+        "seconds": 0.002
+      }
+    ],
+    "IX01": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPresenceTest",
+        "test": "ix01RoutingOnlyDoesNotClampCombinedOutput",
+        "outcome": "PASS",
+        "seconds": 0.0
+      }
+    ],
+    "IX02": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPresenceTest",
+        "test": "ix02PresenceAndExplicitZerosSurviveRoundTrip",
+        "outcome": "PASS",
+        "seconds": 0.004
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPresenceTest",
+        "test": "malformedTypesFailBeforeDispatch",
+        "outcome": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPresenceTest",
+        "test": "ix01RoutingOnlyDoesNotClampCombinedOutput",
+        "outcome": "PASS",
+        "seconds": 0.0
+      }
+    ],
+    "IX03": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPresenceTest",
+        "test": "ix03RoutingOnlyDoesNotInjectSamplingDefaults",
+        "outcome": "PASS",
+        "seconds": 0.001
+      }
+    ],
+    "IX04": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.assist.AssistReliabilityTest",
+        "test": "ix04FullGoalTailSurvivesAndProviderSchemaIsUnchanged",
+        "outcome": "PASS",
+        "seconds": 0.002
+      }
+    ]
+  }
+}

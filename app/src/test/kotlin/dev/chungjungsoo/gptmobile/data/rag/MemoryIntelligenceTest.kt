@@ -52,6 +52,21 @@ class MemoryIntelligenceTest {
         assertEquals(listOf("a"), ranked.map { it.id })
     }
 
+    @Test fun `generic topic words cannot admit unrelated recurring memories`() {
+        val facts = listOf(
+            VaultFact("job", MemoryLearning.observation("Work project history"), occurrences = 10000),
+            VaultFact("answer", MemoryLearning.observation("Short response"), pinned = true)
+        )
+        assertTrue(MemoryRecallPolicy.rank("Write a researched answer about the history of France", facts).isEmpty())
+    }
+
+    @Test fun `recall reads a specific constraint beyond the old query prefix`() = runTest {
+        val memory = repository()
+        memory.prepareTurn("I prefer coffee", 1, 1, isLocal = true)
+        val query = "Explain the historical background. ".repeat(400) + " Use my coffee preference for the final choice."
+        assertTrue(memory.prepareTurn(query, 1, 2, isLocal = true, capture = false).facts.any { it.fact.target.name.contains("coffee") })
+    }
+
     @Test fun `semantic consolidation preserves negation numbers and scope`() {
         val fact = MemoryLearning.observation("I want exactly 12 blue widgets")
         val entry = VaultFact("x", fact)

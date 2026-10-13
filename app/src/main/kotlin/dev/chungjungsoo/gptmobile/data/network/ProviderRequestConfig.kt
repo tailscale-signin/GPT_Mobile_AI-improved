@@ -15,7 +15,9 @@ data class ProviderRequestConfig(
     val requestRole: String = "primary",
     val contextCeiling: Int? = null,
     val permissionRevision: String = "legacy-unverified",
-    val requireKnownCapacity: Boolean = false
+    val requireKnownCapacity: Boolean = false,
+    val reasoningMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
+    val allowReasoning: Boolean = true
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

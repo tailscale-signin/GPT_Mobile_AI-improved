@@ -589,12 +589,26 @@ fun PlatformSettingScreen(
                             )
                         }
                         if (!isLocalPlatform && !isFreePlatform) {
-                            ExtendedThinkingSwitch(
-                                modifier = Modifier.heightIn(min = 64.dp),
-                                enabled = platformData.enabled,
-                                isChecked = platformData.reasoning,
-                                onCheckedChange = { settingViewModel.toggleReasoning() }
-                            )
+                            if (platformData.compatibleType == ClientType.LLAMA) {
+                                val mode = features.llamaReasoningModes[platformData.uid]
+                                    ?: if (platformData.reasoning) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+                                SettingItem(
+                                    modifier = Modifier.heightIn(min = 64.dp),
+                                    title = "Reasoning: ${mode.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                                    description = "Tap to cycle Auto, On, Off. Auto uses server defaults. On and Off require a verified template control; unsupported requests stop before inference.",
+                                    enabled = platformData.enabled,
+                                    onItemClick = settingViewModel::cycleLlamaReasoning,
+                                    showLeadingIcon = false,
+                                    showTrailingIcon = true
+                                )
+                            } else {
+                                ExtendedThinkingSwitch(
+                                    modifier = Modifier.heightIn(min = 64.dp),
+                                    enabled = platformData.enabled,
+                                    isChecked = platformData.reasoning,
+                                    onCheckedChange = { settingViewModel.toggleReasoning() }
+                                )
+                            }
 
                             // Provider-specific OpenRouter batching lives exclusively in
                             // OpenRouter Provider Settings. Keep these legacy per-profile controls

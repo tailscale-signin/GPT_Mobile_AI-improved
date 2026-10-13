@@ -81,7 +81,7 @@ internal class AndroidResearchWorkflow(
     private val readAttempts = AtomicInteger()
     private val readerRotation = AtomicInteger()
 
-    private fun normalizedTask(value: String) = value.trim().replace(Regex("\\s+"), " ").take(8_000)
+    private fun normalizedTask(value: String) = value.trim().replace(Regex("\\s+"), " ")
 
     private var featurePolicy = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
     private fun enforcePublicationPolicy(questions: List<ResearchQuestion>) = if (featurePolicy.peerReviewedOnly) questions.map { if (it.evidenceNeeded.contains("peer-reviewed publication required")) it else it.copy(evidenceNeeded = it.evidenceNeeded + "; peer-reviewed publication required") } else questions
@@ -207,7 +207,7 @@ internal class AndroidResearchWorkflow(
             it.copy(complete = it.complete && (it.phase == "Not needed" || assessResearchCoverage(enforcePublicationPolicy(it.questionPlan), it.claims, it.sources).complete))
         }
         // A sibling task shares evidence, never another task's questions or completion.
-        state = saved ?: ResearchSnapshot(task.take(8000), sources = retained?.sources.orEmpty(), claims = retained?.claims.orEmpty().map { it.copy(relevance = "Unknown", questionId = "") }, queries = retained?.queries.orEmpty(), notes = listOf("Policy:$policy"))
+        state = saved ?: ResearchSnapshot(task, sources = retained?.sources.orEmpty(), claims = retained?.claims.orEmpty().map { it.copy(relevance = "Unknown", questionId = "") }, queries = retained?.queries.orEmpty(), notes = listOf("Policy:$policy"))
         readAttempts.set(state.attempts.coerceAtLeast(0))
         var noResearchNeeded = saved?.phase == "Not needed"
         state.sources.filter {

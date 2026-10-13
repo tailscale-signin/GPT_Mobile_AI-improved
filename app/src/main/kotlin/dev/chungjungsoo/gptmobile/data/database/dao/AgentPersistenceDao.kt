@@ -131,6 +131,9 @@ interface AgentPersistenceDao {
     @Query("SELECT * FROM answer_segments WHERE runId = :runId ORDER BY sequence")
     suspend fun answerSegments(runId: String): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>
 
+    @Query("SELECT answer_segments.* FROM answer_segments JOIN agent_runs ON agent_runs.run_id = answer_segments.runId WHERE agent_runs.chat_id = :chatId ORDER BY answer_segments.runId, answer_segments.sequence")
+    suspend fun answerSegmentsForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>
+
     @Insert
     suspend fun insertAnswerSegments(segments: List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>)
 
@@ -303,10 +306,21 @@ interface AgentPersistenceDao {
         }
         require(current.currentRunId == request.assistantMessage.currentRunId && current.ownershipFence == request.assistantMessage.ownershipFence) { "The answer slot changed; reload before retrying." }
         require(request.run.synthesisKey == null || previousRun?.status !in setOf("QUEUED", "RUNNING")) { "A Combined writer still owns this answer. Stop it before replacing the corpus." }
+        val resumedPrefix = request.resumeCombinedFrom?.let { priorId ->
+            val priorRun = requireNotNull(previousRun)
+            require(priorId == priorRun.runId && priorRun.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) { "The Combined recovery owner changed." }
+            val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(request.run.synthesisSnapshot))
+            require(snapshot.resumeFromRunId == priorId && request.run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(requireNotNull(request.run.synthesisSnapshot)))
+            val original = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(priorRun.synthesisSnapshot))
+            require(snapshot.copy(version = original.version, resumeFromRunId = original.resumeFromRunId, committedPrefix = original.committedPrefix) == original) { "Recovery cannot replace the frozen input." }
+            val prefix = if (priorRun.status == "COMPLETED") "" else dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.text(answerSegments(priorId), priorId, priorRun.ownershipFence)
+            require(snapshot.committedPrefix == prefix && (priorRun.status == "COMPLETED" || current.content == prefix)) { "The committed Combined prefix changed." }
+            prefix
+        }.orEmpty()
         val nextFence = Math.addExact(current.ownershipFence, 1L)
         val previousRevision = current.snapshotLatestAssistantRevision(request.run.createdAt)
         val assistantMessage = request.assistantMessage.copy(
-            content = "",
+            content = resumedPrefix,
             thoughts = "",
             timeline = listOfNotNull(
                 request.recovery?.let { descriptor ->
@@ -343,6 +357,7 @@ interface AgentPersistenceDao {
             createdAt = request.run.createdAt
         )
         insertRun(run)
+        preserveCombinedPrefix(assistantMessage)
         return PersistAgentRetryResult(assistantMessage, run)
     }
 

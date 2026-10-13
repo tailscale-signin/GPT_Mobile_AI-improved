@@ -18,6 +18,31 @@ import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
     @Test
+    fun `typed progress deadline survives timeline serialization beside partial answer`() = runBlocking {
+        val deadline = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome(
+            "GENERATION_STALLED",
+            dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.ANSWER,
+            120_000,
+            90_000,
+            true,
+            2
+        )
+        var answer = ""
+        var saved = emptyList<AssistantTimelineItem>()
+        val result = flowOf(ApiState.Success("Partial answer"), ApiState.Error("Generation stalled", deadline))
+            .collectApiStateUpdates(onUpdate = { content, _, timeline ->
+                answer = content
+                saved = timeline
+            })
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+        assertEquals("Partial answer", answer)
+        val notice = saved.single { it.progressDeadline != null }
+        assertEquals(AssistantTimelineItemType.NOTICE, notice.type)
+        val serialized = kotlinx.serialization.json.Json.encodeToString(AssistantTimelineItem.serializer(), notice)
+        assertEquals(deadline, kotlinx.serialization.json.Json.decodeFromString<AssistantTimelineItem>(serialized).progressDeadline)
+    }
+
+    @Test
     fun `delegate tool origin is retained across start and completion updates`() = runBlocking {
         var saved = emptyList<AssistantTimelineItem>()
         val metrics = dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics(10, 10)

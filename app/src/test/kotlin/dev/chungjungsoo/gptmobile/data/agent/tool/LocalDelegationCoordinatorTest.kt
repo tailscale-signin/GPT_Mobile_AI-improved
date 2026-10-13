@@ -20,6 +20,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun `full task that exceeds available input is rejected before dispatch`() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, fallbackToAnotherProfile = false) },
+            { listOf(target) },
+            { _, _, _ ->
+                calls++
+                "must not dispatch"
+            },
+            inputBudget = { _, _ -> 1000 }
+        )
+        val result = coordinator.executeTask(target, "Original goal ".repeat(150) + "NEVER publish", 256)
+        assertNull(result)
+        assertEquals(0, calls)
+    }
+
     @Test fun completedPlanStepsSurviveCancellationWithoutReplenishingCalls() = runTest {
         val stepA = dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanStep("a", dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.Role.DOCUMENT_EXTRACTION)
         val stepB = stepA.copy(id = "b", dependsOn = listOf("a"))

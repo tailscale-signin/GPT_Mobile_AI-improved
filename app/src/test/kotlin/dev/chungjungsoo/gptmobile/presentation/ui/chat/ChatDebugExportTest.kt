@@ -18,6 +18,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatDebugExportTest {
+    @Test fun segmentExportHashesAndByteCountsDescribeOnlyRedactedText() {
+        val text = "Credential: configured-secret-value"
+        val segment = dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment("run", 0, 2, text, debugBodyDigest(text), null, text.toByteArray().size)
+        val json = Json { encodeDefaults = true }
+        val records = buildJsonObject {
+            put("answerSegments", kotlinx.serialization.json.JsonArray(listOf(json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment.serializer(), segment))))
+        }
+        val body = buildChatDebugExport(ChatRoomV2(id = 1, title = "Synthetic"), emptyList(), listOf(PlatformV2(name = "Profile", token = "configured-secret-value")), ChatMcpToolConfig(), AppFeatureSettings(), "", records, emptyList(), json)
+        assertFalse(body.contains("configured-secret-value"))
+        assertFalse(body.contains(segment.digest))
+        val exported = Json.parseToJsonElement(body).jsonObject.getValue("answerSegments").jsonArray.single().jsonObject
+        val redacted = exported.getValue("text").jsonPrimitive.content
+        assertEquals(debugBodyDigest(redacted), exported.getValue("digest").jsonPrimitive.content)
+        assertEquals(redacted.toByteArray().size.toString(), exported.getValue("utf8Bytes").jsonPrimitive.content)
+    }
+
     @Test fun exportedDigestMatchesRedactedBodyRatherThanPrivateOriginal() {
         val message = MessageV2(id = 2, chatId = 1, platformType = "lead", content = "Bearer test-private-credential")
         val body = buildChatDebugExport(ChatRoomV2(id = 1, title = "Synthetic"), listOf(message), listOf(PlatformV2(uid = "lead", name = "Lead")), ChatMcpToolConfig(), AppFeatureSettings(), "", buildJsonObject {}, emptyList(), Json { encodeDefaults = true })

@@ -47,6 +47,72 @@ import org.junit.Test
 
 class LiteRtLmAdapterTest {
     @Test
+    fun `revoked request cannot inspect load or generate on the native runtime`() = runBlocking {
+        val runtime = FakeLocalRuntime()
+        val adapter = adapter(runtime)
+        val rejected = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("revoked") { error("Permission revoked") }) {
+            runCatching { adapter.openSession(turns("private goal"), localPlatform()).streamRound(emptyList(), emptyList()).toList() }.isFailure
+        }
+        assertTrue(rejected)
+        assertTrue(runtime.loadEngineCalls.isEmpty())
+        assertTrue(runtime.createConversationCalls.isEmpty())
+        assertTrue(runtime.sendMessageCalls.isEmpty())
+    }
+
+    @Test
+    fun `permission revoked by a native tool stops evidence return and automatic recovery`() = runBlocking {
+        var allowed = true
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.Done))
+            scriptedToolInvocations = listOf(listOf(ScriptedToolInvocation("lookup", "{}", afterEventIndex = 0)))
+        }
+        val authority = dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("live") { check(allowed) }
+        val events = kotlinx.coroutines.withContext(authority) {
+            adapter(runtime, catalog = toolsCatalog()).openSession(
+                turns("look up"),
+                localPlatform(),
+                listOf(
+                    lookupTool { id, _ ->
+                        allowed = false
+                        AgentToolResult(id, ToolResultContent.Text("withheld result"), false)
+                    }
+                )
+            ).streamRound(emptyList(), emptyList()).toList()
+        }
+        assertTrue(events.any { it is ProviderEvent.Failed && it.message.contains("PERMISSION_REVOKED") })
+        assertTrue(runtime.toolExecutorResults.isEmpty())
+        assertEquals(1, runtime.sendMessageCalls.size)
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
+    fun `reused native callback inherits the current request authority`() = runBlocking {
+        var priorAllowed = true
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("one"), LocalRuntimeEvent.Done), listOf(LocalRuntimeEvent.Done))
+            scriptedToolInvocations = listOf(emptyList(), listOf(ScriptedToolInvocation("lookup", "{}", afterEventIndex = 0)))
+        }
+        val adapter = adapter(runtime, catalog = toolsCatalog())
+        var callbackRevision: String? = null
+        val tools = listOf(
+            lookupTool { id, _ ->
+                callbackRevision = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision
+                AgentToolResult(id, ToolResultContent.Text("current result"), false)
+            }
+        )
+        kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("old") { check(priorAllowed) }) {
+            adapter.openSession(turns("first"), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
+        }
+        priorAllowed = false
+        val events = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("new") {}) {
+            adapter.openSession(listOf(completedTurn("first", "one"), pendingTurn("next")), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals("new", callbackRevision)
+        assertEquals(1, runtime.createConversationCalls.size)
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
     fun `status summarizer never loads a cold engine and uses no tools or thinking`() = runBlocking {
         val fake = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Searching sources"), LocalRuntimeEvent.Done))
@@ -1789,14 +1855,14 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `assist cannot evict an interactive conversation`() = runBlocking {
-        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("answer"), LocalRuntimeEvent.Done)) }
+    fun `assist shares the warm engine after interactive generation has stopped`() = runBlocking {
+        val native = FakeLocalRuntime().apply { scriptedEvents = List(2) { listOf(LocalRuntimeEvent.TextDelta("answer"), LocalRuntimeEvent.Done) } }
         val adapter = adapter(LocalEngineHolder(native) { 1000L })
         adapter.openSession(turns("chat"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
         val events = adapter.openSession(turns("assist"), localPlatform(), constraints = RequestConstraints(allowTools = false, requestRole = "assist")).streamRound(emptyList(), emptyList()).toList()
-        assertTrue(events.any { it is ProviderEvent.Failed && "interactive" in it.message })
-        assertEquals(0, native.closeConversationCalls)
-        assertEquals(listOf("chat"), native.sendMessageCalls)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, native.loadEngineCalls.size)
+        assertEquals(listOf("chat", "assist"), native.sendMessageCalls)
     }
 
     @Test

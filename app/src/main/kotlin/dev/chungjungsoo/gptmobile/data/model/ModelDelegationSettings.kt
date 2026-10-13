@@ -67,6 +67,8 @@ data class ModelDelegationSettings(
     val deepResearch: DeepResearchSettings = DeepResearchSettings(),
     val automaticResearch: Boolean = true,
     val compactToolResults: Boolean = true,
+    /** Explicitly opt in to reducing replayed history after research; originals remain retained. */
+    val compressRemoteSynthesisHistory: Boolean = false,
     val maxLocalModelCalls: Int = 16,
     val maxSearchQueries: Int = 9,
     val searchResultsPerEngine: Int = 10,

@@ -12,7 +12,10 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-enum class RunDiagnosticKind { REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, RUN_TERMINAL, CAPTURE_GAP }
+enum class RunDiagnosticKind { PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, RUN_TERMINAL, CAPTURE_GAP }
+
+@Serializable
+enum class ProgressDeadlineCode { RUN_DEADLINE_EXCEEDED, GENERATION_STALLED, QUEUE_DEADLINE_EXCEEDED, LOAD_DEADLINE_EXCEEDED, MODEL_PROGRESS_TIMEOUT }
 
 @Serializable
 enum class RunDiagnosticRole {
@@ -58,7 +61,15 @@ data class RunDiagnosticEvent(
     val reasoningBytes: Long? = null,
     val elapsedMillis: Long? = null,
     val successful: Boolean? = null,
-    val measured: Boolean? = null
+    val measured: Boolean? = null,
+    val phase: PreparationPhase? = null,
+    val physicalAttemptId: String? = null,
+    val progressStage: dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage? = null,
+    val progressDeadline: ProgressDeadlineCode? = null,
+    val outputBoundary: OutputTraceBoundary? = null,
+    val outputRepresentation: OutputTextRepresentation? = null,
+    val outputFingerprint: OutputFingerprint? = null,
+    val outputPartId: String? = null
 )
 
 @Serializable
@@ -189,15 +200,31 @@ internal class RunDiagnosticJournal(
         reasoningBytes: Long? = null,
         elapsedMillis: Long? = null,
         successful: Boolean? = null,
-        measured: Boolean? = null
+        measured: Boolean? = null,
+        phase: PreparationPhase? = null,
+        physicalAttemptId: String? = null,
+        progressStage: dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage? = null,
+        progressDeadline: ProgressDeadlineCode? = null,
+        outputBoundary: OutputTraceBoundary? = null,
+        outputRepresentation: OutputTextRepresentation? = null,
+        outputFingerprint: OutputFingerprint? = null,
+        outputPartId: String? = null
     ) {
         if (!enabled || privateSession) return
         // Identifiers are internally generated IDs. Reject accidental content at the boundary.
-        if (!safeId(runId) || invocationId != null && !safeId(invocationId)) {
+        if (!safeId(runId) || invocationId != null && !safeId(invocationId) || physicalAttemptId != null && !safeId(physicalAttemptId)) {
             dropped.incrementAndGet()
             return
         }
         if (listOfNotNull(physicalAttempt, fence, inputTokens, outputTokens, safetyTokens, contextTokens, visibleBytes, reasoningBytes, elapsedMillis).any { it < 0 }) {
+            dropped.incrementAndGet()
+            return
+        }
+        if (outputPartId != null && !outputPartId.matches(Regex("[0-9:]{1,40}"))) {
+            dropped.incrementAndGet()
+            return
+        }
+        if ((outputBoundary == null) != (outputRepresentation == null) || (outputBoundary == null) != (outputFingerprint == null) || outputFingerprint?.let { it.utf8Bytes < 0 || !it.sha256.matches(Regex("[a-f0-9]{64}")) } == true) {
             dropped.incrementAndGet()
             return
         }
@@ -210,10 +237,15 @@ internal class RunDiagnosticJournal(
             }
             val sequence = prior + 1L
             sequences[runId] = sequence
-            if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
-            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured)
+            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId)
+            val critical = kind in criticalKinds
+            if (!critical && pending.size >= 480) {
+                dropped.incrementAndGet()
+                return
+            }
             if (pending.size >= 512) {
                 val sample = pending.indexOfFirst { it.kind == RunDiagnosticKind.REDUCER_CHECKPOINT }
+                    .takeIf { it >= 0 } ?: pending.indexOfFirst { it.kind !in criticalKinds }
                 if (sample >= 0) {
                     pending.removeAt(sample)
                 } else {
@@ -222,9 +254,20 @@ internal class RunDiagnosticJournal(
                 }
                 dropped.incrementAndGet()
             }
+            if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
             pending.addLast(event)
         }
         wake.trySend(Unit)
+    }
+
+    /** Call from a background worker after the corresponding boundary has actually accepted the text. */
+    fun traceOutput(runId: String, boundary: OutputTraceBoundary, text: String, fence: Long? = null, invocationId: String? = null, representation: OutputTextRepresentation = OutputTextRepresentation.VISIBLE_UTF8, partId: String? = null) {
+        if (!enabled || privateSession) return
+        val eligible = synchronized(lock) { runId in permittedRuns }
+        if (!eligible) return
+        runCatching {
+            record(runId, RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = invocationId, fence = fence, outputBoundary = boundary, outputRepresentation = representation, outputFingerprint = outputFingerprint(text), outputPartId = partId)
+        }.onFailure { failed = true }
     }
 
     /** Read on an IO worker. Frozen stream watermarks exclude subsequent samples. */
@@ -293,6 +336,8 @@ internal class RunDiagnosticJournal(
             if (captured < now() - retentionMillis || total > maxStoredBytes) vault.delete(reference)
         }
     }
+
+    private val criticalKinds = setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)
 
     private fun identity(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
     private fun safeId(value: String) = value.length in 1..192 && value.all { it.isLetterOrDigit() || it in "_.:-" }

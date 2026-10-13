@@ -51,9 +51,11 @@
     "id": "LA-QA07",
     "fixture": "Memory learning disabled",
     "assertion": "Resolve Assist permission independently without broadening old exclusions.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "LA-QA08",
@@ -67,9 +69,11 @@
     "id": "LA-QA09",
     "fixture": "Character boundary fixtures",
     "assertion": "4,095 / 4,096 / 12,000 / 12,001 units do not trigger the old whole-result admission gate.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "LA-QA10",
@@ -83,9 +87,11 @@
     "id": "LA-QA11",
     "fixture": "Long article and short snippet",
     "assertion": "Both normalize into useful source-linked passages without arbitrary field-length exclusions.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "LA-QA12",
@@ -291,9 +297,11 @@
     "id": "LC-T01",
     "fixture": "Exact context boundary",
     "assertion": "P + O + S = C fits; one extra token blocks non-destructively.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "LC-T02",
@@ -355,25 +363,31 @@
     "id": "LC-T09",
     "fixture": "Long active stream and slow prefill",
     "assertion": "Progressing generation exceeds 180 seconds safely; observed prefill remains distinct.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
   },
   {
     "id": "LC-T10",
     "fixture": "Heartbeats and empty chunks only",
     "assertion": "No false progress reset; correct phase/idle timeout fires once.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
   },
   {
     "id": "LC-T11",
     "fixture": "Reasoning then stall versus active reasoning",
     "assertion": "Distinguish outcomes; neither is completed visible output or automatic prompt overflow.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
   },
   {
     "id": "LC-T12",
@@ -643,33 +657,41 @@
     "id": "IX01",
     "fixture": "Routing-only OpenRouter configuration",
     "assertion": "With only provider routing present, decoding introduces no output override; a fitting 16,384 target stays 16,384.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "IX02",
     "fixture": "Absent/null/explicit/zero settings",
     "assertion": "Round-trip presence correctly; explicit caps/false/valid zeros survive, absent keys inherit and invalid types fail clearly.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "IX03",
     "fixture": "Sampling default injection",
     "assertion": "Routing-only JSON does not inject temperature 0.2, top_p 0.15, top_k 30, seed 42, penalties or stream.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "IX04",
     "fixture": "Assist goal tail beyond 1,000 characters",
     "assertion": "Required tail constraint reaches the admitted task representation or explicit scoped workflow.",
-    "outcome": "NOT_RUN",
-    "commit": null,
-    "evidence": []
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
   },
   {
     "id": "IX05",

@@ -224,6 +224,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var outputSource = "estimated"
             var actualRuntime: String? = null
             var generatedBytes = 0L
+            val visibleFingerprint = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputFingerprintAccumulator() }
             var visibleBytes = 0L
             var reasoningBytes = 0L
             var finishReason: String? = null
@@ -238,6 +239,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             is ProviderEvent.TextDelta -> {
                                 if (first == null) first = (System.nanoTime() - started) / 1_000_000
                                 val size = event.text.toByteArray().size
+                                visibleFingerprint?.append(event.text)
                                 visibleBytes += size
                                 generatedBytes += size
                             }
@@ -267,7 +269,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             else -> Unit
                         }
                         val now = System.nanoTime()
-                        if (now - lastPublished >= 500_000_000 || event is ProviderEvent.Usage || (first != null && liveRequests.value[record.id]?.firstTokenMs == null)) {
+                        if (now - lastPublished >= 250_000_000 || event is ProviderEvent.Completed || event is ProviderEvent.Failed || (first != null && liveRequests.value[record.id]?.firstTokenMs == null)) {
                             lastPublished = now
                             liveRequests.update {
                                 it + (
@@ -311,6 +313,11 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 throw error
             } finally {
                 withContext(NonCancellable) {
+                    visibleFingerprint?.snapshot()?.let { fingerprint ->
+                        visibleBytes = fingerprint.utf8Bytes
+                        generatedBytes = visibleBytes + reasoningBytes
+                        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = record.id, outputBoundary = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = fingerprint)
+                    }
                     dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = input != null && output != null)
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")

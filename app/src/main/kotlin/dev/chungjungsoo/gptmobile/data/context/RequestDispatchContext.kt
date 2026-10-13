@@ -15,13 +15,31 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Bridges a physical serializer to its existing invocation owner without retaining prompt bytes. */
 internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null, private val preparedEvidence: Set<JsonObject> = emptySet()) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<RequestDispatchContext>
+    private val physicalOrdinal = java.util.concurrent.atomic.AtomicLong()
     val receipts = CopyOnWriteArrayList<RequestAdmissionReceipt>()
     val includedProducers = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    fun progress(stage: dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage, elapsedMillis: Long, deadline: dev.chungjungsoo.gptmobile.data.diagnostics.ProgressDeadlineCode? = null) {
+        runId?.let { owner ->
+            val receipt = receipts.lastOrNull()
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(
+                owner,
+                if (deadline == null) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PROGRESS_STAGE else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PROGRESS_DEADLINE,
+                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt?.role.orEmpty()),
+                invocationId = invocationId,
+                physicalAttemptId = receipt?.physicalAttemptId,
+                elapsedMillis = elapsedMillis.coerceAtLeast(0),
+                progressStage = stage,
+                progressDeadline = deadline
+            )
+        }
+    }
+
     fun serialized(payload: String, receipt: RequestAdmissionReceipt) {
+        val ordinal = physicalOrdinal.incrementAndGet()
         receipts += receipt
         runId?.let { owner ->
-            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_SERIALIZED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt.role), invocationId = invocationId, physicalAttempt = receipts.size.toLong(), inputTokens = receipt.promptTokens, outputTokens = receipt.outputTokens, safetyTokens = receipt.safetyTokens, contextTokens = receipt.contextTokens, measured = receipt.measurement == TokenMeasurementKind.SERVING_TOKENIZER)
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_SERIALIZED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt.role), invocationId = invocationId, physicalAttempt = ordinal, physicalAttemptId = receipt.physicalAttemptId, inputTokens = receipt.promptTokens, outputTokens = receipt.outputTokens, safetyTokens = receipt.safetyTokens, contextTokens = receipt.contextTokens, measured = receipt.measurement == TokenMeasurementKind.SERVING_TOKENIZER)
         }
         fun inspect(node: JsonElement, depth: Int) {
             if (depth > 32) return

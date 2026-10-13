@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
+import dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary
+import dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptRejected
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -11,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -55,7 +58,8 @@ internal class AssistCoordinator(
     }
 
     private fun reserveAttempt(): Boolean = if (turnId.isBlank()) {
-        attempts.incrementAndGet() <= policy.validated().maxAttempts
+        val limit = policy.validated().maxAttempts
+        attempts.getAndUpdate { if (it < limit) it + 1 else it } < limit
     } else {
         AssistTurnBudget.reserve(turnId, policy.validated().maxAttempts).also { if (it) attempts.incrementAndGet() }
     }
@@ -123,15 +127,18 @@ internal class AssistCoordinator(
                 publish(current.copy(execution = AssistExecution.CANCELLED, reason = "PERMISSION_OR_RUNTIME_CHANGED"))
                 return null
             }
-            if (!reserveAttempt()) {
-                publish(current.copy(execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE", unprocessedSpanIds = spanIds, examinedSpanIds = emptyList()))
-                return null
-            }
             publish(current.copy(execution = AssistExecution.QUEUED, reason = "WAITING_FOR_RUNTIME"))
             notice("Local Assist: $kind")
             return try {
-                publish(current.copy(execution = AssistExecution.RUNNING, reason = "LOCAL_GENERATION"))
-                val reply = withTimeoutOrNull(policy.validated().taskTimeoutSeconds * 1000L) { selectEvidence(prompt) }
+                val reply = withTimeoutOrNull(policy.validated().taskTimeoutSeconds * 1000L) {
+                    withContext(
+                        PhysicalAttemptBoundary {
+                            if (!stillEnabled() || runtimeFingerprint() != fingerprint) throw PhysicalAttemptRejected("PERMISSION_OR_RUNTIME_CHANGED")
+                            if (!reserveAttempt()) throw PhysicalAttemptRejected("PHYSICAL_ATTEMPT_ALLOWANCE")
+                            publish(current.copy(execution = AssistExecution.RUNNING, reason = "PHYSICAL_DISPATCH"))
+                        }
+                    ) { selectEvidence(prompt) }
+                }
                 when {
                     !stillEnabled() || runtimeFingerprint() != fingerprint -> {
                         publish(current.copy(execution = AssistExecution.CANCELLED, reason = "PERMISSION_OR_RUNTIME_CHANGED"))
@@ -143,6 +150,9 @@ internal class AssistCoordinator(
                     }
                     else -> reply to current.copy(execution = AssistExecution.COMPLETED, producerInvocationId = producerInvocationId())
                 }
+            } catch (rejected: PhysicalAttemptRejected) {
+                publish(current.copy(execution = AssistExecution.SKIPPED, reason = rejected.reason, unprocessedSpanIds = spanIds, examinedSpanIds = emptyList()))
+                null
             } catch (cancelled: CancellationException) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { publish(current.copy(execution = AssistExecution.CANCELLED, reason = "PARENT_CANCELLED", producerInvocationId = producerInvocationId())) }
                 throw cancelled

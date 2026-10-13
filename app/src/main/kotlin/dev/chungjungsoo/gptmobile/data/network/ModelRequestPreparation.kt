@@ -40,6 +40,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         )
         val wire = prepared.dispatchPayload(snapshot.fingerprint, config.permissionRevision)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt)
+        dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
         return wire
     }
 }

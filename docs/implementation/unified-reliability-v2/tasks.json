@@ -217,7 +217,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Llama history and extracted attachments now reach final admission intact. Token-cost tool exposure, re-plan and mandatory interface qualification remain."
+      "Removed count-based 4/8/16 tool ceiling; schema admission uses remaining token budget with required tools first. Full history-retention UI, exact final counts and tests across every provider remain."
     ]
   },
   {
@@ -424,7 +424,7 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Implementation and full acceptance verification in progress; not a completion claim."
+      "Attempt reservations now run at admitted physical dispatch, with live permission/runtime recheck; no charge for preparation/queue failures. Initial/retry/native writer recovery use the boundary. Native-internal tool rounds and authoritative local tokenizer integration remain."
     ]
   },
   {
@@ -893,7 +893,7 @@
       "V38",
       "V39"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "LA-QA31",
       "CM-T25",
@@ -903,7 +903,9 @@
     ],
     "implementation_commits": [],
     "evidence": [],
-    "remaining_work": []
+    "remaining_work": [
+      "Conversation schema v3 and five-file redacted ZIP bundle implemented with per-file digests, bounded corruption-detecting reader and legacy v2 reading. Frozen journal watermarks and explicit missing profile dependencies included. Cross-store transactional export, complete artifacts and payload consent integration remain."
+    ]
   },
   {
     "id": "V41",

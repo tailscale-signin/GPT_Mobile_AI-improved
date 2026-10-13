@@ -10,6 +10,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun schemaCountHasNoArbitraryCeilingWhenAllSchemasFit() {
+        val tools = (1..30).map { AgentToolDefinition("tool$it", "Short", buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(emptyList(), "Compare the available actions", "", tools, 32_768, 1024)
+        assertEquals(30, plan.tools.size)
+        assertEquals(0, plan.omittedTools)
+    }
+
     @Test
     fun `large tool catalog fits a 1024 context with response and result headroom`() {
         val tools = (1..40).map { AgentToolDefinition("tool$it", "description ".repeat(20), buildJsonObject {}) }

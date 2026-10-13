@@ -52,14 +52,9 @@ internal object LocalContextPlanner {
         val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
         val selectedTools = mutableListOf<AgentToolDefinition>()
         var toolTokens = 0L
-        val ordinaryToolCap = when {
-            contextTokens < 8192 -> 4
-            contextTokens < 32768 -> 8
-            else -> 16
-        }
         fun admitTool(tool: AgentToolDefinition) {
             val tokens = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
-            if (used + tokens < promptLimit && (tool.name in requiredNames || selectedTools.size < ordinaryToolCap)) {
+            if (used + tokens < promptLimit) {
                 used += tokens
                 toolTokens += tokens
                 selectedTools += tool

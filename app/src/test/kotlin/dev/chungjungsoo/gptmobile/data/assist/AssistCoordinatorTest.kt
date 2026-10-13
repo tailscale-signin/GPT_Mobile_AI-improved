@@ -96,12 +96,50 @@ class AssistCoordinatorTest {
         val turn = java.util.UUID.randomUUID().toString()
         repeat(3) { index ->
             val assist = AssistCoordinator("goal $index", { true }, {
+                dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
                 generated++
                 "[0]"
             }, {}, policy = LocalAssistPolicy(maxAttempts = 1), turnId = turn)
             assist.bind(tool()).execute("call$index", buildJsonObject {})
         }
         assertEquals(1, generated)
+    }
+
+    @Test fun rejectedPreparationDoesNotSpendPhysicalAllowance() = runBlocking {
+        val states = mutableListOf<AssistTaskState>()
+        var preparations = 0
+        var dispatched = 0
+        val assist = AssistCoordinator("goal", { true }, {
+            preparations++
+            if (preparations == 1) error("admission rejected before dispatch")
+            dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+            dispatched++
+            "[0]"
+        }, {}, policy = LocalAssistPolicy(maxAttempts = 1), status = { states += it })
+        val wrapped = assist.bind(tool())
+        wrapped.execute("rejected", JsonObject(emptyMap()))
+        assertEquals(0, states.last().physicalAttempts)
+        wrapped.execute("admitted", JsonObject(emptyMap()))
+        wrapped.execute("exhausted", JsonObject(emptyMap()))
+        assertEquals(1, dispatched)
+        assertEquals(1, states.last().physicalAttempts)
+        assertEquals("PHYSICAL_ATTEMPT_ALLOWANCE", states.last().reason)
+    }
+
+    @Test fun permissionsAreCheckedAfterQueueAndBeforeCharging() = runBlocking {
+        var enabled = true
+        val states = mutableListOf<AssistTaskState>()
+        var dispatched = false
+        val assist = AssistCoordinator("goal", { true }, {
+            enabled = false
+            dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+            dispatched = true
+            "[0]"
+        }, {}, stillEnabled = { enabled }, status = { states += it })
+        assist.bind(tool()).execute("call", JsonObject(emptyMap()))
+        assertFalse(dispatched)
+        assertEquals(0, states.last().physicalAttempts)
+        assertEquals("PERMISSION_OR_RUNTIME_CHANGED", states.last().reason)
     }
 
     @Test fun explicitProbeUsesProductionSelectionAndKeepsSyntheticOriginals() = runBlocking {

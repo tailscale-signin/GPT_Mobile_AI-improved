@@ -11,6 +11,8 @@ import dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy
 import dev.chungjungsoo.gptmobile.data.assist.LocalAssistQueue
 import dev.chungjungsoo.gptmobile.data.assist.allowsProcessing
 import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
+import dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary
+import dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptRejected
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
@@ -22,6 +24,7 @@ import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.orchestration.assistEnabled
 import dev.chungjungsoo.gptmobile.data.orchestration.effectiveAssistPolicy
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** All destinations are pinned at run admission. A setting change can revoke, never grant access. */
@@ -63,8 +66,12 @@ internal object DirectResearchModelFactory {
                         LocalAssistQueue.run(policy.queueWaitSeconds * 1000L) {
                             check(permitted()) { "Research permission or destination changed" }
                             check(prepareLocal(target, policy)) { AssistReadinessResolver.state.value.reason }
-                            check(AssistTurnBudget.reserve(turnId, policy.maxAttempts)) { "Local Assist physical attempt allowance reached" }
-                            withTimeoutOrNull(policy.taskTimeoutSeconds * 1000L) { execute() }
+                            withContext(
+                                PhysicalAttemptBoundary {
+                                    if (!permitted()) throw PhysicalAttemptRejected("PERMISSION_OR_RUNTIME_CHANGED")
+                                    if (!AssistTurnBudget.reserve(turnId, policy.maxAttempts)) throw PhysicalAttemptRejected("PHYSICAL_ATTEMPT_ALLOWANCE")
+                                }
+                            ) { withTimeoutOrNull(policy.taskTimeoutSeconds * 1000L) { execute() } }
                         } ?: error("Local Assist queue or task deadline; primary research remains available")
                     } else {
                         execute()

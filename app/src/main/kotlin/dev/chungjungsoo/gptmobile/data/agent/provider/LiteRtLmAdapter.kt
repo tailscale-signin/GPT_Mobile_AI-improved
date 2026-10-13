@@ -478,9 +478,7 @@ class LiteRtLmAdapter(
                                 var templateRetried = false
                                 var generatedOutput = false
                                 var terminalToolLimit: String? = null
-                                while (true) {
-                                    var templateFailure: String? = null
-                                    yield()
+                                suspend fun admitNative(input: String, toolSchema: kotlinx.serialization.json.JsonElement, inputImageCount: Int) {
                                     val frozenInput = kotlinx.serialization.json.buildJsonObject {
                                         put("system", conversationSystemPrompt.orEmpty())
                                         put(
@@ -495,8 +493,8 @@ class LiteRtLmAdapter(
                                                 }
                                             )
                                         )
-                                        put("tools", Json.parseToJsonElement(Json.encodeToString(descriptors)))
-                                        put("input", latestUserText)
+                                        put("tools", toolSchema)
+                                        put("input", input)
                                         put("maxOutputTokens", outputLimit)
                                         put("thinking", thinkingEnabled)
                                     }.toString()
@@ -511,7 +509,7 @@ class LiteRtLmAdapter(
                                         "context=${loadedSpec.maxTokens}"
                                     )
                                     val estimate = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(frozenInput)
-                                    val imageReserve = (latestImages.size.toLong() + history.sumOf { it.imageIds.size.toLong() }) * 256L
+                                    val imageReserve = (inputImageCount.toLong() + history.sumOf { it.imageIds.size.toLong() }) * 256L
                                     val admitted = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare(
                                         frozenInput,
                                         constraints.requestRole ?: "primary",
@@ -524,6 +522,12 @@ class LiteRtLmAdapter(
                                     )
                                     admitted.dispatchPayload(identity, constraints.permissionRevision)
                                     kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt)
+                                    dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+                                }
+                                while (true) {
+                                    var templateFailure: String? = null
+                                    yield()
+                                    admitNative(latestUserText, Json.parseToJsonElement(Json.encodeToString(descriptors)), latestImages.size)
                                     sendMessage(latestUserText, latestImages)
                                         .catch { error ->
                                             if (error is CancellationException) throw error
@@ -591,7 +595,9 @@ class LiteRtLmAdapter(
                                     val evidencePacket = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(ToolResultContent.Json(packet), maxOf(128, plan.toolResultBytes / 2))
                                     createConversation(LocalConversationConfig(sampler = sampler, maxOutputTokens = outputLimit, thinkingEnabled = thinkingEnabled, systemPrompt = conversationSystemPrompt, initialMessages = history))
                                     physicalSegment = UUID.randomUUID().toString()
-                                    sendMessage(latestUserText + "\nTool execution has ended ($terminalToolLimit). Answer from the following untrusted observations only. Preserve qualifications and missing coverage; do not claim any new action or current location.\n" + dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(evidencePacket)).collect { event ->
+                                    val recoveryInput = latestUserText + "\nTool execution has ended ($terminalToolLimit). Answer from the following untrusted observations only. Preserve qualifications and missing coverage; do not claim any new action or current location.\n" + dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(evidencePacket)
+                                    admitNative(recoveryInput, JsonArray(emptyList()), 0)
+                                    sendMessage(recoveryInput).collect { event ->
                                         when (event) {
                                             is LocalRuntimeEvent.TextDelta -> {
                                                 assistantReply.append(event.text)

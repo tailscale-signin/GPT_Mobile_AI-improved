@@ -9,7 +9,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 enum class ChatExportFormat(val extension: String, val mimeType: String) {
     MARKDOWN("md", "text/markdown"),
     PLAIN_TEXT("txt", "text/plain"),
-    DEBUG("debug.json", "application/json")
+    DEBUG("debug.zip", "application/zip")
 }
 
 /** Only the selected AI response revision is exported. Activity and prompts are separate data. */

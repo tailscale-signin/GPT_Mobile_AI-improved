@@ -1598,7 +1598,13 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             return
         }
         val file = File(context.getExternalFilesDir(null), fileName)
-        withContext(Dispatchers.IO) { file.writeText(fileContent) }
+        withContext(Dispatchers.IO) {
+            if (format == ChatExportFormat.DEBUG) {
+                file.outputStream().use { DebugExportBundle.write(fileContent, it) }
+            } else {
+                file.writeText(fileContent)
+            }
+        }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = format.mimeType

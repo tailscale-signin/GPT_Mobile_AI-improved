@@ -6,8 +6,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
+@androidx.room.Entity(tableName = "research_operation_receipts", indices = [androidx.room.Index(value = ["engineId", "recordedAt"])])
 data class ResearchAttempt(
-    val eventId: String,
+    @androidx.room.PrimaryKey val eventId: String,
     val engineId: String,
     val operation: String,
     val recordedAt: Long,
@@ -31,6 +32,8 @@ class ResearchTelemetryStore(private val directory: File) {
     private val json = Json { ignoreUnknownKeys = true }
     private class Index {
         var loaded = false
+        var durable: ResearchStatisticsDao? = null
+        var durableLoaded = false
         val events = linkedMapOf<String, ResearchAttempt>()
         val rollups = mutableMapOf<Pair<String, Long>, ResearchEngineRollup>()
     }
@@ -50,12 +53,16 @@ class ResearchTelemetryStore(private val directory: File) {
         runCatching {
             require(event.eventId.matches(Regex("[a-zA-Z0-9-]{1,80}")))
             load()
+            val stored = event.copy(schemaVersion = 2)
+            index.durable?.let { dao ->
+                hydrateDurable(dao)
+                if (dao.record(stored) == -1L) return@runCatching
+            }
             if (event.eventId in index.events) return@runCatching
             check(directory.mkdirs() || directory.isDirectory)
             val file = File(directory, "${event.eventId}.json")
             if (file.isFile) return@runCatching
             val temporary = File(directory, "${event.eventId}.tmp")
-            val stored = event.copy(schemaVersion = 2)
             temporary.outputStream().use { it.write(json.encodeToString(stored).toByteArray()) }
             check(temporary.renameTo(file))
             index.events[event.eventId] = stored
@@ -72,6 +79,10 @@ class ResearchTelemetryStore(private val directory: File) {
 
     fun rollup(engineId: String, since: Long = 0): ResearchEngineRollup = synchronized(index) {
         load()
+        index.durable?.let { dao ->
+            hydrateDurable(dao)
+            return@synchronized dao.rollup(engineId, maxOf(since, dao.clearedAt() ?: 0))
+        }
         if (index.rollups.size >= 128) index.rollups.clear()
         index.rollups.getOrPut(engineId to since) {
             val events = index.events.values.filter { it.engineId == engineId && it.recordedAt >= since }
@@ -81,6 +92,30 @@ class ResearchTelemetryStore(private val directory: File) {
         }
     }
 
+    private fun hydrateDurable(dao: ResearchStatisticsDao) {
+        if (index.durableLoaded) return
+        dao.recordBatch(index.events.values.toList())
+        index.durableLoaded = true
+    }
+    fun clearStatistics() = synchronized(index) {
+        requireNotNull(index.durable) { "Durable research statistics unavailable" }.clearEpoch(ResearchStatisticsEpoch(clearedAt = System.currentTimeMillis()))
+        index.events.keys.forEach { File(directory, "$it.json").delete() }
+        index.events.clear()
+        index.rollups.clear()
+    }
+    fun recent(engineId: String): List<ResearchAttempt> = synchronized(index) {
+        val dao = index.durable ?: return@synchronized index.events.values.filter { it.engineId == engineId }.takeLast(60).reversed()
+        hydrateDurable(dao)
+        dao.recent(engineId).filter { it.recordedAt >= (dao.clearedAt() ?: 0) }
+    }
+    fun latency(engineId: String, since: Long = 0): Pair<Long?, Long?> = synchronized(index) {
+        val dao = index.durable ?: return@synchronized null to null
+        hydrateDurable(dao)
+        val from = maxOf(since, dao.clearedAt() ?: 0)
+        val count = dao.latencyCount(engineId, from)
+        if (count == 0L) return@synchronized null to null
+        dao.latencyAt(engineId, from, (count - 1) / 2) to dao.latencyAt(engineId, from, ((count * 95 + 99) / 100 - 1).coerceAtLeast(0))
+    }
     fun writeExport(output: java.io.OutputStream) {
         val snapshot = synchronized(index) {
             load()
@@ -97,6 +132,13 @@ class ResearchTelemetryStore(private val directory: File) {
     }
 
     companion object {
+        fun attach(directory: File, dao: ResearchStatisticsDao) {
+            val index = indexes.computeIfAbsent(directory.absolutePath) { Index() }
+            synchronized(index) {
+                index.durable = dao
+                index.durableLoaded = false
+            }
+        }
         private const val MAX_EVENTS = 100_000
         private val indexes = java.util.concurrent.ConcurrentHashMap<String, Index>()
     }

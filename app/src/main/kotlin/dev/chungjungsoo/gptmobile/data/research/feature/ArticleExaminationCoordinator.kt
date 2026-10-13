@@ -43,9 +43,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class ExaminationCheckpoint(val schemaVersion: Int = 1, val archiveEpoch: Long = 0, val versionId: String? = null, val nextChunk: Int = 0, val chunkCount: Int = 0, val invocationIds: List<String> = emptyList(), val limitations: List<String> = emptyList(), val coverage: ArticleSectionCoverage = ArticleSectionCoverage(), val pendingAppraisalIds: List<String> = emptyList())
+data class ExaminationCheckpoint(val schemaVersion: Int = 1, val rootWorkId: String? = null, val parentRunId: String? = null, val archiveEpoch: Long = 0, val versionId: String? = null, val nextChunk: Int = 0, val chunkCount: Int = 0, val invocationIds: List<String> = emptyList(), val limitations: List<String> = emptyList(), val coverage: ArticleSectionCoverage = ArticleSectionCoverage(), val pendingAppraisalIds: List<String> = emptyList())
 
-data class ExaminationRequest(val workId: String, val profileUid: String, val chatId: Int = 0, val versionId: String? = null, val authority: String = "public", val origin: ExaminationOrigin = ExaminationOrigin.AUTHORIZED_RESEARCH)
+data class ExaminationRequest(val workId: String, val profileUid: String, val chatId: Int = 0, val versionId: String? = null, val authority: String = "public", val origin: ExaminationOrigin = ExaminationOrigin.AUTHORIZED_RESEARCH, val rootWorkId: String? = null, val parentRunId: String? = null)
 
 internal fun examinationAdmission(features: AppFeatureSettings, profile: PlatformV2, request: ExaminationRequest, tools: ChatMcpToolConfig): String? {
     val options = features.delegationFor(profile.uid).deepResearch
@@ -74,6 +74,7 @@ class ArticleExaminationCoordinator @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
+    private val permits = kotlinx.coroutines.sync.Semaphore(2)
     private var recovered = false
     private val active = ConcurrentHashMap<String, Job>()
     val jobs = archive.dao.jobs()
@@ -86,7 +87,7 @@ class ArticleExaminationCoordinator @Inject constructor(
     }
 
     /** Only the app's user-action path calls this; model tool arguments never control origin. */
-    suspend fun userExamine(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig = { ChatMcpToolConfig() }): String = submit(request.copy(origin = ExaminationOrigin.USER_EXAMINE), currentTools)
+    suspend fun userExamine(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig = { ChatMcpToolConfig() }): String = submit(request.copy(origin = ExaminationOrigin.USER_EXAMINE, rootWorkId = null, parentRunId = null), currentTools)
     suspend fun automaticExamine(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig): String {
         require(request.origin != ExaminationOrigin.USER_EXAMINE)
         return submit(request, currentTools)
@@ -112,14 +113,21 @@ class ArticleExaminationCoordinator @Inject constructor(
             val dedup = researchHash("${request.workId}|${source.versionId}|${request.authority}|${request.chatId}|${profile.uid}|$policy|${request.origin}")
             val old = archive.dao.jobForKey(dedup)
             if (old != null && (active[old.jobId]?.isActive == true || old.stage in COMPLETE)) return@withLock old.jobId
-            val checkpoint = old?.checkpointJson ?: Json.encodeToString(ExaminationCheckpoint(archiveEpoch = archive.dao.sequence()?.archiveEpoch ?: 0))
+            val checkpoint = old?.checkpointJson ?: Json.encodeToString(ExaminationCheckpoint(rootWorkId = request.rootWorkId, parentRunId = request.parentRunId, archiveEpoch = archive.dao.sequence()?.archiveEpoch ?: 0))
             val record = ExaminationJob(old?.jobId ?: UUID.randomUUID().toString(), dedup, request.workId, source.versionId, request.origin, request.chatId, profile.uid, request.authority, policy, ExaminationStage.RESOLVING, checkpoint, updatedAt = System.currentTimeMillis(), lease = (old?.lease ?: 0) + 1)
             archive.database.withTransaction {
                 check(archive.dao.deleted("chat:${request.chatId}") == null)
                 archive.dao.job(record)
                 archive.dao.root(BodyReference("job", record.jobId, source.versionId))
             }
-            val task = scope.launch(start = CoroutineStart.LAZY) { execute(record, request, profile, currentTools) }
+            val task = scope.launch(start = CoroutineStart.LAZY) {
+                permits.acquire()
+                try {
+                    execute(record, request, profile, currentTools)
+                } finally {
+                    permits.release()
+                }
+            }
             active[record.jobId] = task
             task.invokeOnCompletion { active.remove(record.jobId, task) }
             task.start()
@@ -142,11 +150,14 @@ class ArticleExaminationCoordinator @Inject constructor(
     }
     private suspend fun execute(record: ExaminationJob, request: ExaminationRequest, profile: PlatformV2, currentTools: () -> ChatMcpToolConfig) {
         var checkpoint = runCatching { Json.decodeFromString<ExaminationCheckpoint>(record.checkpointJson) }.getOrDefault(ExaminationCheckpoint())
+        var activeReviewer: PlatformV2? = null
         suspend fun allowed(): Boolean {
             val live = archive.dao.job(record.jobId) ?: return false
             if (live.lease != record.lease || live.stage in setOf(ExaminationStage.PAUSED, ExaminationStage.CANCELED) || archive.dao.deleted("chat:${request.chatId}") != null) return false
             val features = settings.getFeatureSettings()
-            val current = settings.fetchPlatformV2s().firstOrNull { it.uid == profile.uid }
+            val profiles = settings.fetchPlatformV2s()
+            val current = profiles.firstOrNull { it.uid == profile.uid }
+            if (activeReviewer?.let { reviewer -> profiles.firstOrNull { it.uid == reviewer.uid } != reviewer } == true) return false
             if (current != profile || examinationAdmission(features, profile, request, currentTools()) != null || policyHash(features, profile, currentTools()) != record.policyHash) return false
             if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return false
             return request.chatId == 0 || chats.chatRoomDao().getChatRoomsByIds(listOf(request.chatId)).singleOrNull()?.isTemporary == false
@@ -238,8 +249,9 @@ Source UTF-16 offset ${chunk.first}: ${chunk.second}
                                 var failed = false
                                 var limited = false
                                 val ids = mutableListOf<String>()
+                                activeReviewer = reviewer
                                 try {
-                                    models.openResearchSession(reviewer, reviewPrompt, "examination:${record.jobId}", "research-review", 2048) { ids += it }.streamRound(emptyList(), emptyList()).collect { event ->
+                                    models.openResearchSession(reviewer, reviewPrompt, checkpoint.rootWorkId ?: "examination:${record.jobId}", "research-review", 2048, parentRunId = checkpoint.parentRunId ?: "examination:${record.jobId}") { ids += it }.streamRound(emptyList(), emptyList()).collect { event ->
                                         when (event) {
                                             is ProviderEvent.TextDelta -> {
                                                 check(output.length + event.text.length <= 20000)
@@ -252,6 +264,7 @@ Source UTF-16 offset ${chunk.first}: ${chunk.second}
                                         }
                                     }
                                 } finally {
+                                    activeReviewer = null
                                     checkpoint = checkpoint.copy(invocationIds = (checkpoint.invocationIds + ids).distinct())
                                 }
                                 check(!limited) { "Independent review was truncated; resume review only" }
@@ -276,7 +289,7 @@ Source UTF-16 offset ${chunk.first}: ${chunk.second}
                             var failure: String? = null
                             var truncated = false
                             val receiptIds = mutableListOf<String>()
-                            val session = models.openResearchSession(profile, prompt, "examination:${record.jobId}", "research-appraisal", 6144) { receiptIds += it }
+                            val session = models.openResearchSession(profile, prompt, checkpoint.rootWorkId ?: "examination:${record.jobId}", "research-appraisal", 6144, parentRunId = checkpoint.parentRunId ?: "examination:${record.jobId}") { receiptIds += it }
                             session.streamRound(emptyList(), emptyList()).collect { event ->
                                 when (event) {
                                     is ProviderEvent.TextDelta -> {

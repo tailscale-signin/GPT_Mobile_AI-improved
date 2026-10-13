@@ -114,6 +114,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             runTurns[runId] = chatId to turnId
         }
         override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope, sharePublicEvidence)
+        override suspend fun featurePolicy() = featureSettings?.getFeatureSettings()?.researchFeature ?: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
         override suspend fun archiveLeads(task: String): List<ResearchSource> {
             val database = featureDatabase ?: return emptyList()
             val features = featureSettings?.getFeatureSettings() ?: return emptyList()
@@ -472,6 +473,40 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
     }
 
+    suspend fun migrateFeatureHistory(allowedChats: Set<Int>) = withContext(Dispatchers.IO) {
+        val database = featureDatabase ?: return@withContext
+        lock.withLock {
+            directory.listFiles().orEmpty().filter { it.extension == "json" }.sortedBy { it.name }.forEach { manifest ->
+                val session = read(manifest) ?: return@forEach
+                if (session.chatId !in allowedChats || database.research().deleted("chat:${session.chatId}") != null) return@forEach
+                val receipt = "history:" + researchHash("${session.runId}|${session.authority}|${session.snapshot.updatedAt}")
+                if (database.research().imported(receipt)) return@forEach
+                session.snapshot.sources.forEach { source ->
+                    val body = if (source.bodyChunks.isEmpty()) {
+                        source.passage
+                    } else {
+                        buildString {
+                            source.bodyChunks.forEach { name ->
+                                require(name.matches(Regex("[a-f0-9]{64}\\.chunk")))
+                                val chunk = File(directory, name)
+                                require(chunk.isFile && chunk.length() <= 128 * 1024)
+                                val text = AtomicFile(chunk).openRead().use { it.readBytes().decodeToString(throwOnInvalidSequence = true) }
+                                require(researchHash(text) + ".chunk" == name)
+                                append(text)
+                            }
+                        }
+                    }
+                    // Old manifests cannot prove current global-public authority. Keep their original chat scope.
+                    dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(
+                        database, source, session.authority, false, session.chatId, session.runId, false,
+                        database.research().sequence()?.archiveEpoch ?: 0, researchHash(body), body.toByteArray().size.toLong()
+                    )
+                }
+                database.research().importReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchImportReceipt(receipt, database.research().sequence()?.archiveEpoch ?: 0, System.currentTimeMillis()))
+            }
+        }
+    }
+
     suspend fun loadChat(chatId: Int) = withContext(Dispatchers.IO) {
         lock.withLock {
             val restored = directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read).filter { it.chatId == chatId }
@@ -537,6 +572,44 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }.toSet() + featureChunks
             directory.listFiles().orEmpty().filter { it.extension == "chunk" && it.name !in retainedChunks }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }
+        }
+    }
+
+    suspend fun <T> importFeatureFiles(files: Map<String, File>, commit: suspend () -> T): T = withContext(Dispatchers.IO) {
+        lock.withLock {
+            check(directory.mkdirs() || directory.isDirectory)
+            files.forEach { (name, source) ->
+                require(name.matches(Regex("[a-f0-9]{64}\\.chunk")) && source.isFile && source.length() <= 128 * 1024)
+                val bytes = source.readBytes()
+                require(researchHash(bytes.decodeToString(throwOnInvalidSequence = true)) + ".chunk" == name)
+                writeAtomic(File(directory, name), bytes)
+            }
+            commit()
+        }
+    }
+
+    suspend fun reconcileFeatureBodies() = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val retained = featureDatabase?.research()?.retainedBodies().orEmpty().flatMap { Json.decodeFromString<List<String>>(it) }.toMutableSet()
+            directory.listFiles().orEmpty().filter { it.extension == "source" }.forEach { file ->
+                val source = Json.parseToJsonElement(AtomicFile(file).openRead().use { it.readBytes().decodeToString() }).jsonObject
+                retained += source.strings("bodyChunks")
+            }
+            directory.listFiles().orEmpty().filter { it.extension == "chunk" && it.name !in retained }.forEach { AtomicFile(it).delete() }
+        }
+    }
+
+    suspend fun snapshotFeatureFiles(refs: Set<String>, destination: File): Map<String, File> = withContext(Dispatchers.IO) {
+        lock.withLock {
+            check(destination.mkdirs() || destination.isDirectory)
+            refs.associateWith { name ->
+                require(name.matches(Regex("[a-f0-9]{64}\\.chunk")))
+                val source = File(directory, name)
+                require(source.isFile && source.length() <= 128 * 1024) { "Research body chunk is missing" }
+                val text = AtomicFile(source).openRead().use { it.readBytes().decodeToString(throwOnInvalidSequence = true) }
+                require(researchHash(text) + ".chunk" == name) { "Research body integrity failed" }
+                File(destination, name).apply { writeText(text) }
+            }
         }
     }
 

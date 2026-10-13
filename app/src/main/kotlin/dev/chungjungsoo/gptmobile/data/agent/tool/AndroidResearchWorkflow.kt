@@ -81,7 +81,10 @@ internal class AndroidResearchWorkflow(
 
     private fun normalizedTask(value: String) = value.trim().replace(Regex("\\s+"), " ").take(8_000)
 
-    private fun questions() = state.questionPlan.ifEmpty { state.questions.mapIndexed { index, text -> ResearchQuestion("Q${index + 1}", text) } }
+    private var featurePolicy = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
+    private fun enforcePublicationPolicy(questions: List<ResearchQuestion>) = if (featurePolicy.peerReviewedOnly) questions.map { it.copy(evidenceNeeded = it.evidenceNeeded + "; peer-reviewed publication required") } else questions
+    private fun questions() = enforcePublicationPolicy(state.questionPlan.ifEmpty { state.questions.mapIndexed { index, text -> ResearchQuestion("Q${index + 1}", text) } })
+    private fun collectionWorkCount() = sources.values.filter { !featurePolicy.peerReviewedOnly || it.reviewStatus.equals("peer_reviewed", true) && it.isPreprint != true && it.isRetracted != true }.readableWorkCount()
     private fun coverage() = assessResearchCoverage(questions(), state.claims, sources.values.toList())
 
     private fun supportedClaimIdentities(): Set<String> = state.claims.filter { it.verdict == "Supported" }
@@ -171,12 +174,13 @@ internal class AndroidResearchWorkflow(
     private suspend fun <T> acquisition(block: suspend () -> T): T = block()
 
     private suspend fun runLocked(task: String, callId: String): LocalResearchResult {
+        featurePolicy = journal?.featurePolicy() ?: featurePolicy
         if (!plan.active) return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
         val policy = researchHash(options.toString() + tools.joinToString { it.selectionId() })
         val retained = journal?.load(task)?.withFreshEvidence(now())
         val saved = retained?.takeIf { normalizedTask(it.task).equals(normalizedTask(task), ignoreCase = true) }?.let {
             // A historical collection-complete flag is not proof of question coverage.
-            it.copy(complete = it.complete && (it.phase == "Not needed" || assessResearchCoverage(it.questionPlan, it.claims, it.sources).complete))
+            it.copy(complete = it.complete && (it.phase == "Not needed" || assessResearchCoverage(enforcePublicationPolicy(it.questionPlan), it.claims, it.sources).complete))
         }
         // A sibling task shares evidence, never another task's questions or completion.
         state = saved ?: ResearchSnapshot(task.take(8000), sources = retained?.sources.orEmpty(), claims = retained?.claims.orEmpty().map { it.copy(relevance = "Unknown", questionId = "") }, queries = retained?.queries.orEmpty(), notes = listOf("Policy:$policy"))
@@ -211,7 +215,7 @@ internal class AndroidResearchWorkflow(
                 if (parsedPlan != null) {
                     state = state.copy(
                         questions = parsedPlan.questions.map { it.text },
-                        questionPlan = parsedPlan.questions,
+                        questionPlan = enforcePublicationPolicy(parsedPlan.questions),
                         planningStatus = if (parsedPlan.fallback) "Deterministic fallback" else "Validated"
                     )
                 }
@@ -258,7 +262,7 @@ internal class AndroidResearchWorkflow(
                     checkpoint("Reading")
                     readPages(callId)
                     if (options.reviewEvidence && !stopped()) review()
-                    val read = sources.values.readableWorkCount()
+                    val read = collectionWorkCount()
                     val stagnant = evidenceGain.shouldStop(sources.filterValues { it.readable }.keys.toSet(), supportedClaimIdentities())
                     if (stopped() || !collecting() || read >= sourceTarget) break
                     if (stagnant) {
@@ -290,7 +294,7 @@ internal class AndroidResearchWorkflow(
                     if (state.cancellationOrigin == "PERMISSION_REVOKED") "Permission revoked" else "Stopped"
                 } else if (noResearchNeeded) {
                     "Not needed"
-                } else if (exhausted || !collecting() || sources.values.readableWorkCount() < sourceTarget) {
+                } else if (exhausted || !collecting() || collectionWorkCount() < sourceTarget) {
                     if (exhausted || !collecting()) {
                         "User limit reached"
                     } else {
@@ -301,7 +305,7 @@ internal class AndroidResearchWorkflow(
                 } else {
                     "Complete"
                 },
-                complete = !exhausted && collecting() && !stopped() && (noResearchNeeded || sources.values.readableWorkCount() >= sourceTarget && coverage().complete)
+                complete = !exhausted && collecting() && !stopped() && (noResearchNeeded || collectionWorkCount() >= sourceTarget && coverage().complete)
             )
         } catch (cancelled: CancellationException) {
             val cancellation = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
@@ -317,20 +321,20 @@ internal class AndroidResearchWorkflow(
             .ifBlank { sources.values.filter { it.readable }.take(8).joinToString("\n\n") { "[${it.id}] Unreviewed passage: ${it.passage}" } }
         val notes = state.notes.filterNot { it.startsWith("Policy:") }.toMutableList()
         notes += "Question coverage: ${assessment.coveredQuestionIds.size}/${questions().size}; missing=${assessment.missingQuestionIds.joinToString()}. Passage support is separate from independent review."
-        notes += "Planning: ${state.planningStatus}. Collection: ${sources.values.readableWorkCount()}/$sourceTarget."
+        notes += "Planning: ${state.planningStatus}. Collection: ${collectionWorkCount()}/$sourceTarget."
 
         state.claims.filter { it.verdict == "Contradicted" || it.verdict == "Insufficient" }.take(4).forEach { notes += "${it.verdict} [${it.sourceId}]: ${it.text.take(160)}" }
         if (state.claims.none { it.verdict == "Supported" }) notes += "No claims passed passage review. Read excerpts remain unverified evidence."
         if (options.maxPages == 0) notes += "Quick mode discovers leads only; full pages were not read."
         if (sources.isEmpty()) notes += "No usable sources were discovered."
-        val acceptedCount = sources.values.readableWorkCount()
+        val acceptedCount = collectionWorkCount()
         if (acceptedCount < sourceTarget) notes += "PARTIAL_COVERAGE: $acceptedCount/$sourceTarget readable sources. Discovery was exhausted, blocked or stopped within the recorded run limits."
         if (acceptedCount == 0) notes += "NO_READABLE_SOURCES: search results and abstracts are discovery leads only."
         val rows = sources.values.map { DelegationSource(it.id, it.url, it.title, text = it.passage, pageRead = it.readable, excerpted = true, depth = it.depth, evidenceType = it.status) }
         return LocalResearchResult(
             delegationHandoff(findings, rows, notes, config.handoffTokens),
             rawBytes,
-            sources.values.readableWorkCount(),
+            collectionWorkCount(),
             state.searches,
             if (noResearchNeeded) {
                 LocalResearchOutcome.NO_RESEARCH_NEEDED
@@ -344,7 +348,7 @@ internal class AndroidResearchWorkflow(
                 LocalResearchOutcome.SUCCESS
             },
             state.attempts,
-            sources.values.readableWorkCount()
+            collectionWorkCount()
         )
     }
 
@@ -448,7 +452,7 @@ internal class AndroidResearchWorkflow(
                 var cursor = state.frontierCursors[query] ?: "1"
                 val visited = mutableSetOf<String>()
                 while (visited.add(cursor) && !stopped() && !exhausted && collecting()) {
-                    val before = sourceUpdates.withLock { sources.size to sources.values.readableWorkCount() }
+                    val before = sourceUpdates.withLock { sources.size to collectionWorkCount() }
                     if (before.second >= sourceTarget) break
                     repeat(providerCalls) { if (!charge(ResearchBudget.Phase.DISCOVERY)) return@coroutineScope }
                     val args = buildJsonObject {
@@ -573,7 +577,7 @@ internal class AndroidResearchWorkflow(
 
     private suspend fun readAcademicPagesConcurrent(callId: String, reader: ResolvedAgentTool) {
         while (!exhausted && !stopped() && collecting()) {
-            val remaining = sourceTarget - sources.values.readableWorkCount()
+            val remaining = sourceTarget - collectionWorkCount()
             if (remaining <= 0) return
             val batch = sources.values.filter { it.paperId.isNotBlank() && it.status == "Metadata only" }
                 .take(remaining)
@@ -586,7 +590,7 @@ internal class AndroidResearchWorkflow(
 
     private suspend fun readAcademicSource(source: ResearchSource, callId: String, reader: ResolvedAgentTool) {
         val admitted = sourceUpdates.withLock {
-            if (sources.values.readableWorkCount() + academicReadsInFlight >= sourceTarget) {
+            if (collectionWorkCount() + academicReadsInFlight >= sourceTarget) {
                 false
             } else {
                 academicReadsInFlight++
@@ -719,8 +723,8 @@ internal class AndroidResearchWorkflow(
         }.sortedBy { it.connectionUid != null }
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
-        while (!exhausted && !stopped() && collecting() && sources.values.readableWorkCount() < sourceTarget) {
-            val remaining = sourceTarget - sources.values.readableWorkCount()
+        while (!exhausted && !stopped() && collecting() && collectionWorkCount() < sourceTarget) {
+            val remaining = sourceTarget - collectionWorkCount()
             val batch = sources.values.filter { it.status == "Discovered" }.sortedByDescending { source ->
                 researchTerms(source.title + " " + source.url).count { it in questionTerms }
             }.distinctBy { runCatching { URI(it.url).host }.getOrNull() }.take(remaining)

@@ -16,7 +16,7 @@ import org.junit.Test
 
 class ArticleExaminationContractTest {
     private val profile = PlatformV2(uid = "selected", name = "Selected", model = "known")
-    private val features = AppFeatureSettings(delegation = ModelDelegationSettings(deepResearch = DeepResearchSettings(academicSources = true)))
+    private val features = AppFeatureSettings(delegation = ModelDelegationSettings(deepResearch = DeepResearchSettings(academicSources = true))).withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.DEEP_RESEARCH, true)
     private val request = ExaminationRequest("work", profile.uid, origin = ExaminationOrigin.USER_EXAMINE)
 
     @Test fun explicitExamineAtDepthZeroRetainsPaperAndProfileConsent() {

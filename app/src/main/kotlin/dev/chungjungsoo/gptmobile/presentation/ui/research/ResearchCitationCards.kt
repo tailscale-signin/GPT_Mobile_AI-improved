@@ -37,11 +37,47 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 @HiltViewModel
-class ResearchCitationViewModel @Inject constructor(private val resolver: CitationBindingResolver) : ViewModel() {
+class ResearchCitationViewModel @Inject constructor(private val resolver: CitationBindingResolver, private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository, private val examinations: dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator) : ViewModel() {
     private val mutable = MutableStateFlow<List<MessageEvidenceBinding>>(emptyList())
     val bindings = mutable.asStateFlow()
     private var worker: Job? = null
     private var identity = ""
+    private val automatic = mutableSetOf<String>()
+    fun autoExamine(message: MessageV2, profileUid: String, tools: () -> ChatMcpToolConfig) {
+        viewModelScope.launch {
+            val features = settings.getFeatureSettings()
+            val policy = features.researchFeature
+            if (!policy.enabled || policy.autoExamination == dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.OFF) return@launch
+            val selection = features.conversationResearch[message.chatId] ?: tools().research
+            val research = selection?.academicEligibleByUi == true
+            if (!research && !policy.ordinaryChatAutoExamination) return@launch
+            val needed = Regex("(?i)sample|participant|randomi[sz]|causal|efficacy|evidence|[0-9]+%|confidence interval").containsMatchIn(message.effectiveContent())
+            if (policy.autoExamination == dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.WHEN_NEEDED && !needed) return@launch
+            mutable.value.distinctBy { it.versionId }.forEach { binding ->
+                if (automatic.add("$profileUid:${binding.versionId}")) {
+                    try {
+                        examinations.automaticExamine(
+                            dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest(
+                                binding.workId,
+                                profileUid,
+                                message.chatId,
+                                binding.versionId,
+                                binding.authority,
+                                if (research) dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTHORIZED_RESEARCH else dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTOMATIC_CHAT,
+                                rootWorkId = "${message.chatId}:${message.linkedMessageId}",
+                                parentRunId = message.currentRunId
+                            ),
+                            tools
+                        )
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        // Automatic work cannot change permissions or divert to another profile. Manual Examine shows the exact admission reason.
+                    }
+                }
+            }
+        }
+    }
     fun bind(message: MessageV2) {
         val key = "${message.id}:${message.activeRevisionIndex}:${message.effectiveContent().hashCode()}"
         if (identity == key) return
@@ -67,6 +103,7 @@ fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileU
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
     var selected by remember(message.id, message.activeRevisionIndex) { mutableStateOf<MessageEvidenceBinding?>(null) }
     LaunchedEffect(message.id, message.activeRevisionIndex, message.effectiveContent()) { viewModel.bind(message) }
+    LaunchedEffect(bindings, profileUid) { if (bindings.isNotEmpty()) viewModel.autoExamine(message, profileUid, currentTools) }
     val keys = remember(displayedSegment) { articleCitationOccurrences(displayedSegment).map { it.key }.toSet() }
     bindings.filter { it.citationKey.substringBefore('|') in keys }.distinctBy { it.versionId }.forEach { binding ->
         val snapshot = remember(binding.snapshotJson) { runCatching { Json.parseToJsonElement(binding.snapshotJson) as? JsonObject }.getOrNull() }

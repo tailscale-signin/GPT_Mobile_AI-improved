@@ -399,6 +399,7 @@ class AgentToolResolver @Inject constructor(
                     remote?.tool,
                     academicBudget,
                     persistentEvidence = persistentAcademicEvidence,
+                    peerReviewedOnly = featureSettings.researchFeature.peerReviewedOnly,
                     runKey = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
                     remoteCapability = {
                         val statusTool = academicRemote.singleOrNull { it.connectionUid == researchSelection.gatewayConnectionUid && it.realToolName.endsWith("deep_research_status") && it.shareableReadOnly }

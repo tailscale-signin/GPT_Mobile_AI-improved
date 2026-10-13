@@ -31,6 +31,7 @@ interface ChatRepository {
         rootWorkId: String,
         role: String,
         outputTokens: Int,
+        parentRunId: String = rootWorkId,
         onInvocation: (String) -> Unit = {}
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = error("Research sessions are unavailable")
 

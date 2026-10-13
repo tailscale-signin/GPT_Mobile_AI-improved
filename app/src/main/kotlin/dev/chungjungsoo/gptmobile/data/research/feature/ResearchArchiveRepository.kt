@@ -8,13 +8,43 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Singleton
-class ResearchArchiveRepository @Inject constructor(val database: ResearchDatabase, private val bodies: ResearchSessionStore) {
+class ResearchArchiveRepository @Inject constructor(val database: ResearchDatabase, private val bodies: ResearchSessionStore, private val chats: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2? = null) {
+    private val migrationStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val migrationScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     val dao = database.research()
-    suspend fun initialize() = ResearchArchiveIngestor.seed(database)
+    suspend fun initialize() {
+        ResearchArchiveIngestor.seed(database)
+        if (chats != null && migrationStarted.compareAndSet(false, true)) {
+            migrationScope.launch {
+                try {
+                    val allowed = (chats.chatRoomDao().getChatRooms() + chats.chatRoomDao().getArchivedChatRooms()).filterNot { it.isTemporary }.map { it.id }.toSet()
+                    bodies.migrateFeatureHistory(allowed)
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    migrationStarted.set(false)
+                }
+            }
+        }
+        reconcileOutbox()
+    }
+    suspend fun reconcileOutbox() {
+        val rows = dao.pendingOutbox()
+        if (rows.isEmpty()) return
+        try {
+            bodies.reconcileFeatureBodies()
+            rows.forEach { dao.acknowledge(it.id, it.createdAt) }
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            // Durable outbox remains pending; a missing or corrupt manifest cannot cause body deletion.
+        }
+    }
     suspend fun page(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0): List<ArchiveRow> {
         initialize()
         return dao.page(query.trim().take(300).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"), topic, peerReviewedOnly, 40, offset.coerceAtLeast(0))

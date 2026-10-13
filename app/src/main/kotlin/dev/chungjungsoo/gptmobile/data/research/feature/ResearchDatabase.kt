@@ -18,16 +18,19 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-@Database(entities = [ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class], version = 1, exportSchema = true)
+@Database(entities = [ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 1, exportSchema = true)
 abstract class ResearchDatabase : RoomDatabase() {
     abstract fun research(): ResearchDao
+    abstract fun statistics(): dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsDao
 }
 
 @Module
 @InstallIn(SingletonComponent::class)
 object ResearchDatabaseModule {
     @Provides @Singleton
-    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").build()
+    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").build().also {
+        dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore.attach(java.io.File(context.filesDir, "research-telemetry"), it.statistics())
+    }
 }
 
 data class ArchiveRow(val workId: String, val title: String, val canonicalUrl: String, val publicationYear: Int?, val peerReview: PublicationReview, val retracted: Boolean?, val latestVersionId: String, val archiveSequence: Long, val primaryTopicId: String, val coverage: ArticleCoverage, val retrievedAt: Long, val textBytes: Long)
@@ -185,8 +188,59 @@ interface ResearchDao {
     @Query("SELECT * FROM research_outbox ORDER BY createdAt LIMIT 100")
     suspend fun pendingOutbox(): List<ResearchOutbox>
 
-    @Query("DELETE FROM research_outbox WHERE id=:id")
-    suspend fun acknowledge(id: String)
+    @Query("DELETE FROM research_outbox WHERE id=:id AND createdAt=:createdAt")
+    suspend fun acknowledge(id: String, createdAt: Long)
+
+    @Query("SELECT * FROM research_works")
+    suspend fun allWorks(): List<ResearchWork>
+
+    @Query("SELECT * FROM research_aliases")
+    suspend fun allAliases(): List<ResearchAlias>
+
+    @Query("SELECT * FROM research_versions")
+    suspend fun allVersions(): List<ResearchWorkVersion>
+
+    @Query("SELECT * FROM research_categories")
+    suspend fun allCategories(): List<ResearchCategory>
+
+    @Query("SELECT * FROM research_topics")
+    suspend fun allTopics(): List<ResearchTopic>
+
+    @Query("SELECT * FROM research_archive")
+    suspend fun allMemberships(): List<ArchiveMembership>
+
+    @Query("SELECT * FROM research_work_topics")
+    suspend fun allRelatedTopics(): List<WorkTopic>
+
+    @Query("SELECT * FROM research_study_families")
+    suspend fun allFamilies(): List<ResearchStudyFamily>
+
+    @Query("SELECT * FROM research_passages")
+    suspend fun allPassages(): List<EvidencePassage>
+
+    @Query("SELECT * FROM research_study_fields")
+    suspend fun allFields(): List<StudyField>
+
+    @Query("SELECT * FROM research_appraisals")
+    suspend fun allAppraisals(): List<EvidenceAppraisal>
+
+    @Query("SELECT * FROM research_bindings")
+    suspend fun allBindings(): List<MessageEvidenceBinding>
+
+    @Query("SELECT * FROM research_jobs")
+    suspend fun allJobs(): List<ExaminationJob>
+
+    @Query("SELECT * FROM research_body_roots")
+    suspend fun allRoots(): List<BodyReference>
+
+    @Query("SELECT * FROM research_tombstones")
+    suspend fun allTombstones(): List<ResearchDeletionTombstone>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM research_imports WHERE importId=:id)")
+    suspend fun imported(id: String): Boolean
+
+    @Query("SELECT * FROM research_imports")
+    suspend fun allImportReceipts(): List<ResearchImportReceipt>
 
     /** Room serializes writers; FIFO sequence never changes on reuse or clear. */
     @Transaction suspend fun archive(workId: String, versionId: String, topicId: String, now: Long, expectedEpoch: Long): Boolean {

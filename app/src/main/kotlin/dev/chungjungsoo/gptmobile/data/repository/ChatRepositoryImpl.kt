@@ -440,6 +440,7 @@ class ChatRepositoryImpl(
         rootWorkId: String,
         role: String,
         outputTokens: Int,
+        parentRunId: String,
         onInvocation: (String) -> Unit
     ): AgentProviderSession {
         require(role in setOf("research-extraction", "research-appraisal", "research-review"))
@@ -456,11 +457,11 @@ class ChatRepositoryImpl(
             ClientType.GOOGLE -> geminiAdapter.openSession(turns, target, constraints)
             ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, target, emptyList(), constraints)
         }
-        // A finite shared allowance retains every attempt even when optional diagnostic traces are off.
+        // Retain every physical attempt without introducing another allowance or invocation ledger.
         return invocationLedger?.wrap(
-            session, rootWorkId, rootWorkId, target.compatibleType.name, target.model, role,
-            dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt), outputTokens, 131072,
-            profileUid = target.uid, onInvocation = onInvocation
+            session, parentRunId, rootWorkId, target.compatibleType.name, target.model, role,
+            dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt), outputTokens, settingRepository.getFeatureSettings().tokenBudget.normalized().totalRunTokens,
+            profileUid = target.uid, forceAccounting = true, onInvocation = onInvocation
         ) ?: error("Research invocation accounting is unavailable")
     }
 

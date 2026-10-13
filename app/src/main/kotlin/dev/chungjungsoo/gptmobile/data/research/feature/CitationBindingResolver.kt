@@ -63,7 +63,8 @@ class CitationBindingResolver @Inject constructor(private val archive: ResearchA
                 // Duplicate S1 namespaces or conflicting versions cannot be resolved by title or recency.
                 val resolved = candidates.mapNotNull { (source, authority, _) ->
                     val aliases = sourceCitationKeys(source).filterNot { it.matches(Regex("S[0-9a-f]+")) }
-                    val workIds = aliases.flatMap { alias -> listOfNotNull(archive.dao.aliasWork("public|$alias"), archive.dao.aliasWork("${researchHash(authority)}|$alias")) }.distinct()
+                    val scopedIds = aliases.mapNotNull { alias -> archive.dao.aliasWork("${researchHash(authority)}|$alias") }.distinct()
+                    val workIds = scopedIds.ifEmpty { aliases.mapNotNull { alias -> archive.dao.aliasWork("public|$alias") }.distinct() }
                     if (workIds.size != 1) return@mapNotNull null
                     val versions = archive.dao.versions(workIds.single()).filter { it.sourceVersion == source.versionId && (it.publicSource || it.authority == authority) }
                     val version = versions.singleOrNull { candidate -> source.bodyChunks.isNotEmpty() && candidate.bodyChunksJson == Json.encodeToString(source.bodyChunks) }

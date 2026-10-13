@@ -9,14 +9,14 @@ Runtime dependencies remain pinned; normal application identity remains unchange
 
 | Package | Requirements | Implementation | Validation |
 |---|---|---|---|
-| Profile picker | SP-01–SP-16, U01–U22, C01–C18 | Compact UID-keyed picker, details, labels and refresh lifecycle implemented | Unit/Compose CI pending; first compile import corrected |
-| Native usage and Assist lifecycle | GGUF F03–F10, T05–T20; UAR-02, 05, 08, 17 | Native segment accounting, explicit provenance, helper ownership cleanup and readiness implemented; exact span handoffs and producer/consumer joins implemented | Regression fixtures added; Android CI pending |
+| Profile picker | SP-01–SP-16, U01–U22, C01–C18 | Compact UID-keyed picker, details, labels and refresh lifecycle implemented | Selection/refresh unit tests and light/dark RTL Compose acceptance at 320 dp and 200% text are CI gates |
+| Native usage and Assist lifecycle | GGUF F03–F10, T05–T20; UAR-02, 05, 08, 17 | Native segment accounting, explicit provenance, helper ownership cleanup and readiness implemented; exact span handoffs and producer/consumer joins implemented | Cold rejection, three warm sessions, changed artifact, partial usage and source integrity regression fixtures |
 | Normal-app GGUF | GGUF F01–F02, T01–T04, T21 | Pinned CPU JNI module, v3 neutral imports, compatibility routing and inventory implemented | Host JNI real generation and release-minified Android 16 x86-64 JNI acceptance passed |
-| Unified execution policy and budgets | UAR-01–UAR-18 | Opt-in policy, existing-ledger transactional model reservations, retained root limits, synthesis reserve, subscriber-owned shared reads and exact span handoffs implemented | Regression tests added; Android CI and broader qualification pending |
-| Research settings and statistics | RQ-01–RQ-04, NAV/UI/MET | Shared three-tab feature editor, scoped policy, method-safe metrics, durable receipt storage, percentiles, epoch clear and receipt drilldown implemented | Archive/appraisal contract tests pass; durable statistics regression and schema export pending CI |
-| Research archive and restore | RQ-05–RQ-07, RQ-13–RQ-14, ARC/FRESH/DATA | Transactional FIFO 1,000-work membership, immutable versions, separate retention roots, metadata preflight, scoped legacy migration, encrypted portable sections and idempotent restore implemented | FIFO, authority, clear-epoch and Unicode fixtures pass; portable backup and statistics tests pending CI |
-| Citations, Examine and appraisal | RQ-08–RQ-12, CIT/EX/APP/AI/SEC | Strong-ID citation bindings, article cards/details, application-owned examination jobs, exact-quote batch validation, independent review/resume and five bounded evidence tools implemented | 2,664/2,666 unit tests passed on commit 64d28c4; two opt-in permission fixture setup failures corrected. Broader production-path and device qualification remain in progress |
-| Draft PR, CI, merge and signed release | Exact-head validation and signed publication | Draft PR #670 open; merge, version bump and signed release pending | Exact-head release gates remain required |
+| Unified execution policy and budgets | UAR-01–UAR-18 | Opt-in policy, existing-ledger transactional model reservations, retained root limits, synthesis reserve, subscriber-owned shared reads and exact span handoffs implemented | Budget/concurrency regressions and 102-task randomized paired wrapper fixture; live-device quality/cost remains unqualified |
+| Research settings and statistics | RQ-01–RQ-04, NAV/UI/MET | Shared three-tab feature editor, scoped policy, method-safe metrics, durable receipt storage, percentiles, epoch clear and receipt drilldown implemented | Durable 100,001-receipt prune/replay/clear regression; exact Room schema checked in CI |
+| Research archive and restore | RQ-05–RQ-07, RQ-13–RQ-14, ARC/FRESH/DATA | Transactional FIFO 1,000-work membership, immutable versions, separate retention roots, metadata preflight, scoped legacy migration, encrypted portable sections and idempotent restore implemented | FIFO, authority, clear-epoch, Unicode, portable body restore and complete-backup fixtures |
+| Citations, Examine and appraisal | RQ-08–RQ-12, CIT/EX/APP/AI/SEC | Strong-ID citation bindings, article cards/details, application-owned examination jobs, exact-quote batch validation, independent review/resume and five bounded evidence tools implemented | Real Room/body-store recovery regression with scripted model/reader boundaries; count-label, source refusal, citation and paragraph/fence fixtures |
+| Draft PR, CI, merge and signed release | Exact-head validation and signed publication | PR #670 tracks implementation, validation, merge and version 0.9.52.0 publication | All required PR checks and both signed-release jobs must succeed |
 
 ## Ownership map
 
@@ -25,6 +25,8 @@ ChatRepositoryImpl owns response entry, canonical run identity and final synthes
 ## Qualification
 
 Implementation, deterministic fixtures, Android emulation, physical-device qualification and live-provider measurements are recorded separately. No physical ROG Phone, live-model cost comparison or scientific expert adjudication is claimed from CI. Unknown backend, usage, publication and coverage states remain unknown.
+
+Final commit check results and artifact links are recorded on [PR #670](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/670). A test listed in the work-package table identifies the regression gate; its final result comes from that commit's CI run, not from a historical test count. Signed publication is verified separately by the Publish Signed Release workflow and the public release record.
 
 ## Picker caller inventory
 

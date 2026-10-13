@@ -25,7 +25,7 @@ import org.junit.Test
 
 /** Paired production-wrapper regression, explicitly not live-provider quality/cost qualification. */
 class UnifiedRuntimePairedFixtureTest {
-    @Test fun randomizedPairsPreserveEvidenceAndCountEveryAttemptAcross102DistinctTasks() = runBlocking {
+    @Test fun randomizedPairsPreserveEvidenceAndCountEveryAttemptAcross102DistinctTasks(): Unit = runBlocking {
         val cohorts = listOf("short_chat", "long_document", "multi_source_research", "memory_retrieval", "structured_extraction", "combined_delegation")
         val rows = mutableListOf<JsonObject>()
         val random = Random(20261013)

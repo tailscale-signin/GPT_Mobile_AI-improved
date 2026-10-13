@@ -323,8 +323,8 @@ Source UTF-16 offset ${chunk.first}: ${chunk.second}
                             var failure: String? = null
                             var truncated = false
                             val receiptIds = mutableListOf<String>()
-                            val session = models.openResearchSession(profile, prompt, checkpoint.rootWorkId ?: "examination:${record.jobId}", "research-appraisal", 6144, parentRunId = checkpoint.parentRunId ?: "examination:${record.jobId}") { receiptIds += it }
                             try {
+                                val session = models.openResearchSession(profile, prompt, checkpoint.rootWorkId ?: "examination:${record.jobId}", "research-appraisal", 6144, parentRunId = checkpoint.parentRunId ?: "examination:${record.jobId}") { receiptIds += it }
                                 session.streamRound(emptyList(), emptyList()).collect { event ->
                                     when (event) {
                                         is ProviderEvent.TextDelta -> {

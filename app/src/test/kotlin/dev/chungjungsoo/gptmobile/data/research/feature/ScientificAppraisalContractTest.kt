@@ -63,6 +63,20 @@ class ScientificAppraisalContractTest {
         assertTrue(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresAvailable = true, supplementsAvailable = true).complete)
     }
 
+    @Test fun countsCannotUseUnrelatedNumbersOrSubstringsFromTheSamePassage() {
+        val text = "The analyzed sample included 100 participants. A product cost 10 dollars. Follow-up was 6 months."
+        val exactVersion = version.copy(contentHash = researchHash(text))
+        assertEquals("100", ScientificAppraisalContract.validate(appraisal("100", text), exactVersion, text).fields.single().value)
+        for (unrelated in listOf("10", "6", "1")) {
+            assertTrue(runCatching { ScientificAppraisalContract.validate(appraisal(unrelated, text), exactVersion, text) }.isFailure)
+        }
+        val grouped = "The analyzed sample included 1,100 participants."
+        assertTrue(runCatching { ScientificAppraisalContract.validate(appraisal("100", grouped), version.copy(contentHash = researchHash(grouped)), grouped) }.isFailure)
+        for (reported in listOf("The analysis (n=10) was prespecified.", "10 participants were analyzed.")) {
+            assertEquals("10", ScientificAppraisalContract.validate(appraisal("10", reported), version.copy(contentHash = researchHash(reported)), reported).fields.single().value)
+        }
+    }
+
     @Test fun bodyChunkBoundariesPreserveEmojiAndRoundTripUtf8() {
         val text = "a".repeat(16383) + "🧪" + "b".repeat(16384)
         assertEquals(text, researchTextChunks(text).joinToString("") { it.toByteArray().decodeToString() })

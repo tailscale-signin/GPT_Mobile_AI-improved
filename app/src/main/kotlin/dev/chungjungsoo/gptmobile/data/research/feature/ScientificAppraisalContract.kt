@@ -43,6 +43,23 @@ internal object ScientificAppraisalContract {
         val parsed = values.mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.content }
         return parsed.takeIf { it.size == values.size }
     }
+    private fun reportsSampleCount(quote: String, field: String, value: String): Boolean {
+        // Conservative local evidence gate, not an entailment/review verdict. A price,
+        // year, follow-up duration or substring of another count is not a sample size.
+        val label = when (field) {
+            "randomized_n" -> "(?:randomi[sz]ed|randomly assigned)"
+            "analyzed_n" -> "(?:analy[sz]ed|analysis)"
+            else -> "(?:arm|group|allocated)"
+        }
+        val count = "(?<![\\p{L}\\p{N}.,])${Regex.escape(value)}(?![\\p{L}\\p{N}]|[.,][0-9])"
+        val subjects = "(?:participants|patients|subjects|individuals|people|records|samples|studies|cases|animals|mice|rats)"
+        val methods = "$label(?:\\s+(?:sample|population))?"
+        return listOf(
+            "$methods\\s*[:(]?\\s*n\\s*=\\s*$count",
+            "$methods\\s+(?:(?:included|comprised|contained|involved|was|were)\\s+)?(?:a total of\\s+)?$count\\s+$subjects\\b",
+            "$count\\s+$subjects\\s+(?:(?:was|were)\\s+)?(?:included\\s+in\\s+the\\s+)?$label\\b"
+        ).any { Regex("(?i)\\b$it").containsMatchIn(quote) }
+    }
     fun validate(reply: String, version: ResearchWorkVersion, source: String): ValidatedScientificAppraisal {
         require(reply.toByteArray().size <= 96 * 1024 && researchHash(source) == version.contentHash)
         val root = Json.parseToJsonElement(reply) as? JsonObject ?: error("Appraisal requires an object")
@@ -86,12 +103,7 @@ internal object ScientificAppraisalContract {
                 if (unit != null) require(cited.any { unit in it.quote }) { "Unit not found in source" }
                 if (name in setOf("randomized_n", "analyzed_n", "arm_n")) {
                     require(fieldValue.replace(",", "").toLongOrNull()?.let { it > 0 } == true)
-                    val label = when (name) {
-                        "randomized_n" -> Regex("(?i)randomi[sz]|randomly assigned")
-                        "analyzed_n" -> Regex("(?i)analy[sz]|analysis")
-                        else -> Regex("(?i)arm|group|allocated")
-                    }
-                    require(cited.any { fieldValue in it.quote && label.containsMatchIn(it.quote) }) { "Sample count lacks its reported methodological label" }
+                    require(cited.any { reportsSampleCount(it.quote, name, fieldValue) }) { "Sample count is not directly linked to its reported methodological label" }
                 }
             } else {
                 require(fieldValue == null && unit == null) { "Missing data cannot carry an invented value" }

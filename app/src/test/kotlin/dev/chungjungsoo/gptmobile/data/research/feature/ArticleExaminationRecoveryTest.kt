@@ -72,8 +72,9 @@ class ArticleExaminationRecoveryTest {
             var attempts = 0
             coEvery { models.openResearchSession(any(), any(), any(), any(), any(), any(), any()) } answers {
                 attempts++
-                lastArg<(String) -> Unit>().invoke("physical-$attempts")
-                val reply = if (attempts == 1) "{" else """{"schemaVersion":1,"design":"RANDOMIZED_TRIAL","passages":[{"id":"P1","quote":"Methods: randomized 100 participants.","locator":"Methods","start":0}],"fields":[],"judgments":[],"limitations":["Uncertain effect"]}"""
+                arg<(String) -> Unit>(6).invoke("physical-$attempts")
+                if (attempts == 1) error("Synthetic session construction failure")
+                val reply = if (attempts == 2) "{" else """{"schemaVersion":1,"design":"RANDOMIZED_TRIAL","passages":[{"id":"P1","quote":"Methods: randomized 100 participants.","locator":"Methods","start":0}],"fields":[],"judgments":[],"limitations":["Uncertain effect"]}"""
                 object : AgentProviderSession {
                     override val handlesToolsInternally = false
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(reply), ProviderEvent.Failed("Synthetic stream reset"))
@@ -94,13 +95,21 @@ class ArticleExaminationRecoveryTest {
             val failed = awaitStage(ExaminationStage.FAILED)
             val saved = Json.decodeFromString<ExaminationCheckpoint>(failed.checkpointJson)
             assertNotNull(saved.versionId)
-            assertEquals(listOf("physical-1"), saved.invocationIds)
-            // Wait for ownership cleanup; resume retains the same immutable source checkpoint.
-            delay(50)
-            assertEquals(jobId, coordinator.userExamine(request))
+            assertEquals(failed.terminalReason, listOf("physical-1"), saved.invocationIds)
+            suspend fun resume(previous: ExaminationJob) = withTimeout(15000) {
+                // Terminal state is persisted before the old coroutine releases ownership.
+                do {
+                    delay(10)
+                    assertEquals(jobId, requireNotNull(coordinator).userExamine(request))
+                } while (requireNotNull(database.research().job(requireNotNull(jobId))).lease <= previous.lease)
+            }
+            resume(failed)
+            val malformed = awaitStage(ExaminationStage.FAILED)
+            assertEquals(malformed.terminalReason, listOf("physical-1", "physical-2"), Json.decodeFromString<ExaminationCheckpoint>(malformed.checkpointJson).invocationIds)
+            resume(malformed)
             val done = awaitStage(ExaminationStage.COMPLETE_PARTIAL)
             val checkpoint = Json.decodeFromString<ExaminationCheckpoint>(done.checkpointJson)
-            assertEquals(listOf("physical-1", "physical-2"), checkpoint.invocationIds)
+            assertEquals(listOf("physical-1", "physical-2", "physical-3"), checkpoint.invocationIds)
             assertEquals(1, checkpoint.nextChunk)
             assertTrue(checkpoint.pendingAppraisalIds.isEmpty())
             assertEquals(body, archive.text(requireNotNull(database.research().version(requireNotNull(checkpoint.versionId))), "public"))

@@ -1,0 +1,88 @@
+name: Apply native terminal ordering repair
+on:
+  push:
+    branches: [fix/research-local-assist-pipeline-2026-10-13]
+    paths: [.github/workflows/research-native-terminal-fix.yml]
+permissions:
+  contents: read
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/fix/research-local-assist-pipeline-2026-10-13'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/research-local-assist-pipeline-2026-10-13
+      - name: Correct callback ordering and add regression coverage
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, pathlib
+          root = pathlib.Path('app/src')
+          base = 'kotlin/dev/chungjungsoo/gptmobile/data/localruntime/'
+          path = root / 'main' / base / 'LocalRuntimeImpl.kt'
+          data = path.read_bytes()
+          assert hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == 'f8d769f48e72613cdae63b4e0ba31c1ee8faed96'
+          text = data.decode()
+          replacements = [
+              ('if (!buffer.offer(event) && overflow.compareAndSet(false, true)) {', 'if (!buffer.offer(event) && overflow.compareAndSet(false, true) && !completion.isCompleted) {'),
+              ('                                offer(LocalRuntimeEvent.Done)\n                            } finally {', '                                acknowledgeNativeTerminal(completion) { offer(LocalRuntimeEvent.Done) }\n                            } finally {'),
+              ('                            buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))\n                            completion.complete(Unit)', '                            acknowledgeNativeTerminal(completion) {\n                                buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))\n                            }')
+          ]
+          for before, after in replacements:
+              assert text.count(before) == 1
+              text = text.replace(before, after)
+          path.write_text(text)
+          (root / 'main' / base / 'NativeTerminalOrdering.kt').write_text('''package dev.chungjungsoo.gptmobile.data.localruntime
+
+          import kotlinx.coroutines.CompletableDeferred
+
+          /** Called after the callback's final native access. Consumers may clean up as soon as a terminal event is visible. */
+          internal inline fun acknowledgeNativeTerminal(completion: CompletableDeferred<Unit>, publish: () -> Unit) {
+              completion.complete(Unit)
+              publish()
+          }
+          ''')
+          (root / 'test' / base / 'NativeTerminalOrderingTest.kt').write_text('''package dev.chungjungsoo.gptmobile.data.localruntime
+
+          import kotlinx.coroutines.CompletableDeferred
+          import kotlinx.coroutines.test.runTest
+          import org.junit.Assert.assertTrue
+          import org.junit.Test
+
+          class NativeTerminalOrderingTest {
+              @Test fun completedCallbackIsAcknowledgedBeforeItsTerminalEventIsVisible() = runTest {
+                  val completion = CompletableDeferred<Unit>()
+                  acknowledgeNativeTerminal(completion) {
+                      // Simulate an immediately resumed collector, before the native callback returns.
+                      assertTrue("A completed callback must never enter cancellation cleanup", completion.isCompleted)
+                  }
+                  completion.await()
+              }
+
+              @Test fun failedTerminalDeliveryCannotRevokeAnAcknowledgedCallback() {
+                  val completion = CompletableDeferred<Unit>()
+                  val failure = runCatching {
+                      acknowledgeNativeTerminal(completion) { error("collector already closed") }
+                  }.exceptionOrNull()
+                  assertTrue(failure is IllegalStateException)
+                  assertTrue(completion.isCompleted)
+              }
+          }
+          ''')
+          test = root / 'test' / base / 'LocalRuntimeImplTest.kt'
+          text = test.read_text()
+          before = '        verify(exactly = 1) { conversation.getBenchmarkInfo() }'
+          assert text.count(before) == 1
+          test.write_text(text.replace(before, before + '\n        verify(exactly = 0) { conversation.cancelProcess() }'))
+          PY
+          git diff --check
+          git add app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/localruntime
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: acknowledge native completion before publishing terminal callbacks'
+          git push origin HEAD:refs/heads/fix/research-local-assist-pipeline-2026-10-13
+          echo "Applied source: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

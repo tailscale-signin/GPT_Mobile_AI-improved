@@ -1747,6 +1747,7 @@ class LiteRtLmAdapterTest {
     fun `three assist sessions close their own conversation and retain warm engine`() = runBlocking {
         val native = FakeLocalRuntime().apply { scriptedEvents = List(3) { listOf(LocalRuntimeEvent.TextDelta("[0]"), LocalRuntimeEvent.Done) } }
         val runtime = LocalEngineHolder(native) { 1000L }
+        runtime.loadEngine(dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec("/models/gemma.litertlm", "gpu", 4096))
         val adapter = adapter(runtime)
         repeat(3) {
             val events = adapter.openSession(turns("select records"), localPlatform(), constraints = RequestConstraints(allowTools = false, requestRole = "assist")).streamRound(emptyList(), emptyList()).toList()
@@ -1755,6 +1756,15 @@ class LiteRtLmAdapterTest {
         }
         assertEquals(3, native.closeConversationCalls)
         assertEquals(1, native.loadEngineCalls.size)
+    }
+
+    @Test
+    fun `assist without an admitted warm engine returns failure without loading`() = runBlocking {
+        val native = FakeLocalRuntime()
+        val events = adapter(LocalEngineHolder(native) { 1000L }).openSession(turns("select"), localPlatform(), constraints = RequestConstraints(allowTools = false, requestRole = "assist")).streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.Failed })
+        assertTrue(native.loadEngineCalls.isEmpty())
+        assertTrue(native.sendMessageCalls.isEmpty())
     }
 
     @Test

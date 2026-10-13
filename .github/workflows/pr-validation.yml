@@ -78,6 +78,7 @@ jobs:
             app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/*.json
             app/schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/*.json
             app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/unified-runtime-paired.json
           if-no-files-found: warn
 
       - name: Verify exported Room schemas

@@ -2,6 +2,7 @@
 
 Integration base: `379e014da8b42e6caeb7b4f415a84bcf149ad140` (PR #668).
 Branch: `feat/unified-runtime-local-first-2026-10-13`.
+Release candidate: `0.9.52.0` (`121`); published state is determined by the signed-release workflow, not this document.
 Runtime dependencies remain pinned; normal application identity remains unchanged.
 
 ## Work packages
@@ -41,4 +42,8 @@ GitHub Actions run `38371508401`, job `115209365360`, passed the actual minified
 
 Historical source manifests without provable public authority migrate into their original chat scope; migration does not promote old Supported claims into independent appraisal. Source text, appraisals, independent review and figure/supplement coverage remain separate. Native examination explicitly reports unsupported PDF/gateway routes and incomplete figure/supplement coverage. Required review pauses before reading if canonical independence or permission is unresolved. A completed rejected review is retained, not retried for a better verdict.
 
-Remaining qualification includes gateway examination, temporary-chat article presentation, production-path interruption/revocation fixtures, source-validation receipt semantics, targeted crawl behavior, picker accessibility/screenshots and the paired workload measurement report. No release-complete claim is made by this record.
+Gateway examination now reuses the approved academic facade, with retained root budget and source validation receipts. Native targeted discovery follows at most two explicit same-origin full-text HTML links and stops on refusal or identity mismatch. Temporary/deleted chats are excluded from persistent article bindings and examination; no temporary body or identifying archive record is exported. Review reports retain artifact hashes, model identity, reasons and physical invocation IDs.
+
+Archive category/topic creation, rename, move and merge, historical study comparison, paragraph-adjacent citations and method/warning settings are implemented. Android acceptance adds light and dark/RTL picker selection and accessibility actions at 320 dp and 200% text size, with screenshot artifacts. The coordinator recovery regression uses real Room/body storage and scripted provider boundaries. A 102-task, two-repeat, randomized paired wrapper fixture writes every sample to `app/build/reports/unified-runtime-paired.json`; it reports actual test timing and request counts, with live-model tokens, quality and costs explicitly unavailable.
+
+Exact-head CI remains the merge gate. Physical ROG qualification, billable live-provider comparison, and expert scientific adjudication cannot be inferred from emulation or scripted fixtures; optimization stays off by default and unsupported routes remain blocked.

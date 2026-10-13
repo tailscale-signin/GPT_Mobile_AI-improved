@@ -16,7 +16,6 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.LayoutDirection
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -51,7 +50,8 @@ class PlatformPickerInstrumentedTest {
         }
         compose.onNodeWithTag("picker_confirm").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag("picker_list").performScrollToNode(hasTestTag("profile_select_fixture-1"))
-        compose.onNodeWithTag("profile_select_fixture-1").performSemanticsAction(SemanticsActions.CustomActions) { actions -> check(actions.single().action()) }
+        val actions = compose.onNodeWithTag("profile_select_fixture-1").fetchSemanticsNode().config[SemanticsActions.CustomActions]
+        compose.runOnIdle { check(actions.single().action()) }
         assertEquals(1, favorites)
         compose.onNodeWithTag("profile_select_fixture-1").performClick()
         compose.waitForIdle()

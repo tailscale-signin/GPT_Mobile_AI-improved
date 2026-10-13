@@ -115,6 +115,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 ResearchFeatureSwitch("Use archive leads before discovery", feature.archivePreflight, enabled) { viewModel.editFeature(feature.copy(archivePreflight = it)) }
                                 ResearchFeatureSwitch("Show article cards", feature.articleCards, enabled) { viewModel.editFeature(feature.copy(articleCards = it)) }
                                 ResearchFeatureSwitch("Compact article cards", feature.compactCards, enabled) { viewModel.editFeature(feature.copy(compactCards = it)) }
+                                ResearchFeatureSwitch("Show coverage warnings", feature.showWarnings, enabled) { viewModel.editFeature(feature.copy(showWarnings = it)) }
                                 ResearchFeatureSwitch("Show validated method metrics", feature.showMethodMetrics, enabled) { viewModel.editFeature(feature.copy(showMethodMetrics = it)) }
                                 Text("At most 1,000 reusable works. The oldest insertion leaves the archive first; original chat citations and active jobs retain their own evidence. This does not limit research acquisition.")
                             }
@@ -125,6 +126,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = enabled, label = { Text(value.name.lowercase().replace('_', ' ')) }) }
                                 ResearchFeatureSwitch("Auto-examine in ordinary chat", feature.ordinaryChatAutoExamination, enabled) { viewModel.editFeature(feature.copy(ordinaryChatAutoExamination = it)) }
                                 ResearchFeatureSwitch("Allow background examination", feature.backgroundExamination, enabled) { viewModel.editFeature(feature.copy(backgroundExamination = it)) }
+                                Text("Native discovery follows up to two explicit full-text HTML links on the same site. Access refusal is terminal; figures and supplements remain unverified.")
                                 ResearchFeatureSwitch("Targeted article crawling", feature.targetedCrawl, enabled) { viewModel.editFeature(feature.copy(targetedCrawl = it)) }
                                 Text("Manual Examine does not change research depth. Provider, paper-reading, connection and cloud permissions are rechecked before dispatch. Native PDF support is capability-gated.")
                             }

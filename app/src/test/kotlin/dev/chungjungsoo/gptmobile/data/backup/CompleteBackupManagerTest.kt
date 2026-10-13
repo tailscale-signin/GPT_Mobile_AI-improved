@@ -60,6 +60,8 @@ import org.robolectric.annotation.Config
 class CompleteBackupManagerTest {
     private lateinit var context: Context
     private lateinit var database: ChatDatabaseV2
+    private lateinit var researchDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase
+    private lateinit var researchBackup: dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val vault = TestVault()
     private val settings = mockk<SettingRepository>(relaxed = true)
@@ -75,12 +77,16 @@ class CompleteBackupManagerTest {
         preferences = PreferenceDataStoreFactory.create(scope = scope) { File(context.cacheDir, "${UUID.randomUUID()}.preferences_pb") }
         every { legacy.getBackupStatus() } returns BackupStatus()
         benchmarkStore = BenchmarkStore(context)
-        manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, benchmarkStore = benchmarkStore)
+        researchDatabase = Room.inMemoryDatabaseBuilder(context, dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase::class.java).build()
+        val bodies = dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore(context, researchDatabase)
+        researchBackup = dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup(dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository(researchDatabase, bodies), bodies, database)
+        manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, benchmarkStore = benchmarkStore, researchBackup = researchBackup)
     }
 
     @After
     fun cleanup() {
         database.close()
+        researchDatabase.close()
         benchmarkStore.close()
         scope.cancel()
     }
@@ -90,7 +96,7 @@ class CompleteBackupManagerTest {
         val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS))
         val protection = BackupProtection(true, "persistent-password")
         manager.saveProtection(protection)
-        val recreated = CompleteBackupManager(context, database, preferences, vault, settings, legacy, benchmarkStore = benchmarkStore)
+        val recreated = CompleteBackupManager(context, database, preferences, vault, settings, legacy, benchmarkStore = benchmarkStore, researchBackup = researchBackup)
         assertEquals(protection, recreated.savedProtection())
         val encrypted = File(context.cacheDir, "saved-password.gptbackup")
         val saved = manager.backup(Uri.fromFile(encrypted), selected, protection.password)

@@ -49,7 +49,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                     when {
                         !settings.localAssist -> "Off"
                         target == null && policy.profileUid != null -> stringResource(R.string.local_ai_assist_worker_missing)
-                        target == null -> "Automatic · eligible warm model only"
+                        target == null -> if (resolution.effective.preparation == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) "Automatic selection · warm models only" else "Automatic selection · prepare an approved compatible model"
                         !target.enabled -> stringResource(R.string.local_ai_assist_worker_disabled)
                         readiness.profileUid != target.uid -> "Readiness has not been checked for this profile"
                         else -> readiness.reason
@@ -81,6 +81,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
         }
         item {
             SettingsPanel(stringResource(R.string.local_assist_screen_5)) {
+                AssistSwitch("Research preparation", "Locally plans queries, extracts source-linked claims and reviews passages. Uses the same queue and attempt allowance. The selected primary can continue when assistance is unavailable; independent review requires a distinct approved model.", policy.researchPreparation) { enabled -> viewModel.updateAssist { it.copy(researchPreparation = enabled) } }
                 AssistSwitch(stringResource(R.string.local_assist_screen_6), "Keeps exact complete records and source URLs. Originals remain available.", policy.evidenceSelection) { enabled -> viewModel.updateAssist { it.copy(evidenceSelection = enabled) } }
                 AssistSwitch(stringResource(R.string.local_assist_screen_7), "Creates a separate source-linked summary of already authorized text. Original evidence is never replaced.", policy.summarizeRetrievedText) { enabled -> viewModel.updateAssist { it.copy(summarizeRetrievedText = enabled) } }
                 AssistSwitch(stringResource(R.string.local_assist_screen_8), "Adds proposed queries to the evidence packet. The primary orchestrator decides whether to execute them with its existing permissions.", policy.proposeQueries) { enabled -> viewModel.updateAssist { it.copy(proposeQueries = enabled) } }
@@ -110,6 +111,13 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                     Slider(seconds, { seconds = it }, valueRange = 2f..30f, steps = 27, onValueChangeFinished = { viewModel.updateAssist { it.copy(taskTimeoutSeconds = seconds.toInt()) } })
                     Text("Attempts per turn: ${attempts.toInt()}")
                     Slider(attempts, { attempts = it }, valueRange = 1f..8f, steps = 6, onValueChangeFinished = { viewModel.updateAssist { it.copy(maxAttempts = attempts.toInt()) } })
+                    var waitSeconds by remember(policy.queueWaitSeconds) { mutableStateOf(policy.queueWaitSeconds.toFloat()) }
+                    Text("Queue wait: ${waitSeconds.toInt()} seconds")
+                    Slider(waitSeconds, { waitSeconds = it }, valueRange = 1f..60f, onValueChangeFinished = { viewModel.updateAssist { it.copy(queueWaitSeconds = waitSeconds.toInt()) } })
+                    Text("Preparation context: ${policy.contextTokens} tokens. A fixed-context export keeps its declared allocation.")
+                    listOf(1024, 2048, 4096, 8192, 16384).forEach { tokens ->
+                        FilterChip(policy.contextTokens == tokens, { viewModel.updateAssist { it.copy(contextTokens = tokens) } }, label = { Text("$tokens tokens") })
+                    }
                     Text("One native helper job at a time. Tasks are split against the loaded context, output allowance and uncertainty reserve. Unprocessed evidence is recorded; original sources remain available.", style = MaterialTheme.typography.bodySmall)
                 }
             }

@@ -10,7 +10,7 @@ import kotlinx.serialization.json.put
 /** Shrinks advertised schemas, never the authorized executable set. A new catalog is created per run. */
 internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String) : AgentTool {
     private val candidates = definitions.associateBy { it.name }
-    private val active = ranked(task).take(INITIAL_TOOLS).map { it.name }.toMutableSet()
+    private val active = window(ranked(task)).map { it.name }.toMutableSet()
     override val definition = AgentToolDefinition(
         NAME,
         "Search other authorized tools by task or exact names. Call this when the currently advertised tools cannot perform a task. Found tools become available next round. This cannot grant permissions or install tools.",
@@ -50,12 +50,15 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
         val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
         val undiscovered = if (query.isNotBlank()) ranked(query).filterNot { it.name in active } else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
-        active.addAll(found.map { it.name })
+        val selected = window(found + active.mapNotNull(candidates::get))
+        active.clear()
+        active.addAll(selected.map { it.name })
+        val admitted = found.filter { it.name in active }
         val result = buildJsonObject {
             put(
                 "available_next_round",
                 JsonArray(
-                    found.map { tool ->
+                    admitted.map { tool ->
                         buildJsonObject {
                             put("name", tool.name)
                             put("description", tool.description.take(800))
@@ -63,11 +66,27 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
                     }
                 )
             )
+            put("schema_budget_excluded", JsonArray(found.filterNot { it.name in active }.map { JsonPrimitive(it.name) }))
+            put("schema_token_allowance", SCHEMA_TOKEN_ALLOWANCE)
+            put("selection_policy", "Exact requested tools replace older advertised tools; executable permissions are unchanged. Oversized schemas require a smaller provider definition.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             put("authorized_tool_count", candidates.size)
             put("remaining_tool_count", candidates.size - active.size)
         }
         AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = false)
+    }
+
+    private fun window(ordered: List<AgentToolDefinition>): List<AgentToolDefinition> {
+        var tokens = 0L
+        return ordered.distinctBy { it.name }.filter { tool ->
+            val cost = schemaTokens(tool)
+            if (tokens + cost > SCHEMA_TOKEN_ALLOWANCE) {
+                false
+            } else {
+                tokens += cost
+                true
+            }
+        }.take(INITIAL_TOOLS)
     }
 
     private fun ranked(query: String): List<AgentToolDefinition> {
@@ -91,8 +110,12 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
     companion object {
         const val NAME = "discover_available_tools"
         const val INITIAL_TOOLS = 24
+
+        // Leaves room for the discovery schema and source content in the parent request planner.
+        const val SCHEMA_TOKEN_ALLOWANCE = 8_000
+        internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
         fun create(definitions: List<AgentToolDefinition>, task: String): ProgressiveToolCatalog? =
-            if (definitions.size <= INITIAL_TOOLS || definitions.any { it.name == NAME }) null else ProgressiveToolCatalog(definitions, task)
+            if (definitions.any { it.name == NAME } || definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task)
     }
 }
 

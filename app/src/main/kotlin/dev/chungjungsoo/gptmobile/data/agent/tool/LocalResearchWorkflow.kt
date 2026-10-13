@@ -30,7 +30,12 @@ internal data class LocalResearchResult(
     val searches: Int,
     val outcome: LocalResearchOutcome = LocalResearchOutcome.SUCCESS,
     val pagesAttempted: Int = pagesRead,
-    val pagesRetrieved: Int = pagesRead
+    val pagesRetrieved: Int = pagesRead,
+    val reviewedClaims: Int = 0,
+    val independentReviewClaims: Int = 0,
+    val unreviewedClaims: Int = 0,
+    val completionReason: String = "",
+    val assistPackets: List<JsonObject> = emptyList()
 )
 
 /** Tools are borrowed from the main profile after its authorization and budget wrappers. */

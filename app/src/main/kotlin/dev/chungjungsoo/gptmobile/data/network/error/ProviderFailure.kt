@@ -18,7 +18,7 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
         ProviderFailureKind.PERMISSION -> "HTTP $status: the provider reported an explicit permission restriction for this route."
         ProviderFailureKind.FORBIDDEN_UNKNOWN -> "HTTP 403: access forbidden. The provider's specific cause is unavailable."
         ProviderFailureKind.RATE_LIMIT -> "HTTP $status: provider rate limit reached. Resume after the provider cooldown."
-        ProviderFailureKind.UNAVAILABLE -> "HTTP $status: the provider is temporarily unavailable."
+        ProviderFailureKind.UNAVAILABLE -> if (code == "model_load_failed") "HTTP $status: the configured model failed to load on the server. Check its model file, backend and available resources. A brief cooldown prevents repeated load attempts; saved evidence remains available." else "HTTP $status: the provider is temporarily unavailable."
         ProviderFailureKind.UNKNOWN -> "HTTP $status: provider request failed; specific cause unavailable."
     }
 

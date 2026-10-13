@@ -7,25 +7,32 @@ import android.os.SystemClock
 /** Main-process admission owns optional work. Native contexts are never silently resized. */
 class LocalWorkloadAdmission(private val clock: () -> Long = SystemClock::elapsedRealtime) {
     private var recoveredAt: Long? = null
+    private var recoveringFromPressure = false
 
     @Synchronized
     fun rejection(hardware: DeviceHardwareState, availableBytes: Long?, requiredBytes: Long, reserveBytes: Long, optional: Boolean): String? {
         if (hardware.thermalState >= DeviceThermalState.SEVERE || hardware.thermalHeadroom?.let { it.isFinite() && it >= 1f } == true) {
             recoveredAt = null
+            recoveringFromPressure = true
             return "Device is too hot for a new local request. Let it cool and retry."
         }
         if (availableBytes != null && availableBytes < requiredBytes.coerceAtLeast(0) + reserveBytes.coerceAtLeast(0)) {
             recoveredAt = null
+            recoveringFromPressure = true
             return "Not enough available memory for this model and context. Release another model or choose a smaller profile."
         }
         if (!optional) return null
         if (hardware.isModeratePressure || hardware.isThrottlingRequired) {
             recoveredAt = null
+            recoveringFromPressure = true
             return "Optional local work is paused under device pressure"
         }
+        if (!recoveringFromPressure) return null
         val now = clock()
         val since = recoveredAt ?: now.also { recoveredAt = it }
-        return if (now - since < 30_000) "Waiting for stable device headroom" else null
+        if (now - since < 30_000) return "Waiting for stable device headroom"
+        recoveringFromPressure = false
+        return null
     }
 
     companion object {

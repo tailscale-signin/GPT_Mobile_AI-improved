@@ -94,7 +94,7 @@ data class ResearchSource(
     }
 }
 
-data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed", val questionId: String = "", val relevance: String = "Unknown", val exactQuoteVerified: Boolean = false) {
+data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed", val questionId: String = "", val relevance: String = "Unknown", val exactQuoteVerified: Boolean = false, val extractedBy: String = "", val extractionInvocationId: String = "", val reviewedBy: String = "", val reviewInvocationId: String = "", val independentReview: Boolean = false) {
     fun json() = buildJsonObject {
         put("text", text)
         put("sourceId", sourceId)
@@ -103,6 +103,11 @@ data class ResearchClaim(val text: String, val sourceId: String, val quote: Stri
         put("questionId", questionId)
         put("relevance", relevance)
         put("exactQuoteVerified", exactQuoteVerified)
+        put("extractedBy", extractedBy)
+        put("extractionInvocationId", extractionInvocationId)
+        put("reviewedBy", reviewedBy)
+        put("reviewInvocationId", reviewInvocationId)
+        put("independentReview", independentReview)
     }
 }
 
@@ -156,12 +161,14 @@ data class ResearchSnapshot(
     val updatedAt: Long = System.currentTimeMillis(),
     val complete: Boolean = false,
     val toolEvents: List<ResearchToolEvent> = emptyList(),
+    val modelEvents: List<ResearchModelEvent> = emptyList(),
     val targetSources: Int = 0,
     val frontierCursors: Map<String, String> = emptyMap(),
     val delegationPlan: dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint? = null
 ) {
     fun json() = buildJsonObject {
         put("version", 4)
+        put("modelEvents", kotlinx.serialization.json.Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(ResearchModelEvent.serializer()), modelEvents.takeLast(200)))
         delegationPlan?.let { put("delegationPlan", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it)) }
         put("targetSources", targetSources)
         put("frontierCursors", JsonObject(frontierCursors.mapValues { JsonPrimitive(it.value) }))
@@ -250,9 +257,10 @@ data class ResearchSnapshot(
                 val verdict = claimRows.firstOrNull { it.text("sourceId") == claim.sourceId && it.text("text").trim().take(600) == claim.text && it.text("quote").trim().take(1200) == claim.quote }
                     ?.text("verdict")?.takeIf { it in setOf("Supported", "Contradicted", "Insufficient") } ?: "Unreviewed"
                 val row = claimRows.first { it.text("sourceId") == claim.sourceId && it.text("text").trim() == claim.text && it.text("quote").trim() == claim.quote }
-                claim.copy(verdict = verdict, questionId = row.text("questionId"), relevance = row.text("relevance").takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown", exactQuoteVerified = (row["exactQuoteVerified"] as? JsonPrimitive)?.booleanOrNull == true)
+                claim.copy(verdict = verdict, questionId = row.text("questionId"), relevance = row.text("relevance").takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown", exactQuoteVerified = (row["exactQuoteVerified"] as? JsonPrimitive)?.booleanOrNull == true, extractedBy = row.text("extractedBy").take(200), extractionInvocationId = row.text("extractionInvocationId").take(128), reviewedBy = row.text("reviewedBy").take(200), reviewInvocationId = row.text("reviewInvocationId").take(128), independentReview = (row["independentReview"] as? JsonPrimitive)?.booleanOrNull == true && row.text("extractedBy").isNotBlank() && row.text("reviewedBy").isNotBlank() && row.text("extractedBy") != row.text("reviewedBy"))
             }
             ResearchSnapshot(
+                modelEvents = (value["modelEvents"] as? JsonArray).orEmpty().takeLast(200).mapNotNull { row -> runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement(ResearchModelEvent.serializer(), row) }.getOrNull() },
                 delegationPlan = value["delegationPlan"]?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it) },
                 frontierCursors = (value["frontierCursors"] as? JsonObject)?.mapValues { (_, cursor) -> (cursor as JsonPrimitive).content.also { require(it.toIntOrNull()?.let { page -> page > 0 } == true) } }.orEmpty(),
                 task = value.text("task").take(8000), targetSources = value.number("targetSources").coerceAtLeast(0), phase = value.text("phase").take(40), round = value.number("round").coerceAtLeast(0),

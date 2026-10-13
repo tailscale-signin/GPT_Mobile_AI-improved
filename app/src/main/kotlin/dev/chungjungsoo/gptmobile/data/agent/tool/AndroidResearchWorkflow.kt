@@ -55,7 +55,8 @@ internal class AndroidResearchWorkflow(
     private val stillEnabled: suspend () -> Boolean = { true },
     private val now: () -> Long = System::currentTimeMillis,
     private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val cancellationOrigin: () -> String = { journal?.cancellationOrigin() ?: "UNKNOWN" }
+    private val cancellationOrigin: () -> String = { journal?.cancellationOrigin() ?: "UNKNOWN" },
+    private val modelCoordinator: dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator? = null
 ) {
     private val journal = journal?.scoped(researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString()), tools.all { it.connectionUid == null })
     private val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(config.deepResearch)
@@ -66,6 +67,7 @@ internal class AndroidResearchWorkflow(
     private val budget = journal?.goalBudget(plan) ?: ResearchBudget(1, ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(plan.fingerprint, plan.limits))
     private val readerHealth = journal?.readerHealth() ?: ResearchReaderHealth(now)
     private var state = ResearchSnapshot("")
+    private var lastModelReply: dev.chungjungsoo.gptmobile.data.research.ResearchModelReply? = null
     private val sourceTarget: Int get() = state.targetSources.takeIf { it > 0 } ?: options.maxPages
 
     @Volatile private var exhausted = false
@@ -92,6 +94,7 @@ internal class AndroidResearchWorkflow(
 
     private suspend fun checkpoint(phase: String = state.phase, complete: Boolean = false) {
         state = state.copy(phase = phase, complete = complete, attempts = readAttempts.get(), sources = sources.values.toList(), queries = queries.toList(), updatedAt = now(), targetSources = sourceTarget)
+        modelCoordinator?.let { worker -> state = state.copy(modelEvents = (state.modelEvents + worker.events).associateBy { it.id }.values.toList().takeLast(200)) }
         journal?.save(state)
     }
 
@@ -117,14 +120,35 @@ internal class AndroidResearchWorkflow(
         return allowed
     }
 
-    private suspend fun model(instruction: String, evidence: String): JsonObject? {
-        val phase = if (state.phase == "Reviewing") ResearchBudget.Phase.VERIFICATION else ResearchBudget.Phase.DISCOVERY
+    private suspend fun model(
+        instruction: String,
+        evidence: String,
+        stage: dev.chungjungsoo.gptmobile.data.research.ResearchModelStage = dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.PLAN,
+        extractedBy: String = ""
+    ): JsonObject? {
+        lastModelReply = null
+        // A missing worker is not a physical model attempt and must not consume its budget.
+        if (modelCoordinator?.hasCandidates == false) return null
+        val phase = if (stage == dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW) ResearchBudget.Phase.VERIFICATION else ResearchBudget.Phase.DISCOVERY
         if (!charge(phase)) return null
         return operation {
-            val budgetContext = "Source goal: $sourceTarget. No additional application cap. Use compact completed evidence."
-            withTimeoutOrNull(options.pageTimeoutSeconds * 1000L) {
-                generate(delegationPrompt("$instruction\n$budgetContext", state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000)), minOf(config.maxOutputTokens, 768))
-                    ?.let(::parseDelegationObject)
+            val budgetContext = "Source goal: $sourceTarget. Use completed evidence and report missing coverage."
+            val prompt = if (modelCoordinator == null) {
+                delegationPrompt("$instruction\n$budgetContext", state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000))
+            } else {
+                "$instruction\n$budgetContext\n" + buildJsonObject {
+                    put("complete_task", state.task)
+                    put("untrusted_evidence", evidence)
+                }
+            }
+            val cap = minOf(config.maxOutputTokens, if (stage == dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT) 1536 else 768)
+            val worker = modelCoordinator
+            if (worker == null) {
+                withTimeoutOrNull(dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.MODEL_MS) {
+                    generate(prompt, cap)?.let(::parseDelegationObject)
+                }
+            } else {
+                worker.generate(stage, prompt, cap, extractedBy)?.also { lastModelReply = it }?.text?.let(::parseDelegationObject)
             }
         }
     }
@@ -272,7 +296,8 @@ internal class AndroidResearchWorkflow(
                     checkpoint("Finding gaps")
                     val assessment = model(
                         "Compare the research questions with the quoted evidence. Return JSON {\"missing\":[\"unresolved question or contradiction\"],\"queries\":[\"targeted follow-up query\"]}. At most 2 queries. Search for counter-evidence when claims conflict. Use empty queries only when the questions are adequately covered. Model agreement is not proof.",
-                        state.questions.joinToString("\n") + "\n" + evidenceForReview()
+                        state.questions.joinToString("\n") + "\n" + evidenceForReview(),
+                        dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.FIND_GAPS
                     )
                     nextQueries = assessment?.strings("queries").orEmpty().take(2)
                     state = state.copy(notes = (state.notes + assessment?.strings("missing").orEmpty().map { "Unresolved: ${it.take(240)}" }).distinct().take(20))
@@ -348,7 +373,12 @@ internal class AndroidResearchWorkflow(
                 LocalResearchOutcome.SUCCESS
             },
             state.attempts,
-            collectionWorkCount()
+            collectionWorkCount(),
+            reviewedClaims = state.claims.count { it.verdict != "Unreviewed" && it.relevance != "Unknown" && it.exactQuoteVerified },
+            independentReviewClaims = state.claims.count { it.independentReview && it.verdict != "Unreviewed" && it.exactQuoteVerified },
+            unreviewedClaims = state.claims.count { it.verdict == "Unreviewed" || it.relevance == "Unknown" || !it.exactQuoteVerified },
+            completionReason = state.phase,
+            assistPackets = dev.chungjungsoo.gptmobile.data.research.ResearchAssistanceHandoff.packets(state, callId)
         )
     }
 
@@ -443,9 +473,14 @@ internal class AndroidResearchWorkflow(
                         sources.getValue(key)
                     }
                     checkpoint()
-                    discovered to discovered.filter { reader != null && !it.readable && queued.add(it.id) }
+                    discovered to discovered.filter { reader != null && !it.readable && it.id !in queued }
                 }
-                admitted.second.forEach { queue.send(it) }
+                sourceUpdates.withLock {
+                    admitted.second.forEach { source ->
+                        // Backlog is checkpointed; a full queue cannot block an HTTP provider.
+                        if (source.id !in queued && queue.trySend(source).isSuccess) queued.add(source.id)
+                    }
+                }
                 return admitted.first.map { it.id }
             }
             try {
@@ -479,7 +514,11 @@ internal class AndroidResearchWorkflow(
                         state = state.copy(
                             engineResponses = state.engineResponses + 1,
                             engineFailures = state.engineFailures + if (result.isError) 1 else 0,
-                            frontierCursors = if (next.isBlank()) state.frontierCursors - query else state.frontierCursors + (query to next),
+                            frontierCursors = when {
+                                result.isError -> state.frontierCursors + (query to cursor)
+                                next.isBlank() -> state.frontierCursors - query
+                                else -> state.frontierCursors + (query to next)
+                            },
                             toolEvents = (
                                 state.toolEvents + ResearchToolEvent(
                                     query, "Deep Research", search.modelToolName,
@@ -506,12 +545,23 @@ internal class AndroidResearchWorkflow(
                 queue.close()
             }
             workers.forEach { it.join() }
+            // Drain persisted overflow after discovery, outside the search operation deadline.
+            if (reader != null && !stopped() && collecting()) {
+                val pending = sourceUpdates.withLock { sources.values.filter { it.paperId.isNotBlank() && !it.readable && it.status == "Metadata only" && it.id !in queued }.toList() }
+                pending.chunked(options.concurrency.coerceAtLeast(1)).forEach { batch ->
+                    if (!stopped() && collecting()) {
+                        coroutineScope {
+                            batch.map { source -> launch { readAcademicSource(source, callId, reader) } }.forEach { it.join() }
+                        }
+                    }
+                }
+            }
         }
     }
 
     private suspend fun invoke(tool: ResolvedAgentTool, id: String, arguments: JsonObject): AgentToolResult? = try {
         withContext(dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext(budget) { body -> journal?.retainBody(body).orEmpty() }) {
-            withTimeoutOrNull(options.pageTimeoutSeconds * 1000L) { tool.tool.execute(id, arguments) }
+            withTimeoutOrNull(dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.operationMillis(tool.realToolName, options.pageTimeoutSeconds * 1000L)) { tool.tool.execute(id, arguments) }
                 ?: dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(id, "PAGE_TIMEOUT", "Page or provider deadline reached; other research can continue.")
         }
     } catch (cancelled: CancellationException) {
@@ -838,10 +888,11 @@ internal class AndroidResearchWorkflow(
             if (sourceVersion !in state.extractedSourceVersions) {
                 val extracted = model(
                     "Extract at most 2 claims addressing the supplied research questions. Return JSON {\"claims\":[{\"text\":\"precise claim\",\"sourceId\":\"${source.id}\",\"questionId\":\"Q1\",\"quote\":\"exact supporting passage copied verbatim\"}]}. Quotes must be 20-1200 characters. Empty claims are valid when this source does not answer a question. Never use snippets or infer publication type.",
-                    "Questions: " + JsonArray(questions().map { it.json() }) + "\n" + source.json()
+                    "Questions: " + JsonArray(questions().map { it.json() }) + "\n" + source.json(),
+                    dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT
                 ) ?: continue
                 if (extracted["claims"] !is JsonArray) continue
-                val claims = validatedResearchClaims(extracted.rows("claims"), listOf(source)).take(2)
+                val claims = validatedResearchClaims(extracted.rows("claims"), listOf(source)).take(2).map { it.copy(extractedBy = lastModelReply?.modelKey.orEmpty(), extractionInvocationId = lastModelReply?.invocationId.orEmpty()) }
                 state = state.copy(
                     claims = (state.claims + claims).distinctBy { Triple(it.sourceId, it.text, it.quote) },
                     extractedSourceVersions = state.extractedSourceVersions + sourceVersion
@@ -879,12 +930,14 @@ internal class AndroidResearchWorkflow(
                 }
                 val result = model(
                     "Review the claim against the exact quote AND the task question. Return JSON {\"verdict\":\"Supported|Contradicted|Insufficient\",\"relevance\":\"Relevant|Background|Irrelevant\",\"questionId\":\"Q1\"}. Passage entailment and task relevance are independent. Pricing, prevalence, protocols, and keyword overlap cannot prove a different benefit or outcome. Preserve scope, uncertainty, and contrary evidence. Do not infer independent review or publication status.",
-                    "Questions: " + JsonArray(questions().map { it.json() }) + "\nSource metadata: " + source.json() + "\nClaim: " + claim.json()
+                    "Questions: " + JsonArray(questions().map { it.json() }) + "\nSource metadata: " + source.json() + "\nClaim: " + claim.json(),
+                    dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW,
+                    claim.extractedBy
                 )
                 val verdict = result?.text("verdict")?.takeIf { it in setOf("Supported", "Contradicted", "Insufficient") } ?: claim.verdict
                 val questionId = result?.text("questionId")?.takeIf { id -> questions().any { it.id == id } } ?: claim.questionId
                 val relevance = result?.text("relevance")?.takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown"
-                val updated = claim.copy(verdict = verdict, questionId = questionId, relevance = relevance, exactQuoteVerified = exact)
+                val updated = claim.copy(verdict = verdict, questionId = questionId, relevance = relevance, exactQuoteVerified = exact, reviewedBy = if (result != null) lastModelReply?.modelKey.orEmpty() else claim.reviewedBy, reviewInvocationId = if (result != null) lastModelReply?.invocationId.orEmpty() else claim.reviewInvocationId, independentReview = result != null && lastModelReply?.independent == true)
                 state = state.copy(claims = state.claims.map { if (it == claim) updated else it })
                 checkpoint()
             }

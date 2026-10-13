@@ -1030,7 +1030,7 @@ internal fun ChatDebugDiagnosticsCard(
                 Text(if (running) "Live diagnostics" else "Response diagnostics", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
                 TextButton(onClick = { copyScope.launch { dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(copyContext, dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(report), "Response diagnostics") } }) { Text("Copy") }
             }
-            LocalAssistDiagnosticsCard(assistTasks, invocations.filter { it.kind == "assist" })
+            LocalAssistDiagnosticsCard(assistTasks, invocations)
             val requests = invocations.distinctBy { it.id }
             if (settings.debugShowTokenComparison && requests.isNotEmpty()) {
                 TokenComparisonPanel(requests)

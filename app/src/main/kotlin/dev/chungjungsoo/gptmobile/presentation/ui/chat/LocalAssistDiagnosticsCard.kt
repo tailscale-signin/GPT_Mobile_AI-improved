@@ -26,7 +26,10 @@ internal fun LocalAssistDiagnosticsCard(tasks: List<AssistTaskState>, invocation
     }
     var tab by remember { mutableStateOf("Overview") }
     val expected = tasks.firstOrNull { it.taskId.startsWith("expected:") }
-    val physical = invocations.distinctBy { it.id }
+    val physical = invocations.filter { it.kind == "assist" }.distinctBy { it.id }
+    val included = invocations.filter { it.assistInclusionVerified }.flatMap { invocation ->
+        runCatching { kotlinx.serialization.json.Json.decodeFromString<List<String>>(invocation.consumedAssistInvocationIds ?: "[]") }.getOrDefault(emptyList())
+    }.toSet()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("Local Assist · ${expected?.model ?: tasks.firstNotNullOfOrNull { it.model } ?: "Profile unavailable"}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth()) {
@@ -37,6 +40,7 @@ internal fun LocalAssistDiagnosticsCard(tasks: List<AssistTaskState>, invocation
         when (tab) {
             "Overview" -> {
                 Text("${physical.size} recorded local invocations. ${tasks.count { it.delivery == dev.chungjungsoo.gptmobile.data.assist.AssistDelivery.VALIDATED }} validated task artifacts.")
+                Text("${physical.count { it.id in included }} local invocations have evidence confirmed in a serialized primary request.", style = MaterialTheme.typography.bodySmall)
                 Text("Generation, validation and request inclusion are separate. No invocation means usage is unrecorded.", style = MaterialTheme.typography.bodySmall)
                 expected?.let { Text(it.reason.replace('_', ' '), style = MaterialTheme.typography.bodySmall) }
             }
@@ -47,7 +51,7 @@ internal fun LocalAssistDiagnosticsCard(tasks: List<AssistTaskState>, invocation
                 Text("${it.delivery} · ${it.selectedSpanIds.size} selected · ${it.examinedSpanIds.size} examined · ${it.unprocessedSpanIds.size} unprocessed", style = MaterialTheme.typography.bodySmall)
             }
             "Runtime" -> {
-                physical.forEach { Text("${it.model} · ${it.actualRuntime ?: "Runtime not reported"} · ${it.inputTokenSource} input / ${it.outputTokenSource} output", style = MaterialTheme.typography.bodySmall) }
+                physical.forEach { Text("${it.model} · ${it.actualRuntime ?: "Runtime not reported"} · ${it.observedInputTokens ?: it.inputTokens.toLong()} input (${it.inputTokenSource}) / ${it.observedOutputTokens ?: it.outputTokens.toLong()} output (${it.outputTokenSource}) · ${it.durationMs} ms · ${it.status}", style = MaterialTheme.typography.bodySmall) }
                 if (physical.isEmpty()) Text("No observed backend or accelerator for this response.", style = MaterialTheme.typography.bodySmall)
             }
         }

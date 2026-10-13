@@ -634,4 +634,55 @@ class AndroidResearchWorkflowTest {
             assertFalse(journal.snapshot!!.complete)
         }
     }
+
+    @Test fun directResearchActuallyPlansExtractsAndReviewsWithSourceLinkedLocalEvidence() = runBlocking {
+        val journal = Journal()
+        val stages = mutableListOf<dev.chungjungsoo.gptmobile.data.research.ResearchModelStage>()
+        val local = dev.chungjungsoo.gptmobile.data.research.ResearchModelEndpoint("local", "model-A", "known-A", true, { true }) { stage, prompt, _ ->
+            stages += stage
+            val body = when (stage) {
+                dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.PLAN -> """{"schemaVersion":1,"questions":[{"id":"Q1","text":"What is the documented request limit?","evidenceNeeded":"Documented parallel request count"}],"queries":[{"id":"QRY1","text":"research device requests","questionIds":["Q1"]}],"noResearchNeeded":false}"""
+                dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT -> {
+                    assertTrue(prompt.contains(passage))
+                    buildJsonObject {
+                        put(
+                            "claims",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("sourceId", "S1")
+                                        put("questionId", "Q1")
+                                        put("text", "The device supports two parallel page requests.")
+                                        put("quote", passage)
+                                    }
+                                )
+                            )
+                        )
+                    }.toString()
+                }
+                dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW -> """{"verdict":"Supported","relevance":"Relevant","questionId":"Q1"}"""
+                dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.FIND_GAPS -> """{"missing":[],"queries":[]}"""
+            }
+            dev.chungjungsoo.gptmobile.data.research.ResearchModelReply(body, "known-A", "inv-${stage.name}")
+        }
+        val worker = dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator(listOf(local))
+        val result = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Null/legacy generator must not run") }, journal, modelCoordinator = worker).run("Research documented request limits", "typed")
+        assertEquals(1, result.pagesRead)
+        assertEquals(1, result.reviewedClaims)
+        assertEquals(0, result.independentReviewClaims)
+        assertFalse(result.assistPackets.isEmpty())
+        assertTrue(result.assistPackets.single().toString().contains(passage))
+        assertTrue(stages.containsAll(listOf(dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.PLAN, dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT, dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW)))
+        assertEquals(3, journal.snapshot!!.modelEvents.count { it.outcome == "SUCCESS" })
+    }
+
+    @Test fun aMissingReviewerRetainsReadableEvidenceWithoutFalseVerifiedClaims() = runBlocking {
+        val journal = Journal()
+        val worker = dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator(emptyList())
+        val result = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("No worker must not generate") }, journal, modelCoordinator = worker).run("Research documented request limits", "no-worker")
+        assertEquals(1, result.pagesRead)
+        assertEquals(0, result.reviewedClaims)
+        assertTrue(journal.snapshot!!.modelEvents.isEmpty())
+        assertTrue(result.handoff.contains("unreviewed", ignoreCase = true) || result.handoff.contains("unverified", ignoreCase = true))
+    }
 }

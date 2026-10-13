@@ -206,6 +206,10 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         if (!mutex.tryLock()) return@withContext
         try {
             if (android.os.SystemClock.elapsedRealtime() - lastUsed >= idleMillis) {
+                if (idleMillis <= 0) {
+                    retryAfter = maxOf(retryAfter, android.os.SystemClock.elapsedRealtime() + MemoryTrimPolicy.REACQUIRE_COOLDOWN_MS)
+                    _status.value = _status.value.copy(available = false, detail = "Semantic recall paused for memory recovery; exact and topic recall remain active")
+                }
                 closeEmbedder(if (idleMillis <= 0) "memory_pressure" else "idle_timeout")
                 store?.closeThreadResources()
                 store?.close()

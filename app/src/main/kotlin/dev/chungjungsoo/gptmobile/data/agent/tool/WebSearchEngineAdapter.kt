@@ -24,7 +24,7 @@ internal class WebSearchEngineAdapter private constructor(
     private val searxng = name == "searxng_web_search"
     private val freeSearch = name in setOf("search", "free_search__search") && listOf("engines", "freshness", "use_cache", "max_age_hours").all { it in properties }
     val approximateRecency: Boolean get() = searxng || freeSearch
-    private val brave = name in setOf("brave_web_search", "brave_search")
+    private val brave = name in setOf("brave_web_search", "brave_search", "brave_news_search", "news_search")
     private val countKey = COUNT_KEYS.firstOrNull { it in properties }
     val supportsRecency = listOf("recencyDays", "startPublishedDate", "start_date", "tbs").any { it in properties } ||
         (brave && "freshness" in properties) ||
@@ -119,7 +119,7 @@ internal class WebSearchEngineAdapter private constructor(
                 put("use_cache", true)
                 put("max_age_hours", 0.25)
             }
-            if (brave && "result_filter" in properties) {
+            if (brave && name !in setOf("news_search", "brave_news_search") && "result_filter" in properties) {
                 val field = properties["result_filter"] as? JsonObject ?: JsonObject(emptyMap())
                 put("result_filter", if (field.acceptsType("array")) JsonArray(listOf(JsonPrimitive("web"))) else JsonPrimitive("web"))
             }
@@ -140,7 +140,7 @@ internal class WebSearchEngineAdapter private constructor(
 
     companion object {
         private val marketplaceNames by lazy { McpPresetCatalog.presets.flatMap { it.webSearchToolNames }.toSet() }
-        private val aliases = setOf("brave_search", "bing_search", "google_search", "tavily-search", "exa_search", "duckduckgo_search", "multi_search", "web_search_multi", "multi_web_search", "search_engine_batch")
+        private val aliases = setOf("brave_search", "brave_news_search", "news_search", "bing_search", "google_search", "tavily-search", "exa_search", "duckduckgo_search", "multi_search", "web_search_multi", "multi_web_search", "search_engine_batch")
         private val COUNT_KEYS = listOf("maxResults", "max_results", "numResults", "num_results", "count", "limit", "num")
         private val INCLUDE_KEYS = listOf("includeDomains", "include_domains")
         private val EXCLUDE_KEYS = listOf("excludeDomains", "exclude_domains")
@@ -164,7 +164,7 @@ internal class WebSearchEngineAdapter private constructor(
             val schema = definition.inputSchema
             val properties = schema["properties"] as? JsonObject ?: return null
             val queryKeys = if (name == "deep_search_exa") listOf("objective") else listOf("query", "q", "search_query", "searchQuery", "queries", "searches", "search_query_batch")
-            val queryKey = queryKeys.firstOrNull { it in properties } ?: return null
+            val queryKey = queryKeys.firstOrNull { it in properties && it in requiredKeys(schema) } ?: queryKeys.firstOrNull { it in properties } ?: return null
             val querySchema = properties[queryKey] as? JsonObject ?: return null
             // Verify query and required parameter shapes before hiding the original tool.
             if (runCatching { queryValue("search", querySchema) }.isFailure) return null

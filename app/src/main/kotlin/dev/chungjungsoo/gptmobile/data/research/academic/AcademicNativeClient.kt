@@ -106,9 +106,9 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
         followRedirects = false
         install(HttpTimeout) {
-            connectTimeoutMillis = 8000
-            socketTimeoutMillis = 12000
-            requestTimeoutMillis = 20000
+            connectTimeoutMillis = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.CONNECT_MS
+            socketTimeoutMillis = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.SOCKET_MS
+            requestTimeoutMillis = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.HTTP_ATTEMPT_MS
         }
         engine {
             dns = Dns { host ->

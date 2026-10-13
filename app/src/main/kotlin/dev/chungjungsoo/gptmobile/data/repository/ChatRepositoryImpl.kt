@@ -1823,7 +1823,7 @@ class ChatRepositoryImpl(
                     candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
                     enabled = runFeatures.assistEnabled(),
                     supportsPrimaryRuntime = platform.compatibleType != ClientType.LITERT_LM,
-                workflowOwnsAssistance = explicitResearch && !localResearch && runFeatures.effectiveAssistPolicy().researchPreparation,
+                    workflowOwnsAssistance = explicitResearch && !localResearch && runFeatures.effectiveAssistPolicy().researchPreparation,
                     policy = runFeatures.effectiveAssistPolicy(),
                     policySnapshot = runFeatures.resolveAssistPolicy(),
                     goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
@@ -1922,26 +1922,26 @@ class ChatRepositoryImpl(
                     if (!localResearch && explicitResearch && latestUser?.content?.isNotBlank() == true) {
                         emit(ApiState.Notice("Deep Research is discovering and reading sources. Model assistance is optional; evidence will remain unreviewed without a reviewer.", persistent = false))
                         val directConfig = delegationConfig.copy(researchEnabled = true, automaticResearch = true)
-                    suspend fun researchAllowed(): Boolean {
-                        val live = settingRepository.getFeatureSettings()
-                        return live.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                            live.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                            live.delegationFor(platform.uid).deepResearch.enabled &&
-                            (live.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
-                    }
-                    val modelWorker = dev.chungjungsoo.gptmobile.data.research.DirectResearchModelFactory.create(
-                        platform, admittedProfiles, runFeatures, directConfig, turnKey,
-                        liveProfiles = { settingRepository.fetchPlatformV2s() },
-                        liveFeatures = { settingRepository.getFeatureSettings() },
-                        stillEnabled = { researchAllowed() },
-                        prepareLocal = { target, policy -> runtimeEligibleForAssist(target, policy) },
-                        generate = { target, stage, prompt, cap ->
-                            var invocationId: String? = null
-                            val text = generateDelegate(target, prompt, cap, inputCap = delegationInputBudget(target, cap), progress = { it.invocationId?.let { id -> invocationId = id } }, allowTools = false, requestRole = if (target.compatibleType == ClientType.LITERT_LM) "assist" else "research-${stage.name.lowercase(java.util.Locale.ROOT)}")
-                            dev.chungjungsoo.gptmobile.data.research.ResearchModelReply(text, dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.resolve(target).canonical.orEmpty(), invocationId)
-                        },
-                        onAssistStatus = { emit(ApiState.AssistStatus(it)) }
-                    )
+                        suspend fun researchAllowed(): Boolean {
+                            val live = settingRepository.getFeatureSettings()
+                            return live.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                                live.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                                live.delegationFor(platform.uid).deepResearch.enabled &&
+                                (live.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
+                        }
+                        val modelWorker = dev.chungjungsoo.gptmobile.data.research.DirectResearchModelFactory.create(
+                            platform, admittedProfiles, runFeatures, directConfig, turnKey,
+                            liveProfiles = { settingRepository.fetchPlatformV2s() },
+                            liveFeatures = { settingRepository.getFeatureSettings() },
+                            stillEnabled = { researchAllowed() },
+                            prepareLocal = { target, policy -> runtimeEligibleForAssist(target, policy) },
+                            generate = { target, stage, prompt, cap ->
+                                var invocationId: String? = null
+                                val text = generateDelegate(target, prompt, cap, inputCap = delegationInputBudget(target, cap), progress = { it.invocationId?.let { id -> invocationId = id } }, allowTools = false, requestRole = if (target.compatibleType == ClientType.LITERT_LM) "assist" else "research-${stage.name.lowercase(java.util.Locale.ROOT)}")
+                                dev.chungjungsoo.gptmobile.data.research.ResearchModelReply(text, dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.resolve(target).canonical.orEmpty(), invocationId)
+                            },
+                            onAssistStatus = { emit(ApiState.AssistStatus(it)) }
+                        )
                         val research = dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflow(
                             directConfig,
                             delegatedTools,
@@ -1959,13 +1959,13 @@ class ChatRepositoryImpl(
                         preparedEvidenceComplete = research.outcome == dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.SUCCESS
                         preparedEvidenceReviewed = research.reviewedClaims > 0 && research.unreviewedClaims == 0 && research.independentReviewClaims == research.reviewedClaims
                         if (research.handoff.isNotBlank()) appendPreparedEvidence(research.handoff)
-                    val availableEvidenceTokens = limits.contextTokens.toLong() - dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.breakdown(preparedTurns, requestPlatform.systemPrompt.orEmpty(), contextPlan.tools).total - (contextPlan.outputTokens ?: 2048) - maxOf(256, limits.contextTokens / 32)
-                    val includedPackets = dev.chungjungsoo.gptmobile.data.research.ResearchAssistanceHandoff.withinBudget(research.assistPackets, availableEvidenceTokens)
-                    includedPackets.forEach { packet ->
-                        appendPreparedEvidence(packet.toString())
-                        preparedAssistEvidence += packet
-                    }
-                    if (includedPackets.size < research.assistPackets.size) emit(ApiState.Notice("Some complete Local Assist evidence packets exceed the remaining writer context. Original sources and claims remain in Research history; inclusion is recorded separately.", persistent = false))
+                        val availableEvidenceTokens = limits.contextTokens.toLong() - dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.breakdown(preparedTurns, requestPlatform.systemPrompt.orEmpty(), contextPlan.tools).total - (contextPlan.outputTokens ?: 2048) - maxOf(256, limits.contextTokens / 32)
+                        val includedPackets = dev.chungjungsoo.gptmobile.data.research.ResearchAssistanceHandoff.withinBudget(research.assistPackets, availableEvidenceTokens)
+                        includedPackets.forEach { packet ->
+                            appendPreparedEvidence(packet.toString())
+                            preparedAssistEvidence += packet
+                        }
+                        if (includedPackets.size < research.assistPackets.size) emit(ApiState.Notice("Some complete Local Assist evidence packets exceed the remaining writer context. Original sources and claims remain in Research history; inclusion is recorded separately.", persistent = false))
                         if (research.pagesRead == 0) {
                             appendPreparedEvidence("Research acquisition returned no readable source text. Discovery metadata or search snippets are not full-text evidence. Do not claim that research completed or that sources were read. Explain the missing evidence.")
                             emit(ApiState.Notice("Research returned no readable sources. Check the engine status and connection credentials in Plugins & Tools; any discovery leads remain in Research history.", persistent = true))

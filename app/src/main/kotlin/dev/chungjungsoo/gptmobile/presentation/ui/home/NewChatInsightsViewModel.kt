@@ -13,20 +13,23 @@ import dev.chungjungsoo.gptmobile.data.pricing.ProfileBenchmarkResolver
 import dev.chungjungsoo.gptmobile.data.pricing.ProviderPricingRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
-internal data class ProfileInsight(val profile: PlatformV2, val score: ScoreboardEntry?, val community: Boolean, val price: ModelPrice?, val settings: AppFeatureSettings, val now: Long, val localRun: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun? = null, val priceRefreshing: Boolean = false, val priceMessage: String? = null)
+internal data class ProfileInsight(val profile: PlatformV2, val score: ScoreboardEntry?, val community: Boolean, val price: ModelPrice?, val settings: AppFeatureSettings, val now: Long, val localRun: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun? = null, val priceRefreshing: Boolean = false, val priceMessage: String? = null, val scoresLoaded: Boolean = true, val pricesLoaded: Boolean = true)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -62,22 +65,52 @@ class NewChatInsightsViewModel @Inject constructor(
                 )
             }
         }.onStart {
-            if (features.newChatScores) benchmarks.load()
-            if (features.newChatPrices) pricing.hydrate()
-            if (features.newChatScores && features.newChatCommunity) scoreboard.hydrate()
-            // Start independently: the picker never awaits networking or inference.
+            emit(profiles.associate { profile -> profile.uid to ProfileInsight(profile, null, false, null, features, System.currentTimeMillis(), scoresLoaded = !features.newChatScores, pricesLoaded = !features.newChatPrices) })
+            refreshInsightSources(
+                scores = {
+                    if (features.newChatScores) benchmarks.load()
+                    if (features.newChatScores && features.newChatCommunity) scoreboard.hydrate()
+                },
+                prices = { if (features.newChatPrices) pricing.hydrate() }
+            )
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(0), emptyMap())
 
     suspend fun refreshWhileVisible() {
-        configuration.collectLatestPricing()
+        configuration.distinctUntilChanged { previous, next ->
+            previous.first.map { dev.chungjungsoo.gptmobile.data.pricing.priceContextKey(it) }.toSet() == next.first.map { dev.chungjungsoo.gptmobile.data.pricing.priceContextKey(it) }.toSet() &&
+                previous.second.newChatPrices == next.second.newChatPrices &&
+                previous.second.newChatPriceRefresh == next.second.newChatPriceRefresh &&
+                previous.second.newChatScores == next.second.newChatScores &&
+                previous.second.newChatCommunity == next.second.newChatCommunity
+        }.collectLatestPricing()
     }
     private suspend fun kotlinx.coroutines.flow.Flow<Pair<List<PlatformV2>, AppFeatureSettings>>.collectLatestPricing() = collectLatest { (profiles, features) ->
-        if (features.newChatScores && features.newChatCommunity) scoreboard.refresh()
-        while (features.newChatPrices && features.newChatPriceRefresh) {
-            pricing.refresh(profiles)
-            delay(60_000)
-        }
+        refreshInsightSources(
+            scores = { if (features.newChatScores && features.newChatCommunity) scoreboard.refresh() },
+            prices = {
+                while (features.newChatPrices && features.newChatPriceRefresh) {
+                    insightRefreshAttempt { pricing.refresh(profiles) }
+                    delay(60_000)
+                }
+            }
+        )
     }
     fun refreshNow() = viewModelScope.launch { pricing.refresh(settings.fetchPlatformV2s(), true) }
+}
+
+/** Sibling refreshes own their failures; cancellation always returns to the visible route. */
+internal suspend fun refreshInsightSources(scores: suspend () -> Unit, prices: suspend () -> Unit) = supervisorScope {
+    launch { insightRefreshAttempt(scores) }
+    launch { insightRefreshAttempt(prices) }
+}
+
+private suspend fun insightRefreshAttempt(action: suspend () -> Unit) {
+    try {
+        action()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // Repositories retain their last valid cache and expose their refresh status.
+    }
 }

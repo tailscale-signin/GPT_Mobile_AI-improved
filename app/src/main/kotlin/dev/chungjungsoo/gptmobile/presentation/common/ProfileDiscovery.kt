@@ -2,8 +2,10 @@ package dev.chungjungsoo.gptmobile.presentation.common
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,6 +27,11 @@ internal fun ProfileSearchField(query: String, onQueryChange: (String) -> Unit, 
         onValueChange = onQueryChange,
         label = { Text(stringResource(R.string.profile_search)) },
         leadingIcon = { Icon(Icons.Rounded.Search, null) },
+        trailingIcon = if (query.isNotEmpty()) {
+            { IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, stringResource(R.string.picker_clear_search)) } }
+        } else {
+            null
+        },
         singleLine = true,
         modifier = modifier.fillMaxWidth()
     )

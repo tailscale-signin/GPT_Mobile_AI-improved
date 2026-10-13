@@ -77,7 +77,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -167,7 +166,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
-import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
@@ -802,7 +800,7 @@ fun HomeScreen(
                     navigateToNewChat(platforms, conversationMode)
                     homeViewModel.closeSelectModelDialog()
                 },
-                onPlatformSelect = { homeViewModel.updatePlatformCheckedState(it) },
+                onPlatformSelect = { homeViewModel.togglePlatformSelection(it) },
                 onTogglePlatformFavorite = { platformId ->
                     val target = platformState.find { it.id == platformId }
                     if (target != null) {
@@ -1659,151 +1657,6 @@ fun FavoriteDetailDialog(
             }
         }
     }
-}
-
-@Composable
-internal fun SelectPlatformDialog(
-    platforms: List<PlatformV2>,
-    selectedPlatforms: List<Boolean>,
-    onDismissRequest: () -> Unit,
-    onConfirmation: (enabledPlatforms: List<String>, conversationMode: String) -> Unit,
-    onPlatformSelect: (idx: Int) -> Unit,
-    onTogglePlatformFavorite: (platformId: Int) -> Unit = {},
-    initialCombined: Boolean = false,
-    insights: Map<String, ProfileInsight> = emptyMap(),
-    onRefreshPrices: () -> Unit = {}
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var combinedMode by rememberSaveable { mutableStateOf(initialCombined) }
-    val selectedCount = platforms.indices.count { platforms[it].enabled && selectedPlatforms.getOrElse(it) { false } }
-    val canCombine = selectedCount >= 2
-
-    LaunchedEffect(canCombine) {
-        if (!canCombine) combinedMode = false
-    }
-    var profileQuery by rememberSaveable { mutableStateOf("") }
-    var selectedLabel by rememberSaveable { mutableStateOf<String?>(null) }
-    val reusableLabels = remember(platforms) { collectReusableProfileLabels(platforms.map { it.labels }) }
-    val indexedPlatforms = remember(platforms, selectedLabel, profileQuery) {
-        orderedChatProfiles(platforms).filter { (_, profile) ->
-            dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery(profile, profileQuery) &&
-                (selectedLabel == null || dev.chungjungsoo.gptmobile.data.model.parseProfileLabels(profile.labels).any { it.key == selectedLabel })
-        }
-    }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        onDismissRequest = onDismissRequest,
-        title = {
-            Column {
-                Text(
-                    text = stringResource(R.string.select_platform),
-                    modifier = Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Text(
-                    text = stringResource(R.string.select_platform_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = !combinedMode,
-                        onClick = { combinedMode = false },
-                        label = { Text("Separate") }
-                    )
-                    FilterChip(
-                        selected = combinedMode,
-                        enabled = canCombine,
-                        onClick = { combinedMode = true },
-                        label = { Text(stringResource(R.string.chat_mode_combined)) }
-                    )
-                }
-                Text(
-                    text = stringResource(if (combinedMode) R.string.chat_mode_combined_description else R.string.chat_mode_standard_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        text = {
-            HorizontalDivider()
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField(profileQuery, { profileQuery = it })
-                if (reusableLabels.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PlatformLabelFilter(label = dev.chungjungsoo.gptmobile.data.model.ProfileLabel(stringResource(R.string.all_profile_labels)), selected = selectedLabel == null, onClick = { selectedLabel = null })
-                        reusableLabels.forEach { label ->
-                            PlatformLabelFilter(label = label, selected = selectedLabel == label.key, onClick = { selectedLabel = label.key })
-                        }
-                    }
-                }
-                if (platforms.any { it.enabled }) {
-                    indexedPlatforms.forEach { (originalIndex, platform) ->
-                        androidx.compose.runtime.key(platform.uid) {
-                            PlatformCheckBoxItem(
-                                title = platform.name,
-                                enabled = platform.enabled,
-                                selected = selectedPlatforms.getOrElse(originalIndex) { false },
-                                isFavorite = platform.isFavorite,
-                                labels = platform.labels,
-                                description = "${platform.compatibleType.name} · ${platform.model}",
-                                supportingContent = insights[platform.uid]?.let { insight -> { NewChatProfileInsights(insight, onRefreshPrices) } },
-                                onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
-                                onClickEvent = { onPlatformSelect(originalIndex) }
-                            )
-                        }
-                    }
-                } else {
-                    EnablePlatformWarningText()
-                }
-                HorizontalDivider(Modifier.padding(top = 8.dp))
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = selectedCount > 0,
-                onClick = {
-                    val selected = platforms.filterIndexed { i, platform -> platform.enabled && selectedPlatforms.getOrElse(i) { false } }.map { it.uid }
-                    onConfirmation(
-                        selected,
-                        if (combinedMode && selected.size >= 2) ConversationMode.COMBINED else ConversationMode.STANDARD
-                    )
-                }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = { onDismissRequest() }
-            ) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun PlatformLabelFilter(label: dev.chungjungsoo.gptmobile.data.model.ProfileLabel, selected: Boolean, onClick: () -> Unit) {
-    BeveledProfileLabel(
-        label = label,
-        selected = selected,
-        large = true,
-        modifier = Modifier.semantics { this.selected = selected },
-        onClick = onClick
-    )
 }
 
 @Composable

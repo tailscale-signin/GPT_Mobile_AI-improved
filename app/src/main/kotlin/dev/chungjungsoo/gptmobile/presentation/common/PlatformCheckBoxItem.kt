@@ -30,7 +30,6 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
-import kotlin.math.abs
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -140,7 +139,7 @@ fun getBeveledLabelColors(label: String): Triple<Color, Color, Color> {
     if (explicit != null) {
         return Triple(explicit.copy(alpha = 0.16f), explicit, explicit)
     }
-    val hash = abs(parsed.name.hashCode())
+    val hash = parsed.name.hashCode()
     val palette = listOf(
         Triple(Color(0x2A1976D2), Color(0xFF1976D2), Color(0xFF64B5F6)),
         Triple(Color(0x2A388E3C), Color(0xFF388E3C), Color(0xFF81C784)),
@@ -150,5 +149,5 @@ fun getBeveledLabelColors(label: String): Triple<Color, Color, Color> {
         Triple(Color(0x2AC2185B), Color(0xFFC2185B), Color(0xFFF06292)),
         Triple(Color(0x2A5D4037), Color(0xFF5D4037), Color(0xFFA1887F))
     )
-    return palette[hash % palette.size]
+    return palette[Math.floorMod(hash, palette.size)]
 }

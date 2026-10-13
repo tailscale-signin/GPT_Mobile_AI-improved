@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
@@ -31,13 +34,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.PROFILE_LABEL_COLOR_PRESETS
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.normalizeLabelColor
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
-import kotlin.math.abs
 
 @Composable
 fun BeveledProfileLabel(
@@ -48,34 +51,44 @@ fun BeveledProfileLabel(
     large: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val (background, border, textColor) = profileLabelColors(label, selected)
-    val clickableModifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier
-    Surface(
-        modifier = clickableModifier,
-        shape = CutCornerShape(topStart = 4.dp, bottomEnd = 4.dp, topEnd = 0.dp, bottomStart = 0.dp),
-        color = background,
-        border = BorderStroke(if (selected) 2.dp else 1.dp, border)
-    ) {
+    if (onClick != null) {
+        ProfileLabelChip(label, selected, onClick, modifier)
+    } else {
+        ProfileLabelBadge(label, modifier, compact, large)
+    }
+}
+
+@Composable
+fun ProfileLabelChip(label: ProfileLabel, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val (background, border, _) = profileLabelColors(label, selected)
+    androidx.compose.material3.FilterChip(
+        selected = selected,
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = 48.dp).testTag("profile_label_${label.key}"),
+        shape = RoundedCornerShape(50),
+        label = { Text(label.name, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+        leadingIcon = if (selected) {
+            { Icon(androidx.compose.material.icons.Icons.Rounded.Check, null) }
+        } else {
+            null
+        },
+        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(selectedContainerColor = background),
+        border = BorderStroke(1.dp, border)
+    )
+}
+
+@Composable
+fun ProfileLabelBadge(label: ProfileLabel, modifier: Modifier = Modifier, compact: Boolean = false, large: Boolean = false) {
+    val (background, border, textColor) = profileLabelColors(label)
+    Surface(modifier, shape = RoundedCornerShape(50), color = background, border = BorderStroke(1.dp, border)) {
         Text(
-            text = label.name,
-            style = if (large) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelSmall.let { if (compact) it.copy(fontSize = it.fontSize * 0.5f, lineHeight = it.lineHeight * 0.5f) else it },
+            label.name,
+            style = if (large) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelMedium,
             color = textColor,
-            modifier = Modifier.padding(
-                horizontal = if (large) {
-                    14.dp
-                } else if (compact) {
-                    4.5.dp
-                } else {
-                    9.dp
-                },
-                vertical = if (large) {
-                    14.dp
-                } else if (compact) {
-                    2.dp
-                } else {
-                    4.dp
-                }
-            )
+            maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = if (compact) 8.dp else 12.dp, vertical = if (compact) 4.dp else 8.dp)
         )
     }
 }
@@ -116,7 +129,7 @@ fun ProfileLabelEditorDialog(
         onDismissRequest = onDismiss,
         title = { Text("Profile labels") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     "Use colored labels to group AI profiles. Reusing the same label links it across profiles and makes it available as a model filter.",
                     style = MaterialTheme.typography.bodySmall,
@@ -181,7 +194,7 @@ fun ProfileLabelEditorDialog(
                         val color = colorFromHex(colorHex) ?: MaterialTheme.colorScheme.primary
                         Box(
                             modifier = Modifier
-                                .size(if (draftColor == colorHex) 34.dp else 30.dp)
+                                .size(48.dp)
                                 .clickable { draftColor = colorHex },
                             contentAlignment = Alignment.Center
                         ) {
@@ -242,5 +255,5 @@ private fun fallbackLabelColor(label: String): Color {
         Color(0xFFC2185B),
         Color(0xFF5D4037)
     )
-    return palette[abs(label.hashCode()) % palette.size]
+    return palette[Math.floorMod(label.hashCode(), palette.size)]
 }

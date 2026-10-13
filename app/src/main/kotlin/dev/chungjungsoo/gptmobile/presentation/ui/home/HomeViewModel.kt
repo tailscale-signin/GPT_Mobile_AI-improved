@@ -385,6 +385,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun togglePlatformSelection(uid: String) {
+        val index = _platformState.value.indexOfFirst { it.uid == uid && it.enabled }
+        if (index >= 0) updatePlatformCheckedState(index)
+    }
+
     fun updatePlatformCheckedState(idx: Int) {
         if (idx < 0 || idx >= _chatListState.value.selectedPlatforms.size) return
 

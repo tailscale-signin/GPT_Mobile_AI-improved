@@ -21,7 +21,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
-internal enum class LocalResearchOutcome { SUCCESS, NO_RESEARCH_NEEDED, NO_USEFUL_OUTPUT, FAILED }
+internal enum class LocalResearchOutcome { SUCCESS, PARTIAL_USEFUL, NO_RESEARCH_NEEDED, NO_USEFUL_OUTPUT, FAILED }
 
 internal data class LocalResearchResult(
     val handoff: String,
@@ -44,9 +44,12 @@ internal class LocalResearchWorkflow(
 ) {
     private val readerHealth = journal?.readerHealth() ?: ResearchReaderHealth()
     private val totalLogicalCalls = (maxOf(1, minOf(config.maxSearchQueries, 9)) + config.maxPages * 3 + 30).coerceIn(24, 120)
-    private val budget = journal?.budget(totalLogicalCalls) ?: ResearchBudget(totalLogicalCalls)
+    private val budget by lazy { journal?.budget(totalLogicalCalls) ?: ResearchBudget(totalLogicalCalls) }
 
     suspend fun run(task: String, callId: String, automatic: Boolean = false): LocalResearchResult {
+        if (config.deepResearch.enabled) {
+            return AndroidResearchWorkflow(config, tools, generate, stillEnabled = stillEnabled, journal = journal).run(task, callId)
+        }
         val sources = linkedMapOf<String, DelegationSource>()
         val notes = mutableListOf<String>()
         var rawBytes = 0

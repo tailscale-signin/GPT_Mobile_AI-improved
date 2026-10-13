@@ -1,0 +1,267 @@
+{
+  "input_file": "app-diagnostics-547979236368977668.jsonl",
+  "sha256": "c5ebb54efa3d7044490bc69a98d379d490da4acd241f76a74de7269388fc664b",
+  "jsonl_rows": 6303,
+  "duplicate_flagged_rows": 2138,
+  "nonduplicate_rows": 4165,
+  "nonduplicate_events": 3599,
+  "nonduplicate_continuations": 566,
+  "levels_nonduplicate": {
+    "I": 1734,
+    "W": 94,
+    "D": 1746,
+    "continuation": 566,
+    "E": 25
+  },
+  "repository_snapshot": "cbd88545dbdd406c6e9f6d61f279ad62e4bd0cc1",
+  "findings": [
+    {
+      "id": "L01",
+      "priority": "High",
+      "title": "Cross-service DNS failures",
+      "confidence": "Confirmed in log",
+      "observation": "49 Network request failures across nine hosts; an additional ReadUrl DNS failure.",
+      "evidence": "Examples L356\u2013377, L549\u2013570, L5183\u20135222, L5224\u20135306.",
+      "recommendation": "Investigate phone network/DNS/VPN transitions; use a network-wide connectivity gate rather than spending every engine retry on a common outage."
+    },
+    {
+      "id": "L02",
+      "priority": "High",
+      "title": "Local MCP gateways unreachable",
+      "confidence": "Confirmed in log",
+      "observation": "10 connect timeouts on port 8101 and 10 on 8102; 8-second connection deadlines. Consecutive failure counters reach 12.",
+      "evidence": "L26\u201328 and L6162\u20136164; reconstructed Network events.",
+      "recommendation": "Verify gateway service and route; keep offline endpoints out of dispatch; verify existing backoff and single-flight paths cover UI refreshes and background work."
+    },
+    {
+      "id": "L03",
+      "priority": "High",
+      "title": "Long research preparation before answer model",
+      "confidence": "Confirmed timing; code explains mechanisms",
+      "observation": "Turn 682:7711 setup at 18:10:43.366Z; primary model request at 18:35:58.087Z. Turn 681:7708 setup at 18:11:50.122Z; primary at 18:24:36.954Z.",
+      "evidence": "L661\u2013667, L1214\u20131217, L5651\u20135653, L6211\u20136218.",
+      "recommendation": "Stream results and split discovery/fetch/analysis into independent work queues. These are not measurements of time to the first discovered source."
+    },
+    {
+      "id": "L04",
+      "priority": "High",
+      "title": "Local chat model unavailable",
+      "confidence": "Confirmed in log",
+      "observation": "Selected Gemma 4 E2B GPU .litertlm profile fails immediately because its model is not downloaded; zero tools exposed in that attempt.",
+      "evidence": "L164\u2013169.",
+      "recommendation": "Admit only ready model artifacts and initialized backends; expose a clear Download required state and fall back to authorized available workers."
+    },
+    {
+      "id": "L05",
+      "priority": "High",
+      "title": "Model download interrupted and foreground cleanup failed",
+      "confidence": "Confirmed in log; immediate underlying worker exception not recorded",
+      "observation": "Last progress 1,360,409,963 of 2,008,432,640 bytes; stop reason 11; worker FAILURE; BackgroundServiceStartNotAllowedException during foreground cleanup.",
+      "evidence": "L5150\u20135176; D2 identifies reason 11 as BACKGROUND_RESTRICTION.",
+      "recommendation": "Preserve and resume partial data, classify background restriction accurately, and repair foreground lifecycle handling. Range-resume and validation already exist in R10."
+    },
+    {
+      "id": "L06",
+      "priority": "High",
+      "title": "Cancellation reasons are misleading",
+      "confidence": "Confirmed label; individual cancellation causes not fully observable",
+      "observation": "14 Canceled by parent run events: 13 read_paper and one search_papers. The same research runs continue and later synthesize.",
+      "evidence": "Examples L1602, L1647, L3133\u20133134, L5223, L5808, L6165\u20136169, L6211\u20136214; R7.",
+      "recommendation": "Differentiate page timeout, provider timeout, user stop, permission revocation and parent cancellation. Do not classify every CancellationException as parent cancellation."
+    },
+    {
+      "id": "L07",
+      "priority": "High",
+      "title": "Budget accounting lock contention",
+      "confidence": "Confirmed in log and code",
+      "observation": "252 ms monitor contention in ResearchRunLedger.charge, with two waiters; the synchronized method invokes persistent checkpointing.",
+      "evidence": "L2778; R6, R3, R5.",
+      "recommendation": "Use durable reservation/WAL accounting plus coalesced snapshots; preserve crash-safe budget semantics and avoid synchronous disk snapshots per network chunk."
+    },
+    {
+      "id": "L08",
+      "priority": "Medium",
+      "title": "Perplexity Search authorization failure",
+      "confidence": "Confirmed in log",
+      "observation": "POST /search returns HTTP 401. Exact credential failure is not visible.",
+      "evidence": "L767 and associated continuation lines.",
+      "recommendation": "Validate the search-specific credential and access; mark authentication required instead of retrying as an ordinary engine outage."
+    },
+    {
+      "id": "L09",
+      "priority": "Medium",
+      "title": "MCP protocol fallback noise and optional-stream handling",
+      "confidence": "Confirmed response patterns; end-to-end tool failure not proved by these statuses",
+      "observation": "Jina and Firecrawl each show six POST 400 responses followed by legacy_fallback; Firecrawl additionally returns two GET 405 responses with Allow: POST. Successful POST responses also occur.",
+      "evidence": "Examples L891\u20131071, L2588\u20132605, L2884\u20132901, L5510, L5873\u20135890, L6049\u20136073; D1.",
+      "recommendation": "Cache negotiated transport capability and separate discovery/optional SSE from actual tool outcomes. Optional GET 405 can be valid MCP behavior."
+    },
+    {
+      "id": "L10",
+      "priority": "Medium",
+      "title": "Invalid output-token cap, recovered",
+      "confidence": "Confirmed in log",
+      "observation": "Requested max_tokens 256000 exceeds upstream completion limit 131072. Retry corrects the cap and completes.",
+      "evidence": "L5679\u20135680, L5706\u20135709, L6217\u20136218.",
+      "recommendation": "Preflight provider-route completion capabilities; distinguish context window from output limit and retain the learned compatible cap."
+    },
+    {
+      "id": "L11",
+      "priority": "Medium",
+      "title": "Large tool-schema estimate / accounting ambiguity",
+      "confidence": "Confirmed in log; transmitted size not established",
+      "observation": "Estimated tool schemas 39,478 of 46,251 input tokens, but progressive catalog says 77 authorized and 25 initially advertised.",
+      "evidence": "L5651\u20135653.",
+      "recommendation": "Measure the actual transmitted catalog and expose a small research facade, loading other authorized tools on demand. Do not claim all 77 tools were sent."
+    },
+    {
+      "id": "L12",
+      "priority": "Medium",
+      "title": "Specific page retrieval failures",
+      "confidence": "Confirmed in log",
+      "observation": "Frontiers DNS failure, NewHealthAdvisor connection failure, AP News HTTP 403.",
+      "evidence": "L829\u2013830, L1469.",
+      "recommendation": "Keep site, transport and reader failures separate. Respect denied access; select independently accessible sources rather than bypassing the denied page."
+    },
+    {
+      "id": "L13",
+      "priority": "Medium",
+      "title": "Download progress / foreground churn",
+      "confidence": "Confirmed in log and code",
+      "observation": "795 WorkProgressUpdater entries, 795 foreground-move entries and 794 notification entries for one transfer. R10 repeatedly calls setForeground inside the progress loop.",
+      "evidence": "Download block ending L5158; R10.",
+      "recommendation": "Keep foreground lifecycle separate from notification updates; throttle database/log writes and update the notification only on a meaningful cadence."
+    },
+    {
+      "id": "L14",
+      "priority": "Medium",
+      "title": "UI / allocation / compilation performance signals",
+      "confidence": "Confirmed in log; exact root-cause contributions need profiling",
+      "observation": "Skipped 61, 42 and 34 frames; 174 ms thread suspension / GC pause; repeated allocations; ChatRepositoryImpl completeChat coroutine exceeds compiler instruction limit at 53,224 instructions.",
+      "evidence": "L31\u201332, L667, L1576\u20131577, L5629, L5708\u20135739.",
+      "recommendation": "Split the giant coroutine into components; profile allocations, checkpoint work and UI recompositions in a release build. No fatal crash or ANR is demonstrated by these entries."
+    },
+    {
+      "id": "L15",
+      "priority": "Medium",
+      "title": "Deferred memory enrichment and embedding reloads",
+      "confidence": "Confirmed state; deferred completion not a fault by itself",
+      "observation": "Memory enrichment waits for NO_LOADED_MODEL. Four embedding engine generations are released on memory pressure; handles return to zero.",
+      "evidence": "L3\u201322, L728\u2013737.",
+      "recommendation": "Verify model-ready wake-up for deferred enrichment; keep deferred state distinct from semantic success; avoid unnecessary reloads. No native handle leak is shown."
+    },
+    {
+      "id": "C01",
+      "priority": "High",
+      "title": "Pending providers are not implemented/validated active engines",
+      "confidence": "Code-confirmed",
+      "observation": "37 registry entries; 7 ready capabilities, 30 not ready. Only five are native keyword-search engines.",
+      "evidence": "R1, R3.",
+      "recommendation": "Separate integration state, current health and run queue state. Implement and contract-test adapters before marking them ready."
+    },
+    {
+      "id": "C02",
+      "priority": "High",
+      "title": "Whole-pass turn lock prevents cooperative scheduling",
+      "confidence": "Code-confirmed",
+      "observation": "ResearchSessionStore shares a corpus and budget per chat/turn, but withTaskLock holds a turn-keyed mutex across the entire AndroidResearchWorkflow run.",
+      "evidence": "R5, R2.",
+      "recommendation": "Keep the shared corpus but replace whole-pass locking with short atomic job claims, leases and result subscriptions."
+    },
+    {
+      "id": "C03",
+      "priority": "High",
+      "title": "Discovery and reading are blocked behind slow work",
+      "confidence": "Code-confirmed",
+      "observation": "Sequential query stages; provider awaitAll; academic page search drains current metadata reads before advancing; batch readers use awaitAll; lower effort academic reads are sequential.",
+      "evidence": "R2, R3.",
+      "recommendation": "Use completion-driven bounded worker pools and continuously refill free slots. Surface fast results without waiting for a slow provider or an entire page of candidates."
+    },
+    {
+      "id": "C04",
+      "priority": "High",
+      "title": "Academic full-text and general readers are separate paths",
+      "confidence": "Code-confirmed",
+      "observation": "Native read refuses PDFs, requires particular HTML/XML content, and returns metadata_only when no OA URL exists. Crossref/DataCite parsers do not populate OA URLs. Academic reading uses only deep_research_read_paper.",
+      "evidence": "R2, R3, R4.",
+      "recommendation": "Create a capability registry spanning native HTML/XML, approved remote readers and gateway/local PDF parsing. Route eligible paper URLs into it while preserving paper identity and provenance."
+    },
+    {
+      "id": "C05",
+      "priority": "High",
+      "title": "Source discovery can outgrow usable-evidence yield",
+      "confidence": "Code-confirmed",
+      "observation": "New canonical metadata prevents stagnation even when little full text is obtained. Candidate source count differs from readableWorkCount. Partial useful results below the goal return FAILED.",
+      "evidence": "R2.",
+      "recommendation": "Track marginal readable and claim-support yield, prioritize accessible candidates, and return PARTIAL_USEFUL rather than failing useful coverage. Never inflate readable counts with abstracts or duplicate copies."
+    },
+    {
+      "id": "C06",
+      "priority": "Medium",
+      "title": "Timeout and reader failures lose detail",
+      "confidence": "Code-confirmed",
+      "observation": "invoke catches ordinary exceptions to null; outer timeout also returns null; concurrent academic reads collapse unreadable reasons to Failed.",
+      "evidence": "R2, R7.",
+      "recommendation": "Use typed terminal states and preserve error category, source, HTTP status, retry time and cancellation origin."
+    },
+    {
+      "id": "C07",
+      "priority": "Medium",
+      "title": "Provider routing and duplicate coalescing gaps",
+      "confidence": "Code-confirmed",
+      "observation": "Routed provider list is fixed; at lower depth some providers may not be selected. Cache checked before provider semaphore and not rechecked afterward; cache key includes entire request.",
+      "evidence": "R3.",
+      "recommendation": "Use capability-aware fair scheduling, canonical query keys and single-flight results; recheck cache after admission. This is a race risk, not proof every logged request duplicated."
+    },
+    {
+      "id": "C08",
+      "priority": "Medium",
+      "title": "Local quota policy is distinct from provider limits",
+      "confidence": "Code-confirmed; no specific academic 429 is visible in this export",
+      "observation": "Native local daily counter is 50 for OpenAlex and 500 for others, in addition to spacing/cooldowns. Current OpenAlex documentation supports anonymous use and optional free-key expansion.",
+      "evidence": "R3; D3.",
+      "recommendation": "Display local policy versus real provider quota; support optional credentials and rate-limit headers. Do not report a missing OpenAlex key as this log\u2019s proven failure cause."
+    },
+    {
+      "id": "C09",
+      "priority": "High",
+      "title": "Engine metrics do not represent useful source success",
+      "confidence": "Code-confirmed",
+      "observation": "Native telemetry measures HTTP completion, counts redirects as success, and does not express parsing/full-text yield; facade errors are not the same as individual provider states. Cancellation is excluded from rollup live attempts.",
+      "evidence": "R2, R3, R8.",
+      "recommendation": "Separate transport, search, read, extraction, evidence and delivery outcomes; report cancellations and no-result responses separately and export the underlying native telemetry."
+    },
+    {
+      "id": "C10",
+      "priority": "Medium",
+      "title": "Telemetry repeatedly scans files and can interrupt acquisition",
+      "confidence": "Code-confirmed risk, not an observed storage-limit hit",
+      "observation": "rollup scans and parses the directory on every call; status calls rollup three times for each provider. record scans for count and throws at 100,000 files; it is called inside fetch finally.",
+      "evidence": "R3, R8.",
+      "recommendation": "Use indexed aggregate storage; keep telemetry fail-soft and retention incremental. A statistics write must not turn successful retrieval into a failure."
+    },
+    {
+      "id": "C11",
+      "priority": "Medium",
+      "title": "Checkpoint scaling and active-time race risks",
+      "confidence": "Code-confirmed risks",
+      "observation": "save rewrites/rechecks all source references frequently under a store lock; load(task) scans history. Multiple concurrent operation loops share a non-atomic measuredAt and charge active time.",
+      "evidence": "R2, R5.",
+      "recommendation": "Persist source deltas and job changes; centralize a monotonic run clock. Test concurrent timing, restoration, history growth and the stop state of sibling run IDs."
+    },
+    {
+      "id": "C12",
+      "priority": "Medium",
+      "title": "Parallel legacy local research path differs from the new path",
+      "confidence": "Code-confirmed",
+      "observation": "LocalResearchWorkflow uses its own bounded preparation logic, local source map and saved source subset; AndroidResearchWorkflow uses the newer goal-ledger path.",
+      "evidence": "R2, R9.",
+      "recommendation": "Make local assistance a worker of the common orchestrator rather than an independent crawler with different accounting, deadlines and corpus semantics."
+    }
+  ],
+  "limitations": [
+    "Screenshot is only 148 x 1536; exact settings not transcribed.",
+    "Native per-provider research telemetry not present in this export.",
+    "No Android reproduction, instrumented run, benchmark or repository modification performed."
+  ]
+}

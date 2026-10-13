@@ -26,8 +26,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.R
 
 @Composable
 internal fun LocalAiSettingsScreen(models: LocalModelsViewModel, runtime: LocalRuntimeSettingsViewModel, onDownloads: () -> Unit) {
@@ -38,9 +40,10 @@ internal fun LocalAiSettingsScreen(models: LocalModelsViewModel, runtime: LocalR
     val preferences = remember { context.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE) }
     var wifi by remember { mutableStateOf(preferences.getBoolean("wifiOnly", false)) }
     val sections = listOf(Triple("engine", "Engine and processor", Icons.Rounded.Memory), Triple("performance", "Performance", Icons.Rounded.Speed), Triple("memory", "Memory and power", Icons.Rounded.BatteryChargingFull), Triple("downloads", "Downloads and storage", Icons.Rounded.Download), Triple("accounts", "Accounts and privacy", Icons.Rounded.AccountCircle), Triple("diagnostics", "Diagnostics and advanced", Icons.Rounded.QueryStats))
+    val keywords = mapOf("engine" to "cpu gpu npu qnn backend processor runtime", "performance" to "threads cache speculative mtp speed decoding", "memory" to "reserve idle warm heat thermal battery power unload", "downloads" to "wifi storage cancel progress repair", "accounts" to "hugging face token privacy access", "diagnostics" to "benchmark comparison metrics qualification logs")
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { OutlinedTextField(query, { query = it }, label = { Text("Search Local AI settings") }, modifier = Modifier.fillMaxWidth()) }
-        sections.filter { query.isBlank() || it.second.contains(query, true) }.forEach { (id, title, icon) ->
+        item { OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.local_ai_settings_screen_1)) }, modifier = Modifier.fillMaxWidth()) }
+        sections.filter { query.isBlank() || (it.second + " " + keywords[it.first].orEmpty()).contains(query, true) }.forEach { (id, title, icon) ->
             item(key = id) {
                 LocalAiActionCard(icon, title, if (id == group) "Tap to collapse" else "Tap to configure", { group = if (group == id) null else id })
                 if (group == id || query.isNotBlank()) {
@@ -48,14 +51,14 @@ internal fun LocalAiSettingsScreen(models: LocalModelsViewModel, runtime: LocalR
                         "engine", "performance", "memory", "diagnostics" -> LocalRuntimeSettingsCard(runtime, id)
                         "downloads" -> SettingsPanel(title) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Wi-Fi-only downloads", Modifier.weight(1f))
+                                Text(stringResource(R.string.local_ai_settings_screen_2), Modifier.weight(1f))
                                 Switch(wifi, {
                                     wifi = it
                                     preferences.edit().putBoolean("wifiOnly", it).apply()
                                 })
                             }
                             Text(dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(ui.totalStorageBytes), style = MaterialTheme.typography.bodyMedium)
-                            TextButton(onClick = onDownloads) { Text("Manage downloads and installed files") }
+                            TextButton(onClick = onDownloads) { Text(stringResource(R.string.local_ai_settings_screen_3)) }
                         }
                         "accounts" -> SettingsPanel(title) { HuggingFaceAccountSection(ui.hasHuggingFaceToken, models::openAccessTokenDialog, models::removeHuggingFaceAccessToken) }
                     }

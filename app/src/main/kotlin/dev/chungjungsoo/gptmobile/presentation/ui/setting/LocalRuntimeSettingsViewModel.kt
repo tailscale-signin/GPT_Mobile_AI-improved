@@ -91,6 +91,14 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     }
     fun pinProfile(profile: PlatformV2) = perform { repository.updatePlatformV2(profile.copy(isFavorite = !profile.isFavorite)) }
     fun duplicateProfile(profile: PlatformV2) = perform { repository.addPlatformV2(profile.copy(id = 0, uid = java.util.UUID.randomUUID().toString(), name = "${profile.name} (copy)", isFavorite = false)) }
+    suspend fun deleteModelSafely(id: String) {
+        check(!runtime.isBusy) { "Finish the active local response before deleting model files." }
+        runtime.runExclusive {
+            val path = models.resolveDownloadedPath(id)
+            if (path != null && loadedEngineSpec()?.modelPath == path) check(unloadIfIdle(0)) { "The model is still in use; retry when it is idle." }
+            models.deleteModel(id)
+        }
+    }
     fun deleteProfile(profile: PlatformV2) = perform { repository.deletePlatformV2(profile) }
     fun setMemoryReserve(value: Int) = perform { repository.mutateFeatureSettings { it.copy(localMemoryReserveMb = value.coerceIn(256, 4096)) } }
 

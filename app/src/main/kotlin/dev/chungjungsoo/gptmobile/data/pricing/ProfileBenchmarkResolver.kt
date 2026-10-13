@@ -12,7 +12,7 @@ object ProfileBenchmarkResolver {
         val provider = billingProvider(profile) ?: return null
         if (provider == "ON_DEVICE") return null
         // Legacy client-type-only records cannot certify endpoint identity.
-        return choose(profile, history.filter { it.billingOrigin == provider }.mapNotNull(BenchmarkScoreboard::fromRun).mapNotNull(BenchmarkScoreboard::evaluate))
+        return choose(profile, history.filter { it.billingOrigin == provider || (it.billingOrigin == null && it.profileUid == profile.uid && it.configKey == dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(profile)) }.mapNotNull(BenchmarkScoreboard::fromRun).mapNotNull(BenchmarkScoreboard::evaluate))
     }
     fun choose(profile: PlatformV2, entries: List<ScoreboardEntry>): ScoreboardEntry? {
         val provider = billingProvider(profile) ?: return null

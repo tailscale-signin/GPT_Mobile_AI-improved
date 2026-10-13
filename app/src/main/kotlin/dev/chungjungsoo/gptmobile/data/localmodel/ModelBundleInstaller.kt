@@ -3,13 +3,13 @@ package dev.chungjungsoo.gptmobile.data.localmodel
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.util.UUID
 import java.util.zip.ZipInputStream
 
 /** A .localmodel ZIP starts with manifest.json; only declared data assets are extracted. */
 internal object ModelBundleInstaller {
-    fun install(input: InputStream, storageRoot: File, expectedCatalogId: String? = null, checkCurrent: () -> Unit = {}): LocalModelImportResult {
-        val staging = File(storageRoot, "models/.staging-${UUID.randomUUID()}")
+    fun install(input: InputStream, storageRoot: File, expectedCatalogId: String? = null, checkCurrent: () -> Unit = {}, stagingId: String? = null): LocalModelImportResult {
+        val staging = File(storageRoot, "models/.staging-${importWorkspaceId(stagingId)}")
+        if (stagingId != null) staging.deleteRecursively() // Only this persisted WorkManager job owns this directory.
         return try {
             check(staging.mkdirs())
             val manifestFile = File(staging, "manifest.json")

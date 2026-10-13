@@ -169,7 +169,7 @@ class ToolExecutionBudget(
                     unknownOutcomes += signature
                     AppLogRecorder.record(
                         "Tool",
-                        "Canceled by parent run · tool=${tool.definition.name} · call=$callId",
+                        "${if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "Tool deadline reached" else "Tool operation canceled; origin not reported"} · tool=${tool.definition.name} · call=$callId",
                         "W"
                     )
                     throw cancellation

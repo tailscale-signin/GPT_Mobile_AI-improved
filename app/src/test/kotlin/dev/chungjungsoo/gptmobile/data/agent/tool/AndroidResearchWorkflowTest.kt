@@ -460,4 +460,68 @@ class AndroidResearchWorkflowTest {
         assertEquals(listOf("https://example.org/research"), journal.snapshot!!.sources.map { it.url })
         assertEquals(1, journal.snapshot!!.sources.count { it.readable })
     }
+
+    @Test fun fastPaperStartsReadingBeforeSlowProviderFinishes() = runBlocking {
+        val firstRead = CompletableDeferred<Unit>()
+        val paper = buildJsonObject {
+            put("paperId", "doi:10.1000/stream")
+            put("canonicalUrl", "https://example.org/stream")
+            put("title", "Streaming evidence")
+        }
+        val search = tool("deep_research_search_papers") { id, _ ->
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.AcademicDiscoveryObserver]!!.accept(listOf(paper))
+            withTimeout(2000) { firstRead.await() }
+            AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("papers", JsonArray(listOf(paper))) }), false)
+        }
+        val read = tool("deep_research_read_paper") { id, _ ->
+            firstRead.complete(Unit)
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("text", passage)
+                        put("retrievalStatus", "read")
+                    }
+                ),
+                false
+            )
+        }
+        val settings = config(1).let { it.copy(deepResearch = it.deepResearch.copy(academicSources = true, reviewEvidence = false)) }
+        val result = withTimeout(5000) { AndroidResearchWorkflow(settings, listOf(search, read), generate = { _, _ -> null }, journal = Journal()).run("Documented device request limits", "stream") }
+        assertEquals(1, result.pagesRead)
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+    }
+
+    @Test fun siblingTaskReusesSourcesButPlansItsOwnQuestions() = runBlocking {
+        val journal = Journal().apply {
+            snapshot = ResearchSnapshot(
+                "Earlier sibling task",
+                complete = true,
+                questions = listOf("Earlier question"),
+                sources = listOf(
+                    dev.chungjungsoo.gptmobile.data.research.ResearchSource(
+                        "S9",
+                        "https://example.org/retained",
+                        "Retained source",
+                        status = "Read",
+                        passage = passage,
+                        retrievedAt = System.currentTimeMillis()
+                    )
+                )
+            )
+        }
+        var planned = 0
+        AndroidResearchWorkflow(config(2), listOf(search(), reader()), { prompt, tokens ->
+            if (prompt.startsWith("Plan")) {
+                planned++
+                assertTrue(prompt.contains("New sibling question"))
+            }
+            model(prompt, tokens)
+        }, journal).run("New sibling question", "sibling")
+        assertEquals(1, planned)
+        assertEquals("New sibling question", journal.snapshot!!.task)
+        assertFalse(journal.snapshot!!.questions.contains("Earlier question"))
+        assertTrue(journal.snapshot!!.sources.any { it.id == "S9" && it.readable })
+        assertEquals(2, journal.snapshot!!.sources.count { it.readable })
+    }
 }

@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-internal data class ProfileInsight(val profile: PlatformV2, val score: ScoreboardEntry?, val community: Boolean, val price: ModelPrice?, val settings: AppFeatureSettings, val now: Long)
+internal data class ProfileInsight(val profile: PlatformV2, val score: ScoreboardEntry?, val community: Boolean, val price: ModelPrice?, val settings: AppFeatureSettings, val now: Long, val localRun: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun? = null)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -49,7 +49,15 @@ class NewChatInsightsViewModel @Inject constructor(
             profiles.associate { profile ->
                 val own = if (features.newChatScores) ProfileBenchmarkResolver.personal(profile, history) else null
                 val community = if (own == null && features.newChatScores && features.newChatCommunity) ProfileBenchmarkResolver.choose(profile, online.entries) else null
-                profile.uid to ProfileInsight(profile, own ?: community, community != null, if (features.newChatPrices) pricing.resolve(profile, features, prices.entries, now) else null, features, now)
+                profile.uid to ProfileInsight(
+                    profile,
+                    own ?: community,
+                    community != null,
+                    if (features.newChatPrices) pricing.resolve(profile, features, prices.entries, now) else null,
+                    features,
+                    now,
+                    history.filter { it.local && it.finished && !it.canceled && it.stoppedReason == null && it.profileUid == profile.uid && it.model == profile.model && it.mode in setOf(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode.QUICK, dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode.FULL) }.maxByOrNull { it.startedAt }
+                )
             }
         }.onStart {
             if (features.newChatScores) benchmarks.load()
@@ -63,8 +71,11 @@ class NewChatInsightsViewModel @Inject constructor(
         configuration.collectLatestPricing()
     }
     private suspend fun kotlinx.coroutines.flow.Flow<Pair<List<PlatformV2>, AppFeatureSettings>>.collectLatestPricing() = collectLatest { (profiles, features) ->
-        if (features.newChatPrices && features.newChatPriceRefresh) pricing.refresh(profiles)
         if (features.newChatScores && features.newChatCommunity) scoreboard.refresh()
+        while (features.newChatPrices && features.newChatPriceRefresh) {
+            pricing.refresh(profiles)
+            delay(60_000)
+        }
     }
     fun refreshNow() = viewModelScope.launch { pricing.refresh(settings.fetchPlatformV2s(), true) }
 }

@@ -103,6 +103,7 @@ class ReadUrlTool(
     private suspend fun executeOnce(callId: String, arguments: JsonObject): AgentToolResult {
         val start = parseUrl(arguments) ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
         if (start.toASCIIString() in unavailableUrls) return error(callId, "Read URL failed: this source was already unavailable in this turn. Choose another source.")
+        if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) return error(callId, "DNS_RECOVERY: waiting for network recovery after DNS failures on multiple services.")
         return try {
             kotlinx.coroutines.withTimeoutOrNull(25_000) {
                 read(
@@ -125,6 +126,7 @@ class ReadUrlTool(
             recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
             error(callId, "Read URL failed: ${exception.message}.")
         } catch (exception: UnknownHostException) {
+            dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(start.host, exception)
             recordFailure(start, "dns", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: DNS lookup could not resolve the hostname. Check the URL and network connection.")
         } catch (exception: java.net.SocketTimeoutException) {

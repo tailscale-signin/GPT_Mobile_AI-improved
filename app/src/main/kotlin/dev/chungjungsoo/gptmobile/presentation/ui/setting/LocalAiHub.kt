@@ -80,6 +80,9 @@ fun LocalModelsScreen(
     var importOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
+    val importActive by viewModel.importActive.collectAsStateWithLifecycle()
+    var pendingUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingFolder by rememberSaveable { mutableStateOf(false) }
     val importStatus by viewModel.importStatus.collectAsStateWithLifecycle()
     val profiles by runtimeViewModel.profiles.collectAsStateWithLifecycle()
     val settings by runtimeViewModel.settings.collectAsStateWithLifecycle()
@@ -87,9 +90,31 @@ fun LocalModelsScreen(
     val context = LocalContext.current
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            viewModel.importCustomModel(context.contentResolver, uri)
+            pendingUri = uri.toString()
+            pendingFolder = false
             importOpen = false
         }
+    }
+    val folderImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            pendingUri = uri.toString()
+            pendingFolder = true
+            importOpen = false
+        }
+    }
+    if (pendingUri != null) {
+        AlertDialog(
+            onDismissRequest = { pendingUri = null },
+            title = { Text(stringResource(R.string.local_ai_import_review)) },
+            text = { Text(stringResource(if (pendingFolder) R.string.local_ai_folder_review else R.string.local_ai_file_review)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingUri?.let { viewModel.importCustomModel(context.contentResolver, android.net.Uri.parse(it), pendingFolder) }
+                    pendingUri = null
+                }) { Text(stringResource(R.string.local_ai_import)) }
+            },
+            dismissButton = { TextButton(onClick = { pendingUri = null }) { Text(stringResource(R.string.cancel)) } }
+        )
     }
     val listState = rememberLazyListState()
     BackHandler(marketplace || tab != LocalAiTab.MODELS) { if (marketplace) marketplace = false else tab = LocalAiTab.MODELS }
@@ -137,7 +162,7 @@ fun LocalModelsScreen(
                     importStatus?.let { status ->
                         item(key = "import-status") {
                             Text(status)
-                            TextButton(onClick = viewModel::cancelImport) { Text(stringResource(R.string.cancel)) }
+                            if (importActive) TextButton(onClick = viewModel::cancelImport) { Text(stringResource(R.string.cancel)) }
                         }
                     }
                     item(key = "profiles-title") {
@@ -229,8 +254,15 @@ fun LocalModelsScreen(
             }
         }
     }
-    if (importOpen) AlertDialog(onDismissRequest = { importOpen = false }, title = { Text(stringResource(R.string.local_ai_import)) }, text = { Text(stringResource(if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) R.string.local_ai_import_geniex else R.string.local_ai_import_litert)) }, confirmButton = { TextButton(onClick = { importer.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.local_ai_choose_file)) } }, dismissButton = { TextButton(onClick = { importOpen = false }) { Text(stringResource(R.string.cancel)) } })
-    LocalModelDownloadDialogHost(dialog = ui.dialog, onConfirmRamWarning = viewModel::confirmRamWarning, onConfirmMeteredDownload = viewModel::confirmMeteredDownload, onConfirmDelete = viewModel::confirmDelete, onDismissDialog = viewModel::dismissDialog, onStartSignIn = viewModel::startHuggingFaceSignIn, onAuthActivityResult = viewModel::onAuthActivityResult, onLicenseTabClosed = viewModel::onLicenseTabClosed, onRetryAfterLicense = viewModel::retryAfterLicense, onEnterAccessToken = viewModel::openAccessTokenDialog, onSaveAccessToken = viewModel::saveHuggingFaceAccessToken)
+    if (importOpen) {
+        AlertDialog(onDismissRequest = { importOpen = false }, title = { Text(stringResource(R.string.local_ai_import)) }, text = { Text(stringResource(if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) R.string.local_ai_import_geniex else R.string.local_ai_import_litert)) }, confirmButton = {
+            Column {
+                if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) TextButton(onClick = { folderImporter.launch(null) }) { Text(stringResource(R.string.local_ai_choose_folder)) }
+                TextButton(onClick = { importer.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.local_ai_choose_file)) }
+            }
+        }, dismissButton = { TextButton(onClick = { importOpen = false }) { Text(stringResource(R.string.cancel)) } })
+    }
+    LocalModelDownloadDialogHost(dialog = ui.dialog, onConfirmRamWarning = viewModel::confirmRamWarning, onConfirmMeteredDownload = viewModel::confirmMeteredDownload, onConfirmDelete = { viewModel.confirmDeleteWith(runtimeViewModel::deleteModelSafely) }, onDismissDialog = viewModel::dismissDialog, onStartSignIn = viewModel::startHuggingFaceSignIn, onAuthActivityResult = viewModel::onAuthActivityResult, onLicenseTabClosed = viewModel::onLicenseTabClosed, onRetryAfterLicense = viewModel::retryAfterLicense, onEnterAccessToken = viewModel::openAccessTokenDialog, onSaveAccessToken = viewModel::saveHuggingFaceAccessToken)
 }
 
 @Composable

@@ -1751,17 +1751,19 @@ internal fun SelectPlatformDialog(
                 }
                 if (platforms.any { it.enabled }) {
                     indexedPlatforms.forEach { (originalIndex, platform) ->
-                        PlatformCheckBoxItem(
-                            title = platform.name,
-                            enabled = platform.enabled,
-                            selected = selectedPlatforms.getOrElse(originalIndex) { false },
-                            isFavorite = platform.isFavorite,
-                            labels = platform.labels,
-                            description = "${platform.compatibleType.name} · ${platform.model}",
-                            supportingContent = insights[platform.uid]?.let { insight -> { NewChatProfileInsights(insight, onRefreshPrices) } },
-                            onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
-                            onClickEvent = { onPlatformSelect(originalIndex) }
-                        )
+                        androidx.compose.runtime.key(platform.uid) {
+                            PlatformCheckBoxItem(
+                                title = platform.name,
+                                enabled = platform.enabled,
+                                selected = selectedPlatforms.getOrElse(originalIndex) { false },
+                                isFavorite = platform.isFavorite,
+                                labels = platform.labels,
+                                description = "${platform.compatibleType.name} · ${platform.model}",
+                                supportingContent = insights[platform.uid]?.let { insight -> { NewChatProfileInsights(insight, onRefreshPrices) } },
+                                onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
+                                onClickEvent = { onPlatformSelect(originalIndex) }
+                            )
+                        }
                     }
                 } else {
                     EnablePlatformWarningText()

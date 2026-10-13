@@ -45,10 +45,12 @@ internal object LocalServiceHealth {
 
     fun networkChanged() {
         states.clear()
+        dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success()
         epoch.incrementAndGet()
     }
 
     fun requireAvailable(url: String) {
+        if (endpointLocality(url) == EndpointLocality.EXTERNAL && !dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) throw IOException("DNS_RECOVERY: correlated public DNS failures; retry after network recovery")
         val uri = endpoint(url) ?: return
         val time = now()
         val cooling = listOf(key(uri), dnsKey(uri)).mapNotNull(states::get).firstOrNull { it.until > time }
@@ -96,6 +98,7 @@ internal object LocalServiceHealth {
         if (failure is kotlinx.coroutines.CancellationException) return
         val uri = endpoint(url) ?: return
         val health = classify(failure)
+        if (endpointLocality(url) == EndpointLocality.EXTERNAL) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(uri.host, failure)
         val scope = if (health == ConnectionHealth.DNS_FAILED) dnsKey(uri) else key(uri)
         trim()
         val count = ((states[scope]?.failures ?: 0) + 1).coerceAtMost(8)

@@ -79,7 +79,7 @@ sealed class LocalModelsDialog {
     data class EnterAccessToken(val isSessionExpired: Boolean = false) : LocalModelsDialog()
     data object ProbeError : LocalModelsDialog()
     data object SignInFailed : LocalModelsDialog()
-    data class ImportFailed(val message: String) : LocalModelsDialog()
+    data class ImportFailed(val message: String, val title: String? = null) : LocalModelsDialog()
 }
 
 fun catalogLocalModelItems(

@@ -132,7 +132,8 @@ object LocalModelLocator {
         targetModelsRootDir: File,
         minSizeBytes: Long = LocalModelValidator.DEFAULT_MIN_SIZE_BYTES,
         checkCurrent: () -> Unit = {},
-        onProgress: (Long) -> Unit = {}
+        onProgress: (Long) -> Unit = {},
+        stagingId: String? = null
     ): LocalModelImportResult {
         if (!isSupportedModelFile(fileName)) {
             runCatching { inputStream.close() }
@@ -148,83 +149,88 @@ object LocalModelLocator {
         }
         var catalogEntryId = generateCatalogEntryId(fileName)
         var relativeDir = LocalModelDownloadPaths.relativeDirectory(catalogEntryId, LOCAL_COMMIT_HASH)
-        val targetDir = File(targetModelsRootDir, "models/.import-${java.util.UUID.randomUUID()}")
+        val targetDir = File(targetModelsRootDir, "models/.import-${importWorkspaceId(stagingId)}")
+        if (stagingId != null) targetDir.deleteRecursively() // Only this persisted WorkManager job owns this directory.
         var finalFile = File(targetDir, fileName)
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         val targetFile = File(targetDir, ".import-${java.util.UUID.randomUUID()}-${LocalModelDownloadPaths.partialFileName(fileName)}")
 
         try {
-            if (!targetDir.exists()) {
-                targetDir.mkdirs()
-            }
+            try {
+                if (!targetDir.exists()) {
+                    targetDir.mkdirs()
+                }
 
-            inputStream.use { input ->
-                FileOutputStream(targetFile).use { output ->
-                    val buffer = ByteArray(256 * 1024)
-                    var copied = 0L
-                    while (true) {
-                        checkCurrent()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        check(targetModelsRootDir.usableSpace > count + 8L * 1024 * 1024) { "Not enough storage to finish import" }
-                        output.write(buffer, 0, count)
-                        digest.update(buffer, 0, count)
-                        copied += count
-                        onProgress(copied)
+                inputStream.use { input ->
+                    FileOutputStream(targetFile).use { output ->
+                        val buffer = ByteArray(256 * 1024)
+                        var copied = 0L
+                        while (true) {
+                            checkCurrent()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            check(targetModelsRootDir.usableSpace > count + 8L * 1024 * 1024) { "Not enough storage to finish import" }
+                            output.write(buffer, 0, count)
+                            digest.update(buffer, 0, count)
+                            copied += count
+                            onProgress(copied)
+                        }
+                        output.fd.sync()
                     }
-                    output.fd.sync()
                 }
-            }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            targetDir.deleteRecursively()
-            throw cancelled
-        } catch (e: Exception) {
-            if (targetFile.exists()) {
-                targetFile.delete()
-            }
-            return LocalModelImportResult.Failure(
-                LocalModelImportResult.Failure.Reason.DESTINATION_WRITE_FAILED,
-                "Failed to write file to local models directory: ${e.message}"
-            )
-        }
-
-        when (val validation = LocalModelValidator.validate(targetFile.absolutePath, minSizeBytes = minSizeBytes)) {
-            is ModelValidationResult.Invalid -> {
-                targetFile.delete()
-                return LocalModelImportResult.Failure(
-                    LocalModelImportResult.Failure.Reason.INVALID_MODEL,
-                    validation.details ?: validation.reason.name
-                )
-            }
-            is ModelValidationResult.Valid -> {
-                checkCurrent()
-                val hash = digest.digest().joinToString("") { "%02x".format(it) }
-                catalogEntryId = "local_${hash.take(32)}"
-                relativeDir = LocalModelDownloadPaths.relativeDirectory(catalogEntryId, LOCAL_COMMIT_HASH)
-                val destination = File(targetModelsRootDir, relativeDir)
-                check(destination.mkdirs() || destination.isDirectory)
-                finalFile = File(destination, "model.litertlm")
-                if (finalFile.isFile) {
-                    check(PackageDigest.sha256(finalFile) == hash) { "Existing content identity does not match" }
-                    targetFile.delete()
-                } else if (!targetFile.renameTo(finalFile)) {
-                    targetFile.delete()
-                    return LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.DESTINATION_WRITE_FAILED, "Could not finalize imported model")
-                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 targetDir.deleteRecursively()
-                val record = LocalModelRecord(
-                    catalogEntryId = catalogEntryId,
-                    commitHash = LOCAL_COMMIT_HASH,
-                    fileName = "model.litertlm",
-                    relativeDirectory = relativeDir,
-                    status = LocalModelStatus.READY
-                )
-                return LocalModelImportResult.Success(
-                    record = record,
-                    absoluteFilePath = finalFile.absolutePath,
-                    sizeBytes = validation.sizeBytes
+                throw cancelled
+            } catch (e: Exception) {
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+                return LocalModelImportResult.Failure(
+                    LocalModelImportResult.Failure.Reason.DESTINATION_WRITE_FAILED,
+                    "Failed to write file to local models directory: ${e.message}"
                 )
             }
+
+            when (val validation = LocalModelValidator.validate(targetFile.absolutePath, minSizeBytes = minSizeBytes)) {
+                is ModelValidationResult.Invalid -> {
+                    targetFile.delete()
+                    return LocalModelImportResult.Failure(
+                        LocalModelImportResult.Failure.Reason.INVALID_MODEL,
+                        validation.details ?: validation.reason.name
+                    )
+                }
+                is ModelValidationResult.Valid -> {
+                    checkCurrent()
+                    val hash = digest.digest().joinToString("") { "%02x".format(it) }
+                    catalogEntryId = "local_${hash.take(32)}"
+                    relativeDir = LocalModelDownloadPaths.relativeDirectory(catalogEntryId, LOCAL_COMMIT_HASH)
+                    val destination = File(targetModelsRootDir, relativeDir)
+                    check(destination.mkdirs() || destination.isDirectory)
+                    finalFile = File(destination, "model.litertlm")
+                    if (finalFile.isFile) {
+                        check(PackageDigest.sha256(finalFile) == hash) { "Existing content identity does not match" }
+                        targetFile.delete()
+                    } else if (!targetFile.renameTo(finalFile)) {
+                        targetFile.delete()
+                        return LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.DESTINATION_WRITE_FAILED, "Could not finalize imported model")
+                    }
+                    targetDir.deleteRecursively()
+                    val record = LocalModelRecord(
+                        catalogEntryId = catalogEntryId,
+                        commitHash = LOCAL_COMMIT_HASH,
+                        fileName = "model.litertlm",
+                        relativeDirectory = relativeDir,
+                        status = LocalModelStatus.READY
+                    )
+                    return LocalModelImportResult.Success(
+                        record = record,
+                        absoluteFilePath = finalFile.absolutePath,
+                        sizeBytes = validation.sizeBytes
+                    )
+                }
+            }
+        } finally {
+            targetDir.deleteRecursively()
         }
     }
 

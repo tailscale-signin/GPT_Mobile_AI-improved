@@ -122,4 +122,13 @@ class ResearchEvidenceTest {
         assertEquals(300, restored.targetSources)
         assertEquals(3, restored.json()["version"]?.jsonPrimitive?.int)
     }
+
+    @Test fun stableSourceIdsAndFailureDetailsSurviveRoundTrip() {
+        val source = ResearchSource("S001122334455aabb", "https://example.org/paper", "Paper", status = "Failed", accessUrl = "https://example.org/open.pdf", failureReason = "PAGE_TIMEOUT")
+        val event = ResearchToolEvent("query", "reader", outcome = "FAILED", sourceIds = listOf(source.id))
+        val saved = ResearchSnapshot("task", sources = listOf(source), toolEvents = listOf(event))
+        val restored = ResearchSnapshot.parse(saved.json())!!
+        assertEquals(source, restored.sources.single())
+        assertEquals(listOf(source.id), restored.toolEvents.single().sourceIds)
+    }
 }

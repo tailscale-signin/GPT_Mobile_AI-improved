@@ -5,7 +5,6 @@ import java.io.InputStream
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.util.UUID
 
 /** Self-contained text GGUF only; models needing a projector or shards use a manifest bundle. */
 internal object GgufImportAdapter {
@@ -58,8 +57,9 @@ internal object GgufImportAdapter {
         }
     }
 
-    fun install(input: InputStream, root: File, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult {
-        val staging = File(root, "models/.gguf-${UUID.randomUUID()}")
+    fun install(input: InputStream, root: File, checkCurrent: () -> Unit, progress: (Long) -> Unit, stagingId: String? = null): LocalModelImportResult {
+        val staging = File(root, "models/.gguf-${importWorkspaceId(stagingId)}")
+        if (stagingId != null) staging.deleteRecursively() // Only this persisted WorkManager job owns this directory.
         return try {
             require(dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) { "GGUF needs the separate GenieX build; it cannot run through LiteRT-LM." }
             check(staging.mkdirs())

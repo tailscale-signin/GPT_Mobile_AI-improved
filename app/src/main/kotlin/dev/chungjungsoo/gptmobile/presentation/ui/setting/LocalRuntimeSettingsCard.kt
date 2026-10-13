@@ -180,7 +180,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
                 FlowRow {
                     TextButton(onClick = viewModel::refresh) { Text("Refresh hardware") }
                     TextButton(onClick = { viewModel.releaseIdleMemory() }, enabled = !busy) { Text("Release idle memory") }
-                    TextButton(onClick = { viewModel.updateTuning(threads = 0, cache = true, idle = 10, fallback = true, speculative = SpeculativeDecodingMode.AUTO, nativeMetrics = false) }, enabled = !busy) { Text("Recommended defaults") }
+                    TextButton(onClick = { viewModel.updateTuning(idle = 10) }, enabled = !busy) { Text("Reset memory timeout") }
                 }
             }
             status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

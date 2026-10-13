@@ -24,7 +24,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
-data class ResearchSession(val runId: String, val chatId: Int, val snapshot: ResearchSnapshot, val turnId: String = runId)
+data class ResearchSession(val runId: String, val chatId: Int, val snapshot: ResearchSnapshot, val turnId: String = runId, val authority: String = "legacy")
 
 /** App-private bounded history, included in complete backups; temporary chats stay in RAM. */
 @Singleton
@@ -36,6 +36,12 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val taskLocks = Array(64) { Mutex() }
     private val planLocks = Array(64) { Mutex() }
     private val stops = ConcurrentHashMap.newKeySet<String>()
+    private val stoppedTurns = ConcurrentHashMap.newKeySet<Pair<Int, String>>()
+    private val runTurns = ConcurrentHashMap<String, Pair<Int, String>>()
+    private data class Lease(val owner: String, val until: Long)
+    private val workLeases = ConcurrentHashMap<String, Lease>()
+    private val sourceRefs = ConcurrentHashMap<String, Pair<ResearchSource, String>>()
+    private var completedFiles: MutableMap<File, Long>? = null
     private val temporaryBodies = ConcurrentHashMap<String, String>()
     private val deletedChats = ConcurrentHashMap.newKeySet<Int>()
     private val mutable = MutableStateFlow<Map<String, ResearchSession>>(emptyMap())
@@ -43,8 +49,24 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
     fun stop(runId: String) {
         stops += runId
+        runTurns[runId]?.let { stoppedTurns += it }
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true): ResearchJournal = object : ResearchJournal {
+        init {
+            runTurns[runId] = chatId to turnId
+        }
+        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$runId", shareEnabled)
+        override fun sourceId(identity: String, fallback: String) = "S" + researchHash(identity).take(16)
+        private fun workKey(key: String) = "$chatId:$turnId:$authority:$key"
+        override fun claimWork(key: String, leaseMillis: Long): Boolean {
+            if (stopRequested()) return false
+            val now = System.nanoTime() / 1_000_000
+            val lease = workLeases.compute(workKey(key)) { _, old -> if (old == null || old.until <= now) Lease(runId, now + leaseMillis.coerceIn(1000, 300_000)) else old }
+            return lease?.owner == runId
+        }
+        override fun releaseWork(key: String) {
+            workLeases.computeIfPresent(workKey(key)) { _, old -> old.takeUnless { it.owner == runId } }
+        }
         override fun readerHealth(): ResearchReaderHealth = readerHealth.computeIfAbsent(chatId to turnId) { ResearchReaderHealth() }
         override fun budget(totalLogicalCalls: Int, downloadLimitBytes: Int): ResearchBudget = synchronized(turnBudgets) {
             val now = System.currentTimeMillis()
@@ -133,28 +155,37 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             ResearchBudget(1, ledger = ledger).also { turnBudgets[key] = System.currentTimeMillis() to it }
         }
-        override fun stopRequested() = runId in stops || chatId in deletedChats
+        override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
             lock.withLock {
-                mutable.value[runId]?.takeIf { it.chatId == chatId }?.snapshot
-                    ?: if (persistent) read(file(runId))?.takeIf { it.chatId == chatId }?.snapshot else null
+                mutable.value[runId]?.takeIf { it.chatId == chatId && it.authority == authority }?.snapshot
+                    ?: if (persistent) read(file(runId))?.takeIf { it.chatId == chatId && it.authority == authority }?.snapshot else null
             }
         }
         override suspend fun load(task: String): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null
             // A turn has one corpus, including sibling subquestions.
             lock.withLock {
-                val persisted = if (persistent) directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read) else emptyList()
-                (persisted + mutable.value.values.filter { it.chatId == chatId })
+                val inMemory = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
+                val pointer = File(directory, researchHash("turn:$chatId:$turnId:$authority") + ".cursor")
+                val pointed = if (persistent && pointer.isFile) runCatching { read(file(Json.parseToJsonElement(pointer.readText()).jsonObject.text("runId"))) }.getOrNull() else null
+                val persisted = if (pointed != null) {
+                    listOf(pointed)
+                } else if (persistent && inMemory.isEmpty()) {
+                    directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read).filter { it.authority == authority }
+                } else {
+                    emptyList()
+                }
+                (persisted + inMemory)
                     .asSequence()
-                    .filter { it.chatId == chatId && it.turnId == turnId }
+                    .filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
                     .maxByOrNull { it.snapshot.updatedAt }
                     ?.snapshot
             }
         }
         override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
-            val key = "$chatId:$turnId"
+            val key = "$chatId:$turnId:$authority:${normalizedTask(task)}"
             val locks = if (task.startsWith("delegation-plan:")) planLocks else taskLocks
             val taskLock = locks[(key.hashCode() and Int.MAX_VALUE) % locks.size]
             return taskLock.withLock { block() }
@@ -183,29 +214,31 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats) return@withLock
-                val priorPlan = mutable.value[runId]?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.snapshot?.delegationPlan else null
-                val snapshot = if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot
-                val session = ResearchSession(runId, chatId, snapshot, turnId)
+                val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
+                val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
+                val snapshot = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
+                val session = ResearchSession(runId, chatId, snapshot, turnId, authority)
                 if (!persistent) {
                     mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
                     return@withLock
                 }
                 try {
                     check(directory.mkdirs() || directory.isDirectory)
-                    var corpusBytes = directory.listFiles().orEmpty().filter { it.extension == "source" }.sumOf { it.length() }
                     val atomic = AtomicFile(file(runId))
                     val data = buildJsonObject {
                         put("runId", runId)
                         put("chatId", chatId)
                         put("turnId", turnId)
+                        put("authority", authority)
                         val sourceRefs = snapshot.sources.map { source ->
+                            val cacheKey = "$chatId:$turnId:$authority:${source.id}"
+                            this@ResearchSessionStore.sourceRefs[cacheKey]?.takeIf { it.first == source }?.let { return@map JsonPrimitive(it.second) }
                             val bytes = source.json().toString().toByteArray()
                             require(bytes.size <= 64 * 1024) { "Research source snapshot is too large" }
                             val name = researchHash(bytes.decodeToString()) + ".source"
                             val destination = File(directory, name)
                             if (!destination.isFile) {
                                 check(directory.usableSpace >= bytes.size + 8L * 1024 * 1024) { "Paused for device resources: insufficient storage" }
-                                corpusBytes += bytes.size
                                 val sourceFile = AtomicFile(destination)
                                 val sourceStream = sourceFile.startWrite()
                                 try {
@@ -216,6 +249,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                                     throw error
                                 }
                             }
+                            this@ResearchSessionStore.sourceRefs[cacheKey] = source to name
                             JsonPrimitive(name)
                         }
                         put("snapshot", kotlinx.serialization.json.JsonObject(snapshot.copy(sources = emptyList(), queries = emptyList()).json() - "sources"))
@@ -233,11 +267,25 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         throw e
                     }
                     mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
-                    // Never evict active or resumable runs to satisfy historical retention.
-                    directory.listFiles().orEmpty().filter { it.extension == "json" && read(it)?.snapshot?.complete == true }
-                        .sortedByDescending { it.lastModified() }.drop(48).forEach { AtomicFile(it).delete() }
+                    writeAtomic(
+                        File(directory, researchHash("turn:$chatId:$turnId:$authority") + ".cursor"),
+                        buildJsonObject {
+                            put("chatId", chatId)
+                            put("runId", runId)
+                        }.toString().toByteArray()
+                    )
+                    // Retention is incremental; never rescan the corpus per network chunk.
+                    val retained = completedFiles ?: directory.listFiles().orEmpty()
+                        .filter { it.extension == "json" && read(it)?.snapshot?.complete == true }
+                        .associateWith { it.lastModified() }.toMutableMap().also { completedFiles = it }
+                    if (snapshot.complete) retained[file(runId)] = System.currentTimeMillis()
+                    retained.entries.sortedByDescending { it.value }.drop(48).forEach { (old, _) ->
+                        AtomicFile(old).delete()
+                        retained.remove(old)
+                    }
+                    if (sourceRefs.size > 8000) sourceRefs.clear()
                 } catch (failure: Exception) {
-                    val previouslyRetained = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId }
+                    val previouslyRetained = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
                         .flatMap { it.snapshot.sources }.filter { it.readable }.map { it.equivalenceGroup.ifBlank { it.canonicalUrl } }.toSet()
                     val partial = snapshot.copy(
                         complete = false,
@@ -326,6 +374,10 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         deletedChats += chatId
         temporaryBodies.keys.removeAll { it.startsWith("$chatId:") }
         readerHealth.keys.removeAll { it.first == chatId }
+        workLeases.keys.removeAll { it.startsWith("$chatId:") }
+        sourceRefs.keys.removeAll { it.startsWith("$chatId:") }
+        runTurns.entries.removeAll { it.value.first == chatId }
+        stoppedTurns.removeAll { it.first == chatId }
         synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
             directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension in setOf("budget", "ledger", "cursor") && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
@@ -428,6 +480,6 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             kotlinx.serialization.json.JsonObject(raw + ("sources" to JsonArray(rows)))
         }
-        ResearchSession(runId, value.number("chatId"), requireNotNull(ResearchSnapshot.parse(restored)), value.text("turnId").ifBlank { runId })
+        ResearchSession(runId, value.number("chatId"), requireNotNull(ResearchSnapshot.parse(restored)), value.text("turnId").ifBlank { runId }, value.text("authority").ifBlank { "legacy" })
     }.getOrNull()
 }

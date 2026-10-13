@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -11,7 +10,6 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceModelSearchClient
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
 import dev.chungjungsoo.gptmobile.data.localmodel.GatedDownloadCoordinator
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
@@ -22,7 +20,6 @@ import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadA
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +38,8 @@ class LocalModelsViewModel @Inject constructor(
     private val downloadGuards: LocalDownloadGuards,
     huggingFaceAuthClient: HuggingFaceAuthClient,
     @param:DeviceSocModel private val deviceSocModel: String,
-    private val huggingFaceModelSearchClient: HuggingFaceModelSearchClient? = null
+    private val huggingFaceModelSearchClient: HuggingFaceModelSearchClient? = null,
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val importContext: android.content.Context? = null
 ) : ViewModel() {
 
     private val downloadActions = LocalModelDownloadActions(
@@ -272,10 +270,20 @@ class LocalModelsViewModel @Inject constructor(
         customDialogState.value = LocalModelsDialog.DeleteConfirm(entry)
     }
 
-    fun confirmDelete() {
+    fun confirmDelete() = confirmDeleteWith { localModelRepository.deleteModel(it) }
+
+    fun confirmDeleteWith(delete: suspend (String) -> Unit) {
         val entry = (customDialogState.value as? LocalModelsDialog.DeleteConfirm)?.entry ?: return
         customDialogState.value = LocalModelsDialog.Hidden
-        viewModelScope.launch { localModelRepository.deleteModel(entry.id) }
+        viewModelScope.launch {
+            try {
+                delete(entry.id)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                customDialogState.value = LocalModelsDialog.ImportFailed(error.message ?: "Model files could not be deleted", "Model deletion paused")
+            }
+        }
     }
 
     fun cancelDownload(entry: CatalogEntry) {
@@ -291,55 +299,42 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     val importStatus = MutableStateFlow<String?>(null)
-    private var importJob: Job? = null
-    fun cancelImport() {
-        importJob?.cancel()
-        importStatus.value = "Import canceled. Choose the source again to retry."
-    }
-
-    fun importCustomModel(contentResolver: ContentResolver, uri: Uri) {
-        if (importJob?.isActive == true) return
-        importJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            importStatus.value = "Inspecting selected file…"
-            try {
-                val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "unknown"
-                val input = contentResolver.openInputStream(uri) ?: error("Could not open selected source. Choose the file again.")
-                val coroutine = kotlinx.coroutines.currentCoroutineContext()
-                var lastUpdate = 0L
-                val result = localModelRepository.importWithProgress(input, fileName, { coroutine.ensureActive() }) { bytes ->
-                    val now = System.nanoTime() / 1_000_000
-                    if (now - lastUpdate >= 500) {
-                        lastUpdate = now
-                        importStatus.value = "Copying and verifying · ${bytes / (1024 * 1024)} MB"
-                    }
-                }
-                importStatus.value = when (result) {
-                    is LocalModelImportResult.Failure -> result.message
-                    is LocalModelImportResult.Success -> "Imported. Create a profile from the installed model; runtime verification happens before use."
-                }
-                if (result is LocalModelImportResult.Failure) customDialogState.value = LocalModelsDialog.ImportFailed(result.message)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                importStatus.value = error.message ?: "Import failed. Choose the source again to retry."
-            }
-        }
-    }
-
-    private fun queryDisplayName(contentResolver: ContentResolver, uri: Uri): String? {
-        if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
-            runCatching {
-                contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIndex != -1) {
-                            return cursor.getString(nameIndex)
+    val importActive = MutableStateFlow(false)
+    init {
+        importContext?.let { context ->
+            viewModelScope.launch {
+                androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK).collect { jobs ->
+                    val latest = context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).getString("latest", null)
+                    val worker = jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.id.toString() == latest }
+                    if (worker?.state == androidx.work.WorkInfo.State.SUCCEEDED) catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
+                    importActive.value = worker != null && !worker.state.isFinished
+                    importStatus.value = worker?.let {
+                        when (it.state) {
+                            androidx.work.WorkInfo.State.RUNNING -> "Copying and verifying · ${it.progress.getLong("bytes", 0) / (1024 * 1024)} MB"
+                            androidx.work.WorkInfo.State.ENQUEUED, androidx.work.WorkInfo.State.BLOCKED -> "Import queued; it will restart safely if Android interrupts it."
+                            androidx.work.WorkInfo.State.CANCELLED -> "Import canceled. Choose the source again to retry."
+                            else -> it.outputData.getString("message") ?: "Import interrupted. Choose the source again to retry."
                         }
                     }
                 }
             }
         }
-        return uri.path?.substringAfterLast('/')
+    }
+    fun cancelImport() {
+        importContext?.let { androidx.work.WorkManager.getInstance(it).cancelUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK) }
+    }
+
+    fun importCustomModel(contentResolver: ContentResolver, uri: Uri, folder: Boolean = false) {
+        val context = importContext ?: return
+        if (importActive.value) return
+        runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }.onFailure {
+            importStatus.value = "This source cannot grant durable read access. Copy it to Documents and choose it again."
+            return
+        }
+        val request = androidx.work.OneTimeWorkRequestBuilder<dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker>()
+            .setInputData(androidx.work.Data.Builder().putString("source", uri.toString()).putBoolean("folder", folder).build()).build()
+        context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).edit().putString("latest", request.id.toString()).apply()
+        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK, androidx.work.ExistingWorkPolicy.KEEP, request)
     }
 
     fun startHuggingFaceSignIn(): Intent? = downloadActions.startHuggingFaceSignIn()

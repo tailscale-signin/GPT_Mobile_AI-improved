@@ -70,8 +70,13 @@ fun billingProvider(profile: PlatformV2): String? {
     val defaultHost = defaults[profile.compatibleType]
     if (profile.apiUrl.isBlank()) return defaultHost?.let { profile.compatibleType.name }
     val uri = runCatching { URI(profile.apiUrl) }.getOrNull() ?: return null
-    if (uri.scheme != "https" || uri.userInfo != null || uri.port !in setOf(-1, 443) || uri.rawQuery != null) return null
-    val allowedPaths = if (profile.compatibleType == ClientType.OPENROUTER) setOf("", "/", "/api/v1", "/api/v1/") else setOf("", "/", "/v1", "/v1/", "/v1beta", "/v1beta/")
+    if (uri.scheme != "https" || uri.userInfo != null || uri.port !in setOf(-1, 443) || uri.rawQuery != null || uri.rawFragment != null) return null
+    val allowedPaths = when (profile.compatibleType) {
+        ClientType.OPENROUTER -> setOf("", "/", "/api/v1", "/api/v1/")
+        ClientType.GROQ -> setOf("", "/", "/openai/v1", "/openai/v1/")
+        ClientType.GOOGLE -> setOf("", "/", "/v1", "/v1/", "/v1beta", "/v1beta/")
+        else -> setOf("", "/", "/v1", "/v1/")
+    }
     return profile.compatibleType.name.takeIf { uri.host.equals(defaultHost, true) && uri.path in allowedPaths }
 }
 

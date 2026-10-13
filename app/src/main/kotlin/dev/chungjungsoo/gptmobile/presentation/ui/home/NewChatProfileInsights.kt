@@ -89,7 +89,16 @@ internal fun NewChatProfileInsights(insight: ProfileInsight, refresh: () -> Unit
                         Text("${result.submission.plan.label} · Suite ${result.submission.suiteVersion} · ${DateFormat.getDateTimeInstance().format(Date(result.submission.startedAt))}")
                         result.metrics.forEach { Text("${it.label}: ${it.value?.let { number -> String.format(Locale.getDefault(), "%.1f", number) } ?: "—"} ${it.unit}") }
                     }
-                    if (score == null) Text(stringResource(R.string.insights_benchmark_missing))
+                    insight.localRun?.let { run ->
+                        Text(stringResource(R.string.insights_local_recorded))
+                        Text("${run.device} · ${run.backend.orEmpty()} · ${run.accelerator.orEmpty()}")
+                        Text("${run.mode.label} · ${DateFormat.getDateTimeInstance().format(Date(run.startedAt))}")
+                        val metrics = run.samples.mapNotNull { it.nativeMetrics?.takeIf { metric -> metric.isValid } }
+                        metrics.map { it.decodeTokensPerSecond }.sorted().let { speeds -> if (speeds.isNotEmpty()) Text(stringResource(R.string.insights_local_speed, String.format(Locale.getDefault(), "%.1f", speeds[speeds.size / 2]))) }
+                        run.peakClientPssKb?.let { Text(stringResource(R.string.insights_local_memory, it / 1024)) }
+                        run.samples.mapNotNull { it.firstTextMs }.sorted().let { times -> if (times.isNotEmpty()) Text(stringResource(R.string.insights_local_latency, times[times.size / 2])) }
+                    }
+                    if (score == null && insight.localRun == null) Text(stringResource(R.string.insights_benchmark_missing))
                 } else {
                     Text(priceText, color = if (price != null || local) green else MaterialTheme.colorScheme.onSurfaceVariant)
                     freshness?.let { Text(it) }

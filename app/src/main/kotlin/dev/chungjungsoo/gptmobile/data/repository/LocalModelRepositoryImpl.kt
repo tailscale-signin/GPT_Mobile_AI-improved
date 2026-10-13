@@ -178,65 +178,87 @@ class LocalModelRepositoryImpl(
         fileName: String
     ): LocalModelImportResult = importWithProgress(inputStream, fileName, {}, {})
 
-    override suspend fun importWithProgress(inputStream: InputStream, fileName: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = withContext(ioDispatcher) {
+    override suspend fun importWithProgress(inputStream: InputStream, fileName: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = performImport(inputStream, fileName, checkCurrent, progress, null)
+
+    override suspend fun importPersisted(inputStream: InputStream, fileName: String, jobId: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = performImport(inputStream, fileName, checkCurrent, progress, jobId)
+
+    private suspend fun performImport(inputStream: InputStream, fileName: String, checkCurrent: () -> Unit, progress: (Long) -> Unit, stagingId: String?): LocalModelImportResult = withContext(ioDispatcher) {
         val root = storageRoot()
         val result = if (fileName.endsWith(".localmodel", true) || fileName.endsWith(".zip", true)) {
             if (!dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
                 inputStream.close()
                 return@withContext LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.UNSUPPORTED_FORMAT, "This package needs the separate GenieX build.")
             }
-            dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root, checkCurrent = checkCurrent)
+            dev.chungjungsoo.gptmobile.data.localmodel.ModelBundleInstaller.install(inputStream, root, checkCurrent = checkCurrent, stagingId = stagingId)
         } else if (fileName.endsWith(".gguf", true)) {
-            dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.install(inputStream, root, checkCurrent, progress)
+            dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.install(inputStream, root, checkCurrent, progress, stagingId)
         } else {
             LocalModelLocator.importModel(
                 inputStream = inputStream,
                 fileName = fileName,
                 targetModelsRootDir = root,
                 checkCurrent = checkCurrent,
-                onProgress = progress
+                onProgress = progress,
+                stagingId = stagingId
             )
         }
         if (result is LocalModelImportResult.Success) {
-            checkCurrent()
-            if (result.record.fileName == "manifest.json") {
-                val file = File(result.absoluteFilePath)
-                val artifact = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(file)
-                dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.save(
-                    checkNotNull(file.parentFile),
-                    CatalogEntry(
-                        id = result.record.catalogEntryId,
-                        displayName = artifact.familyId + " · GenieX Preview",
-                        sizeInBytes = result.sizeBytes,
-                        familyId = artifact.familyId,
-                        variantLabel = artifact.runtime.name,
-                        manifestVersion = artifact.schemaVersion,
-                        runtimeRequirement = "${artifact.runtime.name.lowercase()}:${artifact.runtimeVersion}",
-                        capabilities = dev.chungjungsoo.gptmobile.data.catalog.CatalogCapabilities(vision = artifact.vision),
-                        upstreamRevision = artifact.sourceRevision,
-                        precision = artifact.weightPrecision.orEmpty(),
-                        supportedAccelerators = artifact.supportedBackends.toList(),
-                        maxContextTokens = artifact.contextTokens,
-                        defaultConfig = dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig(topK = 20, topP = .8f, temperature = .7f, maxTokens = minOf(512, artifact.contextTokens / 4)),
-                        socToModelFiles = artifact.soc?.let { mapOf(it to dev.chungjungsoo.gptmobile.data.catalog.SocVariant(modelFile = "manifest.json", contextSize = artifact.contextTokens)) }.orEmpty()
+            LocalModelTransferGuard.mutex(result.record.catalogEntryId).withLock {
+                checkCurrent()
+                check(File(result.absoluteFilePath).isFile) { "Model was removed during import; choose the source again." }
+                if (result.record.fileName == "manifest.json") {
+                    val file = File(result.absoluteFilePath)
+                    val artifact = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(file)
+                    dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.save(
+                        checkNotNull(file.parentFile),
+                        CatalogEntry(
+                            id = result.record.catalogEntryId,
+                            displayName = artifact.familyId + " · GenieX Preview",
+                            sizeInBytes = result.sizeBytes,
+                            familyId = artifact.familyId,
+                            variantLabel = artifact.runtime.name,
+                            manifestVersion = artifact.schemaVersion,
+                            runtimeRequirement = "${artifact.runtime.name.lowercase()}:${artifact.runtimeVersion}",
+                            capabilities = dev.chungjungsoo.gptmobile.data.catalog.CatalogCapabilities(vision = artifact.vision),
+                            upstreamRevision = artifact.sourceRevision,
+                            precision = artifact.weightPrecision.orEmpty(),
+                            supportedAccelerators = artifact.supportedBackends.toList(),
+                            maxContextTokens = artifact.contextTokens,
+                            defaultConfig = dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig(topK = 20, topP = .8f, temperature = .7f, maxTokens = minOf(512, artifact.contextTokens / 4)),
+                            socToModelFiles = artifact.soc?.let { mapOf(it to dev.chungjungsoo.gptmobile.data.catalog.SocVariant(modelFile = "manifest.json", contextSize = artifact.contextTokens)) }.orEmpty()
+                        )
+                    )
+                }
+                if (result.record.fileName != "manifest.json") {
+                    dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.save(
+                        File(result.absoluteFilePath).parentFile!!,
+                        CatalogEntry(
+                            id = result.record.catalogEntryId,
+                            displayName = fileName.substringBeforeLast('.'),
+                            sizeInBytes = result.sizeBytes,
+                            familyId = result.record.catalogEntryId,
+                            variantLabel = "LITERT_LM",
+                            runtimeRequirement = "litert-lm",
+                            supportedAccelerators = listOf("cpu", "gpu")
+                        )
+                    )
+                }
+                val now = System.currentTimeMillis() / 1000
+                val existing = localModelDao.getById(result.record.catalogEntryId)
+                localModelDao.upsert(
+                    LocalModel(
+                        catalogEntryId = result.record.catalogEntryId,
+                        commitHash = result.record.commitHash,
+                        fileName = result.record.fileName,
+                        relativeDirectory = result.record.relativeDirectory,
+                        totalBytes = if (result.record.fileName == "manifest.json") File(result.absoluteFilePath).length() else result.sizeBytes,
+                        status = LocalModelStatus.READY,
+                        createdAt = existing?.createdAt ?: now,
+                        updatedAt = now
                     )
                 )
+                dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
             }
-            val now = System.currentTimeMillis() / 1000
-            val existing = localModelDao.getById(result.record.catalogEntryId)
-            localModelDao.upsert(
-                LocalModel(
-                    catalogEntryId = result.record.catalogEntryId,
-                    commitHash = result.record.commitHash,
-                    fileName = result.record.fileName,
-                    relativeDirectory = result.record.relativeDirectory,
-                    totalBytes = if (result.record.fileName == "manifest.json") File(result.absoluteFilePath).length() else result.sizeBytes,
-                    status = LocalModelStatus.READY,
-                    createdAt = existing?.createdAt ?: now,
-                    updatedAt = now
-                )
-            )
-            dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
         }
         result
     }

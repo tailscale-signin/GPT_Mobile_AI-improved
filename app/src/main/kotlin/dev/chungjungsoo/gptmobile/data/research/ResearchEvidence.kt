@@ -52,11 +52,15 @@ data class ResearchSource(
     val isPreprint: Boolean? = null,
     val isRetracted: Boolean? = null,
     val contentLicense: String? = null,
-    val bodyChunks: List<String> = emptyList()
+    val bodyChunks: List<String> = emptyList(),
+    val accessUrl: String = "",
+    val failureReason: String = ""
 ) {
     val readable: Boolean get() = originId.isBlank() && retrievalQuality == "FULL_TEXT" && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
         put("bodyChunks", JsonArray(bodyChunks.map(::JsonPrimitive)))
+        put("accessUrl", accessUrl)
+        put("failureReason", failureReason.take(240))
         put("id", id)
         put("url", url)
         put("title", title)
@@ -119,7 +123,7 @@ data class ResearchToolEvent(
         put("reader", reader.take(120))
         put("argumentsDigest", argumentsDigest.take(64))
         put("outcome", outcome.take(40))
-        put("sourceIds", JsonArray(sourceIds.take(120).map { JsonPrimitive(it.take(8)) }))
+        put("sourceIds", JsonArray(sourceIds.take(120).map { JsonPrimitive(it.take(64)) }))
         put("failureReason", failureReason.take(240))
         put("latencyMs", latencyMs.coerceAtLeast(0))
         put("cacheHit", cacheHit)
@@ -177,7 +181,7 @@ data class ResearchSnapshot(
             val sources = value.rows("sources").mapNotNull { s ->
                 val id = s.text("id")
                 val url = s.text("url").take(2048)
-                if (!id.matches(Regex("S[1-9][0-9]{0,9}")) ||
+                if (!id.matches(Regex("S(?:[1-9][0-9]{0,9}|[a-f0-9]{16})")) ||
                     !runCatching {
                         URI(url).let { it.scheme?.lowercase() in setOf("http", "https") && !it.host.isNullOrBlank() && it.rawUserInfo == null }
                     }.getOrDefault(false)
@@ -188,7 +192,7 @@ data class ResearchSnapshot(
                 val source = ResearchSource(
                     id, url, s.text("title").take(240), status, s.text("passage").take(6000), s.number("depth").coerceIn(0, 2),
                     (s["retrievedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, s.text("publishedAt").take(80),
-                    s.strings("engines").take(20).map { it.take(120) }, s.text("fingerprint").take(64), s.text("originId").take(11), s.text("location").take(240)
+                    s.strings("engines").take(20).map { it.take(120) }, s.text("fingerprint").take(64), s.text("originId").take(64), s.text("location").take(240)
                 )
                 source.copy(
                     doi = SourceIdentity.normalizeDoi(s.text("doi")),
@@ -215,6 +219,8 @@ data class ResearchSnapshot(
                     isPreprint = (s["isPreprint"] as? JsonPrimitive)?.booleanOrNull,
                     isRetracted = (s["isRetracted"] as? JsonPrimitive)?.booleanOrNull,
                     contentLicense = s.text("contentLicense").take(1000).takeIf(String::isNotBlank),
+                    accessUrl = s.text("accessUrl"),
+                    failureReason = s.text("failureReason").take(240),
                     bodyChunks = s.strings("bodyChunks").onEach { require(it.matches(Regex("[a-f0-9]{64}\\.chunk"))) }
                 )
             }.distinctBy { source ->
@@ -247,7 +253,7 @@ data class ResearchSnapshot(
                     ResearchToolEvent(
                         query = event.text("query").take(500), engine = event.text("engine").take(120), reader = event.text("reader").take(120),
                         argumentsDigest = event.text("argumentsDigest").takeIf { it.matches(Regex("[0-9a-f]{64}")) }.orEmpty(), outcome = outcome,
-                        sourceIds = event.strings("sourceIds").filter { it.matches(Regex("S[1-9][0-9]{0,9}")) }.distinct().take(120),
+                        sourceIds = event.strings("sourceIds").filter { it.matches(Regex("S(?:[1-9][0-9]{0,9}|[a-f0-9]{16})")) }.distinct().take(120),
                         failureReason = event.text("failureReason").take(240), latencyMs = (event["latencyMs"] as? JsonPrimitive)?.longOrNull?.coerceIn(0, 86_400_000) ?: 0,
                         cacheHit = (event["cacheHit"] as? JsonPrimitive)?.booleanOrNull == true, shared = (event["shared"] as? JsonPrimitive)?.booleanOrNull == true,
                         recordedAt = (event["recordedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0
@@ -256,19 +262,6 @@ data class ResearchSnapshot(
             )
         }.getOrNull()
     }
-}
-
-interface ResearchJournal {
-    fun readerHealth(): dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth? = null
-    fun budget(totalLogicalCalls: Int, downloadLimitBytes: Int = 512 * 1024 * 1024): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
-    fun goalBudget(plan: dev.chungjungsoo.gptmobile.data.model.EffectiveResearchPlan): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget =
-        dev.chungjungsoo.gptmobile.data.agent.ResearchBudget(1, ledger = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger(plan.fingerprint, plan.limits))
-    suspend fun load(): ResearchSnapshot?
-    suspend fun load(task: String): ResearchSnapshot? = load()
-    suspend fun retainBody(text: String): List<String> = emptyList()
-    suspend fun save(snapshot: ResearchSnapshot)
-    fun stopRequested(): Boolean
-    suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T = block()
 }
 
 fun JsonObject.text(key: String): String = (this[key] as? JsonPrimitive)?.contentOrNull.orEmpty()

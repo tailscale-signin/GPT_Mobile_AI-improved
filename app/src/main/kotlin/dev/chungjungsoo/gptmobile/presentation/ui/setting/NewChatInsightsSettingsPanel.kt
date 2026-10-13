@@ -52,14 +52,14 @@ fun NewChatInsightsSettingsPanel(viewModel: ManualPricesViewModel = hiltViewMode
                     var output by remember(uid) { mutableStateOf(existing?.outputPerMillion.orEmpty()) }
                     var currency by remember(uid) { mutableStateOf(existing?.currency ?: "USD") }
                     var source by remember(uid) { mutableStateOf(existing?.sourceUrl.orEmpty()) }
-                    var review by remember(uid) { mutableStateOf(existing?.reviewedOn ?: LocalDate.now().toString()) }
-                    var expiry by remember(uid) { mutableStateOf(LocalDate.now().plusDays(30).toString()) }
-                    OutlinedTextField(input, { input = it }, label = { Text("Input / 1M tokens") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(output, { output = it }, label = { Text("Output / 1M tokens") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(currency, { currency = it }, label = { Text("Billing currency (USD, CAD…)") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(source, { source = it }, label = { Text("Source URL or contract note") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(review, { review = it }, label = { Text("Reviewed (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(expiry, { expiry = it }, label = { Text("Expires (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth())
+                    var review by remember(uid) { mutableStateOf(existing?.reviewedOn ?: LocalDate.now(java.time.ZoneOffset.UTC).toString()) }
+                    var expiry by remember(uid) { mutableStateOf(LocalDate.now(java.time.ZoneOffset.UTC).plusDays(30).toString()) }
+                    OutlinedTextField(input, { input = it }, label = { Text(stringResource(R.string.new_chat_insights_settings_panel_1)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(output, { output = it }, label = { Text(stringResource(R.string.new_chat_insights_settings_panel_2)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(currency, { currency = it }, label = { Text(stringResource(R.string.new_chat_insights_settings_panel_3)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(source, { source = it }, label = { Text(stringResource(R.string.new_chat_insights_settings_panel_4)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(review, { review = it }, label = { Text(stringResource(R.string.new_chat_insights_settings_panel_5)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(expiry, { expiry = it }, label = { Text(stringResource(R.string.new_chat_insights_settings_panel_6)) }, modifier = Modifier.fillMaxWidth())
                     TextButton(onClick = { viewModel.save(profile, input, output, currency, source, review, expiry) }) { Text(stringResource(R.string.insights_manual_save)) }
                     if (existing != null) TextButton(onClick = { viewModel.remove(profile) }) { Text(stringResource(R.string.insights_manual_delete)) }
                     status?.let { Text(it) }

@@ -102,6 +102,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                 }
                 Result.success()
             } catch (cancelled: CancellationException) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Download", "TRANSFER_STOPPED · reason=$stopReason · category=${if (stopReason == androidx.work.WorkInfo.STOP_REASON_BACKGROUND_RESTRICTION) "BACKGROUND_RESTRICTION" else "INTERRUPTED"} · partialBytesRetained=true", "W")
                 throw cancelled
             } catch (error: DownloadAuthException) {
                 Log.e(TAG, error.message, error)
@@ -262,7 +263,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                                     .build()
                             )
                             val percent = DownloadProgress.percent(downloadedBytes, expectedTotalBytes)
-                            setForeground(createForegroundInfo(progress = percent, modelName = displayName))
+                            runCatching { notificationManager.notify(notificationId, createForegroundInfo(progress = percent, modelName = displayName).notification) }
                             lastSetProgressTs = curTs
                         }
                     }
@@ -424,7 +425,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
         const val INITIAL_BACKOFF_SECONDS = 10L
         private const val TAG = "LocalModelDownload"
         private const val CHANNEL_ID = "local_model_downloads"
-        private const val PROGRESS_INTERVAL_MS = 200L
+        private const val PROGRESS_INTERVAL_MS = 1000L
         private const val RATE_WINDOW = 5
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 30_000
@@ -462,7 +463,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
                 .putLong(KEY_REMAINING_MS, 0L)
                 .build()
         )
-        setForeground(createForegroundInfo(progress = percent, modelName = displayName))
+        runCatching { notificationManager.notify(notificationId, createForegroundInfo(progress = percent, modelName = displayName).notification) }
     }
 
     private fun messageResFor(kind: DownloadFailureKind): Int = when (kind) {

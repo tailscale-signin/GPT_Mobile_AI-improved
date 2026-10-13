@@ -1414,7 +1414,7 @@ internal class LocalDelegationCoordinator(
         val saved = retained ?: result ?: savedResearchResult(task, config, "Preparation deadline reached; these passages are unverified.")
         return (saved ?: LocalResearchResult("", 0, 0, 0)).copy(
             handoff = "[PREPARATION_TIMEOUT][UNVERIFIED] Research/review time budget reached. Retained context is unverified; the primary must recover independently.\n" + saved?.handoff.orEmpty(),
-            outcome = if (saved?.let { it.outcome == LocalResearchOutcome.SUCCESS && it.handoff.isNotBlank() } == true) LocalResearchOutcome.SUCCESS else LocalResearchOutcome.FAILED
+            outcome = saved?.takeIf { it.outcome in setOf(LocalResearchOutcome.SUCCESS, LocalResearchOutcome.PARTIAL_USEFUL) && it.handoff.isNotBlank() }?.outcome ?: LocalResearchOutcome.FAILED
         ).also { AppLogRecorder.record("Delegation", "PREPARATION_DEADLINE · call=$callId · allowanceMs=${config.preparationTimeoutSeconds * 1000L} · elapsedMs=$elapsed · remainingMs=${(config.preparationTimeoutSeconds * 1000L - elapsed).coerceAtLeast(0)} · retainedPages=${it.pagesRead}", "W") }
     }
 
@@ -1616,7 +1616,7 @@ internal class LocalDelegationCoordinator(
         }
         retain(result)
         if (delegationCanceledByUser.get()) return result.copy(handoff = primaryOnlyHandoff(), outcome = LocalResearchOutcome.NO_USEFUL_OUTPUT)
-        val reviewedResult = if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank() && researchJournal?.stopRequested() != true) {
+        val reviewedResult = if (result.outcome in setOf(LocalResearchOutcome.SUCCESS, LocalResearchOutcome.PARTIAL_USEFUL) && result.handoff.isNotBlank() && researchJournal?.stopRequested() != true) {
             val handoff = runReviewer(userSelectedRecoveryProfile.get() ?: target, task, result.handoff, config)
             result.copy(
                 handoff = handoff,
@@ -1630,7 +1630,7 @@ internal class LocalDelegationCoordinator(
             result
         }
         AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · outcome=${reviewedResult.outcome} · searches=${reviewedResult.searches} · pages=${reviewedResult.pagesRead} · pagesAttempted=${reviewedResult.pagesAttempted} · pagesRetrieved=${reviewedResult.pagesRetrieved} · pagesReadable=${reviewedResult.pagesRead} · reviewStatus=${delegateReviewState(reviewedResult.handoff)} · rawBytes=${reviewedResult.rawBytes} · handoffChars=${reviewedResult.handoff.length}")
-        if (automatic && reviewedResult.outcome != LocalResearchOutcome.SUCCESS) requests.decrementAndGet()
+        if (automatic && reviewedResult.outcome !in setOf(LocalResearchOutcome.SUCCESS, LocalResearchOutcome.PARTIAL_USEFUL)) requests.decrementAndGet()
         return reviewedResult
     }
 
@@ -1661,7 +1661,7 @@ internal class LocalDelegationCoordinator(
         if (researchAvailable() && !isGitHubTask(task) && !(isAmazonShoppingTask(task) && tools.any { it.isAmazonProductTool() })) {
             val result = prepare(task, tools, callId, targetOverride = turnTarget)
             if (delegationCanceledByUser.get()) return primaryOnlyHandoff()
-            if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) return result.handoff
+            if (result.outcome in setOf(LocalResearchOutcome.SUCCESS, LocalResearchOutcome.PARTIAL_USEFUL) && result.handoff.isNotBlank()) return result.handoff
             AppLogRecorder.record(
                 "Delegation",
                 "Research produced no handoff; falling back to direct delegate inference · call=$callId · target=${target.uid}",

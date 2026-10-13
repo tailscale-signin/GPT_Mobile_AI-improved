@@ -193,7 +193,7 @@ fun LocalModelDownloadDialogHost(
 
         is LocalModelsDialog.ImportFailed -> {
             MessageDialog(
-                title = stringResource(R.string.local_model_import_error_title),
+                title = dialog.title ?: stringResource(R.string.local_model_import_error_title),
                 text = dialog.message,
                 onDismiss = onDismissDialog
             )

@@ -1333,7 +1333,7 @@ class ChatRepositoryImpl(
             val localDelegation = LocalDelegationCoordinator(
                 platform,
                 onEvent = { event -> delegationActivity?.record(runId, event) },
-                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey),
+                researchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls),
                 beforeDispatch = { dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.awaitDispatch(runId) && effectiveDelegationSettings().enabled },
                 settings = { effectiveDelegationSettings() },
                 profiles = {
@@ -1656,22 +1656,21 @@ class ChatRepositoryImpl(
                     }
                 )
             }
-            val assistTarget = settingRepository.fetchPlatformV2s().firstOrNull { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() && it.uid == runFeatures.localAssistPolicy.profileUid }
-            val assist = if (runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM && assistTarget != null) {
-                dev.chungjungsoo.gptmobile.data.assist.AssistCoordinator(
-                    goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
-                    warmEligible = { runtimeEligibleForAssist(assistTarget) },
-                    selectEvidence = { task -> delegateToProfile(assistTarget, task, if (runFeatures.localAssistPolicy.summarizeRetrievedText || runFeatures.localAssistPolicy.proposeQueries) 1024 else 128, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
-                    notice = { emit(ApiState.Notice(it)) },
-                    policy = runFeatures.localAssistPolicy.validated(),
-                    stillEnabled = { settingRepository.getFeatureSettings().localAssist }
-                )
-            } else {
-                null
-            }
-            val boundedTools = authorizedBoundedTools.map { resolved ->
-                if (assist != null && resolved.shareableReadOnly) resolved.copy(tool = assist.bind(resolved.tool)) else resolved
-            }
+            val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
+                tools = authorizedBoundedTools,
+                candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM && it.enabled && !it.excludesMemory() },
+                enabled = runFeatures.localAssist && platform.compatibleType != ClientType.LITERT_LM,
+                policy = runFeatures.localAssistPolicy,
+                goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
+                turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
+                eligible = { runtimeEligibleForAssist(it) },
+                generate = { target, task, cap -> delegateToProfile(target, task, cap, runId, "assist:$runId", maxInputTokens = 4096, allowTools = false, fixtureTools = emptyList(), requestRole = "assist") },
+                notice = { emit(ApiState.Notice(it)) },
+                stillEnabled = {
+                    val live = settingRepository.getFeatureSettings()
+                    live.localAssist && live.localAssistPolicy == runFeatures.localAssistPolicy && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
+                }
+            )
             val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
             val delegationConfig = effectiveDelegationSettings()
             val crawlStage = if (behavior.crawlersEnabled && !(localResearch && delegationConfig.deepResearch.enabled)) {
@@ -1748,7 +1747,7 @@ class ChatRepositoryImpl(
                         directConfig,
                         delegatedTools,
                         generate = { _, _ -> null },
-                        journal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey),
+                        journal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls),
                         stillEnabled = {
                             val current = settingRepository.getFeatureSettings()
                             current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&

@@ -1,4 +1,17 @@
-# GPT Mobile AI 0.9.52.0
+# GPT Mobile AI 0.9.53.0
+
+## Local model recovery and benchmark reliability
+- Include the memory-reserve recovery controls merged in #677: an explanation of the reserve, a high-reserve warning, and a one-tap reset to the recommended 768 MB.
+- Keep memory safeguards and explicit user settings intact. Do not silently resize model context or override a selected reserve.
+- Add overflow-safe memory accounting, exact current shortfall diagnostics, and advice to reset the reserve only when the estimate would fit with the recommended value.
+- Preserve the MEMORY_ADMISSION_REJECTED classification during both model loading and generation. Diagnostics distinguish an unloaded engine from a warm engine whose new request was blocked.
+- Keep the rejected state visible across delayed runtime status updates, clear it after successful readmission, and reuse an already loaded engine after memory recovery.
+- Distinguish thermal rejection from memory rejection so a hot phone is not told that resetting the memory reserve solves its thermal problem.
+- Acknowledge native drain fences in the local comparison collector. Preserve native metrics and partial output counts, and classify empty answers, missing completion events and native errors explicitly.
+- Add 19 regression tests covering the reported memory values, arithmetic boundaries, load/generation recovery, delayed state delivery, and benchmark stream handling.
+
+## Included main-branch improvements
+- Includes the previously merged research workspace improvements from #678 and the existing local runtime, research and delegation changes below.
 
 ## Delegation and recovery
 - Preserve evidence and stage checkpoints when the final writer fails; Continue resumes the original work and retained budget.
@@ -27,11 +40,12 @@
 
 ## Verification and limitations
 - CI checks unit regressions, Android lint, exported Room schemas, dependency/runtime packaging, CodeQL, gateway contracts and Android acceptance.
-- Real GGUF CPU JNI acceptance includes warm generations, partial cancellation, context rejection and reopening in the release-minified Android 16 x86-64 app.
-- Paired synthetic fixtures measure orchestration behavior and exact evidence retention. They do not establish real-model quality, provider-cost savings, battery benefit or physical ROG Phone qualification.
+- Existing GGUF CPU JNI acceptance covers warm generations, partial cancellation, context rejection and reopening in the release-minified Android 16 x86-64 app.
+- Synthetic fixtures do not establish real-model quality, provider-cost savings, battery benefit or physical ROG Phone qualification. The newly added recovery tests use a fake native runtime; phone-side token generation still requires device verification.
 - The signed-release workflow verifies application identity, certificate continuity, native packaging, checksums and source provenance before publication.
+- For a saved 4,096 MB memory reserve, use Local Models → Settings → Memory → Use recommended 768 MB when offered, then retry chat and a benchmark. Passing admission alone is not proof of native compatibility.
 
 ## Release identity
 - Package: dev.melo.gptmobile.improved
-- Version: 0.9.52.0
-- Version code: 121
+- Version: 0.9.53.0
+- Version code: 122

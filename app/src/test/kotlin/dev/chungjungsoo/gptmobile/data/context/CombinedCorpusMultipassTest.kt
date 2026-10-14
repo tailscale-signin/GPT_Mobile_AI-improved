@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.context
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,13 +20,12 @@ class CombinedCorpusMultipassTest {
             "Be accurate.",
             TokenBudgetSettings(contextTokens = 4096, outputTokens = 256)
         )
-        val passes = plan.multipass
-        assertNotNull(passes)
+        val passes = requireNotNull(plan.multipass)
         assertTrue(plan.notice.contains("FULL_CORPUS_MULTIPASS"))
         assertEquals(original, plan.turns)
         assertEquals(
             historical,
-            passes!!.passes.filter { it.source.turnIndex == 0 }.joinToString("") { it.source.text }
+            passes.passes.filter { it.source.turnIndex == 0 }.joinToString("") { it.source.text }
         )
         assertEquals(
             current,

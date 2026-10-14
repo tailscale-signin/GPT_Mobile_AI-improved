@@ -2418,6 +2418,9 @@ class ChatRepositoryImpl(
         val restoredDraft = if (frozenResume?.resumeFromRunId != null) frozenResume.committedPrefix else checkpoint?.restore().orEmpty()
         val multipassFinalTurns = AtomicReference<List<ConversationTurn>?>(null)
         val firstSession = contextPlan.multipass?.let { plan ->
+            require(platform.compatibleType == ClientType.LITERT_LM || plan.frozenTurns.none { it.assistantMessage?.containsLocalOnlyMemory() == true }) {
+                "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history."
+            }
             dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassSession(
                 plan = plan,
                 system = requestPlatform.systemPrompt.orEmpty(),
@@ -2432,7 +2435,7 @@ class ChatRepositoryImpl(
             firstSession,
             maxContinuations = continuationLimit,
             targetWords = remainingWordGoal,
-            recoverTransientFailures = true,
+            recoverTransientFailures = contextPlan.multipass == null,
             initialDraft = restoredDraft,
             allowInternalToolRecovery = editorialPass,
             effectiveOutputCap = resolvedOutputCap,

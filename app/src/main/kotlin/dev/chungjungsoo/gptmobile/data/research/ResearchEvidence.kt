@@ -38,7 +38,7 @@ data class ResearchSource(
     val contentFingerprint: String = passage.trim().lowercase().takeIf(String::isNotBlank)?.let(::researchHash).orEmpty(),
     val retrievalQuality: String = when (status) {
         "Read", "Used as evidence" -> "FULL_TEXT"
-        "Partially read" -> "FULL_TEXT"
+        "Partially read" -> "PARTIAL_TEXT"
         "Blocked" -> "BLOCKED"
         "Failed" -> "EMPTY"
         else -> "LEAD"
@@ -54,10 +54,12 @@ data class ResearchSource(
     val contentLicense: String? = null,
     val bodyChunks: List<String> = emptyList(),
     val accessUrl: String = "",
-    val failureReason: String = ""
+    val failureReason: String = "",
+    val bibliographyJson: String = "{}"
 ) {
-    val readable: Boolean get() = originId.isBlank() && retrievalQuality == "FULL_TEXT" && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
+    val readable: Boolean get() = originId.isBlank() && retrievalQuality in setOf("FULL_TEXT", "PARTIAL_TEXT") && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
+        put("bibliographyJson", bibliographyJson)
         put("bodyChunks", JsonArray(bodyChunks.map(::JsonPrimitive)))
         put("accessUrl", accessUrl)
         put("failureReason", failureReason.take(240))
@@ -215,6 +217,7 @@ data class ResearchSnapshot(
                     s.strings("engines").take(20).map { it.take(120) }, s.text("fingerprint").take(64), s.text("originId").take(64), s.text("location").take(240)
                 )
                 source.copy(
+                    bibliographyJson = s.text("bibliographyJson").ifBlank { "{}" },
                     doi = SourceIdentity.normalizeDoi(s.text("doi")),
                     pmid = s.text("pmid").takeIf { it.matches(Regex("[0-9]{1,12}")) }.orEmpty(),
                     pmcid = s.text("pmcid").uppercase().takeIf { it.matches(Regex("PMC[0-9]{1,12}")) }.orEmpty(),
@@ -223,10 +226,10 @@ data class ResearchSnapshot(
                     publicationYear = (s["publicationYear"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 1500..3000 },
                     titleFingerprint = s.text("titleFingerprint").takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: source.titleFingerprint,
                     contentFingerprint = s.text("contentFingerprint").takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: source.contentFingerprint,
-                    retrievalQuality = s.text("retrievalQuality").takeIf { it in setOf("FULL_TEXT", "ABSTRACT", "METADATA", "BLOCKED", "EMPTY", "LEAD") }
+                    retrievalQuality = s.text("retrievalQuality").takeIf { it in setOf("FULL_TEXT", "PARTIAL_TEXT", "ABSTRACT", "METADATA", "BLOCKED", "EMPTY", "LEAD") }
                         ?: when (status) {
                             "Read", "Used as evidence" -> "FULL_TEXT"
-                            "Partially read" -> "FULL_TEXT"
+                            "Partially read" -> "PARTIAL_TEXT"
                             "Blocked" -> "BLOCKED"
                             "Failed" -> "EMPTY"
                             else -> "LEAD"

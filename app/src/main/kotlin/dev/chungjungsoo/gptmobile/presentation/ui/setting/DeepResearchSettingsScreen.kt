@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -46,6 +47,18 @@ internal fun DeepResearchSettingsScreen(onClose: () -> Unit, viewModel: DeepRese
 internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchSettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val topicCounts by viewModel.topicCounts.collectAsStateWithLifecycle()
+    val outcomes by viewModel.outcomes.collectAsStateWithLifecycle()
+    val discovery by viewModel.discovery.collectAsStateWithLifecycle()
+    val previews by viewModel.citationPreview.collectAsStateWithLifecycle()
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var discoverQuery by rememberSaveable { mutableStateOf("") }
+    var importText by rememberSaveable { mutableStateOf("") }
+    var organize by rememberSaveable { mutableStateOf(false) }
+    val citationFile = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.previewCitationFile(uri, context)
+    }
     val comparison by viewModel.comparison.collectAsStateWithLifecycle()
     var selectedVersions by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val count by viewModel.archiveCount.collectAsStateWithLifecycle()
@@ -68,7 +81,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val enabled = settings.isToolPluginEnabled(ToolPluginId.DEEP_RESEARCH)
     LaunchedEffect(Unit) { viewModel.open() }
-    LaunchedEffect(query, topic, offset, tab) { if (tab == 2) viewModel.loadArchive(query, topic, offset) }
+    LaunchedEffect(query, topic, offset, tab) { if (tab == 1) viewModel.loadArchive(query, topic, offset) }
     val close = {
         if (!state.saving) {
             if (state.dirty) {
@@ -86,17 +99,31 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     FadingDialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(modifier = Modifier.fillMaxSize().testTag("deep-research-settings"), topBar = {
             TopAppBar(title = { Text("Research") }, navigationIcon = { TextButton(onClick = close, enabled = !state.saving) { Text("Back") } }, actions = {
-                TextButton(onClick = discard, enabled = !state.saving) { Text("Cancel") }
-                TextButton(onClick = { viewModel.save(onClose) }, enabled = state.draft != null && !state.saving && enabled, modifier = Modifier.testTag("research-save")) { Text(if (state.saving) "Saving…" else "Save") }
+                if (tab == 4) {
+                    TextButton(onClick = {
+                        viewModel.save {
+                            viewModel.open()
+                            tab = 0
+                        }
+                    }, enabled = state.draft != null && !state.saving && enabled, modifier = Modifier.testTag("research-save")) { Text(if (state.saving) "Saving…" else "Save") }
+                } else {
+                    androidx.compose.material3.IconButton(onClick = { tab = 4 }) {
+                        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Settings, contentDescription = "Research settings")
+                    }
+                }
             })
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                SettingsTabs(listOf("Settings", "Statistics", "Archive"), tab) { tab = it }
+                if (tab != 4) {
+                    SettingsTabs(listOf("Discover", "Archive", "Learned Outcomes", "Activity"), tab) { tab = it }
+                } else {
+                    TextButton(onClick = { tab = 0 }) { Text("Return to workspace") }
+                }
                 if (!enabled) Text("Research is disabled. Saved evidence remains readable; new jobs are unavailable.", Modifier.padding(16.dp))
-                if (state.dirty) Text("Unsaved settings · Tab changes keep your draft", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium)
+                if (state.dirty && tab == 4) Text("Unsaved settings · Tab changes keep your draft", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium)
                 LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("research-save-error")) } }
-                    if (tab == 0) {
+                    if (tab == 4) {
                         item { Text("Global defaults · Changes apply to future runs", style = MaterialTheme.typography.bodySmall) }
                         item { state.draft?.let { DeepResearchSettingsCard(it, enabled && !state.saving, viewModel::edit) } }
                         item {
@@ -111,6 +138,10 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                         item {
                             SettingsPanel("Archive and article cards") {
                                 val feature = state.featureDraft
+                                ResearchFeatureSwitch("Automatically organize studies", feature.automaticOrganization, enabled) { viewModel.editFeature(feature.copy(automaticOrganization = it)) }
+                                ResearchFeatureSwitch("Recall grounded research outcomes", feature.researchMemory, enabled) { viewModel.editFeature(feature.copy(researchMemory = it)) }
+                                ResearchFeatureSwitch("Share research recall with remote AI", feature.shareResearchRecall, enabled && feature.researchMemory) { viewModel.editFeature(feature.copy(shareResearchRecall = it)) }
+                                Text("Research recall also requires Memory recall permission. Remote sharing additionally requires cloud-memory permission. Study findings remain separate from personal facts.")
                                 ResearchFeatureSwitch("Archive public research", feature.archiveEnabled, enabled) { viewModel.editFeature(feature.copy(archiveEnabled = it)) }
                                 ResearchFeatureSwitch("Use archive leads before discovery", feature.archivePreflight, enabled) { viewModel.editFeature(feature.copy(archivePreflight = it)) }
                                 ResearchFeatureSwitch("Show article cards", feature.articleCards, enabled) { viewModel.editFeature(feature.copy(articleCards = it)) }
@@ -144,8 +175,58 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                             }
                         }
                     }
-                    if (tab == 1) item { ResearchEngineHealthPanel() }
+                    if (tab == 0) {
+                        item {
+                            SettingsPanel("Discover studies") {
+                                Text("Search native scholarly engines. Accepted records appear automatically in Archive when archiving is enabled.")
+                                OutlinedTextField(discoverQuery, { discoverQuery = it.take(500) }, label = { Text("Research question or keywords") }, modifier = Modifier.fillMaxWidth())
+                                Row {
+                                    TextButton(onClick = { viewModel.discover(discoverQuery) }, enabled = enabled && discoverQuery.isNotBlank()) { Text("Search studies") }
+                                    TextButton(onClick = viewModel::stopDiscovery) { Text("Stop") }
+                                }
+                                if (discovery.isNotBlank()) Text(discovery, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        item {
+                            SettingsPanel("Google Scholar · Browser-assisted") {
+                                Text("Open Scholar, choose citations, then paste bibliographic text or select a BibTeX/RIS file. The browser does not return results automatically.")
+                                TextButton(onClick = { viewModel.openScholar(discoverQuery) { uriHandler.openUri(it) } }, enabled = enabled && discoverQuery.isNotBlank()) { Text("Open Scholar") }
+                                OutlinedTextField(importText, { importText = it.take(262144) }, label = { Text("DOI, PMID, URL, BibTeX or RIS") }, maxLines = 6, modifier = Modifier.fillMaxWidth())
+                                TextButton(onClick = { viewModel.previewCitations(importText) }, enabled = enabled && importText.isNotBlank()) { Text("Preview citation import") }
+                                TextButton(onClick = { citationFile.launch(arrayOf("text/*", "application/x-bibtex", "application/x-research-info-systems", "application/octet-stream")) }, enabled = enabled) { Text("Choose citation file") }
+                                if (previews.isNotEmpty()) {
+                                    Text("Review ${previews.size} selected citations", style = MaterialTheme.typography.titleSmall)
+                                    previews.take(10).forEach { Text(it.title, style = MaterialTheme.typography.bodySmall) }
+                                    Text("Identifiers will be resolved where available. Unresolved entries remain unverified; they cannot produce grounded outcomes.")
+                                    Row {
+                                        TextButton(onClick = viewModel::importCitations, enabled = enabled) { Text("Import selected citations") }
+                                        TextButton(onClick = viewModel::cancelImport) { Text("Cancel import") }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (tab == 2) {
+                        item { Text("Learned Outcomes", style = MaterialTheme.typography.headlineSmall) }
+                        item { Text("Source-linked findings from examined studies. Grounded means supported by captured passages, not scientifically proven. Research recall is opt-in.") }
+                        if (outcomes.isEmpty()) item { Text("No supported outcomes yet. Examine an archived study to extract its reported findings and limitations.") }
+                        items(outcomes, key = { it.outcomeId }) { outcome ->
+                            SettingsPanel(outcome.state.lowercase().replaceFirstChar { it.titlecase() }) {
+                                Text("What the study reported", style = MaterialTheme.typography.titleSmall)
+                                Text(outcome.reported)
+                                Text("Limitations", style = MaterialTheme.typography.titleSmall)
+                                Text(outcome.limitations)
+                                Text("Captured ${java.time.Instant.ofEpochMilli(outcome.createdAt)}", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    articleId = outcome.workId
+                                    articleVersion = outcome.versionId
+                                }) { Text("Open supporting evidence") }
+                                TextButton(onClick = { viewModel.forgetOutcome(outcome.outcomeId) }) { Text("Forget outcome") }
+                            }
+                        }
+                    }
+                    if (tab == 3) item { ResearchEngineHealthPanel() }
+                    if (tab == 1) {
                         item {
                             SettingsPanel("Reusable archive · $count / 1,000") {
                                 OutlinedTextField(query, {
@@ -156,40 +237,57 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                     topic = ""
                                     offset = 0
                                 }, label = { Text("All categories") })
-                                topics.forEach { value ->
+                                topics.filter { value -> topicCounts.any { it.topicId == value.topicId && it.count > 0 } }.forEach { value ->
                                     FilterChip(topic == value.topicId, {
                                         topic = value.topicId
                                         topicLabel = value.label
                                         offset = 0
-                                    }, label = { Text("${categories.firstOrNull { it.categoryId == value.categoryId }?.label ?: value.categoryId} › ${value.label}") })
+                                    }, label = { Text("${value.label} · ${topicCounts.firstOrNull { it.topicId == value.topicId }?.count ?: 0}") })
                                 }
                                 if (topic.isNotBlank()) {
                                     OutlinedTextField(topicLabel, { topicLabel = it }, label = { Text("Topic name") })
                                     TextButton(onClick = { viewModel.renameTopic(topic, topicLabel) }) { Text("Rename topic") }
                                     TextButton(onClick = { mergeFrom = topic }, enabled = topics.size > 1) { Text("Merge into another topic…") }
                                 }
-                                Text("Organize categories and topics", style = MaterialTheme.typography.titleSmall)
-                                categories.forEach { category ->
-                                    FilterChip(categoryId == category.categoryId, {
-                                        categoryId = category.categoryId
-                                        categoryLabel = category.label
-                                    }, label = { Text(category.label) })
-                                }
-                                if (categoryId.isNotBlank()) {
-                                    OutlinedTextField(categoryLabel, { categoryLabel = it }, label = { Text("Category name") })
-                                    TextButton(onClick = { viewModel.renameCategory(categoryId, categoryLabel) }) { Text("Rename category") }
-                                    OutlinedTextField(newTopic, { newTopic = it }, label = { Text("New topic name") })
-                                    TextButton(onClick = {
-                                        viewModel.createTopic(categoryId, newTopic)
-                                        newTopic = ""
-                                    }, enabled = newTopic.isNotBlank()) { Text("Create topic") }
+                                TextButton(onClick = { organize = !organize }) { Text(if (organize) "Hide organization controls" else "Organize topics") }
+                                if (organize) {
+                                    Text("Organize categories and topics", style = MaterialTheme.typography.titleSmall)
+                                    categories.forEach { category ->
+                                        FilterChip(categoryId == category.categoryId, {
+                                            categoryId = category.categoryId
+                                            categoryLabel = category.label
+                                        }, label = { Text(category.label) })
+                                    }
+                                    if (categoryId.isNotBlank()) {
+                                        OutlinedTextField(categoryLabel, { categoryLabel = it }, label = { Text("Category name") })
+                                        TextButton(onClick = { viewModel.renameCategory(categoryId, categoryLabel) }) { Text("Rename category") }
+                                        OutlinedTextField(newTopic, { newTopic = it }, label = { Text("New topic name") })
+                                        TextButton(onClick = {
+                                            viewModel.createTopic(categoryId, newTopic)
+                                            newTopic = ""
+                                        }, enabled = newTopic.isNotBlank()) { Text("Create topic") }
+                                    }
                                 }
                                 TextButton(onClick = { deleteId = "*" }, enabled = count > 0) { Text("Clear reusable archive") }
                                 TextButton(onClick = { viewModel.compareVersions(selectedVersions) }, enabled = selectedVersions.size >= 2) { Text("Compare selected (${selectedVersions.size})") }
                                 Text("Archive reuse requires a fresh source check. Saved content may be historical or unavailable.")
                             }
                         }
-                        if (rows.isEmpty()) item { Text("No matching archived works. Evidence is added by authorized research; this view does not start a search.") }
+                        if (rows.isEmpty()) {
+                            item {
+                                if (count == 0) {
+                                    Text("Your research collection starts here. Search studies or import a citation; accepted records are saved automatically.")
+                                    TextButton(onClick = { tab = 0 }) { Text("Discover studies") }
+                                } else {
+                                    Text("No studies match these filters.")
+                                    TextButton(onClick = {
+                                        query = ""
+                                        topic = ""
+                                        offset = 0
+                                    }) { Text("Clear filters") }
+                                }
+                            }
+                        }
                         items(rows, key = { it.workId }) { row ->
                             SettingsPanel(row.title) {
                                 Text("${row.coverage.name.lowercase().replace('_', ' ')} · ${row.publicationYear ?: "Year unknown"}")
@@ -203,6 +301,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 FilterChip(row.latestVersionId in selectedVersions, {
                                     selectedVersions = if (row.latestVersionId in selectedVersions) selectedVersions - row.latestVersionId else (selectedVersions + row.latestVersionId).takeLast(state.featureDraft.comparisonLimit)
                                 }, label = { Text("Select for comparison") })
+                                TextButton(onClick = { viewModel.excludeRecall(row.workId) }) { Text("Exclude from recall") }
                                 TextButton(onClick = { moveId = row.workId }) { Text("Move to topic…") }
                                 TextButton(onClick = { deleteId = row.workId }) { Text("Remove from archive") }
                             }

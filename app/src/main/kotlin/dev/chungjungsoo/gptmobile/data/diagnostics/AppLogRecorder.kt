@@ -230,6 +230,7 @@ object AppLogRecorder {
                 }
                 val seen = mutableSetOf<String>()
                 snapshot.forEach { (source, bytes) ->
+                    val incidents = DiagnosticIncidentTracker()
                     var parent: String? = null
                     var sequence = 0
                     bytes.inputStream().bufferedReader().useLines { lines ->
@@ -243,7 +244,8 @@ object AppLogRecorder {
                                 sequence++
                             }
                             val identity = if (root) parent!! else "${parent ?: source}:$sequence"
-                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity), parent.takeUnless { root }, sequence, identity) else line)
+                            val incident = incidents.accept(line, identity, parent.takeUnless { root })
+                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity), parent.takeUnless { root }, sequence, identity, incident.id, incident.first) else line)
                         }
                     }
                 }

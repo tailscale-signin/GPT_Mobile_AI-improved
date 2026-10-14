@@ -15,7 +15,7 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 data class ResearchPortableSnapshot(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val exportedAt: Long,
     val works: List<ResearchWork>,
     val aliases: List<ResearchAlias>,
@@ -33,7 +33,10 @@ data class ResearchPortableSnapshot(
     val roots: List<BodyReference>,
     val tombstones: List<ResearchDeletionTombstone>,
     val sequence: ResearchSequence,
-    val receipts: List<ResearchImportReceipt>
+    val receipts: List<ResearchImportReceipt>,
+    val discoveries: List<ResearchDiscovery> = emptyList(),
+    val outcomes: List<ResearchOutcome> = emptyList(),
+    val recallExclusions: List<ResearchRecallExclusion> = emptyList()
 )
 
 /** Portable metadata, not a live WAL copy. The enclosing backup requires encryption. */
@@ -48,7 +51,7 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
         val rows = archive.database.withTransaction {
             val roots = dao.allRoots().filter { root ->
                 when (root.rootKind) {
-                    "archive" -> includeArchive
+                    "archive", "import" -> includeArchive
                     "job" -> includeAppraisal
                     "chat", "citation" -> includeChat
                     else -> false
@@ -67,7 +70,9 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
                 relatedTopics = dao.allRelatedTopics().filter { it.workId in workIds }, families = dao.allFamilies().filter { family -> works.any { it.studyFamilyId == family.familyId } },
                 passages = if (includeAppraisal) dao.allPassages().filter { it.versionId in ids } else emptyList(), fields = if (includeAppraisal) dao.allFields().filter { it.versionId in ids } else emptyList(),
                 appraisals = if (includeAppraisal) dao.allAppraisals().filter { it.versionId in ids } else emptyList(), bindings = if (includeChat) dao.allBindings().filter { it.versionId in ids } else emptyList(),
-                jobs = jobs, roots = roots, tombstones = dao.allTombstones(), sequence = dao.sequence() ?: ResearchSequence(), receipts = dao.allImportReceipts()
+                jobs = jobs, roots = roots, tombstones = dao.allTombstones(), sequence = dao.sequence() ?: ResearchSequence(), receipts = dao.allImportReceipts(), discoveries = dao.allDiscoveries().filter { it.workId in workIds },
+                outcomes = if (includeAppraisal) dao.allOutcomes().filter { it.versionId in ids } else emptyList(),
+                recallExclusions = dao.allRecallExclusions().filter { it.workId in workIds }
             )
         }
         val refs = rows.versions.flatMap { Json.decodeFromString<List<String>>(it.bodyChunksJson) }.toSet()
@@ -79,12 +84,12 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
     fun validate(file: File, staging: File): ResearchPortableSnapshot {
         require(file.length() in 1..64L * 1024 * 1024)
         val value = Json.decodeFromString<ResearchPortableSnapshot>(file.readText())
-        require(value.schemaVersion == 1 && value.exportedAt > 0 && value.works.size <= 50000 && value.versions.size <= 100000 && value.memberships.size <= 1000)
+        require(value.schemaVersion in 1..2 && value.exportedAt > 0 && value.works.size <= 50000 && value.versions.size <= 100000 && value.memberships.size <= 1000)
         require(value.works.map { it.workId }.distinct().size == value.works.size && value.versions.map { it.versionId }.distinct().size == value.versions.size)
         require(value.aliases.map { it.alias }.distinct().size == value.aliases.size)
         val works = value.works.map { it.workId }.toSet()
         val versions = value.versions.associateBy { it.versionId }
-        require(value.aliases.all { it.workId in works } && value.roots.all { it.versionId in versions && it.rootKind in setOf("archive", "job", "chat", "citation") })
+        require(value.aliases.all { it.workId in works } && value.roots.all { it.versionId in versions && it.rootKind in setOf("archive", "job", "chat", "citation", "import") })
         value.versions.forEach { version ->
             require(version.workId in works && version.versionId == researchHash("${version.workId}|${version.contentHash}|${version.parserVersion}|${version.sourceVersion}"))
             val refs = Json.decodeFromString<List<String>>(version.bodyChunksJson)
@@ -110,6 +115,9 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
             require(passage.start >= 0 && passage.end >= passage.start && passage.end <= text.length && text.substring(passage.start, passage.end) == passage.quote && researchHash(passage.quote) == passage.textHash)
         }
         require(value.fields.all { it.versionId in versions } && value.appraisals.all { it.versionId in versions && it.independentReview in setOf("not_requested", "unavailable", "passed", "rejected", "incomplete") })
+        require(value.discoveries.all { it.workId in works && it.metadataJson.toByteArray().size <= 65536 })
+        require(value.recallExclusions.all { it.workId in works })
+        require(value.outcomes.all { outcome -> versions[outcome.versionId]?.workId == outcome.workId && outcome.state in setOf("GROUNDED", "DRAFT", "WITHDRAWN", "NEEDS_REVIEW", "SUPERSEDED") && Json.decodeFromString<List<String>>(outcome.passageIdsJson).all { id -> value.passages.any { it.passageId == id && it.versionId == outcome.versionId } } })
         return value
     }
     suspend fun restore(value: ResearchPortableSnapshot, selection: CompleteBackupSelection, snapshotId: String, staging: File) = bodies.importFeatureFiles(
@@ -120,8 +128,8 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
             if (dao.allImportReceipts().any { it.importId == snapshotId }) return@withTransaction
             check(dao.allJobs().none { it.stage in setOf(ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING) }) { "Pause article examinations before restoring research" }
             value.tombstones.forEach { old -> dao.tombstone(old.copy(epoch = maxOf(old.epoch, dao.deleted(old.key) ?: 0))) }
-            value.categories.forEach { dao.category(it) }
-            value.topics.forEach { dao.topic(it) }
+            value.categories.forEach { incoming -> if (dao.allCategories().none { it.categoryId == incoming.categoryId }) dao.category(incoming) }
+            value.topics.forEach { if (dao.topic(it.topicId) == null) dao.topic(it) }
             value.families.forEach { dao.studyFamily(it) }
             value.works.forEach { incoming ->
                 val existing = dao.work(incoming.workId)
@@ -137,11 +145,14 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
                 require(old == null || old.contentHash == incoming.contentHash && old.authority == incoming.authority && old.bodyChunksJson == incoming.bodyChunksJson) { "Immutable research version conflict" }
                 dao.version(incoming)
             }
+            value.discoveries.forEach { dao.discovery(it) }
+            value.recallExclusions.forEach { dao.excludeRecall(it) }
             value.relatedTopics.forEach { dao.relatedTopic(it) }
             if (selection.includes(CompleteBackupSection.RESEARCH_APPRAISALS)) {
                 value.passages.forEach { dao.passage(it) }
                 value.fields.forEach { dao.field(it) }
                 value.appraisals.forEach { dao.appraisal(it) }
+                value.outcomes.forEach { dao.outcome(it.copy(state = "NEEDS_REVIEW")) }
                 value.jobs.filter { dao.deleted("chat:${it.chatId}") == null }.forEach { old ->
                     if (dao.jobForKey(old.dedupKey) == null) dao.job(old.copy(stage = ExaminationStage.PAUSED, terminalReason = "Restored; reauthorize before resuming", lease = old.lease + 1))
                 }
@@ -149,6 +160,7 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
             if (selection.includes(CompleteBackupSection.CHAT_RESEARCH)) value.bindings.filter { dao.deleted("chat:${it.chatId}") == null && chats.messageDao().rawMessage(it.messageId.toIntOrNull() ?: -1)?.chatId == it.chatId }.forEach { dao.binding(it) }
             value.roots.filter { root ->
                 when (root.rootKind) {
+                    "import" -> selection.includes(CompleteBackupSection.RESEARCH_ARCHIVE) && (dao.deleted("archive-clear") ?: 0) <= value.exportedAt && dao.version(root.versionId)?.let { dao.deleted("archive:${it.workId}") == null } == true
                     "job" -> selection.includes(CompleteBackupSection.RESEARCH_APPRAISALS) && dao.job(root.rootId) != null
                     "chat", "citation" -> selection.includes(CompleteBackupSection.CHAT_RESEARCH) && root.rootId.substringBefore(':').toIntOrNull()?.let { dao.deleted("chat:$it") == null && chats.chatRoomDao().getChatRoomsByIds(listOf(it)).singleOrNull()?.isTemporary == false } == true
                     else -> false

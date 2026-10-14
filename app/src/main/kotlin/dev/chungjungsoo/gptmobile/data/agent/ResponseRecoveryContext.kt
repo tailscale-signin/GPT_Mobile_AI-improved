@@ -24,6 +24,10 @@ internal class ResponseRecoveryContext(
 ) {
     suspend fun isAuthorized(): Boolean = authorization()
 
+    /** Operational denial is data. Callers must terminate before constructing a request. */
+    suspend fun authorizedPrefix(maxCharacters: Int, pagingAvailable: Boolean = true): RecoveryPrefix =
+        if (isAuthorized()) RecoveryPrefix.Allowed(prefix(maxCharacters, pagingAvailable)) else RecoveryPrefix.Blocked
+
     val content: String = buildString {
         research.forEach { snapshot ->
             appendLine("Saved research objective: ${snapshot.task}")
@@ -207,3 +211,16 @@ private fun safeEnd(text: String, offset: Int, length: Int): Int {
     }
     return end
 }
+
+internal sealed interface RecoveryPrefix {
+    data class Allowed(val text: String) : RecoveryPrefix
+    data object Blocked : RecoveryPrefix
+}
+
+internal const val RECOVERY_ACCESS_MESSAGE = "Saved evidence access changed. Review the conversation, destination and source permissions before resuming. No saved evidence was sent."
+
+/** Display-only edits must not revoke an otherwise identical disclosure grant. */
+internal fun sameRecoveryDestination(
+    admitted: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2,
+    current: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+): Boolean = admitted == current.copy(name = admitted.name, labels = admitted.labels, isFavorite = admitted.isFavorite)

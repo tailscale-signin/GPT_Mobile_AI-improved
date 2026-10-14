@@ -18,7 +18,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-@Database(entities = [ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 1, exportSchema = true)
+@Database(entities = [ResearchDiscovery::class, ResearchOutcome::class, ResearchRecallExclusion::class, ResearchHandoff::class, ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 2, exportSchema = true)
 abstract class ResearchDatabase : RoomDatabase() {
     abstract fun research(): ResearchDao
     abstract fun statistics(): dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsDao
@@ -28,7 +28,7 @@ abstract class ResearchDatabase : RoomDatabase() {
 @InstallIn(SingletonComponent::class)
 object ResearchDatabaseModule {
     @Provides @Singleton
-    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").build().also {
+    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").addMigrations(ResearchWorkspaceMigration).build().also {
         dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore.attach(java.io.File(context.filesDir, "research-telemetry"), it.statistics())
     }
 }
@@ -37,6 +37,45 @@ data class ArchiveRow(val workId: String, val title: String, val canonicalUrl: S
 
 @Dao
 interface ResearchDao {
+    @Upsert suspend fun discovery(value: ResearchDiscovery)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun outcome(value: ResearchOutcome): Long
+
+    @Upsert suspend fun excludeRecall(value: ResearchRecallExclusion)
+
+    @Upsert suspend fun handoff(value: ResearchHandoff)
+
+    @Query("SELECT * FROM research_discoveries WHERE workId=:id ORDER BY observedAt DESC")
+    suspend fun discoveries(id: String): List<ResearchDiscovery>
+
+    @Query("SELECT * FROM research_discoveries")
+    suspend fun allDiscoveries(): List<ResearchDiscovery>
+
+    @Query("SELECT * FROM research_outcomes")
+    suspend fun allOutcomes(): List<ResearchOutcome>
+
+    @Query("SELECT * FROM research_recall_exclusions")
+    suspend fun allRecallExclusions(): List<ResearchRecallExclusion>
+
+    @Query("SELECT * FROM research_handoffs WHERE handoffId=:id")
+    suspend fun handoff(id: String): ResearchHandoff?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM research_recall_exclusions WHERE workId=:id)")
+    suspend fun recallExcluded(id: String): Boolean
+
+    @Query("SELECT o.* FROM research_outcomes o JOIN research_archive a ON a.workId=o.workId AND a.latestVersionId=o.versionId JOIN research_works w ON w.workId=o.workId WHERE COALESCE(w.retracted,0)=0 AND NOT EXISTS(SELECT 1 FROM research_recall_exclusions x WHERE x.workId=o.workId) AND NOT EXISTS(SELECT 1 FROM research_tombstones t WHERE t.`key`='archive:' || o.workId) ORDER BY o.createdAt DESC LIMIT 100")
+    fun observeOutcomes(): Flow<List<ResearchOutcome>>
+
+    @Query("SELECT * FROM research_outcomes WHERE versionId=:id ORDER BY createdAt DESC")
+    suspend fun outcomes(id: String): List<ResearchOutcome>
+
+    @Query("SELECT primaryTopicId AS topicId, COUNT(*) AS count FROM research_archive GROUP BY primaryTopicId")
+    fun topicCounts(): Flow<List<ResearchTopicCount>>
+
+    @Query("UPDATE research_outcomes SET state='WITHDRAWN' WHERE outcomeId=:id")
+    suspend fun forgetOutcome(id: String)
+
     @Upsert suspend fun work(value: ResearchWork)
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -122,11 +161,17 @@ interface ResearchDao {
     @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') ORDER BY a.archiveSequence DESC LIMIT :limit OFFSET :offset")
     suspend fun page(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0): List<ArchiveRow>
 
+    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') ORDER BY a.archiveSequence DESC LIMIT :limit OFFSET :offset")
+    fun observePage(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0): Flow<List<ArchiveRow>>
+
     @Query("SELECT * FROM research_archive ORDER BY archiveSequence LIMIT MAX(0, (SELECT COUNT(*) FROM research_archive)-:keep)")
     suspend fun oldestExcess(keep: Int): List<ArchiveMembership>
 
     @Query("DELETE FROM research_archive WHERE workId=:id")
     suspend fun removeMembership(id: String)
+
+    @Query("DELETE FROM research_body_roots WHERE rootKind='import' AND versionId IN (SELECT versionId FROM research_versions WHERE workId=:workId)")
+    suspend fun removeImportRootsForWork(workId: String)
 
     @Query("DELETE FROM research_body_roots WHERE rootKind=:kind AND rootId=:id")
     suspend fun removeRoots(kind: String, id: String)
@@ -250,14 +295,17 @@ interface ResearchDao {
         require(version.workId == workId && version.publicSource)
         requireNotNull(topic(topicId))
         val existing = membership(workId)
-        val next = existing?.copy(latestVersionId = versionId, primaryTopicId = topicId) ?: ArchiveMembership(workId, seq.next, now, versionId, topicId)
+        val retainedVersion = existing?.let { version(it.latestVersionId) }
+        val selectedVersion = if (version.coverage == ArticleCoverage.METADATA_ONLY && retainedVersion?.coverage != ArticleCoverage.METADATA_ONLY && retainedVersion != null) retainedVersion.versionId else versionId
+        val next = existing?.copy(latestVersionId = selectedVersion, primaryTopicId = topicId) ?: ArchiveMembership(workId, seq.next, now, versionId, topicId)
         if (existing == null) sequence(seq.copy(next = Math.addExact(seq.next, 1)))
         membership(next)
         removeRoots("archive", workId)
-        root(BodyReference("archive", workId, versionId))
+        root(BodyReference("archive", workId, next.latestVersionId))
         oldestExcess(1000).forEach {
             removeMembership(it.workId)
             removeRoots("archive", it.workId)
+            removeImportRootsForWork(it.workId)
         }
         outbox(ResearchOutbox("archive-gc", "reconcile", now))
         check(count() <= 1000)
@@ -272,6 +320,7 @@ interface ResearchDao {
         oldestExcess(0).forEach {
             removeMembership(it.workId)
             removeRoots("archive", it.workId)
+            removeImportRootsForWork(it.workId)
         }
         outbox(ResearchOutbox("archive-gc", "reconcile", now))
     }

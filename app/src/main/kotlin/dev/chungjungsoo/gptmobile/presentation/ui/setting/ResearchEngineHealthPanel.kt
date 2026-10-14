@@ -118,7 +118,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         TextButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
         if (pending) {
             ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
-                Text("${engine.name} · Adapter not ready", style = MaterialTheme.typography.labelLarge)
+                Text("${engine.name} · ${if (engine.id == "google_scholar") "Browser-assisted" else "Adapter not ready"}", style = MaterialTheme.typography.labelLarge)
                 Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
             }
         }

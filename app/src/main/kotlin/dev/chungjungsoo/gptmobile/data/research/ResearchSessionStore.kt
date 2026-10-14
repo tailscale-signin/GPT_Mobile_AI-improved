@@ -381,7 +381,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                                             text
                                         }
                                     }
-                                    dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, authority, publicEvidence, chatId, turnId, eligible, epoch, researchHash(body), body.toByteArray().size.toLong())
+                                    dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, authority, publicEvidence, chatId, turnId, eligible, epoch, researchHash(body), body.toByteArray().size.toLong(), automaticOrganization = settings?.researchFeature?.automaticOrganization == true)
                                     archivedRevisions[source.id] = revision
                                 }
                             }

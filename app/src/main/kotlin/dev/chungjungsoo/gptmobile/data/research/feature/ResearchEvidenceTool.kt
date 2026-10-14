@@ -136,7 +136,10 @@ internal class ResearchEvidenceTool(private val operation: String, private val a
                 val value = version(string("versionId"))
                 val offset = (arguments["offset"] as? JsonPrimitive)?.intOrNull ?: 0
                 require(offset in 0..10000)
-                val passages = archive.dao.passages(value.versionId)
+                val body = archive.text(value, authority) ?: error("Saved evidence is unavailable or failed its integrity check")
+                val passages = archive.dao.passages(value.versionId).filter { passage ->
+                    passage.start >= 0 && passage.end in passage.start..body.length && body.substring(passage.start, passage.end) == passage.quote && dev.chungjungsoo.gptmobile.data.research.researchHash(passage.quote) == passage.textHash
+                }
                 val page = passages.drop(offset).take(8)
                 buildJsonObject {
                     put("versionId", value.versionId)

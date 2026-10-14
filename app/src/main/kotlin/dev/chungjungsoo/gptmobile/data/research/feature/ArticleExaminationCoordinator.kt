@@ -368,6 +368,11 @@ Source UTF-16 offset ${chunk.first}: ${chunk.second}
                             }
                             reviewPending()
                         }
+                        check(allowed()) { "Research permission changed before outcomes were committed" }
+                        archive.database.withTransaction {
+                            check(archive.dao.job(record.jobId)?.lease == record.lease)
+                            ResearchOutcomeBuilder.build(captured, archive.dao.fields(captured.versionId), archive.dao.passages(captured.versionId), System.currentTimeMillis()).forEach { archive.dao.outcome(it) }
+                        }
                         val terminal = if (captured.coverage == ArticleCoverage.ABSTRACT_ONLY) ExaminationStage.ABSTRACT_ONLY else ExaminationStage.COMPLETE_PARTIAL
                         stage(terminal, "Text batches examined. Figures and supplements remain unverified; independent review status is recorded per appraisal.")
                     } finally {

@@ -45,6 +45,9 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
             // Durable outbox remains pending; a missing or corrupt manifest cannot cause body deletion.
         }
     }
+    fun observePage(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0) =
+        dao.observePage(query.trim().take(300).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"), topic, peerReviewedOnly, 40, offset.coerceAtLeast(0))
+
     suspend fun page(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0): List<ArchiveRow> {
         initialize()
         return dao.page(query.trim().take(300).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"), topic, peerReviewedOnly, 40, offset.coerceAtLeast(0))
@@ -69,9 +72,42 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         bodies.publishFeatureBody(text) { chunks ->
             ResearchArchiveIngestor.capture(database, source.copy(bodyChunks = chunks, passage = text.take(8000)), authority, publicSource, chatId, rootId, archive, epoch, researchHash(text), text.toByteArray().size.toLong())
         }
+
+    /** Explicit standalone imports use their own owner; they do not invent a conversation. */
+    suspend fun ingestPaper(paper: dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper, ownerId: String, epoch: Long, organize: Boolean, permitted: suspend () -> Boolean): ResearchWorkVersion {
+        require(paper.title.isNotBlank() && ResearchArchiveIngestor.publicUrl(paper.canonicalUrl))
+        check(permitted()) { "Research permission changed" }
+        val source = ResearchSource(
+            id = paper.paperId, url = paper.canonicalUrl, title = paper.title, paperId = paper.paperId,
+            doi = paper.doi, pmid = paper.identifiers["pmid"].orEmpty(), pmcid = paper.identifiers["pmcid"].orEmpty(),
+            publicationYear = paper.year, publicationType = paper.publicationType, reviewStatus = paper.reviewStatus,
+            isRetracted = paper.isRetracted, isPreprint = paper.isPreprint, engines = paper.sourceProviders,
+            versionId = paper.versionId, retrievedAt = System.currentTimeMillis(),
+            bibliographyJson = Json.encodeToString(paper.copy(abstract = "")),
+            status = if (paper.abstract.isBlank()) "Metadata only" else "Abstract",
+            retrievalQuality = if (paper.abstract.isBlank()) "METADATA" else "ABSTRACT"
+        )
+        return bodies.publishFeatureBody(paper.abstract) { chunks ->
+            check(permitted()) { "Research permission changed" }
+            database.withTransaction {
+                val version = ResearchArchiveIngestor.capture(database, source.copy(bodyChunks = chunks), "public", true, -1, ownerId, true, epoch, researchHash(paper.abstract), paper.abstract.toByteArray().size.toLong(), "import", ownerId, organize)
+                if (organize) organize(version.workId, paper.title, paper.subjects)
+                version
+            }
+        }
+    }
+    private suspend fun organize(workId: String, title: String, subjects: List<String>) {
+        val membership = dao.membership(workId) ?: return
+        if (membership.primaryTopicId != ResearchArchiveIngestor.DEFAULT_TOPIC) return
+        val match = ResearchOrganization.topic(title, subjects) ?: return
+        val id = "${match.first}:automatic"
+        if (dao.topic(id) == null) dao.topic(ResearchTopic(id, match.first, match.second))
+        dao.membership(membership.copy(primaryTopicId = id))
+    }
     suspend fun remove(workId: String) = database.withTransaction {
         dao.removeMembership(workId)
         dao.removeRoots("archive", workId)
+        dao.removeImportRootsForWork(workId)
         dao.tombstone(ResearchDeletionTombstone("archive:$workId", System.currentTimeMillis()))
         dao.outbox(ResearchOutbox("archive-gc", "reconcile", System.currentTimeMillis()))
     }
@@ -129,11 +165,13 @@ internal object ResearchArchiveIngestor {
             uri.rawQuery.orEmpty().split('&').none { it.substringBefore('=').lowercase() in setOf("token", "key", "api_key", "sig", "signature", "authorization", "credential", "session", "x-amz-signature", "x-goog-signature") }
     }.getOrDefault(false)
 
-    suspend fun capture(database: ResearchDatabase, source: ResearchSource, authority: String, publicEvidence: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, contentHash: String, textBytes: Long): ResearchWorkVersion {
+    suspend fun capture(database: ResearchDatabase, source: ResearchSource, authority: String, publicEvidence: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, contentHash: String, textBytes: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId", automaticOrganization: Boolean = true): ResearchWorkVersion {
         seed(database)
         return database.withTransaction {
             val dao = database.research()
-            check(dao.deleted("chat:$chatId") == null) { "Conversation was deleted" }
+            require(ownerKind in setOf("chat", "import"))
+            if (ownerKind == "chat") check(chatId > 0 && dao.deleted("chat:$chatId") == null) { "Conversation was deleted" }
+            if (ownerKind == "import") require(ownerId.isNotBlank())
             val public = publicEvidence && publicUrl(source.canonicalUrl)
             val scope = if (public) "public" else researchHash(authority)
             val identities = buildList {
@@ -166,8 +204,21 @@ internal object ResearchArchiveIngestor {
                 bodyChunksJson = Json.encodeToString(source.bodyChunks), authority = authority, publicSource = public, textBytes = textBytes
             )
             dao.version(captured)
-            dao.root(BodyReference("chat", "$chatId:$rootId", versionId))
+            dao.root(BodyReference(ownerKind, ownerId, versionId))
             if (archive && public) dao.archive(workId, versionId, dao.membership(workId)?.primaryTopicId ?: DEFAULT_TOPIC, System.currentTimeMillis(), epoch)
+            val membership = dao.membership(workId)
+            if (automaticOrganization && membership?.primaryTopicId == DEFAULT_TOPIC) {
+                val subjects = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(source.bibliographyJson).subjects }.getOrDefault(emptyList())
+                ResearchOrganization.topic(source.title, subjects)?.let { (category, label) ->
+                    val topicId = "$category:automatic"
+                    if (dao.topic(topicId) == null) dao.topic(ResearchTopic(topicId, category, label))
+                    dao.membership(membership.copy(primaryTopicId = topicId))
+                }
+            }
+            source.engines.distinct().forEach { engine ->
+                val record = source.paperId.ifBlank { source.canonicalUrl }
+                dao.discovery(ResearchDiscovery(researchHash("$workId|$engine|$record"), workId, engine, record, source.bibliographyJson, System.currentTimeMillis()))
+            }
             requireNotNull(dao.version(versionId))
         }
     }

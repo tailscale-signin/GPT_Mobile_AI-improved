@@ -87,6 +87,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     private val quotaLocks = ConcurrentHashMap<String, Mutex>()
     private val statuses = ConcurrentHashMap<String, AcademicProviderStatus>()
     private val telemetry = dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore(File(context.filesDir, "research-telemetry"))
+    private val totals = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, Long>(30 * 60_000L, 64)
     private val cache = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, List<AcademicPaper>>(30 * 60_000L, 64)
     private val connectivity = ResearchConnectivityGate.shared
     private val searchRotation = java.util.concurrent.atomic.AtomicInteger()
@@ -135,14 +136,14 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         require(request.fromYear == null || request.toYear == null || request.fromYear <= request.toYear)
         val query = request.query.lowercase()
         val routed = when {
-            Regex("cancer|clinical|patient|medicine|health|biolog").containsMatchIn(query) -> listOf("europepmc", "openalex", "crossref")
+            Regex("cancer|clinical|patient|medicine|health|biolog").containsMatchIn(query) -> listOf("pubmed", "europepmc", "openalex", "crossref")
             Regex("dataset|software|research data").containsMatchIn(query) -> listOf("datacite", "openalex", "crossref")
             Regex("gpu|npu|android|transformer|physics|learning|cryptograph|algorithm").containsMatchIn(query) -> listOf("arxiv", "openalex", "crossref")
             else -> listOf("openalex", "crossref", "datacite")
         }
         val rotation = Math.floorMod(searchRotation.getAndIncrement(), CORE.size)
         val rotated = CORE.drop(rotation) + CORE.take(rotation)
-        val planned = (routed.take(1) + rotated + routed).distinct()
+        val planned = (routed.take(if (routed.first() == "pubmed") 2 else 1) + rotated + routed).distinct()
             .filter { selection.enabledProviders.isEmpty() || it in selection.enabledProviders }.take(if (selection.depth == 100) CORE.size else request.maxProviderCalls.coerceIn(1, CORE.size))
         val results = planned.map { provider ->
             async(Dispatchers.IO) {
@@ -150,6 +151,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                 val key = researchHash("$provider|${request.copy(query = request.query.trim().replace(Regex("\\s+"), " "), maxProviderCalls = 1)}")
                 var cacheHit = false
                 var dispatched = false
+                var providerTotal: Long? = totals[key]
                 val started = System.nanoTime()
                 try {
                     check(allowed()) { "permission_denied" }
@@ -166,14 +168,30 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                             check(allowed()) { "permission_denied" }
                             dispatched = true
                             val body = fetch(searchUrl(provider, request), request.includeDomains, request.excludeDomains, allowed, provider).first
-                            if (provider in setOf("europepmc", "pubmed")) {
-                                val cursor = json.parseToJsonElement(body).jsonObject.string("nextCursorMark")
-                                if (cursor.isNotBlank()) {
-                                    if (cursors.size >= 192) cursors.keys.firstOrNull()?.let(cursors::remove)
-                                    saveCursor(request, request.page + 1, cursor)
+                            if (provider == "pubmed") {
+                                val page = dev.chungjungsoo.gptmobile.data.research.engines.PubMedEngineAdapter.parsePage(body)
+                                providerTotal = page.total
+                                totals[key] = page.total
+                                val records = if (page.ids.isEmpty()) {
+                                    emptyList()
+                                } else {
+                                    reserve(provider, allowed)
+                                    val xml = fetch(dev.chungjungsoo.gptmobile.data.research.engines.PubMedEngineAdapter.fetchUrl(page.ids), request.includeDomains, request.excludeDomains, allowed, provider).first
+                                    dev.chungjungsoo.gptmobile.data.research.engines.PubMedEngineAdapter.parseRecords(xml).filter { it.identifiers["pmid"] in page.ids }
                                 }
+                                cache[key] = records
+                                records
+                            } else {
+                                if (provider == "europepmc") {
+                                    val cursor = json.parseToJsonElement(body).jsonObject.string("nextCursorMark")
+                                    if (cursor.isNotBlank()) {
+                                        if (cursors.size >= 192) cursors.keys.firstOrNull()?.let(cursors::remove)
+                                        check(cursor != loadCursor(provider, request) || parseSearch(provider, body).isEmpty()) { "Provider returned a repeated cursor; refine the query" }
+                                        saveCursor(provider, request, request.page + 1, cursor)
+                                    }
+                                }
+                                parseSearch(provider, body).also { cache[key] = it }
                             }
-                            parseSearch(provider, body).also { cache[key] = it }
                         }
                     }
                     val filtered = papers.filter { paper ->
@@ -185,7 +203,21 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.AcademicDiscoveryObserver]?.accept?.invoke(
                         filtered.map { json.encodeToJsonElement(AcademicPaper.serializer(), it).jsonObject }
                     )
-                    val state = AcademicProviderStatus(provider, if (filtered.isEmpty()) "empty" else "success", filtered.size, cacheHit, receiptId = receipt)
+                    val state = AcademicProviderStatus(
+                        provider,
+                        if (providerTotal != null && providerTotal!! > 10_000) {
+                            "partial"
+                        } else if (filtered.isEmpty()) {
+                            "empty"
+                        } else {
+                            "success"
+                        },
+                        filtered.size,
+                        cacheHit,
+                        receiptId = receipt,
+                        totalMatches = providerTotal,
+                        limitation = if (providerTotal != null && providerTotal!! > 10_000) "Partial coverage: $providerTotal PubMed matches; only the first 10,000 are retrievable. Refine or partition the query." else null
+                    )
                     statuses[provider] = state
                     telemetry.record(dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(receipt, provider, "search", System.currentTimeMillis(), outcome = if (filtered.isEmpty()) "EMPTY" else "SUCCESS", cacheHit = cacheHit, dispatched = dispatched, durationMs = (System.nanoTime() - started) / 1_000_000))
                     filtered to state
@@ -259,6 +291,13 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         val pmcid = identifier.removePrefix("pmcid:").uppercase()
         val pmid = identifier.removePrefix("pmid:")
         require(pmcid.matches(Regex("PMC[0-9]+")) || pmid.matches(Regex("[0-9]{1,12}"))) { "Native lookup supports DOI, arXiv, PMID and PMCID. Use the gateway for other identifiers." }
+        if (pmid.matches(Regex("[0-9]{1,12}")) && policy.allows("pubmed")) {
+            return@withContext permits.getValue("pubmed").withPermit {
+                reserve("pubmed", allowed)
+                val xml = fetch(dev.chungjungsoo.gptmobile.data.research.engines.PubMedEngineAdapter.fetchUrl(listOf(pmid)), policy.included, policy.excluded, allowed, "pubmed").first
+                dev.chungjungsoo.gptmobile.data.research.engines.PubMedEngineAdapter.parseRecords(xml).firstOrNull { it.identifiers["pmid"] == pmid }?.copy(sourceProviders = listOf("pubmed"), providerReceipts = listOf(UUID.randomUUID().toString()))?.let(::remember)
+            }
+        }
         val query = if (pmcid.startsWith("PMC")) "EXT_ID:$pmcid" else "EXT_ID:$pmid AND SRC:MED"
         require(policy.allows("europepmc")) { "Academic provider disabled" }
         return@withContext search(AcademicSearchRequest(query, 20, 1, includeDomains = policy.included, excludeDomains = policy.excluded), MultiSearchResearchSelection(true, 20, enabledProviders = setOf("europepmc")), allowed).papers.firstOrNull()
@@ -285,6 +324,12 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                 pmc.matches(Regex("PMC[0-9]+")) -> "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/fullTextXML"
                 arxiv.isNotBlank() -> "https://arxiv.org/html/$arxiv"
                 else -> paper.openAccessUrl.orEmpty().ifBlank { if (targetedCrawl) paper.canonicalUrl else "" }
+            }
+            if (url.isBlank() && paper.abstract.isNotBlank()) {
+                val evidence = AcademicEvidence(paper.paperId, paper.versionId + ":abstract:" + researchHash(paper.abstract), paper.canonicalUrl, System.currentTimeMillis(), researchHash(paper.abstract), paper.abstract, "abstract_only", section = "Provider abstract", providerReceipts = paper.providerReceipts)
+                check(allowed()) { "permission_denied" }
+                if (persistent) save(evidence) else transientEvidence[researchHash("${evidence.paperId}|${evidence.versionId}")] = evidence
+                return@withContext recorded(evidence)
             }
             if (url.isBlank()) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, paper.canonicalUrl, System.currentTimeMillis(), "", "", "metadata_only"))
             if (url.substringBefore('?').endsWith(".pdf", true)) return@withContext recorded(AcademicEvidence(paper.paperId, paper.versionId, url, System.currentTimeMillis(), "", "", "pdf_unsupported_without_gateway"))
@@ -531,8 +576,8 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         error("Too many academic redirects")
     }
 
-    private suspend fun saveCursor(request: AcademicSearchRequest, page: Int, token: String) {
-        val key = cursorKey(request, page)
+    private suspend fun saveCursor(provider: String, request: AcademicSearchRequest, page: Int, token: String) {
+        val key = cursorKey(provider, request, page)
         cursors[key] = token
         val scope = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext] ?: return
         if (!scope.persistent || scope.runKey.isBlank()) return
@@ -556,9 +601,9 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         }
     }
 
-    private suspend fun loadCursor(request: AcademicSearchRequest): String? {
+    private suspend fun loadCursor(provider: String, request: AcademicSearchRequest): String? {
         if (request.page == 1) return "*"
-        val key = cursorKey(request, request.page)
+        val key = cursorKey(provider, request, request.page)
         cursors[key]?.let { return it }
         val scope = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext] ?: return null
         if (!scope.persistent || scope.runKey.isBlank()) return null
@@ -574,7 +619,10 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         }
     }
 
-    private fun cursorKey(request: AcademicSearchRequest, page: Int) = researchHash(request.copy(page = 1).toString()) + ":$page"
+    private suspend fun cursorKey(provider: String, request: AcademicSearchRequest, page: Int): String {
+        val owner = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext]?.runKey.orEmpty()
+        return researchHash("cursor-v2|$provider|$owner|${request.copy(page = 1, maxProviderCalls = 1)}") + ":$page"
+    }
     private suspend fun searchUrl(provider: String, request: AcademicSearchRequest): String {
         val query = encode(request.query)
         val limit = minOf(request.maxResults, 20)
@@ -584,9 +632,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             "openalex" -> "https://api.openalex.org/works?search=$query&per-page=$limit&page=$page"
             "crossref" -> "https://api.crossref.org/works?query.bibliographic=$query&rows=$limit&offset=$offset"
             "arxiv" -> "https://export.arxiv.org/api/query?search_query=all:$query&start=$offset&max_results=$limit"
-            "europepmc", "pubmed" -> {
-                val cursor = loadCursor(request) ?: error("Cursor unavailable; resume requires the saved provider checkpoint")
-                "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${if (provider == "pubmed") encode("(${request.query}) AND SRC:MED") else query}&format=json&pageSize=$limit&cursorMark=${encode(cursor)}"
+            "pubmed" -> dev.chungjungsoo.gptmobile.data.research.engines.PubMedEngineAdapter.searchUrl(request)
+            "europepmc" -> {
+                val cursor = loadCursor(provider, request) ?: error("Cursor unavailable; resume requires the saved provider checkpoint")
+                val translated = request.query + if (request.fromYear != null || request.toYear != null) " AND FIRST_PDATE:[${request.fromYear ?: 1800}-01-01 TO ${request.toYear ?: 3000}-12-31]" else ""
+                "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encode(translated)}&format=json&resultType=core&pageSize=$limit&cursorMark=${encode(cursor)}"
             }
             "datacite" -> "https://api.datacite.org/dois?query=$query&page%5Bsize%5D=$limit&page%5Bnumber%5D=$page"
             else -> error("Provider is not in the native allowlist")
@@ -641,7 +691,19 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                 val doi = SourceIdentity.normalizeDoi(row.string("doi"))
                 val ids = mapOf("pmid" to row.string("id").takeIf { row.string("source") == "MED" }.orEmpty(), "pmcid" to row.string("pmcid")).filterValues(String::isNotBlank)
                 val url = if (ids["pmcid"] != null) "https://pmc.ncbi.nlm.nih.gov/articles/${ids["pmcid"]}/" else "https://europepmc.org/article/${row.string("source")}/${row.string("id")}"
-                AcademicPaper(academicPaperId(doi, ids, url), row.string("title"), url, doi, ids, year = row.string("pubYear").toIntOrNull(), openAccessUrl = url.takeIf { row.string("isOpenAccess") == "Y" })
+                val abstract = Jsoup.parse(row.string("abstractText")).text()
+                AcademicPaper(
+                    academicPaperId(doi, ids, url), row.string("title"), url, doi, ids,
+                    year = row.string("pubYear").toIntOrNull(), openAccessUrl = url.takeIf { row.string("isOpenAccess") == "Y" },
+                    authors = row.obj("authorList").rows("author").map { it.string("fullName").ifBlank { it.string("collectiveName") } }.filter(String::isNotBlank),
+                    abstract = abstract, sourceAccess = if (abstract.isBlank()) "metadata_only" else "abstract_only",
+                    journal = row.obj("journalInfo").obj("journal").string("title"),
+                    subjects = row.obj("meshHeadingList").rows("meshHeading").map { it.string("descriptorName") }.filter(String::isNotBlank),
+                    publicationType = (row.obj("pubTypeList")["pubType"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }.joinToString("; ").ifBlank { "unknown" },
+                    contentLicense = row.string("license").takeIf(String::isNotBlank),
+                    publicationDate = row.string("firstPublicationDate"), providerRecordId = "${row.string("source")}:${row.string("id")}",
+                    isRetracted = true.takeIf { row.string("isRetracted") == "Y" }
+                )
             }
         }.filter { it.title.isNotBlank() && it.paperId != "doi:" }
     }
@@ -666,7 +728,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     private fun JsonObject.rows(key: String) = (get(key) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
     private fun encode(value: String) = URLEncoder.encode(value, "UTF-8")
     companion object {
-        val CORE = listOf("openalex", "crossref", "arxiv", "europepmc", "datacite")
-        private val HOSTS = setOf("api.openalex.org", "api.crossref.org", "export.arxiv.org", "arxiv.org", "www.ebi.ac.uk", "api.datacite.org", "api.opencitations.net")
+        val CORE = listOf("openalex", "crossref", "arxiv", "europepmc", "datacite", "pubmed")
+        private val HOSTS = setOf("eutils.ncbi.nlm.nih.gov", "api.openalex.org", "api.crossref.org", "export.arxiv.org", "arxiv.org", "www.ebi.ac.uk", "api.datacite.org", "api.opencitations.net")
     }
 }

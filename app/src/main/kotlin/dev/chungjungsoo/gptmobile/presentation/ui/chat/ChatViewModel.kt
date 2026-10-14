@@ -61,6 +61,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -2049,7 +2050,9 @@ class ChatViewModel @Inject constructor(
         val grouped = _groupedMessages.value
         grouped.userMessages.indices.forEach { turnIndex ->
             val userId = grouped.userMessages[turnIndex].id
-            if (userId in combinedSynthesisMessages) return@forEach
+            // Optimistic, unsaved turns share ID 0. They have no durable owner
+            // and must never consume the one-shot synthesis reservation.
+            if (userId <= 0 || userId in combinedSynthesisMessages) return@forEach
             val row = grouped.assistantMessages.getOrNull(turnIndex).orEmpty()
             val activeRow = activeSlotIndexes.mapNotNull { row.getOrNull(it) }
             if (activeRow.size != activeSlotIndexes.size) return@forEach
@@ -2059,11 +2062,19 @@ class ChatViewModel @Inject constructor(
             combinedSynthesisMessages += userId
             pendingRunDispatches += 1
             viewModelScope.launch {
+                var committed = false
+                var scheduleRetry = false
                 try {
-                    startCombinedSynthesis(turnIndex, sources)
+                    val dispatched = startCombinedSynthesis(turnIndex, sources, onPersisted = { committed = true })
+                    if (!dispatched && !committed) scheduleRetry = combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                 } catch (error: CancellationException) {
+                    // Parent/user cancellation is not an invitation to automatically
+                    // restart generation; an explicit retry or later state change can recover.
+                    if (!committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                     throw error
                 } catch (error: Throwable) {
+                    // A durable run can never be automatically replayed after UI/provider failure.
+                    if (!committed) scheduleRetry = combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                     _attachmentNotice.update {
                         error.message?.takeIf(String::isNotBlank)
                             ?: "Could not combine the model responses."
@@ -2073,6 +2084,17 @@ class ChatViewModel @Inject constructor(
                     pendingRunDispatches -= 1
                     syncLoadingStates(_agentRunsById.value)
                     drainPromptQueueIfIdle()
+                    if (scheduleRetry) {
+                        val chatId = room.id
+                        // One delayed state recheck, at most three per unchanged source
+                        // revision. No retry is permitted after a persisted run.
+                        viewModelScope.launch {
+                            delay(5_000L)
+                            if (_chatRoom.value.id == chatId && _chatRoom.value.conversationMode == ConversationMode.COMBINED) {
+                                advancePendingGeneration()
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2080,10 +2102,11 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun startCombinedSynthesis(
         turnIndex: Int,
-        sources: List<CombinedModelResponse>
-    ) {
+        sources: List<CombinedModelResponse>,
+        onPersisted: () -> Unit
+    ): Boolean {
         val grouped = _groupedMessages.value
-        val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
+        val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return false
         val pinnedPrimary = _chatRoom.value.combinedPrimaryUid ?: _chatRoom.value.activePlatform.firstOrNull()
         val candidates = sources.filter { it.platformUid == pinnedPrimary }.mapNotNull { source ->
             _platformsInApp.value.firstOrNull { it.uid == source.platformUid && it.enabled }
@@ -2101,7 +2124,7 @@ class ChatViewModel @Inject constructor(
         if (leadPlatform == null) {
             if (sources.any { it.localOnly }) {
                 _attachmentNotice.update { "These responses contain local-only memory. Choose a local AI profile to combine them; the individual responses remain available." }
-                return
+                return false
             }
             val coolingProvider = candidates.firstNotNullOfOrNull { platform ->
                 if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) return@firstNotNullOfOrNull null
@@ -2115,12 +2138,12 @@ class ChatViewModel @Inject constructor(
                     "Combined synthesis is paused because ${provider.displayName} is cooling down. Try again in ${((retryAt - System.currentTimeMillis()).coerceAtLeast(0) + 999) / 1000} seconds; no synthesis request was sent."
                 } ?: "Combined synthesis is paused because the pinned primary is unavailable. Restore that profile or explicitly choose a new primary; no substitute was dispatched."
             }
-            return
+            return false
         }
         val leadUid = leadPlatform.uid
-        val leadIndex = enabledPlatformsInChat.indexOf(leadUid).takeIf { it >= 0 } ?: return
-        val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.getOrNull(leadIndex) ?: return
-        if (leadMessage.id <= 0) return
+        val leadIndex = enabledPlatformsInChat.indexOf(leadUid).takeIf { it >= 0 } ?: return false
+        val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.getOrNull(leadIndex) ?: return false
+        if (leadMessage.id <= 0) return false
 
         val synthesisRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
 
@@ -2177,6 +2200,9 @@ class ChatViewModel @Inject constructor(
                 run = run
             )
         )
+        // The durable run now owns this answer slot. No automatic retry may
+        // replace it, even if UI publication or provider dispatch subsequently fails.
+        onPersisted()
 
         _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
         _groupedMessages.update { current ->
@@ -2210,6 +2236,7 @@ class ChatViewModel @Inject constructor(
                 )
             )
         )
+        return true
     }
 
     private fun checkAndGenerateAiTitle(runsById: Map<String, AgentRun>) {

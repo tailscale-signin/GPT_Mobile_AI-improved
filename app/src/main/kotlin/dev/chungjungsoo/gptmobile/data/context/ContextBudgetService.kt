@@ -9,11 +9,58 @@ data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outpu
     fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceAtLeast(0), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152), generationTimeoutMinutes = generationTimeoutMinutes.coerceIn(0, 1440), responseCharacterLimit = if (responseCharacterLimit == 0) 0 else responseCharacterLimit.coerceIn(4096, 16_777_216))
 }
 
-data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int?, val notice: String, val promptTokens: Int = 0)
+data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int?, val notice: String, val promptTokens: Int = 0, val multipass: CombinedCorpusMultipassPlan? = null)
 
 /** Conservative byte-based estimates. Provider-reported counts remain the accounting authority. */
 object ContextBudgetService {
     fun estimate(text: String): Int = ((text.toByteArray(Charsets.UTF_8).size.toLong() + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+    /** Combined's frozen history is required input, so ordinary history-window eviction is forbidden. */
+    fun planFullInput(turns: List<ConversationTurn>, system: String, settings: TokenBudgetSettings): ContextPlan {
+        val config = settings.normalized()
+        val cost = breakdown(turns, system, emptyList())
+        val outputLimit = config.outputTokens.takeIf { it > 0 }
+        val outputReserve = outputLimit ?: minOf(32768, config.contextTokens / 4)
+        val safetyReserve = minOf(256, config.contextTokens / 16)
+        val required = cost.total.toLong() + outputReserve + safetyReserve
+        require(config.contextTokens == Int.MAX_VALUE || required <= config.contextTokens.toLong()) {
+            "COMBINED_CONTEXT_CAPACITY: The complete frozen input needs approximately ${cost.total} prompt tokens, " +
+                "$outputReserve output tokens and $safetyReserve safety tokens; capacity is ${config.contextTokens}. " +
+                "No history or contribution was clipped and no substitute primary was selected. " +
+                "Increase the pinned primary's context capacity or reduce the selected input explicitly. " +
+                "Full-corpus multipass is not yet available."
+        }
+        return ContextPlan(
+            turns = turns,
+            system = system,
+            tools = emptyList(),
+            toolResultBytes = 0,
+            outputTokens = outputLimit,
+            notice = "Combined workflow: FULL_INPUT. Complete frozen history and contributions delivered; " +
+                "${cost.total} estimated prompt tokens. Delivery does not establish semantic coverage.",
+            promptTokens = cost.total
+        )
+    }
+
+    /** Keep strict full-input planning available while allowing an explicit, bounded fallback. */
+    fun planFullInputOrMultipass(turns: List<ConversationTurn>, system: String, settings: TokenBudgetSettings): ContextPlan =
+        try {
+            planFullInput(turns, system, settings)
+        } catch (overflow: IllegalArgumentException) {
+            if (overflow.message?.startsWith("COMBINED_CONTEXT_CAPACITY:") != true) throw overflow
+            val stages = CombinedCorpusMultipass.plan(turns, system, settings)
+            ContextPlan(
+                turns = turns,
+                system = system,
+                tools = emptyList(),
+                toolResultBytes = 0,
+                outputTokens = settings.normalized().outputTokens.takeIf { it > 0 },
+                notice = "Combined workflow: FULL_CORPUS_MULTIPASS; ${stages.passes.size} exact text inspections by the pinned primary. " +
+                    "Every frozen span remains accessible; semantic coverage is not assumed.",
+                promptTokens = stages.passes.first().estimatedPromptTokens,
+                multipass = stages
+            )
+        }
 
     fun breakdown(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>): ContextCostBreakdown = ContextCostBreakdown(
         system = estimate(system),

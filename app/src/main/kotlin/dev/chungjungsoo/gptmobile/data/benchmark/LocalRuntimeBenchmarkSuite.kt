@@ -9,7 +9,6 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalConversationConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalSamplerConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus
@@ -157,14 +156,12 @@ class LocalRuntimeBenchmarkSuite @Inject constructor(
                 )
                 val prompt = "Summarize these observations in plain language, preserving the numbers: " +
                     (1..(band / 16)).joinToString(" ") { "Observation $it: the test collected three samples during the morning and two during the afternoon." }
-                runtime.sendMessage(prompt).collect { event ->
-                    when (event) {
-                        is LocalRuntimeEvent.Metrics -> metrics = event.metrics
-                        is LocalRuntimeEvent.TextDelta -> characters += event.text.length
-                        is LocalRuntimeEvent.Error -> failure = event.message
-                        LocalRuntimeEvent.Done -> completed = true
-                        else -> Unit
-                    }
+                val output = collectLocalBenchmarkOutput(runtime.sendMessage(prompt), onOutputCharacters = { characters = it }) { metrics = it }
+                completed = output.completed
+                failure = output.failure
+                output.failure?.let { message ->
+                    val error = IllegalStateException(message)
+                    if (error.isLocalMemoryAdmissionFailure()) throw error
                 }
             }
         } catch (cancelled: CancellationException) {

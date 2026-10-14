@@ -786,9 +786,13 @@ class ChatRepositoryImpl(
                 budget.bind(resolved.tool.withRunContext(parentRunId), onFinished = { callId, success ->
                     toolApprovals?.finish(parentRunId, "$invocation:$callId", success)
                 }) { callId, arguments ->
-                    resolved.connectionUid?.let { uid ->
-                        toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
-                    } ?: true
+                    if (resolved.canReuseResult?.invoke() == false) {
+                        false
+                    } else {
+                        resolved.connectionUid?.let { uid ->
+                            toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                        } ?: true
+                    }
                 }
             }
     }
@@ -831,7 +835,7 @@ class ChatRepositoryImpl(
                         val features = settingRepository.getFeatureSettings()
                         check(live == target && features.toolPluginStates == helperFeatures.toolPluginStates && features.profileBehavior[target.uid]?.toolPluginStates == helperFeatures.profileBehavior[target.uid]?.toolPluginStates) { "Helper permissions changed; dispatch stopped." }
                         val helperPermission = helperCatalog.firstOrNull { it.connectionUid == inherited.connectionUid && it.realToolName == inherited.realToolName }
-                        check(helperPermission != null && helperPermission.canReuseResult?.invoke() != false) { "Helper connection authorization changed; dispatch stopped." }
+                        check(helperPermission != null && helperPermission.canReuseResult?.invoke() != false && inherited.canReuseResult?.invoke() != false) { "Helper connection authorization changed; dispatch stopped." }
                         return inherited.tool.execute(callId, arguments)
                     }
                 }
@@ -932,7 +936,7 @@ class ChatRepositoryImpl(
         )
         val authorizedSession = session.withRequestAuthorization(dispatchAuthority.revision) {
             dispatchAuthority.validate()
-            check(authorizedTools.orEmpty().all { it.canReuseResult?.invoke() != false }) { "SOURCE_PERMISSION_REVOKED: child evidence authorization changed." }
+            // Each child tool validates its own grant at execution. An unused unavailable tool must not veto the model request.
         }
         val text = StringBuilder()
         val toolFallbacks = mutableListOf<String>()
@@ -1333,7 +1337,7 @@ class ChatRepositoryImpl(
                     null
                 } else {
                     effectiveUserMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
-                        val userIds = (if (taskRecovery != null) savedUserTurns.dropWhile { it.id != taskRecovery.sourceMessageId } else effectiveUserMessages.takeLast(2))
+                        val userIds = (if (taskRecovery != null) savedUserTurns.dropWhile { it.id != taskRecovery.sourceMessageId } else effectiveUserMessages.takeLast(1))
                             .map { it.id }.distinct().filter { it > 0 }
                         val completedRecoveryRuns = if (taskRecovery != null) agentPersistenceDao.getCompletedRuns(latest.chatId).filter { it.userMessageId in userIds } else emptyList()
                         val candidateRuns = (agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds) + completedRecoveryRuns)
@@ -1571,9 +1575,14 @@ class ChatRepositoryImpl(
                 )
                 val resolvedTools = measurePreparation(runId, PreparationPhase.TOOL_DISCOVERY) { resolveAuthorizedTools() }
                 if (recoveryDenied != null) {
-                    AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=preparation", "W")
-                    emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recoveryDenied))
-                    return@authorizedRun
+                    AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=preparation · explicit=${taskRecovery != null}", "W")
+                    if (taskRecovery != null) {
+                        emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recoveryDenied))
+                        return@authorizedRun
+                    }
+                    // Fresh chat input is independent of the denied saved work. Do not
+                    // reuse its text, receipts or research, but still allow a new answer.
+                    emit(ApiState.Notice("Prior saved work is no longer authorized and was not reused. Starting a fresh response.", persistent = true))
                 }
                 unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
                 val latestUser = effectiveUserMessages.lastOrNull()
@@ -1732,7 +1741,13 @@ class ChatRepositoryImpl(
                 var requestPlatform = platform.withSystemPrompt(
                     systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
                 )
-                var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planPrimaryContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
+                fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
+                    if (synthesisRun) {
+                        dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, settings)
+                    } else {
+                        planPrimaryContext(turns, prompt, tools, settings)
+                    }
+                var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                 AppLogRecorder.record(
                     "Tools",
                     "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}"
@@ -1749,7 +1764,7 @@ class ChatRepositoryImpl(
                     reviewedPreparationUnavailable = requiresReviewedPreparation
                     exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy)
                     requestPlatform = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt())
-                    contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planPrimaryContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
+                    contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                     AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}")
                 }
                 if (reviewedPreparationUnavailable) emit(ApiState.Notice("100% delegation requires an available helper and independent review. Check the delegate, reviewer and context settings, then retry.", persistent = true))
@@ -2001,7 +2016,7 @@ class ChatRepositoryImpl(
                             reviewedPreparationUnavailable = processingOwnership == 0 && !localDelegation.primaryOnlyRequested()
                             exposedTools = if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) emptyList() else orderPrimaryTools(aggregatedTools.filterNot { (localDelegation.primaryOnlyRequested() || research.handoff.startsWith("[REVIEW_REJECTED]")) && it.realToolName == "delegate_to_model" })
                             requestPlatform = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() + if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "\nPreparation or review failed. Do not present rejected delegate claims as verified facts. Explain the limitation and the need to retry or choose a working delegate/reviewer." else "")
-                            contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                            contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                             emit(ApiState.Notice(if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "Delegate preparation or review could not finish. The primary will explain the limitation using the available evidence." else "Delegated preparation failed. The main profile can use its enabled tools to recover.", persistent = true))
                         }
                         if (research.handoff.isNotBlank()) {
@@ -2014,8 +2029,9 @@ class ChatRepositoryImpl(
                 suspend fun finalizePreparedContext() {
                     if (preparedTurns != contextTurns) {
                         try {
-                            contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
-                        } catch (_: IllegalArgumentException) {
+                            contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        } catch (capacity: IllegalArgumentException) {
+                            if (synthesisRun) throw capacity
                             emit(ApiState.Notice("Prepared evidence did not fit the main model's context budget. Continuing with the original context.", persistent = true))
                         }
                     }
@@ -2031,24 +2047,24 @@ class ChatRepositoryImpl(
                             systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() +
                                 if (preparedEvidenceComplete && processingOwnership == 0) "\nThe delegate has completed preparation. Independent review status: ${if (preparedEvidenceReviewed) "passed" else "unverified"}. Write from the retained handoff, flag unverified claims and gaps, and never claim unavailable verification completed. Do not start tools, more research, or another delegate." else ""
                         )
-                        contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                     // Preparation can narrow tools, but original saved evidence must remain readable.
                     taskRoutedTools.firstOrNull { it.realToolName == "read_recovery_context" }?.let { recoveryTool ->
                         if (exposedTools.none { it.realToolName == recoveryTool.realToolName }) {
                             exposedTools = listOf(recoveryTool) + exposedTools
-                            contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                            contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                         }
                     }
                     if (resumeWriterOnly) {
                         exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
                         requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResume final writing from the saved evidence and retained review report. New acquisition or external actions were not requested. Explain unresolved coverage instead of repeating completed work.")
-                        contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                     if (localDelegation.researchStopped()) {
                         exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
                         requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResearch acquisition stopped. Summarize completed evidence and identify unfinished questions. Do not infer who stopped it or claim independent review completed. Only saved-evidence reads remain available.")
-                        contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                 }
                 if (recovery?.isAuthorized() == false) {
@@ -2178,9 +2194,13 @@ class ChatRepositoryImpl(
             tool = boundBudget.bind(resolved.tool.withRunContext(runId), statisticsIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid), onFinished = { callId, success ->
                 toolApprovals?.finish(runId, callId, success)
             }) { callId, arguments ->
-                resolved.connectionUid?.let { uid ->
-                    toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
-                } ?: true
+                if (resolved.canReuseResult?.invoke() == false) {
+                    false
+                } else {
+                    resolved.connectionUid?.let { uid ->
+                        toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                    } ?: true
+                }
             }
         )
     }
@@ -2299,13 +2319,21 @@ class ChatRepositoryImpl(
                 "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=${effectiveOutputCap ?: -1} · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
             )
         }
-        suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
+        suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false, passOutputTokens: Int? = null): AgentProviderSession {
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             if (platform.compatibleType != ClientType.LITERT_LM) {
                 require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
             }
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
-            val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints).copy(requestRole = kind)
+            val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints)
+                .copy(requestRole = kind)
+                .let { original ->
+                    if (passOutputTokens != null) {
+                        original.copy(maxOutputTokens = minOf(original.maxOutputTokens ?: passOutputTokens, passOutputTokens))
+                    } else {
+                        original
+                    }
+                }
             workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan.copy(tools = if (textOnly) emptyList() else contextPlan.tools), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
             try {
                 workspace?.recordDebugRequest(latestUser?.chatId ?: 0, runId, kind, requestPlatform, turns, if (textOnly) emptyList() else contextPlan.tools, constraints)
@@ -2354,7 +2382,7 @@ class ChatRepositoryImpl(
                 dispatchAuthority.validate()
                 if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
                 factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-                if (effectiveTools.any { it.canReuseResult?.invoke() == false }) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                // Saved recovery and recall are validated above; individual tool grants are checked only when that tool runs.
             }
             val guarded = if (platform.compatibleType == ClientType.LLAMA) authorized.withProgressWatchdog(settings = progressSettings) else authorized
             return invocationLedger?.wrap(
@@ -2388,11 +2416,26 @@ class ChatRepositoryImpl(
             null
         }
         val restoredDraft = if (frozenResume?.resumeFromRunId != null) frozenResume.committedPrefix else checkpoint?.restore().orEmpty()
+        val multipassFinalTurns = AtomicReference<List<ConversationTurn>?>(null)
+        val firstSession = contextPlan.multipass?.let { plan ->
+            require(platform.compatibleType == ClientType.LITERT_LM || plan.frozenTurns.none { it.assistantMessage?.containsLocalOnlyMemory() == true }) {
+                "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history."
+            }
+            dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassSession(
+                plan = plan,
+                system = requestPlatform.systemPrompt.orEmpty(),
+                limits = limits,
+                open = { turns, kind, passCap ->
+                    openPrimarySession(turns, kind, textOnly = true, passOutputTokens = passCap)
+                },
+                onFinalContext = { turns -> multipassFinalTurns.set(turns) }
+            )
+        } ?: openPrimarySession(contextPlan.turns)
         val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
-            openPrimarySession(contextPlan.turns),
+            firstSession,
             maxContinuations = continuationLimit,
             targetWords = remainingWordGoal,
-            recoverTransientFailures = true,
+            recoverTransientFailures = contextPlan.multipass == null,
             initialDraft = restoredDraft,
             allowInternalToolRecovery = editorialPass,
             effectiveOutputCap = resolvedOutputCap,
@@ -2400,7 +2443,7 @@ class ChatRepositoryImpl(
             saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
         ) { draft, exchanges ->
             val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
-                contextPlan.turns,
+                multipassFinalTurns.get() ?: contextPlan.turns,
                 (if (draft.isBlank()) "\n\nThe previous attempt wrote no visible answer. Write the complete answer from the original task, frozen evidence and full outline, starting with its first section. " else "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. ") +
                     "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
                     (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
@@ -2409,12 +2452,11 @@ class ChatRepositoryImpl(
                 exchanges
             )
             // Recheck the bounded continuation context against the configured context ceiling before dispatch.
-            val continuationPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(
-                turns,
-                requestPlatform.systemPrompt.orEmpty(),
-                emptyList(),
-                limits
-            )
+            val continuationPlan = if (editorialPass) {
+                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, requestPlatform.systemPrompt.orEmpty(), limits)
+            } else {
+                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
+            }
             openPrimarySession(continuationPlan.turns, "output_limit_continuation", textOnly = true)
         }
         val session = if (followUps != null && latestUser != null) {

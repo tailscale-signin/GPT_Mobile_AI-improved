@@ -353,7 +353,20 @@ class CompleteBackupManager @Inject constructor(
         legacyPassword: String? = null,
         selection: CompleteBackupSelection = CompleteBackupSelection.ALL,
         recoveryKeyUri: Uri? = null
+    ): BackupRestoreResult = restoreWithProgress(uri, legacyPassword, selection, recoveryKeyUri) {}
+
+    /** Reports the real restore phase and byte progress without changing restore atomicity. */
+    suspend fun restoreWithProgress(
+        uri: Uri,
+        legacyPassword: String? = null,
+        selection: CompleteBackupSelection = CompleteBackupSelection.ALL,
+        recoveryKeyUri: Uri? = null,
+        onProgress: (RestoreProgress) -> Unit
     ): BackupRestoreResult = operation { work ->
+        fun report(phase: RestorePhase, completedBytes: Long = 0L, totalBytes: Long = 0L) {
+            onProgress(RestoreProgress(phase, completedBytes, totalBytes))
+        }
+        report(RestorePhase.READING)
         val requested = selection.normalized()
         require(requested.sections.isNotEmpty()) { "Select at least one restore section." }
         ensureIdle(restoring = true)
@@ -368,6 +381,7 @@ class CompleteBackupManager @Inject constructor(
             input.reset()
 
             if (headerBytes >= 9 && header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
+                report(RestorePhase.CONVERTING)
                 val migratedFile = File(work, "legacy-current.sqlite")
                 database.withTransaction { CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, migratedFile) }
                 val migrated = openSnapshot(migratedFile)
@@ -404,7 +418,10 @@ class CompleteBackupManager @Inject constructor(
                         secretVault.read(recoveryKeyReference(keyId)) ?: error("Select the recovery key saved with this backup. No password is required.")
                     }
                     try {
-                        CompleteBackupCrypto.decryptPortable(input, archive, key, work.usableSpace - RESERVE)
+                        report(RestorePhase.DECRYPTING)
+                        CompleteBackupCrypto.decryptPortable(input, archive, key, work.usableSpace - RESERVE) { done, total ->
+                            report(RestorePhase.DECRYPTING, done, total)
+                        }
                     } finally {
                         key.fill(0)
                     }
@@ -412,7 +429,10 @@ class CompleteBackupManager @Inject constructor(
                 isPasswordlessComplete -> {
                     val backupKey = requireExistingBackupKey()
                     try {
-                        CompleteBackupCrypto.decryptWithKey(input, archive, backupKey, work.usableSpace - RESERVE)
+                        report(RestorePhase.DECRYPTING)
+                        CompleteBackupCrypto.decryptWithKey(input, archive, backupKey, work.usableSpace - RESERVE) { done, total ->
+                            report(RestorePhase.DECRYPTING, done, total)
+                        }
                     } finally {
                         backupKey.fill(0)
                     }
@@ -420,7 +440,10 @@ class CompleteBackupManager @Inject constructor(
                 isLegacyComplete -> {
                     val password = legacyPassword?.takeIf(String::isNotBlank)
                         ?: error("This backup is password protected. Enter its password.")
-                    CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE)
+                    report(RestorePhase.DECRYPTING)
+                    CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE) { done, total ->
+                        report(RestorePhase.DECRYPTING, done, total)
+                    }
                 }
                 isZip -> copyArchiveWithLimit(input, archive, work.usableSpace - RESERVE)
                 else -> error("Select a GPT Mobile backup file.")
@@ -428,13 +451,18 @@ class CompleteBackupManager @Inject constructor(
         } ?: error("Could not read the backup file.")
 
         val staging = File(work, "files").apply { mkdirs() }
-        val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE)
+        report(RestorePhase.EXTRACTING)
+        val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE) { done, total ->
+            report(RestorePhase.EXTRACTING, done, total)
+        }
+        report(RestorePhase.VERIFYING)
         val available = manifestSelection(manifest)
         val effective = CompleteBackupSelection(
             requested.sections.intersect(available.sections)
         ).normalized()
 
         if (effective.sections.isEmpty()) {
+            report(RestorePhase.FINALIZING)
             return@operation BackupRestoreResult(true, "None of the selected sections exist in this backup.")
         }
 
@@ -510,12 +538,14 @@ class CompleteBackupManager @Inject constructor(
             validateMarketplaceRestore(staging, selectedPaths, selectedSecrets.keys)
         }
 
+        report(RestorePhase.PREPARING)
         val snapshot = if (restoreDatabase) {
             prepareSnapshot(File(staging, "database.sqlite"))
         } else {
             null
         }
 
+        report(RestorePhase.APPLYING)
         try {
             val source = snapshot?.openHelper?.writableDatabase
             if (source != null) {
@@ -583,6 +613,7 @@ class CompleteBackupManager @Inject constructor(
                         if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }
                     }
                 } catch (error: Throwable) {
+                    report(RestorePhase.ROLLING_BACK)
                     withContext(NonCancellable) {
                         if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
                         if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
@@ -604,6 +635,9 @@ class CompleteBackupManager @Inject constructor(
             snapshot?.close()
         }
 
+        if (researchSnapshot != null || researchStatisticsSnapshot != null || statisticsSnapshot != null) {
+            report(RestorePhase.RESEARCH)
+        }
         if (researchSnapshot != null) {
             try {
                 requireNotNull(researchBackup).restore(researchSnapshot, effective, dev.chungjungsoo.gptmobile.data.research.researchHash(File(staging, "research-feature.json").readText()), staging)
@@ -631,6 +665,7 @@ class CompleteBackupManager @Inject constructor(
                 statisticsNotice = " Tool statistics could not be restored. Current statistics were preserved."
             }
         }
+        report(RestorePhase.FINALIZING)
         BackupRestoreResult(
             true,
             (if (convertedLegacy) "Legacy backup converted to the current format. " else "") + "Restored: " + effective.sections

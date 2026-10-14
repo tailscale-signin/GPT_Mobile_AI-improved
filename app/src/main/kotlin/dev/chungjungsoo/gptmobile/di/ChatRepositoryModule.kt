@@ -83,7 +83,8 @@ object ChatRepositoryModule {
         toolStatistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository,
         openRouterSettingsRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository,
         delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore,
-        openRouterModelRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository
+        openRouterModelRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository,
+        researchRecall: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -119,6 +120,7 @@ object ChatRepositoryModule {
         openRouterModelRepository = openRouterModelRepository,
         toolStatistics = toolStatistics,
         delegationActivity = delegationActivity,
-        openRouterSettingsRepository = openRouterSettingsRepository
+        openRouterSettingsRepository = openRouterSettingsRepository,
+        researchRecall = researchRecall
     )
 }

@@ -25,7 +25,10 @@ data class ResearchFeatureSettings(
     val showWarnings: Boolean = true,
     val targetedCrawl: Boolean = true,
     val comparisonLimit: Int = 8,
-    val rubricVersion: Int = 1
+    val rubricVersion: Int = 1,
+    val automaticOrganization: Boolean = true,
+    val researchMemory: Boolean = false,
+    val shareResearchRecall: Boolean = false
 ) {
     fun validated() = apply { require(schemaVersion == 1 && comparisonLimit in 2..12 && rubricVersion == 1) }
 }

@@ -36,16 +36,23 @@ internal object ResearchAssistanceHandoff {
         }.distinct()
     }
 
-    fun withinBudget(packets: List<JsonObject>, tokenAllowance: Long): List<JsonObject> {
+    data class Selection(val included: List<JsonObject>, val deferred: List<JsonObject>)
+
+    fun select(packets: List<JsonObject>, tokenAllowance: Long): Selection {
         var used = 0L
-        return packets.filter { packet ->
+        val included = mutableListOf<JsonObject>()
+        val deferred = mutableListOf<JsonObject>()
+        packets.forEach { packet ->
             val cost = ContextBudgetService.estimate(packet.toString()).toLong() + 64
-            if (used + cost > tokenAllowance.coerceAtLeast(0)) {
-                false
+            if (cost > tokenAllowance.coerceAtLeast(0) - used) {
+                deferred += packet
             } else {
                 used += cost
-                true
+                included += packet
             }
         }
+        return Selection(included, deferred)
     }
+
+    fun withinBudget(packets: List<JsonObject>, tokenAllowance: Long): List<JsonObject> = select(packets, tokenAllowance).included
 }

@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadA
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -244,9 +245,20 @@ class LocalModelsViewModel @Inject constructor(
 
         huggingFaceSearchJob = viewModelScope.launch {
             if (!immediate) delay(HUGGING_FACE_SEARCH_DEBOUNCE_MS)
-            huggingFaceEntries.value = emptyList()
+            if (!immediate) huggingFaceEntries.value = emptyList()
             huggingFaceSearchState.value = HuggingFaceSearchState(isLoading = true)
-            runCatching { if (npuOnly) client.searchNpuOutcome(query, deviceSocModel) else client.searchOutcome(query) }
+            runCatching {
+                if (npuOnly) {
+                    client.searchNpuOutcome(query, deviceSocModel)
+                } else {
+                    client.searchOutcome(query, onPartial = { partial ->
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        val installed = localListState.value.items.filter { it.status == LocalModelItemStatus.READY }.map { it.entry }
+                        huggingFaceEntries.value = partial.results.map { dev.chungjungsoo.gptmobile.data.huggingface.preserveInstalledHubIdentity(it.toCatalogEntry(), installed) }
+                        huggingFaceSearchState.value = HuggingFaceSearchState(isLoading = true, notice = partial.notice)
+                    })
+                }
+            }
                 .onSuccess { outcome ->
                     val installed = localListState.value.items.filter { it.status == LocalModelItemStatus.READY }.map { it.entry }
                     huggingFaceEntries.value = outcome.results.map { dev.chungjungsoo.gptmobile.data.huggingface.preserveInstalledHubIdentity(it.toCatalogEntry(), installed) }

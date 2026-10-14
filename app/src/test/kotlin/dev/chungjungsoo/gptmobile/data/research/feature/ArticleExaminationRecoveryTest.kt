@@ -62,7 +62,7 @@ class ArticleExaminationRecoveryTest {
             coEvery { settings.getFeatureSettings() } returns features
             coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
             val source = ResearchSource("S1", "https://example.org/trial", "Synthetic trial", doi = "10.1234/trial", status = "Read", retrievedAt = 1000)
-            val original = archive.capture(source, "Metadata record", "public", true, 0, "original", true, 0)
+            val original = archive.capture(source, "Metadata record", "public", true, -1, "original", true, 0, ownerKind = "import", ownerId = "fixture-import")
             val body = "Methods: randomized 100 participants. Results: uncertain effect."
             val paper = AcademicPaper("doi:10.1234/trial", source.title, source.canonicalUrl, doi = source.doi)
             val academic = mockk<AcademicNativeClient>()

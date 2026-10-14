@@ -31,6 +31,16 @@ class ResponseRecoveryContextTest {
         assertFalse(result.sharedResult)
     }
 
+    @Test fun deniedPrefixReturnsTypedFailureWithoutSavedContentOrException() = runTest {
+        val context = ResponseRecoveryContext(emptyList(), emptyList(), emptyList(), authorization = { false })
+        assertTrue(context.authorizedPrefix(1000) is RecoveryPrefix.Blocked)
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Primary", apiUrl = "https://provider.example", token = "a", model = "m")
+        assertTrue(sameRecoveryDestination(profile, profile.copy(name = "Renamed", isFavorite = true, labels = "new")))
+        assertFalse(sameRecoveryDestination(profile, profile.copy(apiUrl = "https://other.example")))
+        assertFalse(sameRecoveryDestination(profile, profile.copy(token = "b")))
+        assertFalse(sameRecoveryDestination(profile, profile.copy(model = "other")))
+    }
+
     private val run = AgentRun("old-run", 1, 1, 2, "old-profile", "LLAMA", "qwen", status = "FAILED")
 
     @Test

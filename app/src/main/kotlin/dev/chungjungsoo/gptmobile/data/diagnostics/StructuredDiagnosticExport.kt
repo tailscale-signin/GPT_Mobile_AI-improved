@@ -11,22 +11,24 @@ private val numericFieldPattern = Regex("(?:attempt|attempts|.*(?:Ms|Bytes|Token
 
 /** Keep every record and continuation. A duplicate is not the same thing as a non-issue. */
 internal fun diagnosticEventIdentity(line: String): String = eventIdPattern.find(line)?.groupValues?.get(1)
-    ?: java.security.MessageDigest.getInstance("SHA-256").digest(line.toByteArray()).joinToString("") { "%02x".format(it) }
+    ?: java.security.MessageDigest.getInstance("SHA-256").digest(redactLogMessage(line).toByteArray()).joinToString("") { "%02x".format(it) }
 
-internal fun structuredDiagnosticLine(line: String, captureSource: String = "unknown", duplicate: Boolean = false, parentEventId: String? = null, sequence: Int = 0, captureIdentity: String? = null): String {
+internal fun structuredDiagnosticLine(line: String, captureSource: String = "unknown", duplicate: Boolean = false, parentEventId: String? = null, sequence: Int = 0, captureIdentity: String? = null, incidentId: String? = null, incidentRoot: Boolean = true): String {
     val safe = redactLogMessage(line).take(8000)
     val match = recordPattern.matchEntire(safe)
     val message = match?.groupValues?.get(4) ?: safe
     val classification = classifyDiagnostic(match?.groupValues?.get(2), match?.groupValues?.get(3), message)
     val fields = fieldPattern.findAll(message).take(64).toList()
     return buildJsonObject {
-        put("schema", 4)
+        put("schema", 5)
+        put("incidentId", incidentId ?: parentEventId ?: captureIdentity ?: diagnosticEventIdentity(line))
+        put("incidentRoot", incidentRoot)
         put("eventId", captureIdentity ?: diagnosticEventIdentity(line))
         parentEventId?.let { put("parentEventId", it) }
         put("sequence", sequence)
         put("captureSource", captureSource)
         put("duplicate", duplicate)
-        put("countAsIssue", !duplicate && match != null && classification.actionable)
+        put("countAsIssue", !duplicate && incidentRoot && match != null && classification.actionable)
         put("category", classification.category)
         put("severity", classification.severity)
         put("recovery", classification.recovery)

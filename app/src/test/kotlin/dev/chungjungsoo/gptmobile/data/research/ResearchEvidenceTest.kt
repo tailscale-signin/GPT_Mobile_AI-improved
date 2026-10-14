@@ -11,6 +11,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchEvidenceTest {
+    @Test fun legacyPartialCoverageAndAbstractsStayConservativeAfterRestore() {
+        val partial = ResearchSource("S1", "https://example.org/a", "Partial", "Partially read", "Excerpt", retrievalQuality = "FULL_TEXT")
+        val abstract = ResearchSource("S2", "https://example.org/b", "Abstract", "Abstract", "Provider abstract", retrievalQuality = "ABSTRACT")
+        val restored = ResearchSnapshot.parse(ResearchSnapshot("Task", sources = listOf(partial, abstract)).json())!!
+        assertEquals("PARTIAL_TEXT", restored.sources[0].retrievalQuality)
+        assertEquals("Abstract", restored.sources[1].status)
+        assertEquals("ABSTRACT", restored.sources[1].retrievalQuality)
+        assertFalse(restored.sources[1].readable)
+    }
+
     @Test fun fullGoalSurvivesSnapshotRoundTripIncludingTailConstraints() {
         val goal = "original constraint 東京 😀 ".repeat(1500) + "Final constraint: never publish."
         val original = ResearchSnapshot(goal)

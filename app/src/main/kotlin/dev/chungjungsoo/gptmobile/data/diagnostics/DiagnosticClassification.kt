@@ -11,6 +11,8 @@ internal data class DiagnosticClassification(
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
     val text = message.lowercase()
     return when {
+        text.startsWith("discovery_negotiation") && "outcome=legacy_fallback" in text -> DiagnosticClassification("compatibility_probe", "info", false)
+        text.startsWith("catalog_canceled") -> DiagnosticClassification("cancellation", "info", false)
         "asus_leak_detect_proj" in text -> DiagnosticClassification("platform", "warning", false)
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true)
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)

@@ -25,11 +25,15 @@ data class AcademicPaper(
     val versionId: String = paperId,
     val abstract: String = "",
     val contentLicense: String? = null,
-    val relatedVersions: List<String> = emptyList()
+    val relatedVersions: List<String> = emptyList(),
+    val journal: String = "",
+    val subjects: List<String> = emptyList(),
+    val publicationDate: String = "",
+    val providerRecordId: String = ""
 )
 
 @Serializable
-data class AcademicProviderStatus(val id: String, val state: String, val fetched: Int = 0, val cacheHit: Boolean = false, val retryAtMs: Long? = null, val limitation: String? = null, val receiptId: String = "", val owner: String = "native", val requests: Int = 0, val successes: Int = 0, val failures: Int = 0)
+data class AcademicProviderStatus(val id: String, val state: String, val fetched: Int = 0, val cacheHit: Boolean = false, val retryAtMs: Long? = null, val limitation: String? = null, val receiptId: String = "", val owner: String = "native", val requests: Int = 0, val successes: Int = 0, val failures: Int = 0, val totalMatches: Long? = null)
 
 @Serializable
 data class AcademicSearchResult(

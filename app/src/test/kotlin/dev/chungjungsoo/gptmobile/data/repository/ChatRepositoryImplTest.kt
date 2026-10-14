@@ -295,6 +295,52 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun `research recall reaches actual request only with consent and dispatch validation`() = runBlocking {
+        for (mode in listOf("denied", "allowed", "revoked")) {
+            val storage = object : SecretVault {
+                private val values = mutableMapOf<String, ByteArray>()
+                override suspend fun put(secretRef: String, secret: ByteArray) {
+                    values[secretRef] = secret.copyOf()
+                }
+                override suspend fun read(secretRef: String) = values[secretRef]?.copyOf()
+                override suspend fun delete(secretRef: String) {
+                    values.remove(secretRef)
+                }
+            }
+            val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
+            facts.setEnabled(true)
+            facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = true))
+            val platform = groqPlatform(false, "model")
+            val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+                researchFeature = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings(researchMemory = true, shareResearchRecall = mode != "denied")
+            ).withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
+            val settings = mockk<SettingRepository>(relaxed = true)
+            coEvery { settings.getFeatureSettings() } returns features
+            coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            coEvery { persistence.getChatRoom(1) } returns dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(id = 1, title = "Research fixture", enabledPlatform = listOf(platform.uid))
+            val recall = mockk<dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider>()
+            val evidence = "Historical study reported 10 points; https://example.org/trial; limitations: one small trial."
+            coEvery { recall.recall(any(), any()) } coAnswers {
+                val permitted = arg<suspend () -> Boolean>(1)
+                dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallPacket(text = if (permitted()) evidence else "")
+            }
+            coEvery { recall.validate(any(), any()) } returns (mode != "revoked")
+            val api = FakeGroqAPI(flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "The historical trial needs cautious interpretation."), finishReason = "stop")))), enforcePhysicalBoundary = true)
+            val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, recallOverride = recall)
+                .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Compare the mobility trial", platformType = null)), emptyList(), platform, runId = "research-$mode").toList()
+            if (mode == "revoked") {
+                assertEquals(0, api.streamCalls)
+                assertTrue(states.any { it is ApiState.Error && it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" })
+            } else {
+                assertEquals(1, api.streamCalls)
+                assertEquals(mode == "allowed", api.lastRequest!!.messages.first().content.toString().contains(evidence))
+            }
+            assertTrue(facts.state.value.facts.none { it.fact.toString().contains("10 points") })
+        }
+    }
+
+    @Test
     fun `saved facts prefix both cloud and local system prompts`() = runBlocking {
         val storage = object : SecretVault {
             var bytes: ByteArray? = null
@@ -1152,7 +1198,8 @@ class ChatRepositoryImplTest {
         toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
         settingsOverride: SettingRepository? = null,
         persistenceOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao? = null,
-        researchOverride: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
+        researchOverride: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
+        recallOverride: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
@@ -1187,7 +1234,8 @@ class ChatRepositoryImplTest {
         deviceSocModel = "",
         factVault = factVault,
         toolApprovals = toolApprovals,
-        researchSessions = researchOverride
+        researchSessions = researchOverride,
+        researchRecall = recallOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {
@@ -1281,7 +1329,8 @@ class ChatRepositoryImplTest {
     }
 
     private class FakeGroqAPI(
-        private val chunks: Flow<GroqChatCompletionChunk>
+        private val chunks: Flow<GroqChatCompletionChunk>,
+        private val enforcePhysicalBoundary: Boolean = false
     ) : GroqAPI {
         var streamCalls = 0
         var lastRequest: GroqChatCompletionRequest? = null
@@ -1290,10 +1339,11 @@ class ChatRepositoryImplTest {
             request: GroqChatCompletionRequest,
             timeoutSeconds: Int,
             config: ProviderRequestConfig
-        ): Flow<GroqChatCompletionChunk> {
+        ): Flow<GroqChatCompletionChunk> = kotlinx.coroutines.flow.flow {
+            if (enforcePhysicalBoundary) dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
             streamCalls += 1
             lastRequest = request
-            return chunks
+            chunks.collect { emit(it) }
         }
     }
 

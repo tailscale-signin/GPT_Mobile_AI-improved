@@ -44,6 +44,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 internal fun hasResearchMemoryHeadroom(): Boolean {
@@ -343,7 +344,7 @@ internal class AndroidResearchWorkflow(
             withContext(NonCancellable) { checkpoint("Interrupted") }
             throw cancelled
         } catch (failure: Exception) {
-            state = state.copy(notes = state.notes + "Research interrupted; completed passages retained.")
+            state = state.copy(notes = state.notes + "Research interrupted (${failure.javaClass.simpleName}); completed passages retained.")
             checkpoint(if (failure.message?.startsWith("Paused for device resources") == true) "Paused for device resources" else "Failed")
         }
         val assessment = coverage()
@@ -465,6 +466,8 @@ internal class AndroidResearchWorkflow(
                         val saved = sources.getValue(key)
                         if (!saved.readable && saved.status in setOf("Discovered", "Metadata only")) {
                             sources[key] = saved.copy(
+                                bibliographyJson = (JsonObject(paper - "abstract")).toString(),
+                                publicationYear = (paper["year"] as? JsonPrimitive)?.intOrNull,
                                 accessUrl = paper.text("openAccessUrl"), paperId = paper.text("paperId"),
                                 versionId = paper.text("versionId"), providerReceipts = paper.strings("providerReceipts"),
                                 reviewStatus = paper.text("reviewStatus").ifBlank { "unknown" },
@@ -663,7 +666,7 @@ internal class AndroidResearchWorkflow(
             val payload = (result?.retainedContent ?: result?.content)?.researchPayload() as? JsonObject
             val text = payload?.text("text").orEmpty()
             val status = payload?.text("retrievalStatus").orEmpty()
-            val readable = result?.isError == false && status in setOf("read", "partially_read") && text.isNotBlank()
+            val readable = result?.isError == false && status in setOf("read", "partially_read", "abstract_only") && text.isNotBlank()
             // A reader limitation is not denied access. Only use already-authorized public readers.
             val denied = result?.blockedPage() == true || result?.let(::isAuthFailure) == true || status in setOf("blocked", "permission_denied")
             val accessible = source.accessUrl.takeIf { it.startsWith("https://") && researchDomainAllowed(it, included, excluded) }
@@ -688,13 +691,20 @@ internal class AndroidResearchWorkflow(
                     bodyChunks = if (readable) journal?.retainBody(text).orEmpty() else emptyList(),
                     status = if (readable && status == "read") {
                         "Read"
+                    } else if (readable && status == "abstract_only") {
+                        "Abstract"
                     } else if (readable) {
                         "Partially read"
                     } else {
                         "Failed"
                     },
                     failureReason = if (readable) "" else result?.errorCode?.takeIf(String::isNotBlank) ?: status.ifBlank { "UNREADABLE" },
-                    retrievalQuality = if (readable) "FULL_TEXT" else "METADATA",
+                    retrievalQuality = when {
+                        !readable -> "METADATA"
+                        status == "abstract_only" -> "ABSTRACT"
+                        status == "partially_read" -> "PARTIAL_TEXT"
+                        else -> "FULL_TEXT"
+                    },
                     versionId = payload?.text("versionId").orEmpty().ifBlank { source.versionId },
                     fingerprint = hash,
                     originId = duplicate,

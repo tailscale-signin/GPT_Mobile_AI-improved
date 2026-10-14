@@ -81,6 +81,7 @@ class ShareIncomingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Pr
                             chats = database.chatRoomDao().getChatRoomsWithFavorites().filterNot { it.isTemporary }
                             profiles = database.platformDao().getPlatforms().filter { it.enabled }
                             selectedProfile = profiles.firstOrNull()?.uid
+                            selectedChat = intent.getIntExtra("research_origin_chat", 0).takeIf { id -> id > 0 && chats.any { it.id == id } }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {

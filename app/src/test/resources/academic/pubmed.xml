@@ -1,0 +1,3 @@
+<?xml version="1.0"?>
+<!-- Synthetic contract fixture; no live study findings. -->
+<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>42</PMID><Article><ArticleTitle>Synthetic metadata-only study</ArticleTitle><Journal><Title>Fixture Journal</Title><JournalIssue><PubDate><Year>2025</Year></PubDate></JournalIssue></Journal><PublicationTypeList><PublicationType>Journal Article</PublicationType></PublicationTypeList></Article></MedlineCitation><PubmedData><ArticleIdList><ArticleId IdType="pubmed">42</ArticleId></ArticleIdList></PubmedData></PubmedArticle></PubmedArticleSet>

@@ -894,7 +894,7 @@ class ChatRepositoryImplTest {
     }
 
     @Test
-    fun `complete chat executes assigned web search and persists its trace`() = runBlocking {
+    fun `complete chat rejects unapproved web search and persists its trace`() = runBlocking {
         val connection = ToolConnection(
             connectionUid = "search-1",
             name = "Fixture search",
@@ -981,7 +981,8 @@ class ChatRepositoryImplTest {
         assertEquals("call_exact", event.callId)
         assertEquals("Multi-engine search", event.connectionNameSnapshot)
         assertEquals(ToolEventStatus.FAILED, event.status)
-        assertTrue(event.result.orEmpty().contains("missing credential"))
+        // A disconnected tool is rejected at its permission boundary, rather than dispatched with missing credentials.
+        assertTrue(event.result.orEmpty(), event.result.orEmpty().contains("Tool permission was denied"))
     }
 
     @Test

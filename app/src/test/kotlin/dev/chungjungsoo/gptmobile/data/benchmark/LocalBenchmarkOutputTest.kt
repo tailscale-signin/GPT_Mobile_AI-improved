@@ -20,13 +20,15 @@ class LocalBenchmarkOutputTest {
         val expected = LocalInferenceMetrics(estimatedTokens = 2)
         var metrics: LocalInferenceMetrics? = null
         val result = withTimeout(1000) {
-            collectLocalBenchmarkOutput(flow {
-                emit(LocalRuntimeEvent.TextDelta("Hello"))
-                emit(LocalRuntimeEvent.Drain(acknowledged))
-                acknowledged.await()
-                emit(LocalRuntimeEvent.Metrics(expected))
-                emit(LocalRuntimeEvent.Done)
-            }) { metrics = it }
+            collectLocalBenchmarkOutput(
+                flow {
+                    emit(LocalRuntimeEvent.TextDelta("Hello"))
+                    emit(LocalRuntimeEvent.Drain(acknowledged))
+                    acknowledged.await()
+                    emit(LocalRuntimeEvent.Metrics(expected))
+                    emit(LocalRuntimeEvent.Done)
+                }
+            ) { metrics = it }
         }
         assertTrue(acknowledged.isCompleted)
         assertTrue(result.completed)

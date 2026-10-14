@@ -165,9 +165,28 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
                 }
             }
             if (section == "memory") {
-                Text("Memory reserve: ${settings.localMemoryReserveMb} MB")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Memory reserve: ${settings.localMemoryReserveMb} MB", Modifier.weight(1f))
+                    dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon(
+                        "The model's estimated memory usage is added to this system memory reserve. " +
+                            "Larger values protect free memory but can prevent model loading; they do not increase model capacity. " +
+                            "The default is 768 MB."
+                    )
+                }
                 var reserve by remember(settings.localMemoryReserveMb) { mutableStateOf(settings.localMemoryReserveMb.toFloat()) }
-                Slider(reserve, { reserve = it }, valueRange = 256f..4096f, onValueChangeFinished = { viewModel.setMemoryReserve(reserve.toInt()) })
+                Slider(reserve, { reserve = it }, valueRange = 256f..4096f, onValueChangeFinished = { viewModel.setMemoryReserve(reserve.toInt()) }, enabled = !busy)
+                if (settings.localMemoryReserveMb >= 2048) {
+                    Text(
+                        "This large reserve may prevent both chat and benchmarks before the local engine loads, even if several GB of RAM appear free.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (settings.localMemoryReserveMb != 768) {
+                    TextButton(onClick = { viewModel.setMemoryReserve(768) }, enabled = !busy) {
+                        Text("Use recommended 768 MB")
+                    }
+                }
                 Text("Release model after idle", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(1, 5, 10, 30, 0).forEach { minutes -> FilterChip(settings.localIdleMinutes == minutes, onClick = { viewModel.updateTuning(idle = minutes) }, label = { Text(if (minutes == 0) "Keep warm" else "$minutes min") }, enabled = !busy) }

@@ -221,8 +221,9 @@ class CompleteBackupViewModelTest {
         val uri = mockk<Uri>()
         val finish = CompletableDeferred<Unit>()
         coEvery { manager.requiresPassword(uri) } returns false
+        coEvery { manager.requiresRecoveryKey(uri) } returns false
         coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } coAnswers {
-            val report = lastArg<(RestoreProgress) -> Unit>()
+            val report = arg<(RestoreProgress) -> Unit>(4)
             report(RestoreProgress(RestorePhase.DECRYPTING, 512, 1024))
             finish.await()
             report(RestoreProgress(RestorePhase.FINALIZING))
@@ -232,11 +233,12 @@ class CompleteBackupViewModelTest {
         assertTrue(viewModel.prepareBackupPicker(restoring = true))
         viewModel.restoreSourceSelected(uri)
         advanceUntilIdle()
+        assertEquals(uri, viewModel.backupUi.value.restoreUri)
         viewModel.confirmRestore()
         runCurrent()
 
         val during = viewModel.backupUi.value
-        assertTrue(during.isBusy)
+        assertTrue("Restore state: $during", during.isBusy)
         assertTrue(during.isRestoring)
         assertEquals(RestorePhase.DECRYPTING, during.restoreProgress?.phase)
         assertEquals(0.5f, during.restoreProgress?.fraction)

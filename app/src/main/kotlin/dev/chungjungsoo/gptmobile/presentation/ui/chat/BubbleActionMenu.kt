@@ -109,11 +109,11 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
         if (latestActions.none { it.enabled }) return
         touch = position
         // Respect the system's touch-feedback preference; waveform lasts exactly 500 ms.
-        if (Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0) {
-            runCatching {
+        runCatching {
+            if (Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0) {
                 val vibrator = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vibrator?.defaultVibrator?.vibrate(
-                    VibrationEffect.createWaveform(longArrayOf(0, 70, 40, 70, 40, 70, 40, 70, 100), -1)
+                    VibrationEffect.createWaveform(longArrayOf(0, 70, 40, 70, 40, 70, 40, 70, 30, 70), -1)
                 )
             }
         }

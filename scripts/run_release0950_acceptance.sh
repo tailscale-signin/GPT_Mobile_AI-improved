@@ -21,6 +21,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 memory_status=${PIPESTATUS[0]}
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/picker-instrumentation.txt"
 picker_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/bubble-actions-instrumentation.txt"
+bubble_status=${PIPESTATUS[0]}
 set -e
 adb logcat -d > "$acceptance_output/logcat.txt"
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-performance.json > "$acceptance_output/performance.json" || true
@@ -29,6 +31,7 @@ adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-plan-d
 for picker_theme in light dark-rtl; do
   adb exec-out run-as dev.melo.gptmobile.improved cat "files/picker-$picker_theme-200-percent.png" > "$acceptance_output/picker-$picker_theme-200-percent.png"
 done
+if [ "$bubble_status" -ne 0 ]; then exit "$bubble_status"; fi
 if [ "$picker_status" -ne 0 ]; then exit "$picker_status"; fi
 if [ "$editor_status" -ne 0 ]; then exit "$editor_status"; fi
 if [ "$performance_status" -ne 0 ]; then exit "$performance_status"; fi
@@ -46,6 +49,8 @@ for test in ('encryptedCutoverPreservesIdentityAndRejectsStaleWrites', 'portable
     check_instrumentation(folder / 'memory-durability-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.memory.MemoryDurabilityInstrumentedTest', test)
 for test in ('compactLightSelectionAndAccessibleFavorite', 'compactDarkRtlSelectionAndAccessibleFavorite'):
     check_instrumentation(folder / 'picker-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest', test)
+for test in ('shortHoldDoesNotOpenMenuAndOneSecondHoldPreservesAction', 'movingToScrollCancelsTheHold'):
+    check_instrumentation(folder / 'bubble-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest', test)
 for name in ('picker-light-200-percent.png', 'picker-dark-rtl-200-percent.png'):
     assert (folder / name).read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
 data = json.loads((folder / 'performance.json').read_text())

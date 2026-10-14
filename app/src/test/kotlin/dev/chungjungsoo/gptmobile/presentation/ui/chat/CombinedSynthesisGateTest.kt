@@ -22,8 +22,8 @@ class CombinedSynthesisGateTest {
     @Test fun `failed start can release only its own uncommitted reservation`() {
         var now = 1_000L
         val gate = CombinedSynthesisGate { now }
-        val first = listOf(CombinedModelResponse(platformUid = "p", content = "original"))
-        val changed = listOf(CombinedModelResponse(platformUid = "p", content = "new revision"))
+        val first = listOf(CombinedModelResponse(platformUid = "p", platformName = "Primary", content = "original"))
+        val changed = listOf(CombinedModelResponse(platformUid = "p", platformName = "Primary", content = "new revision"))
         assertFalse(gate.reserve(0, first))
         assertTrue(gate.reserve(91, first))
         assertFalse(gate.abandonUncommitted(91, changed))

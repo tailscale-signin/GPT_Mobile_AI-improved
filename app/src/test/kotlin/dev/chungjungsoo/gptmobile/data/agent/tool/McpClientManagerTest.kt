@@ -155,7 +155,7 @@ class McpClientManagerTest {
         SlowInitializeMcpFixtureServer(entered, starts).use { server ->
             val client = testClient()
             try {
-                val manager = McpClientManager(client, sessionConnectTimeoutMs = 1_000, nowMs = { now })
+                val manager = McpClientManager(client, sessionConnectTimeoutMs = 1_000, nowMs = { now }, retryJitterMs = { 500 })
                 val config = McpConnectionConfig("slow", server.url, allowCleartext = true)
 
                 val first = withTimeout(6_000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
@@ -167,7 +167,10 @@ class McpClientManagerTest {
                 assertTrue(backedOff is McpBackoffException)
                 assertEquals(1, starts.get())
 
-                now = 6_000L
+                now = requireNotNull(manager.healthSnapshot(config.connectionUid).nextRetryAtMs) - 1
+                assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpBackoffException)
+                assertEquals(1, starts.get())
+                now++
                 val retried = withTimeout(6_000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
                 assertTrue(retried is IllegalStateException)
                 assertTrue(retried?.message.orEmpty().contains("timed out"))
@@ -187,30 +190,30 @@ class McpClientManagerTest {
         val client = testClient()
         try {
             SlowInitializeMcpFixtureServer(entered, starts).use { slow ->
-                val manager = McpClientManager(client, sessionConnectTimeoutMs = 1_000, nowMs = { now })
+                val manager = McpClientManager(client, sessionConnectTimeoutMs = 1_000, nowMs = { now }, retryJitterMs = { 500 })
                 val config = McpConnectionConfig("recovering", slow.url, allowCleartext = true)
 
                 val first = runCatching { manager.listTools(config) }.exceptionOrNull()
                 assertTrue(first != null)
                 assertEquals(McpConnectionHealthState.DEGRADED, manager.healthSnapshot(config.connectionUid).state)
                 assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
-                assertEquals(6_000L, manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
+                assertEquals(6_500L, manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
 
                 val blocked = runCatching { manager.listTools(config) }.exceptionOrNull()
                 assertTrue(blocked is McpBackoffException)
                 assertEquals(1, starts.get())
 
-                now = 6_000L
+                now = requireNotNull(manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
                 runCatching { manager.listTools(config) }
                 assertEquals(2, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
                 assertEquals(McpConnectionHealthState.DEGRADED, manager.healthSnapshot(config.connectionUid).state)
 
-                now = 21_000L
+                now = requireNotNull(manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
                 runCatching { manager.listTools(config) }
                 val open = manager.healthSnapshot(config.connectionUid)
                 assertEquals(3, open.consecutiveFailures)
                 assertEquals(McpConnectionHealthState.UNREACHABLE, open.state)
-                assertEquals(51_000L, open.nextRetryAtMs)
+                assertEquals(now + 30_500L, open.nextRetryAtMs)
 
                 McpFixtureServer().use { healthy ->
                     val recovered = manager.listTools(

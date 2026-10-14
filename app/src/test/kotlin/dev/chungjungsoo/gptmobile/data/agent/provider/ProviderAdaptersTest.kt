@@ -538,6 +538,7 @@ class ProviderAdaptersTest {
         session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
 
         assertEquals(1, preferenceReads)
+        assertEquals(4096, api.chatRequests.first().maxTokens)
         assertEquals(expectedHeaders + ("X-Gateway-Allow-Local-Tools" to "false"), api.configs.first().extraHeaders)
         assertEquals(expectedHeaders + ("X-Gateway-Job-ID" to "job-123"), api.configs.last().extraHeaders)
     }

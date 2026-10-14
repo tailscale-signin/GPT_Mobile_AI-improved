@@ -2063,7 +2063,8 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch {
                 var committed = false
                 try {
-                    startCombinedSynthesis(turnIndex, sources) { committed = true }
+                    val dispatched = startCombinedSynthesis(turnIndex, sources, onPersisted = { committed = true })
+                    if (!dispatched && !committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                 } catch (error: CancellationException) {
                     if (!committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                     throw error
@@ -2090,9 +2091,9 @@ class ChatViewModel @Inject constructor(
         turnIndex: Int,
         sources: List<CombinedModelResponse>,
         onPersisted: () -> Unit
-    ) {
+    ): Boolean {
         val grouped = _groupedMessages.value
-        val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
+        val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return false
         val pinnedPrimary = _chatRoom.value.combinedPrimaryUid ?: _chatRoom.value.activePlatform.firstOrNull()
         val candidates = sources.filter { it.platformUid == pinnedPrimary }.mapNotNull { source ->
             _platformsInApp.value.firstOrNull { it.uid == source.platformUid && it.enabled }
@@ -2110,7 +2111,7 @@ class ChatViewModel @Inject constructor(
         if (leadPlatform == null) {
             if (sources.any { it.localOnly }) {
                 _attachmentNotice.update { "These responses contain local-only memory. Choose a local AI profile to combine them; the individual responses remain available." }
-                return
+                return false
             }
             val coolingProvider = candidates.firstNotNullOfOrNull { platform ->
                 if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) return@firstNotNullOfOrNull null
@@ -2124,12 +2125,12 @@ class ChatViewModel @Inject constructor(
                     "Combined synthesis is paused because ${provider.displayName} is cooling down. Try again in ${((retryAt - System.currentTimeMillis()).coerceAtLeast(0) + 999) / 1000} seconds; no synthesis request was sent."
                 } ?: "Combined synthesis is paused because the pinned primary is unavailable. Restore that profile or explicitly choose a new primary; no substitute was dispatched."
             }
-            return
+            return false
         }
         val leadUid = leadPlatform.uid
-        val leadIndex = enabledPlatformsInChat.indexOf(leadUid).takeIf { it >= 0 } ?: return
-        val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.getOrNull(leadIndex) ?: return
-        if (leadMessage.id <= 0) return
+        val leadIndex = enabledPlatformsInChat.indexOf(leadUid).takeIf { it >= 0 } ?: return false
+        val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.getOrNull(leadIndex) ?: return false
+        if (leadMessage.id <= 0) return false
 
         val synthesisRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
 
@@ -2222,6 +2223,7 @@ class ChatViewModel @Inject constructor(
                 )
             )
         )
+        return true
     }
 
     private fun checkAndGenerateAiTitle(runsById: Map<String, AgentRun>) {

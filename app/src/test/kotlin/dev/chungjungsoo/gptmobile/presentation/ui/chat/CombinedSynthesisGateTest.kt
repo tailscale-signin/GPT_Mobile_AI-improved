@@ -20,16 +20,24 @@ class CombinedSynthesisGateTest {
     }
 
     @Test fun `failed start can release only its own uncommitted reservation`() {
-        val gate = CombinedSynthesisGate()
+        var now = 1_000L
+        val gate = CombinedSynthesisGate { now }
         val first = listOf(CombinedModelResponse(platformUid = "p", content = "original"))
         val changed = listOf(CombinedModelResponse(platformUid = "p", content = "new revision"))
+        assertFalse(gate.reserve(0, first))
         assertTrue(gate.reserve(91, first))
         assertFalse(gate.abandonUncommitted(91, changed))
         assertFalse(gate.reserve(91, first))
         assertTrue(gate.abandonUncommitted(91, first))
+        assertFalse(gate.reserve(91, first))
+        now += 4_999
+        assertFalse(gate.reserve(91, first))
+        now += 1
         assertTrue(gate.reserve(91, first))
+        // The retry has been admitted and cannot be repeated after persistence.
+        assertFalse(gate.reserve(91, first))
         assertTrue(gate.reserve(91, changed))
-        // A stale failure from the old turn must not erase the current generation.
+        // A stale failure from an older revision must not erase the current generation.
         assertFalse(gate.abandonUncommitted(91, first))
         assertFalse(gate.reserve(91, changed))
     }

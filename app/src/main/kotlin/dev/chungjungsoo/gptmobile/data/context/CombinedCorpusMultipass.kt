@@ -149,18 +149,19 @@ object CombinedCorpusMultipass {
                 var bestEnd = offset
                 var best: Pair<ConversationTurn, Int>? = null
                 while (lower <= upper) {
-                    val middle = safeEnd(lower + (upper - lower) / 2)
+                    val midpoint = lower + (upper - lower) / 2
+                    val middle = safeEnd(midpoint)
                     if (middle <= offset) {
-                        lower++
+                        lower = midpoint + 1
                         continue
                     }
                     val attempt = candidate(middle)
                     if (attempt.second.toLong() + output + safety <= capacity.toLong()) {
                         bestEnd = middle
                         best = attempt
-                        lower = middle + 1
+                        lower = midpoint + 1
                     } else {
-                        upper = middle - 1
+                        upper = midpoint - 1
                     }
                 }
                 require(bestEnd > offset && best != null) {

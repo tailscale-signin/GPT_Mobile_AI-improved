@@ -544,6 +544,21 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `primary allowance bounds but never raises the gateway intermediate budget`() = runBlocking {
+        val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+            override fun gatewayPerformanceHeaders(): Map<String, String> = mapOf("X-Gateway-Intermediate-Max-Tokens" to "1024")
+        }
+        for (cap in listOf(512, 4096)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
+                .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(maxOutputTokens = cap, requestRole = "primary"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(cap, api.chatRequests.single().maxTokens)
+            assertEquals(minOf(1024, cap).toString(), api.configs.single().extraHeaders["X-Gateway-Intermediate-Max-Tokens"])
+        }
+    }
+
+    @Test
     fun `gateway preferences stay scoped to llama profiles`() = runBlocking {
         val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
             override fun gatewayPerformanceHeaders(): Map<String, String> = error("Unexpected gateway settings read")

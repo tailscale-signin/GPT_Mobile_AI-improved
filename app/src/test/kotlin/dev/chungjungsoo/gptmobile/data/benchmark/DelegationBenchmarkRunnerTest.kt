@@ -176,6 +176,7 @@ class DelegationBenchmarkRunnerTest {
     }
 
     private val source = PlatformV2(uid = "primary", name = "Primary", compatibleType = ClientType.OPENAI, model = "gpt-4.1", apiUrl = "https://api.openai.com")
+
     // Worker readiness/auth quarantine is intentionally cached across app turns.
     // Give each JUnit test its own fixture identity so an unrelated failing
     // worker test cannot poison this test's subsequent research acquisition.

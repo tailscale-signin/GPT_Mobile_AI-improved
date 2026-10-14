@@ -219,7 +219,12 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                     retryAfter = maxOf(retryAfter, android.os.SystemClock.elapsedRealtime() + MemoryTrimPolicy.REACQUIRE_COOLDOWN_MS)
                     _status.value = _status.value.copy(available = false, detail = "Semantic recall paused for memory recovery; exact and topic recall remain active")
                 }
-                closeEmbedder(if (memoryPressure) "memory_pressure" else if (idleMillis <= 0) "explicit_release" else "idle_timeout")
+                val releaseReason = when {
+                    memoryPressure -> "memory_pressure"
+                    idleMillis <= 0 -> "explicit_release"
+                    else -> "idle_timeout"
+                }
+                closeEmbedder(releaseReason)
                 store?.closeThreadResources()
                 store?.close()
                 store = null

@@ -33,9 +33,10 @@ class CompleteBackupArchiveTest {
         CompleteBackupArchive.write(archive, manifest, sources)
         val staging = temp.newFolder("staging")
         val updates = mutableListOf<Pair<Long, Long>>()
-        assertEquals(manifest, CompleteBackupArchive.read(archive, staging, 1024) { done, total ->
+        val restored = CompleteBackupArchive.read(archive, staging, 1024) { done, total ->
             updates += done to total
-        })
+        }
+        assertEquals(manifest, restored)
         assertEquals(0L, updates.first().first)
         assertEquals(manifest.files.values.sum(), updates.last().first)
         assertEquals(manifest.files.values.sum(), updates.last().second)

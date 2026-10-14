@@ -12,11 +12,11 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalSamplerConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission
-import dev.chungjungsoo.gptmobile.data.localruntime.isLocalMemoryAdmissionFailure
 import dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeEvidenceIdentity
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeQualificationResult
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeTrial
+import dev.chungjungsoo.gptmobile.data.localruntime.isLocalMemoryAdmissionFailure
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton

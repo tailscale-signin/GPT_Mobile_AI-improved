@@ -73,7 +73,11 @@ class PlannedLocalRuntime(
         }
         val memoryEstimate = LocalMemoryEstimate(estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, LocalWorkloadAdmission.availableMemory(context), chosen.maxTokens, if (warm?.engineConfiguration() == chosen.engineConfiguration()) "warm_incremental_reserve" else "conservative_unmeasured")
         val preflightRejection = admission.rejection(
-            getHardwareState(), memoryEstimate.availableBytes, estimate, memoryEstimate.reserveBytes, optional = false
+            getHardwareState(),
+            memoryEstimate.availableBytes,
+            estimate,
+            memoryEstimate.reserveBytes,
+            optional = false
         )
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "LocalModel",

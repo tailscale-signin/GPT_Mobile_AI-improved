@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.context
 
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive

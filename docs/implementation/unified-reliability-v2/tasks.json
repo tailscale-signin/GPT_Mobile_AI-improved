@@ -688,15 +688,22 @@
       "IX14"
     ],
     "implementation_commits": [
-      "87511a3096b750832f07806ea019db427009604b"
+      "87511a3096b750832f07806ea019db427009604b",
+      "6d972221efa52e676d9681e1eb3efff03e6f586a",
+      "5cc27e54fab66f3b99f87a84c14bc8bb9355be76",
+      "db567f69e870407040a66e89a571750f875f830a"
     ],
     "evidence": [
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedFullInputPlanTest.kt",
-      "docs/implementation/reliability-completion-2026-10-14.md"
+      "docs/implementation/reliability-completion-2026-10-14.md",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipass.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipassSession.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipassTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipassSessionTest.kt"
     ],
     "remaining_work": [
-      "Full-input preparation and continuation now retain frozen history, contribution bodies and original constraints, blocking with an estimated capacity report instead of evicting history. Added regressions are NOT_RUN because Gradle/Android dependencies are unavailable here.",
-      "Same-primary FULL_CORPUS_MULTIPASS execution, complete chunk inspection checkpoints, section assembly and semantic coverage repair remain unimplemented. This is not V30 completion."
+      "Finite text-only input that cannot fit a single Combined request now plans exact UTF-16 corpus spans and executes bounded, text-only inspections with the pinned primary before a separately admitted final write. Each stage rechecks destination/saved-evidence permission and distinguishes completed reports from failed, empty or length-stopped work. New tests are committed; their CI results are pending.",
+      "Durable per-pass checkpoints and restart reconciliation, source-level semantic quality/section repair, attachment/multimodal multipass, all native and provider-route acceptance, 3,000-word output/combined tests and device qualification remain. This is not V30 completion."
     ]
   },
   {

@@ -786,10 +786,13 @@ class ChatRepositoryImpl(
                 budget.bind(resolved.tool.withRunContext(parentRunId), onFinished = { callId, success ->
                     toolApprovals?.finish(parentRunId, "$invocation:$callId", success)
                 }) { callId, arguments ->
-                    resolved.canReuseResult?.invoke() != false &&
-                        (resolved.connectionUid?.let { uid ->
+                    if (resolved.canReuseResult?.invoke() == false) {
+                        false
+                    } else {
+                        resolved.connectionUid?.let { uid ->
                             toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
-                        } ?: true)
+                        } ?: true
+                    }
                 }
             }
     }
@@ -2179,10 +2182,13 @@ class ChatRepositoryImpl(
             tool = boundBudget.bind(resolved.tool.withRunContext(runId), statisticsIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid), onFinished = { callId, success ->
                 toolApprovals?.finish(runId, callId, success)
             }) { callId, arguments ->
-                resolved.canReuseResult?.invoke() != false &&
-                    (resolved.connectionUid?.let { uid ->
+                if (resolved.canReuseResult?.invoke() == false) {
+                    false
+                } else {
+                    resolved.connectionUid?.let { uid ->
                         toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
-                    } ?: true)
+                    } ?: true
+                }
             }
         )
     }

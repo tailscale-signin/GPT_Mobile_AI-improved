@@ -60,6 +60,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -2062,17 +2063,18 @@ class ChatViewModel @Inject constructor(
             pendingRunDispatches += 1
             viewModelScope.launch {
                 var committed = false
+                var scheduleRetry = false
                 try {
                     val dispatched = startCombinedSynthesis(turnIndex, sources, onPersisted = { committed = true })
-                    if (!dispatched && !committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
+                    if (!dispatched && !committed) scheduleRetry = combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                 } catch (error: CancellationException) {
+                    // Parent/user cancellation is not an invitation to automatically
+                    // restart generation; an explicit retry or later state change can recover.
                     if (!committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                     throw error
                 } catch (error: Throwable) {
-                    // Retain reservations after Room persistence: repeated UI emissions
-                    // must not purchase/dispatch a second identical synthesis.
-                    // Pre-commit network/database failures can be retried safely.
-                    if (!committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
+                    // A durable run can never be automatically replayed after UI/provider failure.
+                    if (!committed) scheduleRetry = combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                     _attachmentNotice.update {
                         error.message?.takeIf(String::isNotBlank)
                             ?: "Could not combine the model responses."
@@ -2082,6 +2084,17 @@ class ChatViewModel @Inject constructor(
                     pendingRunDispatches -= 1
                     syncLoadingStates(_agentRunsById.value)
                     drainPromptQueueIfIdle()
+                    if (scheduleRetry) {
+                        val chatId = room.id
+                        // One delayed state recheck, at most three per unchanged source
+                        // revision. No retry is permitted after a persisted run.
+                        viewModelScope.launch {
+                            delay(5_000L)
+                            if (_chatRoom.value.id == chatId && _chatRoom.value.conversationMode == ConversationMode.COMBINED) {
+                                advancePendingGeneration()
+                            }
+                        }
+                    }
                 }
             }
         }

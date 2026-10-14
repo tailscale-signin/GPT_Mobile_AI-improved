@@ -9,7 +9,8 @@ internal class CombinedSynthesisGate(private val nowMillis: () -> Long = { Syste
         val sources: List<CombinedModelResponse>,
         // Null means already admitted/committed; only explicitly abandoned
         // pre-commit attempts are ever eligible to retry.
-        val retryAfterMillis: Long? = null
+        val retryAfterMillis: Long? = null,
+        val automaticRetries: Int = 0
     )
 
     private val attempts = mutableMapOf<Int, Reservation>()
@@ -21,18 +22,23 @@ internal class CombinedSynthesisGate(private val nowMillis: () -> Long = { Syste
             val retryAt = previous.retryAfterMillis ?: return false
             if (nowMillis() < retryAt) return false
         }
-        attempts[userId] = Reservation(sources.toList())
+        attempts[userId] = Reservation(sources.toList(), automaticRetries = if (previous?.sources == sources) previous.automaticRetries else 0)
         return true
     }
 
     /** Retain bounded backoff for matching *pre-commit* failures only. */
     fun abandonUncommitted(userId: Int, sources: List<CombinedModelResponse>): Boolean {
         val previous = attempts[userId] ?: return false
-        if (previous.sources != sources) return false
+        if (previous.sources != sources || previous.retryAfterMillis != null) return false
         val now = nowMillis()
         val retryAt = if (now > Long.MAX_VALUE - RETRY_DELAY_MS) Long.MAX_VALUE else now + RETRY_DELAY_MS
-        attempts[userId] = Reservation(sources.toList(), retryAt)
-        return true
+        val shouldWake = previous.automaticRetries < MAX_AUTOMATIC_RETRIES
+        attempts[userId] = Reservation(
+            sources.toList(),
+            retryAfterMillis = retryAt,
+            automaticRetries = previous.automaticRetries + if (shouldWake) 1 else 0
+        )
+        return shouldWake
     }
 
     fun reset(userId: Int) {
@@ -41,6 +47,7 @@ internal class CombinedSynthesisGate(private val nowMillis: () -> Long = { Syste
 
     private companion object {
         const val RETRY_DELAY_MS = 5_000L
+        const val MAX_AUTOMATIC_RETRIES = 3
     }
 }
 

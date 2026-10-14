@@ -42,6 +42,25 @@ class CombinedSynthesisGateTest {
         assertFalse(gate.reserve(91, changed))
     }
 
+    @Test fun `automatic retry has a finite wakeup budget without blocking later explicit recovery`() {
+        var now = 10_000L
+        val gate = CombinedSynthesisGate { now }
+        val sources = listOf(CombinedModelResponse(platformUid = "p", platformName = "Primary", content = "Evidence"))
+        assertTrue(gate.reserve(18, sources))
+        repeat(3) {
+            assertTrue("The first three pre-commit failures may schedule a delayed recheck", gate.abandonUncommitted(18, sources))
+            assertFalse("Do not issue a duplicate attempt before its deadline", gate.reserve(18, sources))
+            now += 5_000L
+            assertTrue(gate.reserve(18, sources))
+        }
+        assertFalse("Do not hot-loop indefinitely when the primary stays unavailable", gate.abandonUncommitted(18, sources))
+        now += 5_000L
+        // A real later settings/run-state change may still retry the same source;
+        // only the automatic wakeup budget is exhausted.
+        assertTrue(gate.reserve(18, sources))
+        assertFalse(gate.reserve(18, sources))
+    }
+
     @Test fun `persisted row follows its identity when the history window moves`() {
         val optimistic = MessageV2(id = 0, chatId = 7, platformType = null, content = "new")
         val saved = optimistic.copy(id = 30)

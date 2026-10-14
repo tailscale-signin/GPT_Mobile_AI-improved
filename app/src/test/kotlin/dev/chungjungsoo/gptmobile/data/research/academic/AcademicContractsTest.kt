@@ -68,7 +68,7 @@ class AcademicContractsTest {
     @Test fun liveContractFixturesRemainMetadataAndNeverFabricatePmids() {
         val client = AcademicNativeClient(RuntimeEnvironment.getApplication())
         AcademicNativeClient.CORE.forEach { provider ->
-            val extension = if (provider == "arxiv") "xml" else "json"
+            val extension = if (provider in setOf("arxiv", "pubmed")) "xml" else "json"
             val body = javaClass.getResource("/academic/$provider.$extension")!!.readText()
             val papers = client.parseSearch(provider, body)
             assertTrue("$provider fixture", papers.isNotEmpty())

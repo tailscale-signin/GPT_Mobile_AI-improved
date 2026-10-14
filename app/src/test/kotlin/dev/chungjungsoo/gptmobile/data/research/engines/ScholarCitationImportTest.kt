@@ -6,6 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScholarCitationImportTest {
+    @Test fun biomedicalLinksAndPmcPrefixesResolveAsIdentifiers() {
+        assertEquals("pmid:42", ScholarCitationImport.parse("https://pubmed.ncbi.nlm.nih.gov/42/").single().identifier)
+        assertEquals("pmcid:PMC42", ScholarCitationImport.parse("PMCID: PMC42").single().identifier)
+        assertEquals("pmcid:PMC42", ScholarCitationImport.parse("https://pmc.ncbi.nlm.nih.gov/articles/PMC42/").single().identifier)
+    }
+
     @Test fun nestedBibtexAndRisImportsRetainIdentityAndDoNotClaimVerification() {
         val bib = ScholarCitationImport.parse("""@article{a, title={A {nested} title}, doi={10.1234/test}, author={Melo, E}}""").single()
         assertEquals("A nested title", bib.title)

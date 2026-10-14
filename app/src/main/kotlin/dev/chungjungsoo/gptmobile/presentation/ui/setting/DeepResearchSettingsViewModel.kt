@@ -89,7 +89,9 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
                 require(query.trim().length in 1..500)
                 check(discoveryAllowed()) { "Enable Research and Papers and studies consent in Settings" }
                 val admitted = repository.getFeatureSettings()
-                val selected = dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient.CORE.toSet() - admitted.delegation.deepResearch.disabledEngineIds
+                val options = admitted.delegation.deepResearch
+                val allowed: suspend () -> Boolean = { discoveryAllowed() && repository.getFeatureSettings().delegation.deepResearch == options }
+                val selected = dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient.CORE.toSet() - options.disabledEngineIds
                 check(selected.isNotEmpty()) { "Select at least one native engine" }
                 val owner = "research-session:" + java.util.UUID.randomUUID()
                 val epoch = archive.dao.sequence()?.archiveEpoch ?: 0L
@@ -100,7 +102,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
                             records.forEach { row ->
                                 val paper = Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(row.toString())
                                 archive.ingestPaper(paper, owner, epoch, admitted.researchFeature.automaticOrganization) {
-                                    discoveryAllowed() && repository.getFeatureSettings().researchFeature.archiveEnabled
+                                    allowed() && repository.getFeatureSettings().researchFeature.archiveEnabled
                                 }
                                 saved++
                             }
@@ -108,9 +110,9 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
                     }
                 ) {
                     val result = academic.search(
-                        dev.chungjungsoo.gptmobile.data.research.academic.AcademicSearchRequest(query.trim(), 50, maxResults = 40),
+                        dev.chungjungsoo.gptmobile.data.research.academic.AcademicSearchRequest(query.trim(), 50, maxResults = 40, includeDomains = dev.chungjungsoo.gptmobile.data.research.researchDomains(options.includeDomains), excludeDomains = dev.chungjungsoo.gptmobile.data.research.researchDomains(options.excludeDomains)),
                         dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(true, 50, enabledProviders = selected),
-                        ::discoveryAllowed
+                        allowed
                     )
                     mutableDiscovery.value = "${result.papers.size} results · $saved admissions · " + result.providers.joinToString { "${it.id}: ${it.state}" }
                 }
@@ -124,6 +126,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     }
     fun openScholar(query: String, open: (String) -> Unit) = archiveAction {
         check(discoveryAllowed()) { "Enable Research and Papers and studies consent in Settings" }
+        check("google_scholar" !in repository.getFeatureSettings().delegation.deepResearch.disabledEngineIds) { "Google Scholar is disabled in engine settings" }
         val url = dev.chungjungsoo.gptmobile.data.research.engines.ScholarCitationImport.scholarUrl(query)
         val id = java.util.UUID.randomUUID().toString()
         archive.dao.handoff(dev.chungjungsoo.gptmobile.data.research.feature.ResearchHandoff(id, query.trim(), "AWAITING_IMPORT", System.currentTimeMillis()))
@@ -134,42 +137,58 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     fun previewCitationFile(uri: android.net.Uri, context: android.content.Context) = archiveAction {
         val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             context.contentResolver.openInputStream(uri)?.use { stream ->
-                val bytes = stream.readNBytes(262145)
-                require(bytes.size <= 262144) { "Citation files must be at most 256 KiB" }
-                bytes.decodeToString(throwOnInvalidSequence = true)
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    require(output.size() + count <= 262144) { "Citation files must be at most 256 KiB" }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray().decodeToString(throwOnInvalidSequence = true)
             } ?: error("Citation file is unavailable")
         }
         mutablePreview.value = dev.chungjungsoo.gptmobile.data.research.engines.ScholarCitationImport.parse(text)
     }
     fun previewCitations(text: String) = archiveAction { mutablePreview.value = dev.chungjungsoo.gptmobile.data.research.engines.ScholarCitationImport.parse(text) }
+    fun removeCitation(index: Int) {
+        mutablePreview.value = mutablePreview.value.filterIndexed { i, _ -> i != index }
+    }
     fun cancelImport() = archiveAction {
         mutablePreview.value = emptyList()
         savedState.get<String>("scholarHandoff")?.let { id -> archive.dao.handoff(id)?.let { archive.dao.handoff(it.copy(status = "CANCELED")) } }
     }
     fun importCitations() = archiveAction {
         check(discoveryAllowed()) { "Enable Research and Papers and studies consent in Settings" }
-        val settings = repository.getFeatureSettings().researchFeature
+        val admitted = repository.getFeatureSettings()
+        val settings = admitted.researchFeature
+        val options = admitted.delegation.deepResearch
+        val providers = dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient.CORE.toSet() - options.disabledEngineIds
+        val policy = dev.chungjungsoo.gptmobile.data.research.academic.AcademicAccessPolicy(dev.chungjungsoo.gptmobile.data.research.researchDomains(options.includeDomains), dev.chungjungsoo.gptmobile.data.research.researchDomains(options.excludeDomains), providers)
         check(settings.archiveEnabled) { "Enable automatic archive entries before importing" }
         val epoch = archive.dao.sequence()?.archiveEpoch ?: 0L
-        val owner = savedState.get<String>("scholarHandoff") ?: "import:" + java.util.UUID.randomUUID()
-        val allowed: suspend () -> Boolean = { discoveryAllowed() && repository.getFeatureSettings().researchFeature.archiveEnabled }
+        val handoff = savedState.get<String>("scholarHandoff")
+        val owner = handoff ?: "import:" + java.util.UUID.randomUUID()
+        val origin = if (handoff == null) "user_citation_import" else "google_scholar_user_import"
+        val allowed: suspend () -> Boolean = { discoveryAllowed() && repository.getFeatureSettings().researchFeature.archiveEnabled && repository.getFeatureSettings().delegation.deepResearch == options }
         for (preview in mutablePreview.value) {
             val resolved = try {
-                if (preview.identifier.isNotBlank()) academic.getPaper(preview.identifier, allowed) else null
+                if (preview.identifier.isNotBlank() && providers.isNotEmpty()) academic.getPaper(preview.identifier, allowed, policy) else null
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 check(allowed()) { "Research permission changed" }
                 null
             }
-            val paper = resolved?.copy(sourceProviders = (resolved.sourceProviders + "google_scholar_user_import").distinct())
+            val paper = resolved?.copy(sourceProviders = (resolved.sourceProviders + origin).distinct())
                 ?: dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper(
                     paperId = "import:" + dev.chungjungsoo.gptmobile.data.research.researchHash(preview.toString()),
                     title = preview.title,
                     canonicalUrl = preview.url.ifBlank { dev.chungjungsoo.gptmobile.data.research.engines.ScholarCitationImport.scholarUrl(preview.title.take(500)) },
-                    sourceProviders = listOf("google_scholar_user_import"),
+                    sourceProviders = listOf(origin),
                     publicationType = "unverified_bibliographic_entry"
                 )
+            require(dev.chungjungsoo.gptmobile.data.research.researchDomainAllowed(paper.canonicalUrl, policy.included, policy.excluded)) { "Citation domain is excluded by research settings" }
             archive.ingestPaper(paper, owner, epoch, settings.automaticOrganization, allowed)
         }
         archive.dao.handoff(owner)?.let { archive.dao.handoff(it.copy(status = "IMPORTED")) }

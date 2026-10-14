@@ -23,3 +23,7 @@ data class ResearchRecallExclusion(@PrimaryKey val workId: String, val excludedA
 data class ResearchHandoff(@PrimaryKey val handoffId: String, val query: String, val status: String, val createdAt: Long)
 
 data class ResearchTopicCount(val topicId: String, val count: Int)
+
+@Serializable
+@Entity(tableName = "research_organization_overrides")
+data class ResearchOrganizationOverride(@PrimaryKey val workId: String, val changedAt: Long)

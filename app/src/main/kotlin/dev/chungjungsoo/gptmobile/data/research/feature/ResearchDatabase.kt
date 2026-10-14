@@ -18,7 +18,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-@Database(entities = [ResearchDiscovery::class, ResearchOutcome::class, ResearchRecallExclusion::class, ResearchHandoff::class, ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 2, exportSchema = true)
+@Database(entities = [ResearchOrganizationOverride::class, ResearchDiscovery::class, ResearchOutcome::class, ResearchRecallExclusion::class, ResearchHandoff::class, ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 2, exportSchema = true)
 abstract class ResearchDatabase : RoomDatabase() {
     abstract fun research(): ResearchDao
     abstract fun statistics(): dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsDao
@@ -37,6 +37,14 @@ data class ArchiveRow(val workId: String, val title: String, val canonicalUrl: S
 
 @Dao
 interface ResearchDao {
+    @Upsert suspend fun organizationOverride(value: ResearchOrganizationOverride)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM research_organization_overrides WHERE workId=:id)")
+    suspend fun manuallyOrganized(id: String): Boolean
+
+    @Query("SELECT * FROM research_organization_overrides")
+    suspend fun allOrganizationOverrides(): List<ResearchOrganizationOverride>
+
     @Upsert suspend fun discovery(value: ResearchDiscovery)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -64,7 +72,7 @@ interface ResearchDao {
     @Query("SELECT EXISTS(SELECT 1 FROM research_recall_exclusions WHERE workId=:id)")
     suspend fun recallExcluded(id: String): Boolean
 
-    @Query("SELECT o.* FROM research_outcomes o JOIN research_archive a ON a.workId=o.workId AND a.latestVersionId=o.versionId JOIN research_works w ON w.workId=o.workId WHERE COALESCE(w.retracted,0)=0 AND NOT EXISTS(SELECT 1 FROM research_recall_exclusions x WHERE x.workId=o.workId) AND NOT EXISTS(SELECT 1 FROM research_tombstones t WHERE t.`key`='archive:' || o.workId) ORDER BY o.createdAt DESC LIMIT 100")
+    @Query("SELECT o.* FROM research_outcomes o JOIN research_archive a ON a.workId=o.workId AND a.latestVersionId=o.versionId JOIN research_works w ON w.workId=o.workId WHERE COALESCE(w.retracted,0)=0 AND o.state NOT IN ('WITHDRAWN','SUPERSEDED') AND NOT EXISTS(SELECT 1 FROM research_recall_exclusions x WHERE x.workId=o.workId) AND NOT EXISTS(SELECT 1 FROM research_tombstones t WHERE t.`key`='archive:' || o.workId) ORDER BY o.createdAt DESC LIMIT 100")
     fun observeOutcomes(): Flow<List<ResearchOutcome>>
 
     @Query("SELECT * FROM research_outcomes WHERE versionId=:id ORDER BY createdAt DESC")

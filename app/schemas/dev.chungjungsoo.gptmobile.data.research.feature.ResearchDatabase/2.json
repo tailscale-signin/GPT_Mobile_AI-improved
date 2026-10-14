@@ -2,8 +2,32 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "2bab38adf5ac4462729646171b619754",
+    "identityHash": "c9a7bd77439967b3811f2adaca5de2b5",
     "entities": [
+      {
+        "tableName": "research_organization_overrides",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workId` TEXT NOT NULL, `changedAt` INTEGER NOT NULL, PRIMARY KEY(`workId`))",
+        "fields": [
+          {
+            "fieldPath": "workId",
+            "columnName": "workId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "changedAt",
+            "columnName": "changedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workId"
+          ]
+        }
+      },
       {
         "tableName": "research_discoveries",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`discoveryId` TEXT NOT NULL, `workId` TEXT NOT NULL, `engineId` TEXT NOT NULL, `providerRecordId` TEXT NOT NULL, `metadataJson` TEXT NOT NULL, `observedAt` INTEGER NOT NULL, PRIMARY KEY(`discoveryId`), FOREIGN KEY(`workId`) REFERENCES `research_works`(`workId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
@@ -1657,7 +1681,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2bab38adf5ac4462729646171b619754')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c9a7bd77439967b3811f2adaca5de2b5')"
     ]
   }
 }

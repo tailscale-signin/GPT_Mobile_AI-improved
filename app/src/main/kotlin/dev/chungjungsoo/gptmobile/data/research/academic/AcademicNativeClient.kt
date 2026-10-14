@@ -644,6 +644,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     }
 
     internal fun parseSearch(provider: String, body: String): List<AcademicPaper> {
+        if (provider == "pubmed") return dev.chungjungsoo.gptmobile.data.research.engines.PubMedEngineAdapter.parseRecords(body)
         if (provider == "arxiv") {
             return Jsoup.parse(body, "", Parser.xmlParser()).select("entry").map { item ->
                 val id = item.selectFirst("id")?.text().orEmpty().substringAfter("/abs/")

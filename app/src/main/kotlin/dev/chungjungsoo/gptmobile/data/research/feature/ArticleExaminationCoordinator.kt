@@ -247,7 +247,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 retrievalQuality = if (readable) "FULL_TEXT" else "ABSTRACT"
                             )
                             check(allowed())
-                            version = archive.capture(source, body, request.authority, archive.dao.version(requireNotNull(record.requestedVersionId))?.publicSource == true, request.chatId, record.jobId, features.researchFeature.archiveEnabled, checkpoint.archiveEpoch)
+                            version = archive.capture(source, body, request.authority, archive.dao.version(requireNotNull(record.requestedVersionId))?.publicSource == true, request.chatId, record.jobId, features.researchFeature.archiveEnabled, checkpoint.archiveEpoch, ownerKind = if (request.chatId > 0) "chat" else "job", ownerId = if (request.chatId > 0) "${request.chatId}:${record.jobId}" else record.jobId)
                             check(version!!.workId == record.workId) { "Resolved article identity changed" }
                             text = body
                             checkpoint = checkpoint.copy(sourceValidation = SourceValidationReceipt(versionId = version!!.versionId, contentHash = researchHash(body), retrievedAt = evidence.retrievedAt, status = if (readable) "fresh_text_captured" else "metadata_checked_abstract_only", owner = if (selection.gatewayConnectionUid == null) "native" else "selected_gateway", providerReceiptIds = evidence.providerReceipts), versionId = version!!.versionId, nextChunk = 0, limitations = if (readable) listOf("Figures and supplementary material have not been independently verified") else listOf("Abstract only; full methods and results unavailable"))

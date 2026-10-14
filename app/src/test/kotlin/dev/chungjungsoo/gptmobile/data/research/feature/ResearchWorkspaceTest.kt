@@ -39,7 +39,7 @@ class ResearchWorkspaceTest {
                 val entity = element.jsonObject
                 val table = entity.getValue("tableName").jsonPrimitive.content
                 old.execSQL(entity.getValue("createSql").jsonPrimitive.content.replace("\${TABLE_NAME}", table))
-                entity.getValue("indices").jsonArray.forEach { old.execSQL(it.jsonObject.getValue("createSql").jsonPrimitive.content.replace("\${TABLE_NAME}", table)) }
+                entity["indices"]?.jsonArray.orEmpty().forEach { old.execSQL(it.jsonObject.getValue("createSql").jsonPrimitive.content.replace("\${TABLE_NAME}", table)) }
             }
             schema.getValue("setupQueries").jsonArray.forEach { old.execSQL(it.jsonPrimitive.content) }
             old.execSQL("INSERT INTO research_tombstones (`key`,epoch) VALUES ('archive:removed',42)")
@@ -67,15 +67,18 @@ class ResearchWorkspaceTest {
         val first = archive.ingestPaper(paper, "discovery:one", 0, true) { true }
         assertEquals(first.workId, waiting.await().single().workId)
         val sequence = db.research().membership(first.workId)!!.archiveSequence
+        archive.move(first.workId, ResearchArchiveIngestor.DEFAULT_TOPIC)
         val second = archive.ingestPaper(paper.copy(sourceProviders = listOf("europepmc"), providerRecordId = "MED:42", abstract = ""), "discovery:two", 0, true) { true }
         assertEquals(first.workId, second.workId)
         assertEquals(1, db.research().count())
         assertEquals(sequence, db.research().membership(first.workId)!!.archiveSequence)
+        assertEquals(ResearchArchiveIngestor.DEFAULT_TOPIC, db.research().membership(first.workId)!!.primaryTopicId)
         assertEquals(first.versionId, db.research().membership(first.workId)!!.latestVersionId)
         assertEquals(setOf("pubmed", "europepmc"), db.research().discoveries(first.workId).map { it.engineId }.toSet())
         assertTrue(db.research().allRoots().all { it.rootKind in setOf("archive", "import") })
         db.research().clearArchive(100)
-        archive.ingestPaper(paper, "late", 0, true) { true }
+        assertTrue(runCatching { archive.ingestPaper(paper, "late", 0, true) { true } }.isFailure)
+        assertTrue(db.research().allRoots().isEmpty())
         assertEquals(0, db.research().count())
     }
 

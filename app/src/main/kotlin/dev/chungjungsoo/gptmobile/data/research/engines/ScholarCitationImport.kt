@@ -33,7 +33,13 @@ internal object ScholarCitationImport {
     private fun preview(title: String, identifier: String, url: String): CitationPreview {
         val clean = Jsoup.parse(title).text().trim().take(2000)
         val doi = SourceIdentity.normalizeDoi(identifier)
-        val pmid = identifier.trim().removePrefix("PMID:").removePrefix("pmid:").trim()
+        val importedUri = runCatching { URI(identifier.trim()) }.getOrNull()
+        val fromUrl = when (importedUri?.host?.lowercase()) {
+            "pubmed.ncbi.nlm.nih.gov" -> importedUri.path.trim('/')
+            "pmc.ncbi.nlm.nih.gov" -> importedUri.path.trim('/').removePrefix("articles/")
+            else -> null
+        }
+        val pmid = (fromUrl ?: identifier.trim().replace(Regex("(?i)^(?:PMID|PMCID):\\s*"), "")).trim()
         val normalized = when {
             doi.isNotBlank() -> "doi:$doi"
             pmid.matches(Regex("[0-9]{1,12}")) -> "pmid:$pmid"

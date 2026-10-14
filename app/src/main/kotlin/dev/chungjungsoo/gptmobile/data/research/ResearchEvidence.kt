@@ -210,7 +210,7 @@ data class ResearchSnapshot(
                 ) {
                     return@mapNotNull null
                 }
-                val status = s.text("status").takeIf { it in setOf("Discovered", "Metadata only", "Read", "Partially read", "Used as evidence", "Blocked", "Failed") } ?: "Failed"
+                val status = s.text("status").takeIf { it in setOf("Discovered", "Metadata only", "Abstract", "Read", "Partially read", "Used as evidence", "Blocked", "Failed") } ?: "Failed"
                 val source = ResearchSource(
                     id, url, s.text("title").take(240), status, s.text("passage").take(6000), s.number("depth").coerceIn(0, 2),
                     (s["retrievedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, s.text("publishedAt").take(80),
@@ -227,9 +227,11 @@ data class ResearchSnapshot(
                     titleFingerprint = s.text("titleFingerprint").takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: source.titleFingerprint,
                     contentFingerprint = s.text("contentFingerprint").takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: source.contentFingerprint,
                     retrievalQuality = s.text("retrievalQuality").takeIf { it in setOf("FULL_TEXT", "PARTIAL_TEXT", "ABSTRACT", "METADATA", "BLOCKED", "EMPTY", "LEAD") }
+                        ?.let { if (status == "Partially read" && it == "FULL_TEXT") "PARTIAL_TEXT" else it }
                         ?: when (status) {
                             "Read", "Used as evidence" -> "FULL_TEXT"
                             "Partially read" -> "PARTIAL_TEXT"
+                            "Abstract" -> "ABSTRACT"
                             "Blocked" -> "BLOCKED"
                             "Failed" -> "EMPTY"
                             else -> "LEAD"

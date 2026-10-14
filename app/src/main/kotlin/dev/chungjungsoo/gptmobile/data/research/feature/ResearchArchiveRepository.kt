@@ -68,9 +68,9 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         val text = bodies.readFeatureBody(refs) ?: return null
         return text.takeIf { researchHash(it) == version.contentHash }
     }
-    suspend fun capture(source: ResearchSource, text: String, authority: String, publicSource: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long): ResearchWorkVersion =
+    suspend fun capture(source: ResearchSource, text: String, authority: String, publicSource: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId"): ResearchWorkVersion =
         bodies.publishFeatureBody(text) { chunks ->
-            ResearchArchiveIngestor.capture(database, source.copy(bodyChunks = chunks, passage = text.take(8000)), authority, publicSource, chatId, rootId, archive, epoch, researchHash(text), text.toByteArray().size.toLong())
+            ResearchArchiveIngestor.capture(database, source.copy(bodyChunks = chunks, passage = text.take(8000)), authority, publicSource, chatId, rootId, archive, epoch, researchHash(text), text.toByteArray().size.toLong(), ownerKind, ownerId)
         }
 
     /** Explicit standalone imports use their own owner; they do not invent a conversation. */
@@ -98,7 +98,7 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
     }
     private suspend fun organize(workId: String, title: String, subjects: List<String>) {
         val membership = dao.membership(workId) ?: return
-        if (membership.primaryTopicId != ResearchArchiveIngestor.DEFAULT_TOPIC) return
+        if (membership.primaryTopicId != ResearchArchiveIngestor.DEFAULT_TOPIC || dao.manuallyOrganized(workId)) return
         val match = ResearchOrganization.topic(title, subjects) ?: return
         val id = "${match.first}:automatic"
         if (dao.topic(id) == null) dao.topic(ResearchTopic(id, match.first, match.second))
@@ -129,10 +129,12 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
     suspend fun move(workId: String, topicId: String) = database.withTransaction {
         requireNotNull(dao.topic(topicId))
         dao.membership(requireNotNull(dao.membership(workId)).copy(primaryTopicId = topicId))
+        dao.organizationOverride(ResearchOrganizationOverride(workId, System.currentTimeMillis()))
     }
     suspend fun mergeTopics(from: String, to: String) = database.withTransaction {
         require(from != to)
         requireNotNull(dao.topic(to))
+        dao.allMemberships().filter { it.primaryTopicId == from }.forEach { dao.organizationOverride(ResearchOrganizationOverride(it.workId, System.currentTimeMillis())) }
         dao.moveTopic(from, to)
         dao.mergeRelatedTopics(from, to)
         dao.deleteRelatedTopic(from)
@@ -169,9 +171,13 @@ internal object ResearchArchiveIngestor {
         seed(database)
         return database.withTransaction {
             val dao = database.research()
-            require(ownerKind in setOf("chat", "import"))
+            require(ownerKind in setOf("chat", "import", "job"))
+            if (ownerKind == "job") check(dao.job(ownerId)?.stage?.let { it !in setOf(ExaminationStage.CANCELED, ExaminationStage.FAILED) } == true) { "Examination owner is unavailable" }
             if (ownerKind == "chat") check(chatId > 0 && dao.deleted("chat:$chatId") == null) { "Conversation was deleted" }
-            if (ownerKind == "import") require(ownerId.isNotBlank())
+            if (ownerKind == "import") {
+                require(ownerId.isNotBlank())
+                check((dao.sequence()?.archiveEpoch ?: 0L) == epoch) { "Archive was cleared; start a new import" }
+            }
             val public = publicEvidence && publicUrl(source.canonicalUrl)
             val scope = if (public) "public" else researchHash(authority)
             val identities = buildList {
@@ -184,6 +190,7 @@ internal object ResearchArchiveIngestor {
             val resolved = identities.mapNotNull { dao.aliasWork(it) }.distinct()
             require(resolved.size <= 1) { "Conflicting strong research identifiers require review" }
             val workId = resolved.singleOrNull() ?: researchHash(identities.first())
+            if (ownerKind == "import") check(dao.deleted("archive:$workId") == null) { "This work was removed from the archive" }
             val previous = dao.work(workId)
             val review = when (source.reviewStatus.lowercase()) {
                 "peer_reviewed", "confirmed_peer_reviewed" -> PublicationReview.CONFIRMED
@@ -207,7 +214,7 @@ internal object ResearchArchiveIngestor {
             dao.root(BodyReference(ownerKind, ownerId, versionId))
             if (archive && public) dao.archive(workId, versionId, dao.membership(workId)?.primaryTopicId ?: DEFAULT_TOPIC, System.currentTimeMillis(), epoch)
             val membership = dao.membership(workId)
-            if (automaticOrganization && membership?.primaryTopicId == DEFAULT_TOPIC) {
+            if (automaticOrganization && membership?.primaryTopicId == DEFAULT_TOPIC && !dao.manuallyOrganized(workId)) {
                 val subjects = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(source.bibliographyJson).subjects }.getOrDefault(emptyList())
                 ResearchOrganization.topic(source.title, subjects)?.let { (category, label) ->
                     val topicId = "$category:automatic"
@@ -216,7 +223,7 @@ internal object ResearchArchiveIngestor {
                 }
             }
             source.engines.distinct().forEach { engine ->
-                val record = source.paperId.ifBlank { source.canonicalUrl }
+                val record = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(source.bibliographyJson).providerRecordId }.getOrDefault("").ifBlank { source.paperId.ifBlank { source.canonicalUrl } }
                 dao.discovery(ResearchDiscovery(researchHash("$workId|$engine|$record"), workId, engine, record, source.bibliographyJson, System.currentTimeMillis()))
             }
             requireNotNull(dao.version(versionId))

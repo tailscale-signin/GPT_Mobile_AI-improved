@@ -180,7 +180,7 @@ class DelegationBenchmarkRunnerTest {
     // Worker readiness/auth quarantine is intentionally cached across app turns.
     // Give each JUnit test its own fixture identity so an unrelated failing
     // worker test cannot poison this test's subsequent research acquisition.
-    private val helper = PlatformV2(uid = "benchmark-helper-${UUID.randomUUID()}", name = "Helper", compatibleType = ClientType.OPENROUTER, model = "qwen/qwen3-8b", apiUrl = "https://openrouter.ai/api/v1")
+    private val helper = PlatformV2(uid = "benchmark-helper-${java.util.UUID.randomUUID()}", name = "Helper", compatibleType = ClientType.OPENROUTER, model = "qwen/qwen3-8b", apiUrl = "https://openrouter.ai/api/v1")
     private val config = ModelDelegationSettings(enabled = true, allowRemoteWorkers = true, localPlatformsOnly = false, targetProfileUid = helper.uid, maxPages = 1, crawlDepth = 0, maxLocalModelCalls = 10)
 
     @Test fun `pipeline reads fixture then preserves code and source through primary synthesis`() = runBlocking {

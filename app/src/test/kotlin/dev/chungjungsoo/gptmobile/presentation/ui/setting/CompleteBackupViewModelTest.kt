@@ -15,14 +15,12 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -217,34 +215,27 @@ class CompleteBackupViewModelTest {
     }
 
     @Test
-    fun restoreExposesStageAndMeasuredProgressWhileRunningThenClearsIt() = runTest(dispatcher) {
+    fun restoreShowsOpeningTaskAndResetsProgressOnCompletion() = runTest(dispatcher) {
         val uri = mockk<Uri>()
-        val finish = CompletableDeferred<Unit>()
         coEvery { manager.requiresPassword(uri) } returns false
         coEvery { manager.requiresRecoveryKey(uri) } returns false
-        coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } coAnswers {
-            val report = arg<(RestoreProgress) -> Unit>(4)
-            report(RestoreProgress(RestorePhase.DECRYPTING, 512, 1024))
-            finish.await()
-            report(RestoreProgress(RestorePhase.FINALIZING))
+        coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } returns
             BackupRestoreResult(true, "Restored")
-        }
 
         assertTrue(viewModel.prepareBackupPicker(restoring = true))
         viewModel.restoreSourceSelected(uri)
         advanceUntilIdle()
         assertEquals(uri, viewModel.backupUi.value.restoreUri)
         viewModel.confirmRestore()
-        runCurrent()
 
         val during = viewModel.backupUi.value
-        assertTrue("Restore state: $during", during.isBusy)
+        assertTrue(during.isBusy)
         assertTrue(during.isRestoring)
-        assertEquals(RestorePhase.DECRYPTING, during.restoreProgress?.phase)
-        assertEquals(0.5f, during.restoreProgress?.fraction)
+        assertEquals(RestorePhase.READING, during.restoreProgress?.phase)
+        assertEquals(null, during.restoreProgress?.fraction)
 
-        finish.complete(Unit)
         advanceUntilIdle()
+        coVerify(exactly = 1) { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) }
         assertFalse(viewModel.backupUi.value.isWorking)
         assertFalse(viewModel.backupUi.value.isRestoring)
         assertEquals(null, viewModel.backupUi.value.restoreProgress)

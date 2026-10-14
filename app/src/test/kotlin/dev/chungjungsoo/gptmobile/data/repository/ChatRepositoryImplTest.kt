@@ -894,7 +894,7 @@ class ChatRepositoryImplTest {
     }
 
     @Test
-    fun `complete chat executes assigned web search and persists its trace`() = runBlocking {
+    fun `complete chat rejects unapproved web search and persists its trace`() = runBlocking {
         val connection = ToolConnection(
             connectionUid = "search-1",
             name = "Fixture search",
@@ -981,7 +981,8 @@ class ChatRepositoryImplTest {
         assertEquals("call_exact", event.callId)
         assertEquals("Multi-engine search", event.connectionNameSnapshot)
         assertEquals(ToolEventStatus.FAILED, event.status)
-        assertTrue(event.result.orEmpty().contains("missing credential"))
+        // A disconnected tool is rejected at its permission boundary, rather than dispatched with missing credentials.
+        assertTrue(event.result.orEmpty(), event.result.orEmpty().contains("Tool permission was denied"))
     }
 
     @Test
@@ -1183,6 +1184,99 @@ class ChatRepositoryImplTest {
         assertEquals(listOf("read_recovery_context"), api.requests.last().tools.orEmpty().map { it.function.name })
         assertEquals(24, api.requests.count { it.model == helper.model })
         assertEquals(0, repeatedReads)
+    }
+
+    @Test
+    fun unusedRevokedToolCannotBlockAnOrdinaryChatRequest() = runBlocking {
+        val resolver = mockk<AgentToolResolver>()
+        val inactive = object : AgentTool {
+            override val definition = AgentToolDefinition("stale_search", "No longer available", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("Should not execute"), true)
+        }
+        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(
+            ResolvedAgentTool(inactive, "stale-connection", "Unavailable", "stale_search", "stale_search", canReuseResult = { false })
+        )
+        val api = FakeGroqAPI(
+            flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "Chat is working"), finishReason = "stop")))),
+            enforcePhysicalBoundary = true
+        )
+        val states = createRepository(groqAPI = api, agentToolResolver = resolver).completeChat(
+            listOf(MessageV2(id = 22, chatId = 0, content = "Say hello", platformType = null)),
+            emptyList(),
+            groqPlatform(false, "working-model"),
+            "unused-revoked-tool",
+            null
+        ).toList()
+        assertEquals(states.toString(), 1, api.streamCalls)
+        assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Chat is working") })
+        assertFalse(states.any { it is ApiState.Error && it.message.contains("SOURCE_PERMISSION_REVOKED") })
+    }
+
+    @Test
+    fun freshMessageCannotAutomaticallyRecoverUnrelatedPreviousTurn() = runBlocking {
+        val persisted = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val inspectedUserIds = mutableListOf<List<Int>>()
+        val previousRun = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("old-failed-run", 1, 10, 20, "old-profile", "GROQ", "old-model", status = "FAILED")
+        coEvery { persisted.getIncompleteRuns(1, any()) } coAnswers {
+            val ids = secondArg<List<Int>>()
+            inspectedUserIds += ids
+            if (10 in ids) listOf(previousRun) else emptyList()
+        }
+        val api = FakeGroqAPI(
+            flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "Fresh answer"), finishReason = "stop")))),
+            enforcePhysicalBoundary = true
+        )
+        val states = createRepository(groqAPI = api, persistenceOverride = persisted).completeChat(
+            listOf(
+                MessageV2(id = 10, chatId = 1, content = "Previous failed task", platformType = null),
+                MessageV2(id = 11, chatId = 1, content = "New unrelated question", platformType = null)
+            ),
+            emptyList(),
+            groqPlatform(false, "working-model"),
+            "fresh-unrelated-turn",
+            null
+        ).toList()
+        assertTrue(inspectedUserIds.isNotEmpty())
+        assertTrue(inspectedUserIds.toString(), inspectedUserIds.all { it == listOf(11) })
+        assertEquals(states.toString(), 1, api.streamCalls)
+        assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Fresh answer") })
+    }
+
+    @Test
+    fun revokedSavedRecoveryIsDiscardedForFreshChatWithoutLeakingEvidence() = runBlocking {
+        val platform = groqPlatform(false, "working-model")
+        val current = MessageV2(id = 11, chatId = 1, content = "Answer a new question", platformType = null)
+        val previous = MessageV2(id = 20, chatId = 1, content = "PRIVATE_EVIDENCE_DO_NOT_SEND", platformType = platform.uid, currentRunId = "failed-run")
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        coEvery { persistence.getIncompleteRuns(1, listOf(11)) } returns listOf(
+            dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("failed-run", 1, 11, 20, platform.uid, "GROQ", platform.model, status = "FAILED")
+        )
+        coEvery { persistence.getToolEvents(listOf("failed-run")) } returns emptyList()
+        coEvery { persistence.getMessages(1) } returns listOf(current, previous)
+        coEvery { persistence.getChatRoom(1) } returns dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(
+            id = 1,
+            title = "Previously shared chat",
+            enabledPlatform = listOf("different-profile")
+        )
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+        coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+        val api = FakeGroqAPI(
+            flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "Fresh safe answer"), finishReason = "stop")))),
+            enforcePhysicalBoundary = true
+        )
+        val states = createRepository(groqAPI = api, persistenceOverride = persistence, settingsOverride = settings).completeChat(
+            listOf(current),
+            emptyList(),
+            platform,
+            "fresh-after-revocation",
+            null
+        ).toList()
+        assertTrue(states.toString(), states.any { it is ApiState.Notice && it.message.contains("was not reused") })
+        assertEquals(states.toString(), 1, api.streamCalls)
+        assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Fresh safe answer") })
+        assertFalse(api.lastRequest.toString().contains("PRIVATE_EVIDENCE_DO_NOT_SEND"))
     }
 
     private fun createRepository(

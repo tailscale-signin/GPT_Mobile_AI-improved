@@ -786,9 +786,10 @@ class ChatRepositoryImpl(
                 budget.bind(resolved.tool.withRunContext(parentRunId), onFinished = { callId, success ->
                     toolApprovals?.finish(parentRunId, "$invocation:$callId", success)
                 }) { callId, arguments ->
-                    resolved.connectionUid?.let { uid ->
-                        toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
-                    } ?: true
+                    resolved.canReuseResult?.invoke() != false &&
+                        (resolved.connectionUid?.let { uid ->
+                            toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                        } ?: true)
                 }
             }
     }
@@ -831,7 +832,7 @@ class ChatRepositoryImpl(
                         val features = settingRepository.getFeatureSettings()
                         check(live == target && features.toolPluginStates == helperFeatures.toolPluginStates && features.profileBehavior[target.uid]?.toolPluginStates == helperFeatures.profileBehavior[target.uid]?.toolPluginStates) { "Helper permissions changed; dispatch stopped." }
                         val helperPermission = helperCatalog.firstOrNull { it.connectionUid == inherited.connectionUid && it.realToolName == inherited.realToolName }
-                        check(helperPermission != null && helperPermission.canReuseResult?.invoke() != false) { "Helper connection authorization changed; dispatch stopped." }
+                        check(helperPermission != null && helperPermission.canReuseResult?.invoke() != false && inherited.canReuseResult?.invoke() != false) { "Helper connection authorization changed; dispatch stopped." }
                         return inherited.tool.execute(callId, arguments)
                     }
                 }
@@ -932,7 +933,7 @@ class ChatRepositoryImpl(
         )
         val authorizedSession = session.withRequestAuthorization(dispatchAuthority.revision) {
             dispatchAuthority.validate()
-            check(authorizedTools.orEmpty().all { it.canReuseResult?.invoke() != false }) { "SOURCE_PERMISSION_REVOKED: child evidence authorization changed." }
+            // Each child tool validates its own grant at execution. An unused unavailable tool must not veto the model request.
         }
         val text = StringBuilder()
         val toolFallbacks = mutableListOf<String>()
@@ -1333,7 +1334,7 @@ class ChatRepositoryImpl(
                     null
                 } else {
                     effectiveUserMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
-                        val userIds = (if (taskRecovery != null) savedUserTurns.dropWhile { it.id != taskRecovery.sourceMessageId } else effectiveUserMessages.takeLast(2))
+                        val userIds = (if (taskRecovery != null) savedUserTurns.dropWhile { it.id != taskRecovery.sourceMessageId } else effectiveUserMessages.takeLast(1))
                             .map { it.id }.distinct().filter { it > 0 }
                         val completedRecoveryRuns = if (taskRecovery != null) agentPersistenceDao.getCompletedRuns(latest.chatId).filter { it.userMessageId in userIds } else emptyList()
                         val candidateRuns = (agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds) + completedRecoveryRuns)
@@ -2178,9 +2179,10 @@ class ChatRepositoryImpl(
             tool = boundBudget.bind(resolved.tool.withRunContext(runId), statisticsIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid), onFinished = { callId, success ->
                 toolApprovals?.finish(runId, callId, success)
             }) { callId, arguments ->
-                resolved.connectionUid?.let { uid ->
-                    toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
-                } ?: true
+                resolved.canReuseResult?.invoke() != false &&
+                    (resolved.connectionUid?.let { uid ->
+                        toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                    } ?: true)
             }
         )
     }
@@ -2354,7 +2356,7 @@ class ChatRepositoryImpl(
                 dispatchAuthority.validate()
                 if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
                 factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-                if (effectiveTools.any { it.canReuseResult?.invoke() == false }) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                // Saved recovery and recall are validated above; individual tool grants are checked only when that tool runs.
             }
             val guarded = if (platform.compatibleType == ClientType.LLAMA) authorized.withProgressWatchdog(settings = progressSettings) else authorized
             return invocationLedger?.wrap(

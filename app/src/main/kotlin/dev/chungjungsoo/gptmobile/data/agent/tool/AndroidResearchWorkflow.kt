@@ -46,6 +46,11 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+internal fun hasResearchMemoryHeadroom(): Boolean {
+    val runtime = Runtime.getRuntime()
+    return runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() >= 16L * 1024 * 1024
+}
+
 /** One phone-owned job. All network calls retain the parent's permission and budget wrappers. */
 internal class AndroidResearchWorkflow(
     private val config: ModelDelegationSettings,
@@ -56,7 +61,8 @@ internal class AndroidResearchWorkflow(
     private val now: () -> Long = System::currentTimeMillis,
     private val monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 },
     private val cancellationOrigin: () -> String = { journal?.cancellationOrigin() ?: "UNKNOWN" },
-    private val modelCoordinator: dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator? = null
+    private val modelCoordinator: dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator? = null,
+    private val memoryAvailable: () -> Boolean = ::hasResearchMemoryHeadroom
 ) {
     private val journal = journal?.scoped(researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString()), tools.all { it.connectionUid == null })
     private val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(config.deepResearch)
@@ -172,8 +178,7 @@ internal class AndroidResearchWorkflow(
             return existing.id
         }
 
-        val runtime = Runtime.getRuntime()
-        check(runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() >= 16L * 1024 * 1024) { "Paused for device resources: memory pressure" }
+        check(memoryAvailable()) { "Paused for device resources: memory pressure" }
         val nextId = (sources.values.maxOfOrNull { it.id.removePrefix("S").toIntOrNull() ?: 0 } ?: 0) + 1
         val sourceId = journal?.sourceId(key, "S$nextId") ?: "S$nextId"
         sources[key] = ResearchSource(

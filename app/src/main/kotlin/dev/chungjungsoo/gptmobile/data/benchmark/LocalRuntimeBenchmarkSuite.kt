@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeEvidenceIdentity
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeQualificationResult
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeTrial
+import dev.chungjungsoo.gptmobile.data.localruntime.isLocalMemoryAdmissionFailure
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -171,6 +172,10 @@ class LocalRuntimeBenchmarkSuite @Inject constructor(
             throw cancelled
         } catch (error: Exception) {
             failure = error.message ?: "Local inference failed"
+            // One rejected native load is sufficient evidence that this configuration
+            // cannot benchmark under the current memory budget. Save the failed trial,
+            // then stop instead of running eleven identical failed trials.
+            if (error.isLocalMemoryAdmissionFailure()) throw error
         } finally {
             val hardware = runtime.getHardwareState()
             withContext(NonCancellable) {

@@ -24,21 +24,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Enforce completion for v2 delivery and inventory integrity for all PRs
-        shell: bash
+      - name: Enforce v2 completion independently of draft status
         env:
-          # Passing an untrusted branch name through env avoids expression injection.
+          # Data-only env prevents branch-name script injection.
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
-          if [[ "$HEAD_REF" == feat/unified-reliability-v2-* ]]; then
-            # Deliberately fail on drafts as well: a green draft check on the same
-            # commit must not be reusable to merge an unfinished v2 delivery.
-            python3 scripts/check_unified_reliability_v2.py --require-done
-          else
-            # Normal incremental PRs remain allowed but must preserve the ledger.
-            python3 scripts/check_unified_reliability_v2.py
-          fi
+        run: python3 scripts/check_unified_reliability_pr.py --head-ref "$HEAD_REF"
 
   validate:
     name: Unit tests and Android lint

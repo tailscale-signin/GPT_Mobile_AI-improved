@@ -71,7 +71,11 @@ class PlannedLocalRuntime(
         } else {
             File(spec.modelPath).length() + spec.maxTokens * 256L * 1024 + (if (chosen.speculativeDecoding == true) File(spec.modelPath).length() / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
         }
-        admission.rejection(getHardwareState(), LocalWorkloadAdmission.availableMemory(context), estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, optional = false)?.let { error(it) }
+        val memoryEstimate = LocalMemoryEstimate(estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, LocalWorkloadAdmission.availableMemory(context), chosen.maxTokens, if (warm?.engineConfiguration() == chosen.engineConfiguration()) "warm_incremental_reserve" else "conservative_unmeasured")
+        admission.rejection(getHardwareState(), memoryEstimate.availableBytes, estimate, memoryEstimate.reserveBytes, optional = false)?.let { reason ->
+            if (memoryEstimate.availableBytes?.let { it < estimate + memoryEstimate.reserveBytes } == true) throw memoryEstimate.rejection(reason)
+            error(reason)
+        }
         mutableState.value = state.value.copy(lifecycle = "LOADING", decision = decision)
         try {
             delegate.loadEngine(chosen)

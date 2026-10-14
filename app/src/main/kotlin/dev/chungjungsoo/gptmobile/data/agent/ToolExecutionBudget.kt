@@ -135,9 +135,13 @@ class ToolExecutionBudget(
                         permits.withPermit {
                             if (!canExecute() && remainingBytes.get() <= 0) return@withPermit failure(outputBudgetMessage())
                             withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
-                                withTimeoutOrNull(limits.toolTimeoutMillis) { invokeObserved() }
+                                withTimeoutOrNull(if (limits.researchAcquisition) dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.operationMillis(tool.definition.name, limits.toolTimeoutMillis) else limits.toolTimeoutMillis) { invokeObserved() }
                             }
-                                ?: ToolResultEnvelope.error(callId, "TIMEOUT_OUTCOME_UNKNOWN", "Tool timed out after dispatch. Reconcile the outcome before repeating an action.", dispatched = true)
+                                ?: if (dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) {
+                                    ToolResultEnvelope.error(callId, "READ_DEADLINE", "Read deadline reached; completed research evidence is retained. A bounded read retry may continue without replaying actions.", dispatched = true)
+                                } else {
+                                    ToolResultEnvelope.error(callId, "TIMEOUT_OUTCOME_UNKNOWN", "Tool timed out after dispatch. Reconcile the outcome before repeating an action.", dispatched = true)
+                                }
                         }
                     }
                     if (result.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) reason = result.errorCode
@@ -160,13 +164,13 @@ class ToolExecutionBudget(
                     } else {
                         boundedResult
                     }
-                    if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) unknownOutcomes += signature
+                    if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") && !dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content || (result.retainedContent != null && result.retainedContent != result.content)) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
-                    unknownOutcomes += signature
+                    if (!dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) unknownOutcomes += signature
                     val cancellationContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
                     val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "UNKNOWN"
                     reason = "CANCELED_$origin"
@@ -178,11 +182,12 @@ class ToolExecutionBudget(
                     )
                     throw cancellation
                 } catch (error: Exception) {
-                    reason = "DISPATCH_OUTCOME_UNKNOWN"
+                    val readOnly = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)
+                    reason = if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"
                     deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                    unknownOutcomes += signature
-                    val boundedResult = bounded(ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true))
+                    if (!readOnly) unknownOutcomes += signature
+                    val boundedResult = bounded(ToolResultEnvelope.error(callId, if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + if (readOnly) " Completed evidence remains available; a bounded read retry may continue." else " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true))
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {

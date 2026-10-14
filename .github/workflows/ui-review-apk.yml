@@ -1,7 +1,7 @@
 name: UI Review APK
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths:
       - 'app/**'
       - '.github/workflows/ui-review-apk.yml'

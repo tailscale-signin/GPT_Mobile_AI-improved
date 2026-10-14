@@ -2,7 +2,7 @@ name: Minified native memory smoke
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths:
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/telemetry/tool/**'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/delegation/**'

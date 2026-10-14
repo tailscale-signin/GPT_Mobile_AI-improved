@@ -21,4 +21,14 @@ class RequestDispatchContextTest {
         context.serialized("""{"messages":[{"role":"tool","content":$encodedToolResult}]}""", receipt)
         assertEquals(setOf("producer"), context.includedProducers)
     }
+
+    @Test fun preparedResearchEvidenceMustSurviveEntirelyInSerializedPrompt() {
+        val packet = Json.parseToJsonElement("""{"claim":{"quote":"Exact source 10 kg"},"assistHandoffs":[{"producerInvocationId":"local-extractor"}]}""") as kotlinx.serialization.json.JsonObject
+        val context = RequestDispatchContext(emptySet(), preparedEvidence = setOf(packet))
+        context.serialized("""{"messages":[{"content":"local-extractor Exact source 10 kg"}]}""", receipt)
+        assertTrue(context.includedProducers.isEmpty())
+        val prompt = Json.encodeToString(kotlinx.serialization.json.JsonPrimitive("Question\nUntrusted reference:\n$packet"))
+        context.serialized("""{"messages":[{"content":$prompt}]}""", receipt)
+        assertEquals(setOf("local-extractor"), context.includedProducers)
+    }
 }

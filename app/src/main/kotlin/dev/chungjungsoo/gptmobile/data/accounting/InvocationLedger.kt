@@ -156,6 +156,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
         totalLimit: Int,
         profileUid: String? = null,
         forceAccounting: Boolean = false,
+        preparedAssistEvidence: Set<kotlinx.serialization.json.JsonObject> = emptySet(),
         onInvocation: (String) -> Unit = {}
     ): AgentProviderSession = object : AgentProviderSession {
         override val handlesToolsInternally = session.handlesToolsInternally
@@ -165,7 +166,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             val selectedPolicy = features?.executionPolicy ?: dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy()
             val retainedPolicy = if (settings != null) dao.rootExecutionPolicy(turnKey)?.let { kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy>(it) } else null
             val executionPolicy = (retainedPolicy?.restrictWith(selectedPolicy) ?: selectedPolicy).validate()
-            val retainAccounting = forceAccounting || totalLimit != Int.MAX_VALUE || spend.enforced || executionPolicy.unifiedRunAccounting || executionPolicy.sharedRunBudget || LocalDiagnosticsPolicy.enabled
+            val retainAccounting = forceAccounting || preparedAssistEvidence.isNotEmpty() || totalLimit != Int.MAX_VALUE || spend.enforced || executionPolicy.unifiedRunAccounting || executionPolicy.sharedRunBudget || LocalDiagnosticsPolicy.enabled
             if (!retainAccounting && !LocalDiagnosticsPolicy.enabled) {
                 emitAll(session.streamRound(tools, exchanges))
                 return@flow
@@ -211,7 +212,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 emit(ProviderEvent.Completed)
                 return@flow
             }
-            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id)
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id, preparedAssistEvidence)
             onInvocation(record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_STARTED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")

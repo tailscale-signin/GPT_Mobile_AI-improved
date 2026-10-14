@@ -13,7 +13,7 @@ import org.junit.Test
 class EffectiveAssistPolicyTest {
     @Test fun migrationPreservesExplicitLimitsAndDoesNotAuthorizeNewProfiles() {
         val helper = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LITERT_LM)
-        val original = LocalAssistPolicy(profileUid = helper.uid, maxAttempts = 2, taskTimeoutSeconds = 11, loadTimeoutSeconds = 90)
+        val original = LocalAssistPolicy(version = 1, profileUid = helper.uid, maxAttempts = 2, taskTimeoutSeconds = 11, loadTimeoutSeconds = 90, preparation = AssistPreparation.WARM_ONLY)
         val migrated = original.migrateProcessingPermissions(listOf(helper))
         assertTrue(migrated.allowsProcessing(helper))
         assertFalse(migrated.allowsProcessing(helper.copy(uid = "new")))
@@ -26,6 +26,19 @@ class EffectiveAssistPolicyTest {
         assertFalse(preserved.migrateProcessingPermissions(listOf(helper)).allowsProcessing(helper))
         val denied = migrated.copy(profilePermissions = mapOf(helper.uid to AssistProcessingPermission.DENIED))
         assertEquals(denied, denied.migrateProcessingPermissions(listOf(helper)))
+    }
+
+    @Test fun persistedWarmOnlyPolicySurvivesNewAutomaticDefaults() {
+        val helper = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LITERT_LM)
+        val saved = kotlinx.serialization.json.Json.decodeFromString<LocalAssistPolicy>(
+            """{"version":1,"profileUid":"local","maxAttempts":2,"taskTimeoutSeconds":8,"preparation":"WARM_ONLY"}"""
+        )
+        val migrated = saved.migrateProcessingPermissions(listOf(helper))
+        assertEquals(AssistPreparation.WARM_ONLY, migrated.preparation)
+        assertEquals(2, migrated.maxAttempts)
+        assertEquals(8, migrated.taskTimeoutSeconds)
+        assertEquals(AssistPreparation.PREPARE_AUTOMATICALLY, LocalAssistPolicy().preparation)
+        assertFalse(LocalAssistPolicy().allowsProcessing(helper))
     }
 
     @Test fun executionModesOnlyNarrowTheRequestedPolicy() {

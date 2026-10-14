@@ -9,12 +9,16 @@ class LocalWorkloadAdmissionTest {
         var now = 0L
         val admission = LocalWorkloadAdmission { now }
         val normal = DeviceHardwareState()
-        assertNotNull(admission.rejection(normal, 1000, 100, 100, true))
+        assertNull(admission.rejection(normal, 1000, 100, 100, true))
         now = 30_000
         assertNull(admission.rejection(normal, 1000, 100, 100, true))
         assertNotNull(admission.rejection(normal.copy(thermalState = DeviceThermalState.MODERATE), 1000, 100, 100, true))
         assertNotNull(admission.rejection(normal, 1000, 100, 100, true))
         assertNull(admission.rejection(normal, 1000, 100, 100, false))
+        now = 59_999
+        assertNotNull(admission.rejection(normal, 1000, 100, 100, true))
+        now = 60_000
+        assertNull(admission.rejection(normal, 1000, 100, 100, true))
     }
 
     @Test fun `low memory and severe heat reject work without mutating budgets`() {

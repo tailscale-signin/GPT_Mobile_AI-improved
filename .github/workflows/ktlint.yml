@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - "main"
+      - "feat/unified-reliability-v2-2026-10-13"
     paths-ignore:
       - ".gitignore"
       - "**.md"

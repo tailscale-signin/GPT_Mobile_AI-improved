@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Bridges a physical serializer to its existing invocation owner without retaining prompt bytes. */
-internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null) : AbstractCoroutineContextElement(Key) {
+internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null, private val preparedEvidence: Set<JsonObject> = emptySet()) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<RequestDispatchContext>
     private val physicalOrdinal = java.util.concurrent.atomic.AtomicLong()
     val receipts = CopyOnWriteArrayList<RequestAdmissionReceipt>()
@@ -52,8 +52,13 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
                     node.values.forEach { inspect(it, depth + 1) }
                 }
                 is JsonArray -> node.forEach { inspect(it, depth + 1) }
-                is JsonPrimitive -> if (node.isString && node.content.startsWith('{')) {
-                    runCatching { Json.parseToJsonElement(node.content) }.getOrNull()?.let { inspect(it, depth + 1) }
+                is JsonPrimitive -> if (node.isString) {
+                    // Trusted candidates include the complete claim, quote and source identity. A truncated
+                    // packet, detached producer marker, or unrelated model text never counts as inclusion.
+                    preparedEvidence.filter { node.content.contains(it.toString()) }.forEach { packet ->
+                        includedProducers += AssistHandoffContract.producerIds(AgentToolResult("prepared-receipt", ToolResultContent.Json(JsonObject(emptyMap())), false, assistMetadata = listOf(packet)))
+                    }
+                    if (node.content.startsWith('{')) runCatching { Json.parseToJsonElement(node.content) }.getOrNull()?.let { inspect(it, depth + 1) }
                 }
             }
         }

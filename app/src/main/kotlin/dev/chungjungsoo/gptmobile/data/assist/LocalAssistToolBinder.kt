@@ -23,7 +23,8 @@ internal object LocalAssistToolBinder {
         runtimeFingerprint: () -> String = { "unverified" },
         status: suspend (AssistTaskState) -> Unit = {},
         policySnapshot: EffectiveAssistPolicy? = null,
-        supportsPrimaryRuntime: Boolean = true
+        supportsPrimaryRuntime: Boolean = true,
+        workflowOwnsAssistance: Boolean = false
     ): List<ResolvedAgentTool> {
         val expected = AssistTaskState(taskId = "expected:$turnId", profileUid = policy.profileUid, policySnapshot = policySnapshot)
         if (!enabled) {
@@ -32,6 +33,10 @@ internal object LocalAssistToolBinder {
         }
         if (!supportsPrimaryRuntime) {
             status(expected.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "PRIMARY_RUNTIME_CANNOT_YIELD_TO_HELPER"))
+            return tools
+        }
+        if (workflowOwnsAssistance) {
+            status(expected.copy(reason = "RESEARCH_WORKFLOW_OWNS_ASSIST"))
             return tools
         }
         status(expected)

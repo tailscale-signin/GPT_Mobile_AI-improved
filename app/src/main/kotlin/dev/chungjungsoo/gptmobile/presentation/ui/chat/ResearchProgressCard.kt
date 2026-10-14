@@ -55,6 +55,7 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
             )
             val coverage = dev.chungjungsoo.gptmobile.data.research.assessResearchCoverage(snapshot.questionPlan, snapshot.claims, snapshot.sources)
             Text("Question coverage: ${coverage.coveredQuestionIds.size}/${snapshot.questionPlan.size} · ${if (coverage.complete) "Covered by relevant passages" else "Incomplete or unverified"}", style = MaterialTheme.typography.bodySmall)
+            Text("${snapshot.modelEvents.count { it.local && it.outcome == "SUCCESS" }} local research stages · ${snapshot.claims.count { it.independentReview }} independently passage-reviewed claims", style = MaterialTheme.typography.bodySmall)
             Text("Planning: ${snapshot.planningStatus} · final response delivery is tracked separately", style = MaterialTheme.typography.bodySmall)
             Text(if (snapshot.claims.any { it.verdict == "Supported" }) "Some claims reviewed; see evidence for individual verdicts" else "Unreviewed evidence", style = MaterialTheme.typography.bodySmall)
             remember(snapshot) { snapshot.currentReviewRecord() }?.let { Text("Independent review: " + it.status.lowercase().replace('_', ' '), style = MaterialTheme.typography.bodySmall) }
@@ -86,6 +87,21 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                         Text("${session.snapshot.phase} · ${session.snapshot.searches} searches · ${session.snapshot.attempts} page attempts", style = MaterialTheme.typography.bodySmall)
                         session.snapshot.notes.filterNot { it.startsWith("Policy:") }.distinct().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
+                    if (session.snapshot.modelEvents.isNotEmpty()) {
+                        item(key = "models:${session.runId}") {
+                            Text("Research & Local Assist execution", style = MaterialTheme.typography.titleSmall)
+                            Text("Token counts below are estimates; Debug → Runtime shows provider-measured usage when available. Model review is not proof of scientific validity.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    items(session.snapshot.modelEvents, key = { "model:${session.runId}:${it.id}" }) { event ->
+                        OutlinedCard {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("${if (event.local) "Local Assist" else "Research model"} · ${event.model}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                                Text("${event.stage} · ${event.outcome} · ${event.durationMs} ms", style = MaterialTheme.typography.labelMedium)
+                                Text("~${event.inputTokensEstimate} input / ~${event.outputTokensEstimate} output tokens · ${event.reason.ifBlank { if (event.independent) "Distinct model review" else "No independent review claimed" }}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                     items(session.snapshot.sources.filter { filter.isBlank() || (it.title + " " + it.passage + " " + it.url).contains(filter, ignoreCase = true) }, key = { session.runId + it.id }) { source ->
                         OutlinedCard {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -103,6 +119,7 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                                 session.snapshot.claims.filter { it.sourceId == source.id }.forEach { claim ->
                                     Text("${claim.verdict}: ${claim.text}", style = MaterialTheme.typography.bodyMedium)
                                     Text(claim.quote, style = MaterialTheme.typography.bodySmall)
+                                    Text("Exact quote: ${claim.exactQuoteVerified} · ${if (claim.independentReview) "Distinct model passage review" else "Self-review or unverified independence"}", style = MaterialTheme.typography.labelSmall)
                                 }
                                 if (source.passage.isNotBlank()) Text(source.passage.take(1800), style = MaterialTheme.typography.bodySmall)
                                 TextButton(onClick = { runCatching { if (java.net.URI(source.url).scheme?.lowercase() in setOf("http", "https")) uri.openUri(source.url) } }) { Text("Open source") }

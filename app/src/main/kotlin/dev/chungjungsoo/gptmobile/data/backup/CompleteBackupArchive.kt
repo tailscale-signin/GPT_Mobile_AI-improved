@@ -48,7 +48,12 @@ internal object CompleteBackupArchive {
         }
     }
 
-    fun read(file: File, staging: File, maxFileBytes: Long): CompleteBackupManifest = ZipFile(file).use { zip ->
+    fun read(
+        file: File,
+        staging: File,
+        maxFileBytes: Long,
+        onProgress: ((Long, Long) -> Unit)? = null
+    ): CompleteBackupManifest = ZipFile(file).use { zip ->
         val entries = zip.entries().asSequence().toList()
         require(entries.size <= 100_000 && entries.map { it.name }.toSet().size == entries.size) { "Invalid or duplicate archive entries." }
         val metadata = requireNotNull(zip.getEntry(MANIFEST)) { "This file is not a complete backup." }
@@ -63,7 +68,24 @@ internal object CompleteBackupArchive {
             require("database.sqlite" in manifest.files) { "Incomplete legacy complete backup." }
         }
         require(entries.map { it.name }.toSet() == manifest.files.keys + MANIFEST) { "Incomplete backup archive." }
+        val totalBytes = manifest.files.values.fold(0L) { sum, size ->
+            require(size >= 0 && size <= maxFileBytes - sum) { "Insufficient space to restore the backup." }
+            sum + size
+        }
         var remaining = maxFileBytes
+        var extractedBytes = 0L
+        var lastReportedBytes = -1L
+        var lastReportNs = 0L
+        fun report(bytes: Long) {
+            if (onProgress == null || bytes == lastReportedBytes) return
+            val now = System.nanoTime()
+            if (lastReportedBytes < 0L || bytes == totalBytes || now - lastReportNs >= 150_000_000L) {
+                onProgress(bytes, totalBytes)
+                lastReportedBytes = bytes
+                lastReportNs = now
+            }
+        }
+        report(0L)
         manifest.files.forEach { (path, size) ->
             validatePath(path)
             require(size >= 0 && size <= remaining) { "Insufficient space to restore the backup." }
@@ -72,7 +94,14 @@ internal object CompleteBackupArchive {
             require(!entry.isDirectory && entry.size == size) { "Invalid file size in backup." }
             val target = File(staging, path)
             check(target.parentFile!!.mkdirs() || target.parentFile!!.isDirectory)
-            zip.getInputStream(entry).use { input -> target.outputStream().buffered().use { output -> copyExactly(input, output, size) } }
+            val beforeFile = extractedBytes
+            zip.getInputStream(entry).use { input ->
+                target.outputStream().buffered().use { output ->
+                    copyExactly(input, output, size) { copied -> report(beforeFile + copied) }
+                }
+            }
+            extractedBytes += size
+            report(extractedBytes)
         }
         LegacyBackupConverter.upgrade(manifest)
     }
@@ -85,14 +114,20 @@ internal object CompleteBackupArchive {
         require(parts[1] !in setOf("datastore", "backup", "backups")) { "Invalid backup location." }
     }
 
-    private fun copyExactly(input: InputStream, output: OutputStream, size: Long) {
+    private fun copyExactly(input: InputStream, output: OutputStream, size: Long, onProgress: ((Long) -> Unit)? = null) {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var remaining = size
+        var lastReported = 0L
         while (remaining > 0) {
             val count = input.read(buffer, 0, minOf(remaining, buffer.size.toLong()).toInt())
             require(count > 0) { "Incomplete file or a file changed during backup." }
             output.write(buffer, 0, count)
             remaining -= count
+            val copied = size - remaining
+            if (copied - lastReported >= 1024 * 1024 || remaining == 0L) {
+                onProgress?.invoke(copied)
+                lastReported = copied
+            }
         }
         require(input.read() == -1) { "A file changed size during backup." }
     }

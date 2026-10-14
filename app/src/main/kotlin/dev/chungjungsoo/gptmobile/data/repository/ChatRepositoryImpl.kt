@@ -1743,7 +1743,7 @@ class ChatRepositoryImpl(
                 )
                 fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
                     if (synthesisRun) {
-                        dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, prompt, settings)
+                        dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, settings)
                     } else {
                         planPrimaryContext(turns, prompt, tools, settings)
                     }
@@ -2319,13 +2319,21 @@ class ChatRepositoryImpl(
                 "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=${effectiveOutputCap ?: -1} · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
             )
         }
-        suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false): AgentProviderSession {
+        suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false, passOutputTokens: Int? = null): AgentProviderSession {
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             if (platform.compatibleType != ClientType.LITERT_LM) {
                 require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
             }
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
-            val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints).copy(requestRole = kind)
+            val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints)
+                .copy(requestRole = kind)
+                .let { original ->
+                    if (passOutputTokens != null) {
+                        original.copy(maxOutputTokens = minOf(original.maxOutputTokens ?: passOutputTokens, passOutputTokens))
+                    } else {
+                        original
+                    }
+                }
             workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan.copy(tools = if (textOnly) emptyList() else contextPlan.tools), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
             try {
                 workspace?.recordDebugRequest(latestUser?.chatId ?: 0, runId, kind, requestPlatform, turns, if (textOnly) emptyList() else contextPlan.tools, constraints)
@@ -2408,8 +2416,20 @@ class ChatRepositoryImpl(
             null
         }
         val restoredDraft = if (frozenResume?.resumeFromRunId != null) frozenResume.committedPrefix else checkpoint?.restore().orEmpty()
+        val multipassFinalTurns = AtomicReference<List<ConversationTurn>?>(null)
+        val firstSession = contextPlan.multipass?.let { plan ->
+            dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassSession(
+                plan = plan,
+                system = requestPlatform.systemPrompt.orEmpty(),
+                limits = limits,
+                open = { turns, kind, passCap ->
+                    openPrimarySession(turns, kind, textOnly = true, passOutputTokens = passCap)
+                },
+                onFinalContext = { turns -> multipassFinalTurns.set(turns) }
+            )
+        } ?: openPrimarySession(contextPlan.turns)
         val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
-            openPrimarySession(contextPlan.turns),
+            firstSession,
             maxContinuations = continuationLimit,
             targetWords = remainingWordGoal,
             recoverTransientFailures = true,
@@ -2420,7 +2440,7 @@ class ChatRepositoryImpl(
             saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
         ) { draft, exchanges ->
             val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
-                contextPlan.turns,
+                multipassFinalTurns.get() ?: contextPlan.turns,
                 (if (draft.isBlank()) "\n\nThe previous attempt wrote no visible answer. Write the complete answer from the original task, frozen evidence and full outline, starting with its first section. " else "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. ") +
                     "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
                     (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +

@@ -222,7 +222,7 @@ class CompleteBackupViewModelTest {
         val finish = CompletableDeferred<Unit>()
         coEvery { manager.requiresPassword(uri) } returns false
         coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } coAnswers {
-            val report = fifthArg<(RestoreProgress) -> Unit>()
+            val report = lastArg<(RestoreProgress) -> Unit>()
             report(RestoreProgress(RestorePhase.DECRYPTING, 512, 1024))
             finish.await()
             report(RestoreProgress(RestorePhase.FINALIZING))

@@ -7,18 +7,22 @@ import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection
+import dev.chungjungsoo.gptmobile.data.backup.RestorePhase
+import dev.chungjungsoo.gptmobile.data.backup.RestoreProgress
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -75,7 +79,7 @@ class CompleteBackupViewModelTest {
         assertFalse(selection.requiresEncryption)
         coEvery { manager.backup(uri, selection, null, encrypt = false) } returns BackupRestoreResult(true, "Saved")
         coEvery { manager.requiresPassword(uri) } returns false
-        coEvery { manager.restore(uri, null) } returns BackupRestoreResult(true, "Restored")
+        coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } returns BackupRestoreResult(true, "Restored")
 
         assertTrue(viewModel.prepareBackupPicker(restoring = false))
         viewModel.backupDestinationSelected(uri)
@@ -93,7 +97,7 @@ class CompleteBackupViewModelTest {
 
         viewModel.confirmRestore()
         advanceUntilIdle()
-        coVerify(exactly = 1) { manager.restore(uri, null) }
+        coVerify(exactly = 1) { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) }
         assertFalse(viewModel.backupUi.value.isBusy)
         assertEquals("Restored", viewModel.backupUi.value.message)
     }
@@ -213,11 +217,44 @@ class CompleteBackupViewModelTest {
     }
 
     @Test
+    fun restoreExposesStageAndMeasuredProgressWhileRunningThenClearsIt() = runTest(dispatcher) {
+        val uri = mockk<Uri>()
+        val finish = CompletableDeferred<Unit>()
+        coEvery { manager.requiresPassword(uri) } returns false
+        coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } coAnswers {
+            val report = fifthArg<(RestoreProgress) -> Unit>()
+            report(RestoreProgress(RestorePhase.DECRYPTING, 512, 1024))
+            finish.await()
+            report(RestoreProgress(RestorePhase.FINALIZING))
+            BackupRestoreResult(true, "Restored")
+        }
+
+        assertTrue(viewModel.prepareBackupPicker(restoring = true))
+        viewModel.restoreSourceSelected(uri)
+        advanceUntilIdle()
+        viewModel.confirmRestore()
+        runCurrent()
+
+        val during = viewModel.backupUi.value
+        assertTrue(during.isBusy)
+        assertTrue(during.isRestoring)
+        assertEquals(RestorePhase.DECRYPTING, during.restoreProgress?.phase)
+        assertEquals(0.5f, during.restoreProgress?.fraction)
+
+        finish.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(viewModel.backupUi.value.isWorking)
+        assertFalse(viewModel.backupUi.value.isRestoring)
+        assertEquals(null, viewModel.backupUi.value.restoreProgress)
+        assertEquals("Restored", viewModel.backupUi.value.message)
+    }
+
+    @Test
     fun legacyEncryptedRestorePromptsOnlyAfterFileInspection() = runTest(dispatcher) {
         viewModel.selectAllBackupSections()
         val uri = mockk<Uri>()
         coEvery { manager.requiresPassword(uri) } returns true
-        coEvery { manager.restore(uri, "legacy-pass") } returns BackupRestoreResult(true, "Legacy restored")
+        coEvery { manager.restoreWithProgress(uri, "legacy-pass", CompleteBackupSelection.ALL, null, any()) } returns BackupRestoreResult(true, "Legacy restored")
 
         assertTrue(viewModel.prepareBackupPicker(restoring = true))
         viewModel.restoreSourceSelected(uri)
@@ -231,7 +268,7 @@ class CompleteBackupViewModelTest {
         viewModel.confirmRestore()
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { manager.restore(uri, "legacy-pass") }
+        coVerify(exactly = 1) { manager.restoreWithProgress(uri, "legacy-pass", CompleteBackupSelection.ALL, null, any()) }
         assertEquals("Legacy restored", viewModel.backupUi.value.message)
     }
 }

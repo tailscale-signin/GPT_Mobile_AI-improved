@@ -32,7 +32,13 @@ class CompleteBackupArchiveTest {
         val archive = temp.newFile("backup.zip")
         CompleteBackupArchive.write(archive, manifest, sources)
         val staging = temp.newFolder("staging")
-        assertEquals(manifest, CompleteBackupArchive.read(archive, staging, 1024))
+        val updates = mutableListOf<Pair<Long, Long>>()
+        assertEquals(manifest, CompleteBackupArchive.read(archive, staging, 1024) { done, total ->
+            updates += done to total
+        })
+        assertEquals(0L, updates.first().first)
+        assertEquals(manifest.files.values.sum(), updates.last().first)
+        assertEquals(manifest.files.values.sum(), updates.last().second)
         assertEquals("attachment", File(staging, "internal/attachments/file").readText())
     }
 

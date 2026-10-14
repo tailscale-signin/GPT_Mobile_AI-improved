@@ -7,6 +7,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Rule
@@ -26,8 +27,14 @@ class CompleteBackupCryptoTest {
         val exported = CompleteBackupCrypto.readRecoveryKey(keyBytes.inputStream())
         val encrypted = ByteArrayOutputStream().also { CompleteBackupCrypto.encryptPortable(source, it, exported) }.toByteArray()
         val output = File(temp.root, "portable-decoded")
-        CompleteBackupCrypto.decryptPortable(encrypted.inputStream(), output, exported)
+        val progress = mutableListOf<Pair<Long, Long>>()
+        CompleteBackupCrypto.decryptPortable(encrypted.inputStream(), output, exported, onProgress = { done, total ->
+            progress += done to total
+        })
         assertArrayEquals(bytes, output.readBytes())
+        assertEquals(0L, progress.first().first)
+        assertEquals(bytes.size.toLong(), progress.last().first)
+        assertEquals(bytes.size.toLong(), progress.last().second)
         val broken = encrypted.copyOf().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
         assertThrows(Exception::class.java) { CompleteBackupCrypto.decryptPortable(broken.inputStream(), output, exported) }
         assertFalse(output.exists())

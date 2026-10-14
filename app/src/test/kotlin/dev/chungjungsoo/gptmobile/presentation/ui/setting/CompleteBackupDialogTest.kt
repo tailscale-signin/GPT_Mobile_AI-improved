@@ -21,6 +21,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
+import dev.chungjungsoo.gptmobile.data.backup.RestorePhase
+import dev.chungjungsoo.gptmobile.data.backup.RestoreProgress
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -117,6 +119,43 @@ class CompleteBackupDialogTest {
         }
         compose.onNodeWithTag("backup_all").assertDoesNotExist()
         compose.onNodeWithTag("restore_all").assertDoesNotExist()
+    }
+
+    @Test
+    fun restorePopupShowsCurrentTaskAndRealPercentageWithoutExtraActions() {
+        compose.setContent {
+            MaterialTheme {
+                CompleteBackupDialog(
+                    state = SettingViewModelV2.BackupUiState(
+                        isBusy = true,
+                        isWorking = true,
+                        isRestoring = true,
+                        restoreProgress = RestoreProgress(RestorePhase.EXTRACTING, 128, 256)
+                    ),
+                    backupStatus = BackupStatus(),
+                    onBackup = {},
+                    onRestore = {},
+                    onDismiss = {}
+                )
+            }
+        }
+        compose.onNodeWithTag("restore_progress_panel").assertIsDisplayed()
+        compose.onNodeWithText("Extracting files").assertIsDisplayed()
+        compose.onNodeWithText("50%").assertIsDisplayed()
+        compose.onNodeWithTag("restore_all").assertDoesNotExist()
+        compose.onNodeWithTag("backup_all").assertDoesNotExist()
+    }
+
+    @Test
+    fun restorePhaseWithoutMeasuredBytesRetainsAnimatedBarWithoutFakePercentage() {
+        compose.setContent {
+            MaterialTheme {
+                RestoreWorkingContent(RestoreProgress(RestorePhase.PREPARING))
+            }
+        }
+        compose.onNodeWithText("Preparing conversations").assertIsDisplayed()
+        compose.onNodeWithTag("restore_loading_bar").assertIsDisplayed()
+        compose.onNodeWithTag("restore_percentage").assertDoesNotExist()
     }
 
     @Test

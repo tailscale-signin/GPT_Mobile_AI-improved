@@ -125,6 +125,24 @@ class CompleteBackupManagerTest {
     }
 
     @Test
+    fun restoreReportsActualPhasesAndExtractionProgress() = runBlocking {
+        val archive = File(context.cacheDir, "restore-progress.gptbackup")
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS))
+        val saved = manager.backup(Uri.fromFile(archive), selected, encrypt = false)
+        assertTrue(saved.message, saved.success)
+
+        val stages = mutableListOf<RestoreProgress>()
+        val restored = manager.restoreWithProgress(Uri.fromFile(archive), selection = selected, onProgress = stages::add)
+        assertTrue(restored.message, restored.success)
+        assertEquals(RestorePhase.READING, stages.first().phase)
+        assertTrue(stages.any { it.phase == RestorePhase.EXTRACTING })
+        assertTrue(stages.any { it.phase == RestorePhase.PREPARING })
+        assertTrue(stages.any { it.phase == RestorePhase.APPLYING })
+        assertEquals(RestorePhase.FINALIZING, stages.last().phase)
+        assertTrue(stages.any { it.phase == RestorePhase.EXTRACTING && it.totalBytes > 0L && it.completedBytes == it.totalBytes })
+    }
+
+    @Test
     fun statisticsBackupPreservesBenchmarkRunsAndRebuildsScoreTable() = runBlocking {
         benchmarkStore.updateEnrollment(mapOf("profile-1" to "device-test"))
         benchmarkStore.save(

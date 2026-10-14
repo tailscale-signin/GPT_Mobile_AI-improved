@@ -679,7 +679,7 @@
       "V28",
       "V29"
     ],
-    "status": "NOT_STARTED",
+    "status": "IN_PROGRESS",
     "acceptance_ids": [
       "CM-T01",
       "CM-T03",
@@ -687,9 +687,17 @@
       "LC-T01",
       "IX14"
     ],
-    "implementation_commits": [],
-    "evidence": [],
-    "remaining_work": []
+    "implementation_commits": [
+      "e6bdad46b8551a64efb89d32c82ad008fb2109b3"
+    ],
+    "evidence": [
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedFullInputPlanTest.kt",
+      "docs/implementation/reliability-completion-2026-10-14.md"
+    ],
+    "remaining_work": [
+      "Full-input preparation and continuation now retain frozen history, contribution bodies and original constraints, blocking with an estimated capacity report instead of evicting history. Added regressions are NOT_RUN because Gradle/Android dependencies are unavailable here.",
+      "Same-primary FULL_CORPUS_MULTIPASS execution, complete chunk inspection checkpoints, section assembly and semantic coverage repair remain unimplemented. This is not V30 completion."
+    ]
   },
   {
     "id": "V31",

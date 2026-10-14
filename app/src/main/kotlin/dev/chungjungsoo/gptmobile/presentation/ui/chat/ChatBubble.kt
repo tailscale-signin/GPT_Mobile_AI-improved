@@ -18,7 +18,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -53,7 +52,6 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
@@ -151,10 +149,8 @@ fun UserChatBubble(
     canEdit: Boolean = false,
     onCopyClick: () -> Unit = {},
     onSelectClick: () -> Unit = {},
-    onEditClick: () -> Unit = {},
-    onLongPress: () -> Unit
+    onEditClick: () -> Unit = {}
 ) {
-    var actionsExpanded by rememberSaveable { mutableStateOf(false) }
     val cardColor = CardColors(
         containerColor = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -163,57 +159,56 @@ fun UserChatBubble(
     )
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
 
-    Column(horizontalAlignment = Alignment.End) {
-        Card(
-            modifier = modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
-            shape = RoundedCornerShape(32.dp),
-            colors = cardColor
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Text(
-                    text = text,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 1f),
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        platformStyle = PlatformTextStyle(includeFontPadding = false),
-                        lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
+    val actions = listOf(
+        BubbleAction(stringResource(R.string.select_text), ImageVector.vectorResource(R.drawable.ic_select), invoke = onSelectClick),
+        BubbleAction(stringResource(R.string.copy_text), ImageVector.vectorResource(R.drawable.ic_copy), invoke = onCopyClick),
+        BubbleAction(stringResource(R.string.edit), Icons.Rounded.Edit, canEdit, onEditClick)
+    )
+    BubbleActionHost(identity = timestamp ?: "user", actions = actions) {
+        Column(horizontalAlignment = Alignment.End) {
+            Card(
+                modifier = modifier,
+                shape = RoundedCornerShape(32.dp),
+                colors = cardColor
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Text(
+                        text = text,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 1f),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            platformStyle = PlatformTextStyle(includeFontPadding = false),
+                            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
+                        )
                     )
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            if (formattedTime.isNotBlank()) {
-                Text(
-                    text = formattedTime,
-                    modifier = Modifier.padding(end = 8.dp),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
-                )
-            }
-            AnimatedVisibility(visible = actionsExpanded) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CopyTextIcon(onCopyClick)
-                    SelectTextIcon(onSelectClick)
-                    if (canEdit) EditTextIcon(onEditClick)
                 }
             }
-            MessageActionsToggle(actionsExpanded) { actionsExpanded = !actionsExpanded }
-        }
-        if (hasDetails) {
-            Row(
-                modifier = Modifier
-                    .wrapContentWidth()
-                    .padding(top = 4.dp, end = 4.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DetailsButton(
-                    isVisible = areDetailsVisible,
-                    isEnabled = true,
-                    onClick = onToggleDetails
-                )
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (formattedTime.isNotBlank()) {
+                    Text(
+                        text = formattedTime,
+                        modifier = Modifier.padding(end = 8.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                    )
+                }
             }
+            if (hasDetails) {
+                Row(
+                    modifier = Modifier
+                        .wrapContentWidth()
+                        .padding(top = 4.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DetailsButton(
+                        isVisible = areDetailsVisible,
+                        isEnabled = true,
+                        onClick = onToggleDetails
+                    )
+                }
+            }
+            MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
         }
-        MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
@@ -287,7 +282,6 @@ fun OpponentChatBubble(
     val dynamicActions = remember(text, isLoading) { ChatResponseActionParser.extractDynamicActions(text, isLoading) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     var actionDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
-    var actionsExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
 
     // Suggestion Button Hold-to-Highlight State
     val highlightProgress = remember { Animatable(0f) }
@@ -380,373 +374,360 @@ fun OpponentChatBubble(
             hasVisibleExtras ||
             showTerminalFallback
 
-    Column(modifier = modifier) {
-        AnimatedVisibility(
-            visible = shouldShowBubble,
-            enter = fadeIn(animationSpec = tween(1500)),
-            exit = fadeOut(animationSpec = tween(650))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        color = bubbleColor,
-                        shape = RoundedCornerShape(32.dp)
-                    )
+    val actions = buildList {
+        if (!isError) {
+            add(BubbleAction(stringResource(R.string.select_text), ImageVector.vectorResource(R.drawable.ic_select), !isLoading, onSelectClick))
+            add(BubbleAction(stringResource(R.string.copy_text), ImageVector.vectorResource(R.drawable.ic_copy), !isLoading, onCopyClick))
+            add(BubbleAction(stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite), if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, !isLoading, onFavoriteClick))
+            add(BubbleAction(stringResource(R.string.edit), Icons.Rounded.Edit, canEdit && !isLoading, onEditClick))
+        }
+        onInspectContext?.let { add(BubbleAction(stringResource(R.string.bubble_context), Icons.Rounded.Description, !isLoading, it)) }
+        add(BubbleAction(stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading, onRetryClick))
+        if (hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
+    }
+    BubbleActionHost(identity = contentIdentity, actions = actions) {
+        Column(modifier = modifier) {
+            AnimatedVisibility(
+                visible = shouldShowBubble,
+                enter = fadeIn(animationSpec = tween(1500)),
+                exit = fadeOut(animationSpec = tween(650))
             ) {
-                AnimatedVisibility(
-                    visible = activityExpanded && generationTiming != null,
-                    enter = fadeIn(tween(1000)),
-                    exit = fadeOut(tween(500))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = bubbleColor,
+                            shape = RoundedCornerShape(32.dp)
+                        )
                 ) {
-                    val now = dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveClock(activityExpanded && generationTiming?.completedAt == null)
-                    generationTiming?.let { timing ->
+                    AnimatedVisibility(
+                        visible = activityExpanded && generationTiming != null,
+                        enter = fadeIn(tween(1000)),
+                        exit = fadeOut(tween(500))
+                    ) {
+                        val now = dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveClock(activityExpanded && generationTiming?.completedAt == null)
+                        generationTiming?.let { timing ->
+                            Text(
+                                workedTimeText((timing.completedAt ?: now / 1000) - timing.startedAt),
+                                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                    val hasUnavailableOrder = remember(contentTimeline, text, visibleThoughts, processToolEvents) {
+                        hasUnavailableAssistantOrder(contentTimeline, text, visibleThoughts, processToolEvents.isNotEmpty())
+                    }
+
+                    AssistantChronologicalContent(
+                        outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0") },
+                        animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
+                        proseColor = profileColorIdentity?.takeIf { debugMode }?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
+                        toolEvents = toolEvents,
+                        fallbackText = text,
+                        fallbackThoughts = visibleThoughts,
+                        contentIdentity = contentIdentity,
+                        isLoading = isLoading,
+                        debugMode = debugMode,
+                        debugSettings = debugSettings,
+                        debugMemorySources = debugMemorySources,
+                        showReasoning = showReasoning,
+                        isError = isError,
+                        expanded = activityExpanded,
+                        onExpandedChange = { activityExpanded = it },
+                        articleCards = articleCards
+                    )
+                    if (showTerminalFallback) {
                         Text(
-                            workedTimeText((timing.completedAt ?: now / 1000) - timing.startedAt),
-                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                            style = MaterialTheme.typography.labelMedium
+                            text = if (isError) "The response failed before displayable content was returned." else "The model finished without returning displayable text.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                         )
                     }
-                }
-                val hasUnavailableOrder = remember(contentTimeline, text, visibleThoughts, processToolEvents) {
-                    hasUnavailableAssistantOrder(contentTimeline, text, visibleThoughts, processToolEvents.isNotEmpty())
-                }
 
-                AssistantChronologicalContent(
-                    outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0") },
-                    animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
-                    proseColor = profileColorIdentity?.takeIf { debugMode }?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
-                    toolEvents = toolEvents,
-                    fallbackText = text,
-                    fallbackThoughts = visibleThoughts,
-                    contentIdentity = contentIdentity,
-                    isLoading = isLoading,
-                    debugMode = debugMode,
-                    debugSettings = debugSettings,
-                    debugMemorySources = debugMemorySources,
-                    showReasoning = showReasoning,
-                    isError = isError,
-                    expanded = activityExpanded,
-                    onExpandedChange = { activityExpanded = it },
-                    articleCards = articleCards
-                )
-                if (showTerminalFallback) {
-                    Text(
-                        text = if (isError) "The response failed before displayable content was returned." else "The model finished without returning displayable text.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    AmazonProductResults(
+                        toolEvents = sourceToolEvents,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        ownerProfileUid = agentRun?.profileUid,
+                        profilesByRun = sourceProfilesByRun,
+                        conversationId = conversationId,
+                        debugMode = debugMode
                     )
-                }
 
-                AmazonProductResults(
-                    toolEvents = sourceToolEvents,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    ownerProfileUid = agentRun?.profileUid,
-                    profilesByRun = sourceProfilesByRun,
-                    conversationId = conversationId,
-                    debugMode = debugMode
-                )
-
-                AirbnbListingResults(
-                    events = sourceToolEvents,
-                    owner = agentRun?.profileUid,
-                    profilesByRun = sourceProfilesByRun,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
-                LocationToolMapPreview(
-                    toolEvents = locationToolEvents,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
-                MessageFileThumbnailRow(
-                    files = attachments,
-                    usePrimaryColors = false,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
-                if (debugMode && activityExpanded) {
-                    ChatDebugDiagnosticsCard(
-                        agentRun = agentRun,
-                        telemetryNotice = telemetryNotice,
-                        notices = (nonTelemetryNotices + contentTimeline.filter { it.type == AssistantTimelineItemType.NOTICE && isContextDiagnostic(it.content) }.map { it.content }).distinct(),
-                        invocations = invocations,
-                        assistTasks = contentTimeline.mapNotNull { it.assistDiagnostic },
-                        settings = debugSettings,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                    AirbnbListingResults(
+                        events = sourceToolEvents,
+                        owner = agentRun?.profileUid,
+                        profilesByRun = sourceProfilesByRun,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
-                }
 
-                // Dynamic Action Buttons strip (if assistant proposed choices or options).
-                // Manual typing takes priority and hides the generated suggestions.
-                AnimatedVisibility(
-                    visible = isLastMessage && dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading,
-                    enter = fadeIn(tween(180)),
-                    exit = fadeOut(tween(500))
-                ) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    LocationToolMapPreview(
+                        toolEvents = locationToolEvents,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+
+                    MessageFileThumbnailRow(
+                        files = attachments,
+                        usePrimaryColors = false,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+
+                    if (debugMode && activityExpanded) {
+                        ChatDebugDiagnosticsCard(
+                            agentRun = agentRun,
+                            telemetryNotice = telemetryNotice,
+                            notices = (nonTelemetryNotices + contentTimeline.filter { it.type == AssistantTimelineItemType.NOTICE && isContextDiagnostic(it.content) }.map { it.content }).distinct(),
+                            invocations = invocations,
+                            assistTasks = contentTimeline.mapNotNull { it.assistDiagnostic },
+                            settings = debugSettings,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    // Dynamic Action Buttons strip (if assistant proposed choices or options).
+                    // Manual typing takes priority and hides the generated suggestions.
+                    AnimatedVisibility(
+                        visible = isLastMessage && dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading,
+                        enter = fadeIn(tween(180)),
+                        exit = fadeOut(tween(500))
                     ) {
-                        if (dynamicActions.size > 1 && dynamicActions.none { it.isOption }) {
-                            item(key = "ask-all") {
-                                val allInteractionSource = remember { MutableInteractionSource() }
-                                val allPressed by allInteractionSource.collectIsPressedAsState()
-                                val allPulse = suggestionHoldPulseAlpha(allPressed)
-                                LaunchedEffect(allInteractionSource, dynamicActions) {
-                                    allInteractionSource.interactions.collect { interaction ->
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (dynamicActions.size > 1 && dynamicActions.none { it.isOption }) {
+                                item(key = "ask-all") {
+                                    val allInteractionSource = remember { MutableInteractionSource() }
+                                    val allPressed by allInteractionSource.collectIsPressedAsState()
+                                    val allPulse = suggestionHoldPulseAlpha(allPressed)
+                                    LaunchedEffect(allInteractionSource, dynamicActions) {
+                                        allInteractionSource.interactions.collect { interaction ->
+                                            when (interaction) {
+                                                is PressInteraction.Press -> startHighlight("all of the above", dynamicActions.joinToString(" ") { it.actionPrompt })
+                                                is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
+                                            }
+                                        }
+                                    }
+                                    AssistChip(
+                                        onClick = {
+                                            actionDismissed = true
+                                            onActionClick?.invoke(
+                                                buildString {
+                                                    append("Please address each of these: ")
+                                                    append(dynamicActions.joinToString("; ") { it.actionPrompt })
+                                                }
+                                            )
+                                        },
+                                        label = { Text("Ask all", maxLines = 1) },
+                                        leadingIcon = {
+                                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        },
+                                        interactionSource = allInteractionSource,
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = if (allPressed) Color(0xFFFFD54F).copy(alpha = allPulse) else MaterialTheme.colorScheme.primaryContainer,
+                                            labelColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
+                                            leadingIconContentColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
+                                        ),
+                                        border = BorderStroke(
+                                            if (allPressed) 2.dp else 1.dp,
+                                            if (allPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant
+                                        )
+                                    )
+                                }
+                            }
+                            items(dynamicActions, key = { it.actionPrompt }) { action ->
+                                val icon = when (action.iconType) {
+                                    ActionIconType.SEARCH -> Icons.Rounded.Search
+                                    ActionIconType.SUMMARIZE -> Icons.Rounded.Description
+                                    ActionIconType.EXPLAIN -> Icons.Rounded.HelpOutline
+                                    ActionIconType.CONFIRM -> Icons.Rounded.Check
+                                    ActionIconType.CANCEL -> Icons.Rounded.Close
+                                    ActionIconType.OPTION -> Icons.Rounded.AutoAwesome
+                                    ActionIconType.DEFAULT -> Icons.AutoMirrored.Rounded.ArrowForward
+                                }
+
+                                val chipInteractionSource = remember { MutableInteractionSource() }
+                                val chipPressed by chipInteractionSource.collectIsPressedAsState()
+                                val chipPulse = suggestionHoldPulseAlpha(chipPressed)
+
+                                LaunchedEffect(chipInteractionSource, action) {
+                                    chipInteractionSource.interactions.collect { interaction ->
                                         when (interaction) {
-                                            is PressInteraction.Press -> startHighlight("all of the above", dynamicActions.joinToString(" ") { it.actionPrompt })
-                                            is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
+                                            is PressInteraction.Press -> {
+                                                startHighlight(action.label, action.actionPrompt)
+                                            }
+                                            is PressInteraction.Release, is PressInteraction.Cancel -> {
+                                                reverseHighlight()
+                                            }
                                         }
                                     }
                                 }
+
                                 AssistChip(
                                     onClick = {
                                         actionDismissed = true
-                                        onActionClick?.invoke(
-                                            buildString {
-                                                append("Please address each of these: ")
-                                                append(dynamicActions.joinToString("; ") { it.actionPrompt })
-                                            }
+                                        onActionClick?.invoke(action.actionPrompt)
+                                    },
+                                    label = {
+                                        Text(
+                                            text = action.label,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     },
-                                    label = { Text("Ask all", maxLines = 1) },
                                     leadingIcon = {
-                                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
                                     },
-                                    interactionSource = allInteractionSource,
+                                    interactionSource = chipInteractionSource,
                                     colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = if (allPressed) Color(0xFFFFD54F).copy(alpha = allPulse) else MaterialTheme.colorScheme.primaryContainer,
-                                        labelColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
-                                        leadingIconContentColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
+                                        containerColor = if (chipPressed) Color(0xFFFFD54F).copy(alpha = chipPulse) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                        labelColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer,
+                                        leadingIconContentColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer
                                     ),
                                     border = BorderStroke(
-                                        if (allPressed) 2.dp else 1.dp,
-                                        if (allPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant
+                                        if (chipPressed) 2.dp else 1.dp,
+                                        if (chipPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                                     )
                                 )
                             }
                         }
-                        items(dynamicActions, key = { it.actionPrompt }) { action ->
-                            val icon = when (action.iconType) {
-                                ActionIconType.SEARCH -> Icons.Rounded.Search
-                                ActionIconType.SUMMARIZE -> Icons.Rounded.Description
-                                ActionIconType.EXPLAIN -> Icons.Rounded.HelpOutline
-                                ActionIconType.CONFIRM -> Icons.Rounded.Check
-                                ActionIconType.CANCEL -> Icons.Rounded.Close
-                                ActionIconType.OPTION -> Icons.Rounded.AutoAwesome
-                                ActionIconType.DEFAULT -> Icons.AutoMirrored.Rounded.ArrowForward
-                            }
+                    }
 
-                            val chipInteractionSource = remember { MutableInteractionSource() }
-                            val chipPressed by chipInteractionSource.collectIsPressedAsState()
-                            val chipPulse = suggestionHoldPulseAlpha(chipPressed)
+                    // Minimal transparent continuation chip & bottom-right aligned timestamp
+                    val isContinueVisible = isLastMessage && showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping && !isLoading
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AnimatedVisibility(
+                            visible = activityExpanded && formattedTime.isNotBlank(),
+                            enter = fadeIn(tween(1000)),
+                            exit = fadeOut(tween(1000))
+                        ) {
+                            Text(
+                                text = formattedTime,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
 
-                            LaunchedEffect(chipInteractionSource, action) {
-                                chipInteractionSource.interactions.collect { interaction ->
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        AnimatedVisibility(
+                            visible = isContinueVisible,
+                            enter = fadeIn(tween(300)),
+                            exit = fadeOut(tween(500))
+                        ) {
+                            val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
+                            val pulseAlpha by infiniteTransition.animateFloat(
+                                initialValue = 0.45f,
+                                targetValue = 0.95f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "pulseAlpha"
+                            )
+
+                            val continueInteractionSource = remember { MutableInteractionSource() }
+                            val continuePressed by continueInteractionSource.collectIsPressedAsState()
+                            val continueHoldPulse = suggestionHoldPulseAlpha(continuePressed)
+
+                            LaunchedEffect(continueInteractionSource) {
+                                continueInteractionSource.interactions.collect { interaction ->
                                     when (interaction) {
-                                        is PressInteraction.Press -> {
-                                            startHighlight(action.label, action.actionPrompt)
-                                        }
-                                        is PressInteraction.Release, is PressInteraction.Cancel -> {
-                                            reverseHighlight()
-                                        }
+                                        is PressInteraction.Press -> startHighlight("continue", "continue")
+                                        is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
                                     }
                                 }
                             }
 
-                            AssistChip(
+                            SuggestionChip(
                                 onClick = {
-                                    actionDismissed = true
-                                    onActionClick?.invoke(action.actionPrompt)
+                                    continueDismissed = true
+                                    onContinueClick?.invoke()
                                 },
-                                label = {
-                                    Text(
-                                        text = action.label,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                },
-                                leadingIcon = {
+                                label = { Text("Continue") },
+                                icon = {
                                     Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
+                                        Icons.AutoMirrored.Rounded.ArrowForward,
+                                        contentDescription = "Continue",
                                         modifier = Modifier.size(14.dp)
                                     )
                                 },
-                                interactionSource = chipInteractionSource,
-                                colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = if (chipPressed) Color(0xFFFFD54F).copy(alpha = chipPulse) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                                    labelColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer,
-                                    leadingIconContentColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer
-                                ),
+                                interactionSource = continueInteractionSource,
                                 border = BorderStroke(
-                                    if (chipPressed) 2.dp else 1.dp,
-                                    if (chipPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                    if (continuePressed) 2.dp else 1.5.dp,
+                                    if (continuePressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)
+                                ),
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = if (continuePressed) Color(0xFFFFD54F).copy(alpha = continueHoldPulse) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f),
+                                    labelColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
+                                    iconContentColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                             )
                         }
                     }
-                }
 
-                // Minimal transparent continuation chip & bottom-right aligned timestamp
-                val isContinueVisible = isLastMessage && showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping && !isLoading
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AnimatedVisibility(
-                        visible = activityExpanded && formattedTime.isNotBlank(),
-                        enter = fadeIn(tween(1000)),
-                        exit = fadeOut(tween(1000))
-                    ) {
-                        Text(
-                            text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    AnimatedVisibility(
-                        visible = isContinueVisible,
-                        enter = fadeIn(tween(300)),
-                        exit = fadeOut(tween(500))
-                    ) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
-                        val pulseAlpha by infiniteTransition.animateFloat(
-                            initialValue = 0.45f,
-                            targetValue = 0.95f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "pulseAlpha"
-                        )
-
-                        val continueInteractionSource = remember { MutableInteractionSource() }
-                        val continuePressed by continueInteractionSource.collectIsPressedAsState()
-                        val continueHoldPulse = suggestionHoldPulseAlpha(continuePressed)
-
-                        LaunchedEffect(continueInteractionSource) {
-                            continueInteractionSource.interactions.collect { interaction ->
-                                when (interaction) {
-                                    is PressInteraction.Press -> startHighlight("continue", "continue")
-                                    is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
+                    if (!isLoading) {
+                        revisionIndexLabel?.let { label ->
+                            Row(
+                                modifier = Modifier.padding(start = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
+                                    Icon(
+                                        Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                                        stringResource(R.string.previous_revision),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = if (canShowPreviousRevision) 1f else 0.38f)
+                                    )
                                 }
-                            }
-                        }
-
-                        SuggestionChip(
-                            onClick = {
-                                continueDismissed = true
-                                onContinueClick?.invoke()
-                            },
-                            label = { Text("Continue") },
-                            icon = {
-                                Icon(
-                                    Icons.AutoMirrored.Rounded.ArrowForward,
-                                    contentDescription = "Continue",
-                                    modifier = Modifier.size(14.dp)
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
-                            },
-                            interactionSource = continueInteractionSource,
-                            border = BorderStroke(
-                                if (continuePressed) 2.dp else 1.5.dp,
-                                if (continuePressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)
-                            ),
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = if (continuePressed) Color(0xFFFFD54F).copy(alpha = continueHoldPulse) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f),
-                                labelColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
-                                iconContentColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
-                    }
-                }
-
-                if (!isLoading) {
-                    revisionIndexLabel?.let { label ->
-                        Row(
-                            modifier = Modifier.padding(start = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
-                                Icon(
-                                    Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                                    stringResource(R.string.previous_revision),
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = if (canShowPreviousRevision) 1f else 0.38f)
-                                )
-                            }
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            IconButton(enabled = canShowNextRevision, onClick = onShowNextRevision) {
-                                Icon(
-                                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                                    stringResource(R.string.next_revision),
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = if (canShowNextRevision) 1f else 0.38f)
-                                )
+                                IconButton(enabled = canShowNextRevision, onClick = onShowNextRevision) {
+                                    Icon(
+                                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        stringResource(R.string.next_revision),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = if (canShowNextRevision) 1f else 0.38f)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End
-        ) {
-            if (!isLoading) {
-                AnimatedVisibility(
-                    visible = actionsExpanded,
-                    enter = fadeIn(tween(180)),
-                    exit = fadeOut(tween(120))
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (!isError) {
-                            CopyTextIcon(onCopyClick)
-                            Spacer(Modifier.width(4.dp))
-                            SelectTextIcon(onSelectClick)
-                            Spacer(Modifier.width(4.dp))
-                            FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
-                            if (canEdit) {
-                                Spacer(Modifier.width(4.dp))
-                                EditTextIcon(onEditClick)
-                            }
-                        }
-                        onInspectContext?.let { inspect -> androidx.compose.material3.TextButton(onClick = inspect) { Text("Context") } }
-                        if (canRetry) {
-                            Spacer(Modifier.width(4.dp))
-                            RetryIcon(onRetryClick)
-                        }
-                    }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                if (!isLoading) {
+                    ChatResponseSources(
+                        answer = text,
+                        events = sourceToolEvents,
+                        contentIdentity = contentIdentity,
+                        isLoading = isLoading
+                    )
                 }
-
-                ChatResponseSources(
-                    answer = text,
-                    events = sourceToolEvents,
-                    contentIdentity = contentIdentity,
-                    isLoading = isLoading
-                )
-                MessageActionsToggle(actionsExpanded) { actionsExpanded = !actionsExpanded }
             }
         }
     }
@@ -936,52 +917,6 @@ fun PlatformButton(
     }
 }
 
-@Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(ImageVector.vectorResource(R.drawable.ic_copy), stringResource(R.string.copy_text), tint = MaterialTheme.colorScheme.primary)
-}
-
-@Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text), tint = MaterialTheme.colorScheme.primary)
-}
-
-@Composable
-private fun FavoriteIcon(
-    isFavorite: Boolean,
-    onFavoriteClick: () -> Unit,
-    onFavoriteLongPress: () -> Unit = {}
-) {
-    val haptic = LocalHapticFeedback.current
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onFavoriteClick() },
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onFavoriteLongPress()
-                    }
-                )
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-            stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = if (isFavorite) 1f else 0.7f)
-        )
-    }
-}
-
-@Composable private fun RetryIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(Icons.Rounded.Refresh, stringResource(R.string.retry), tint = MaterialTheme.colorScheme.primary)
-}
-
-@Composable private fun EditTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(Icons.Rounded.Edit, stringResource(R.string.edit), tint = MaterialTheme.colorScheme.primary)
-}
-
 @Composable
 internal fun TelemetryBadge(notice: String, modifier: Modifier = Modifier) {
     Surface(
@@ -1117,7 +1052,7 @@ internal fun buildDiagnosticsHudText(
 fun UserChatBubblePreview() {
     val sampleText = "How can I print hello world in Python?"
     GPTMobileTheme {
-        UserChatBubble(text = sampleText, files = emptyList(), onLongPress = {})
+        UserChatBubble(text = sampleText, files = emptyList())
     }
 }
 
@@ -1160,20 +1095,3 @@ private fun MessageFileThumbnail(filePath: String, usePrimaryColors: Boolean) {
 
 private fun isImageFile(extension: String?): Boolean =
     extension != null && extension.lowercase() in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")
-
-@Composable
-private fun MessageActionsToggle(expanded: Boolean, onClick: () -> Unit) {
-    val opacity by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0.7f,
-        animationSpec = tween(240),
-        label = "messageActionsOpacity"
-    )
-    IconButton(onClick = onClick, modifier = Modifier.size(34.dp).alpha(opacity)) {
-        Icon(
-            Icons.Rounded.MoreHoriz,
-            if (expanded) "Collapse message actions" else "Show message actions",
-            Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-    }
-}

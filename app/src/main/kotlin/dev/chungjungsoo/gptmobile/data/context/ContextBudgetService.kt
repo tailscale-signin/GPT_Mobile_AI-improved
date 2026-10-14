@@ -15,6 +15,33 @@ data class ContextPlan(val turns: List<ConversationTurn>, val system: String, va
 object ContextBudgetService {
     fun estimate(text: String): Int = ((text.toByteArray(Charsets.UTF_8).size.toLong() + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
+    /** Combined's frozen history is required input, so ordinary history-window eviction is forbidden. */
+    fun planFullInput(turns: List<ConversationTurn>, system: String, settings: TokenBudgetSettings): ContextPlan {
+        val config = settings.normalized()
+        val cost = breakdown(turns, system, emptyList())
+        val outputLimit = config.outputTokens.takeIf { it > 0 }
+        val outputReserve = outputLimit ?: minOf(32768, config.contextTokens / 4)
+        val safetyReserve = minOf(256, config.contextTokens / 16)
+        val required = cost.total.toLong() + outputReserve + safetyReserve
+        require(config.contextTokens == Int.MAX_VALUE || required <= config.contextTokens.toLong()) {
+            "COMBINED_CONTEXT_CAPACITY: The complete frozen input needs approximately ${cost.total} prompt tokens, " +
+                "$outputReserve output tokens and $safetyReserve safety tokens; capacity is ${config.contextTokens}. " +
+                "No history or contribution was clipped and no substitute primary was selected. " +
+                "Increase the pinned primary's context capacity or reduce the selected input explicitly. " +
+                "Full-corpus multipass is not yet available."
+        }
+        return ContextPlan(
+            turns = turns,
+            system = system,
+            tools = emptyList(),
+            toolResultBytes = 0,
+            outputTokens = outputLimit,
+            notice = "Combined workflow: FULL_INPUT. Complete frozen history and contributions delivered; " +
+                "${cost.total} estimated prompt tokens. Delivery does not establish semantic coverage.",
+            promptTokens = cost.total
+        )
+    }
+
     fun breakdown(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>): ContextCostBreakdown = ContextCostBreakdown(
         system = estimate(system),
         toolSchemas = tools.sumOf { estimate(it.name + it.description + it.inputSchema.toString()).toLong() + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),

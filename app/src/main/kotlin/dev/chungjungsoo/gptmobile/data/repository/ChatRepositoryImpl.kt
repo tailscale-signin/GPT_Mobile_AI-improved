@@ -1732,7 +1732,10 @@ class ChatRepositoryImpl(
                 var requestPlatform = platform.withSystemPrompt(
                     systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
                 )
-                var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planPrimaryContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
+                fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
+                    if (synthesisRun) dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, prompt, settings)
+                    else planPrimaryContext(turns, prompt, tools, settings)
+                var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                 AppLogRecorder.record(
                     "Tools",
                     "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}"
@@ -1749,7 +1752,7 @@ class ChatRepositoryImpl(
                     reviewedPreparationUnavailable = requiresReviewedPreparation
                     exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy)
                     requestPlatform = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt())
-                    contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planPrimaryContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
+                    contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                     AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}")
                 }
                 if (reviewedPreparationUnavailable) emit(ApiState.Notice("100% delegation requires an available helper and independent review. Check the delegate, reviewer and context settings, then retry.", persistent = true))
@@ -2001,7 +2004,7 @@ class ChatRepositoryImpl(
                             reviewedPreparationUnavailable = processingOwnership == 0 && !localDelegation.primaryOnlyRequested()
                             exposedTools = if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) emptyList() else orderPrimaryTools(aggregatedTools.filterNot { (localDelegation.primaryOnlyRequested() || research.handoff.startsWith("[REVIEW_REJECTED]")) && it.realToolName == "delegate_to_model" })
                             requestPlatform = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() + if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "\nPreparation or review failed. Do not present rejected delegate claims as verified facts. Explain the limitation and the need to retry or choose a working delegate/reviewer." else "")
-                            contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                            contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                             emit(ApiState.Notice(if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "Delegate preparation or review could not finish. The primary will explain the limitation using the available evidence." else "Delegated preparation failed. The main profile can use its enabled tools to recover.", persistent = true))
                         }
                         if (research.handoff.isNotBlank()) {
@@ -2014,8 +2017,9 @@ class ChatRepositoryImpl(
                 suspend fun finalizePreparedContext() {
                     if (preparedTurns != contextTurns) {
                         try {
-                            contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
-                        } catch (_: IllegalArgumentException) {
+                            contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        } catch (capacity: IllegalArgumentException) {
+                            if (synthesisRun) throw capacity
                             emit(ApiState.Notice("Prepared evidence did not fit the main model's context budget. Continuing with the original context.", persistent = true))
                         }
                     }
@@ -2031,24 +2035,24 @@ class ChatRepositoryImpl(
                             systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() +
                                 if (preparedEvidenceComplete && processingOwnership == 0) "\nThe delegate has completed preparation. Independent review status: ${if (preparedEvidenceReviewed) "passed" else "unverified"}. Write from the retained handoff, flag unverified claims and gaps, and never claim unavailable verification completed. Do not start tools, more research, or another delegate." else ""
                         )
-                        contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                     // Preparation can narrow tools, but original saved evidence must remain readable.
                     taskRoutedTools.firstOrNull { it.realToolName == "read_recovery_context" }?.let { recoveryTool ->
                         if (exposedTools.none { it.realToolName == recoveryTool.realToolName }) {
                             exposedTools = listOf(recoveryTool) + exposedTools
-                            contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                            contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                         }
                     }
                     if (resumeWriterOnly) {
                         exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
                         requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResume final writing from the saved evidence and retained review report. New acquisition or external actions were not requested. Explain unresolved coverage instead of repeating completed work.")
-                        contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                     if (localDelegation.researchStopped()) {
                         exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
                         requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResearch acquisition stopped. Summarize completed evidence and identify unfinished questions. Do not infer who stopped it or claim independent review completed. Only saved-evidence reads remain available.")
-                        contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                        contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                 }
                 if (recovery?.isAuthorized() == false) {
@@ -2409,12 +2413,11 @@ class ChatRepositoryImpl(
                 exchanges
             )
             // Recheck the bounded continuation context against the configured context ceiling before dispatch.
-            val continuationPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(
-                turns,
-                requestPlatform.systemPrompt.orEmpty(),
-                emptyList(),
-                limits
-            )
+            val continuationPlan = if (editorialPass) {
+                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, requestPlatform.systemPrompt.orEmpty(), limits)
+            } else {
+                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
+            }
             openPrimarySession(continuationPlan.turns, "output_limit_continuation", textOnly = true)
         }
         val session = if (followUps != null && latestUser != null) {

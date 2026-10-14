@@ -4,9 +4,13 @@ import android.content.Context
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 
@@ -15,7 +19,9 @@ class PlannedLocalRuntime(
     private val context: Context,
     private val delegate: LocalRuntime,
     private val settings: SettingRepository,
-    private val evidence: BenchmarkStore
+    private val evidence: BenchmarkStore,
+    private val availableMemory: () -> Long? = { LocalWorkloadAdmission.availableMemory(context) },
+    stateScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : LocalRuntime by delegate {
     override val ownsEngineSwitching = true
     private val planner = LocalExecutionPlanner()
@@ -28,12 +34,59 @@ class PlannedLocalRuntime(
     private var tuningNotice: String? = null
     private var artifactAtLoad: String? = null
 
-    private suspend fun artifactIdentity(spec: LocalEngineSpec): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    private val stateLock = Any()
+
+    @Volatile
+    private var admissionFailure: String? = null
+
+    private suspend fun artifactIdentity(spec: LocalEngineSpec): String = kotlinx.coroutines.withContext(Dispatchers.IO) {
         dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalledCached(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
     }
     init {
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
-            delegate.state.collect { actual -> mutableState.value = actual.copy(decision = mutableState.value.decision, requestedMtp = effective?.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice) }
+        stateScope.launch {
+            delegate.state.collect { actual ->
+                synchronized(stateLock) {
+                    val blocked = admissionFailure
+                    mutableState.value = actual.copy(
+                        decision = mutableState.value.decision,
+                        requestedMtp = effective?.speculativeDecoding,
+                        lifecycle = if (blocked != null) "FAILED" else actual.lifecycle,
+                        fallbackReason = blocked ?: actual.fallbackReason ?: tuningNotice
+                    )
+                }
+            }
+        }
+    }
+
+    private fun requireAdmission(estimate: LocalMemoryEstimate, stage: String, nativeLoadAttempted: Boolean, accelerator: String? = delegate.loadedEngineSpec()?.accelerator) {
+        val rejection = admission.evaluate(getHardwareState(), estimate.availableBytes, estimate.requiredBytes, estimate.reserveBytes, optional = false)
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "LocalModel",
+            "LOCAL_MEMORY_PREFLIGHT · stage=$stage · status=${if (rejection == null) "ADMITTED" else "REJECTED"}" +
+                " · reason=${rejection?.reason ?: "NONE"} · requiredBytes=${estimate.requiredBytes}" +
+                " · reserveBytes=${estimate.reserveBytes} · configuredReserveMb=${estimate.reserveBytes / (1024L * 1024)}" +
+                " · accelerator=${accelerator ?: "unknown"} · availableBytes=${estimate.availableBytes ?: "unknown"}" +
+                " · totalBudgetBytes=${estimate.budget.totalBytes} · shortfallBytes=${estimate.budget.shortfallBytes ?: "unknown"}" +
+                " · contextTokens=${estimate.contextTokens} · estimate=${estimate.method} · nativeLoadAttempted=$nativeLoadAttempted"
+        )
+        if (rejection != null) {
+            val failure = if (rejection.reason == LocalAdmissionReason.MEMORY) {
+                estimate.rejection(rejection.message, stage, nativeLoadAttempted)
+            } else {
+                IllegalStateException("${rejection.reason}_ADMISSION_REJECTED · stage=$stage · nativeLoadAttempted=$nativeLoadAttempted. ${rejection.message}")
+            }
+            synchronized(stateLock) {
+                admissionFailure = failure.message
+                mutableState.value = state.value.copy(lifecycle = "FAILED", fallbackReason = failure.message)
+            }
+            throw failure
+        }
+        synchronized(stateLock) {
+            if (admissionFailure != null) {
+                admissionFailure = null
+                val actual = delegate.state.value
+                mutableState.value = actual.copy(decision = state.value.decision, requestedMtp = effective?.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice)
+            }
         }
     }
 
@@ -71,30 +124,9 @@ class PlannedLocalRuntime(
         } else {
             File(spec.modelPath).length() + spec.maxTokens * 256L * 1024 + (if (chosen.speculativeDecoding == true) File(spec.modelPath).length() / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
         }
-        val memoryEstimate = LocalMemoryEstimate(estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, LocalWorkloadAdmission.availableMemory(context), chosen.maxTokens, if (warm?.engineConfiguration() == chosen.engineConfiguration()) "warm_incremental_reserve" else "conservative_unmeasured")
-        val preflightRejection = admission.rejection(
-            getHardwareState(),
-            memoryEstimate.availableBytes,
-            estimate,
-            memoryEstimate.reserveBytes,
-            optional = false
-        )
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-            "LocalModel",
-            "LOCAL_MEMORY_PREFLIGHT · stage=load · status=${if (preflightRejection == null) "ADMITTED" else "REJECTED"}" +
-                " · requiredBytes=${memoryEstimate.requiredBytes} · configuredReserveMb=${current.localMemoryReserveMb}" +
-                " · availableBytes=${memoryEstimate.availableBytes ?: "unknown"} · contextTokens=${memoryEstimate.contextTokens}" +
-                " · estimate=${memoryEstimate.method} · accelerator=${chosen.accelerator} · nativeLoadAttempted=false"
-        )
-        if (preflightRejection != null) {
-            val failure = if (memoryEstimate.availableBytes?.let { it < estimate + memoryEstimate.reserveBytes } == true) {
-                memoryEstimate.rejection(preflightRejection)
-            } else {
-                IllegalStateException(preflightRejection)
-            }
-            mutableState.value = state.value.copy(lifecycle = "FAILED", decision = decision, fallbackReason = failure.message)
-            throw failure
-        }
+        val memoryEstimate = LocalMemoryEstimate(estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, availableMemory(), chosen.maxTokens, if (warm?.engineConfiguration() == chosen.engineConfiguration()) "warm_incremental_reserve" else "conservative_unmeasured")
+        mutableState.value = state.value.copy(decision = decision)
+        requireAdmission(memoryEstimate, stage = "load", nativeLoadAttempted = false, accelerator = chosen.accelerator)
         mutableState.value = state.value.copy(lifecycle = "LOADING", decision = decision)
         try {
             delegate.loadEngine(chosen)
@@ -127,7 +159,15 @@ class PlannedLocalRuntime(
 
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = flow {
         val current = settings.getFeatureSettings()
-        admission.rejection(getHardwareState(), LocalWorkloadAdmission.availableMemory(context), 64L * 1024 * 1024, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, optional = false)?.let { error(it) }
+        val loaded = delegate.loadedEngineSpec()
+        val estimate = LocalMemoryEstimate(
+            requiredBytes = 64L * 1024 * 1024,
+            reserveBytes = current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024,
+            availableBytes = availableMemory(),
+            contextTokens = loaded?.maxTokens ?: 0,
+            method = "generation_incremental_reserve"
+        )
+        requireAdmission(estimate, stage = "generate", nativeLoadAttempted = loaded != null)
         delegate.sendMessage(text, images).collect { event ->
             mutableState.value = state.value.copy(lifecycle = delegate.state.value.lifecycle)
             emit(if (event is LocalRuntimeEvent.Metrics) event.copy(metrics = event.metrics.copy(planId = state.value.decision?.selected?.id)) else event)
@@ -145,7 +185,10 @@ class PlannedLocalRuntime(
         effective = null
         tuningNotice = null
         artifactAtLoad = null
-        mutableState.value = delegate.state.value
+        synchronized(stateLock) {
+            admissionFailure = null
+            mutableState.value = delegate.state.value
+        }
     }
 
     override fun loadedEngineSpec(): LocalEngineSpec? = delegate.loadedEngineSpec()

@@ -20,6 +20,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -117,4 +118,22 @@ class CompleteBackupDialogTest {
         compose.onNodeWithTag("backup_all").assertDoesNotExist()
         compose.onNodeWithTag("restore_all").assertDoesNotExist()
     }
+    @Test
+    fun expandedCategoryLetsUserChangeOneSectionWithoutSelectingTheWholeCategory() {
+        var changed: CompleteBackupSection? = null
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    BackupSelectionContent(SettingViewModelV2.BackupUiState()) { section, _ -> changed = section }
+                }
+            }
+        }
+        compose.onNodeWithTag("backup_section_CREDENTIALS").assertDoesNotExist()
+        compose.onNodeWithTag("backup_group_expand_AI_PLATFORMS").performScrollTo().performClick()
+        compose.onNodeWithTag("backup_section_CREDENTIALS").performScrollTo().performClick()
+        assertEquals(CompleteBackupSection.CREDENTIALS, changed)
+        compose.onNodeWithTag("backup_group_expand_AI_PLATFORMS").performScrollTo().performClick()
+        compose.onNodeWithTag("backup_section_CREDENTIALS").assertDoesNotExist()
+    }
+
 }

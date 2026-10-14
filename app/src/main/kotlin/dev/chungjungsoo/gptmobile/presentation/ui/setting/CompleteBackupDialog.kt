@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,10 +13,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -285,28 +290,79 @@ internal fun BackupSelectionContent(
             Text("Select all", fontWeight = FontWeight.SemiBold)
         }
         CompleteBackupGroup.entries.forEach { group ->
+            var expanded by rememberSaveable(group.name) { mutableStateOf(false) }
             val selected = group.sections.count { it in state.selection.sections }
-            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                TriStateCheckbox(
-                    state = when (selected) {
-                        0 -> ToggleableState.Off
-                        group.sections.size -> ToggleableState.On
-                        else -> ToggleableState.Indeterminate
-                    },
-                    enabled = !state.isBusy,
-                    onClick = { change(group, selected != group.sections.size) }
-                )
-                Column(Modifier.weight(1f)) {
-                    Text(group.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                    Text(group.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TriStateCheckbox(
+                            state = when (selected) {
+                                0 -> ToggleableState.Off
+                                group.sections.size -> ToggleableState.On
+                                else -> ToggleableState.Indeterminate
+                            },
+                            enabled = !state.isBusy && !state.isWorking,
+                            modifier = Modifier.testTag("backup_group_select_${group.name}"),
+                            onClick = { change(group, selected != group.sections.size) }
+                        )
+                        Column(Modifier.weight(1f).clickable { expanded = !expanded }.padding(vertical = 8.dp)) {
+                            Text(group.title, style = MaterialTheme.typography.titleSmall)
+                            Text("$selected / ${group.sections.size} selected", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text(group.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("backup_group_expand_${group.name}")) {
+                            Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, stringResource(if (expanded) R.string.backup_collapse_category else R.string.backup_expand_category))
+                        }
+                    }
+                    AnimatedVisibility(visible = expanded) {
+                        Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
+                            group.sections.forEach { section ->
+                                val description = backupSectionDescription(section)
+                                Row(
+                                    Modifier.fillMaxWidth().clickable(enabled = !state.isBusy && !state.isWorking) { onSectionChange(section, !state.selection.includes(section)) }.padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = state.selection.includes(section),
+                                        enabled = !state.isBusy && !state.isWorking,
+                                        onCheckedChange = { onSectionChange(section, it) },
+                                        modifier = Modifier.testTag("backup_section_${section.name}")
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(description.first, style = MaterialTheme.typography.bodyMedium)
+                                        Text(description.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
         Text(
-            "Choices are saved. A dash preserves a partial selection from an earlier backup. Statistics include the profile records they reference.",
+            "Choices are saved for backup and restore. Expand a category to choose individual items. Dependent records are selected automatically: attachments and research evidence require chats; statistics also require profiles and run history.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp)
         )
     }
+}
+
+/** Every row maps to an existing archive section; no decorative selection controls. */
+internal fun backupSectionDescription(section: CompleteBackupSection): Pair<String, String> = when (section) {
+    CompleteBackupSection.SETTINGS -> "Appearance & preferences" to "Theme, display, behavior and saved app preferences."
+    CompleteBackupSection.CONVERSATIONS -> "Chats & favorites" to "Conversation folders, prompts, responses and favorite messages."
+    CompleteBackupSection.PLATFORMS -> "AI profiles & provider settings" to "Models, prompts and profile configurations. API secrets are selected separately."
+    CompleteBackupSection.TOOLS -> "Plugins & MCP connections" to "Tool configuration, enabled plugins and connection definitions."
+    CompleteBackupSection.CREDENTIALS -> "API keys & connection secrets" to "Protected credentials; requires encryption."
+    CompleteBackupSection.MEMORY -> "Saved memory" to "Local memory and learned facts; requires encryption."
+    CompleteBackupSection.LOCAL_MODELS -> "Downloaded local model files" to "Installed model assets. Large files can make the backup substantially larger."
+    CompleteBackupSection.ATTACHMENTS -> "Chat attachments" to "Images and files associated with saved conversations. Includes chats."
+    CompleteBackupSection.AGENT_HISTORY -> "AI runs & tool activity" to "Execution records, tool calls and response history. Includes chats."
+    CompleteBackupSection.STATISTICS -> "Usage & execution statistics" to "Recorded usage and tool statistics. Includes chats, AI profiles and run history."
+    CompleteBackupSection.AMAZON_DATA -> "Shopping data" to "Saved Amazon data and product information."
+    CompleteBackupSection.HEALTH_DATA -> "Imported health history" to "Locally imported Health Connect records; requires encryption."
+    CompleteBackupSection.RESEARCH_ARCHIVE -> "Research archive" to "Saved studies and archive entries; requires encryption."
+    CompleteBackupSection.CHAT_RESEARCH -> "Chat research evidence" to "Retained research sources linked to conversations. Includes chats; requires encryption."
+    CompleteBackupSection.RESEARCH_APPRAISALS -> "Article appraisals" to "Saved evaluations of research articles; requires encryption."
 }

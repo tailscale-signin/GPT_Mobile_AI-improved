@@ -1086,4 +1086,7 @@
     <string name="combined_no_verified_support">No verified source span is attached to this passage.</string>
     <string name="optional_synthesis_history_compression">Optional history compression</string>
     <string name="optional_synthesis_history_compression_hint">Off by default. After research, send excerpts of earlier turns to the final writer. Original messages stay saved; the current goal remains complete. Reduced input does not establish lower cost or equal answer quality.</string>
+    <string name="bubble_context">Context</string>
+    <string name="backup_expand_category">Expand category</string>
+    <string name="backup_collapse_category">Collapse category</string>
 </resources>

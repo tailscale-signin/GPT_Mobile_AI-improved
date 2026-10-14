@@ -53,7 +53,6 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Stop
@@ -1128,8 +1127,6 @@ private fun ChatMessagePair(
         isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
-    var isDropDownMenuExpanded by remember { mutableStateOf(false) }
-
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid) {
         Column(
             modifier = Modifier
@@ -1150,15 +1147,7 @@ private fun ChatMessagePair(
                     canEdit = canUseChat && isIdle,
                     onCopyClick = { onCopyText(message.content) },
                     onSelectClick = { onSelectText(message.content) },
-                    onEditClick = { onEditQuestion(message) },
-                    onLongPress = { isDropDownMenuExpanded = true }
-                )
-                ChatBubbleDropdownMenu(
-                    isChatBubbleDropdownMenuExpanded = isDropDownMenuExpanded,
-                    canEdit = canUseChat && isIdle,
-                    onDismissRequest = { isDropDownMenuExpanded = false },
-                    onEditItemClick = { onEditQuestion(message) },
-                    onCopyItemClick = { onCopyText(message.content) }
+                    onEditClick = { onEditQuestion(message) }
                 )
             }
         }
@@ -1554,51 +1543,6 @@ fun ChatDropdownMenu(
             onClick = {
                 onDisablePlatformClick()
                 onDismissRequest()
-            }
-        )
-    }
-}
-
-@Composable
-fun ChatBubbleDropdownMenu(
-    isChatBubbleDropdownMenuExpanded: Boolean,
-    canEdit: Boolean,
-    onDismissRequest: () -> Unit,
-    onEditItemClick: () -> Unit,
-    onCopyItemClick: () -> Unit
-) {
-    DropdownMenu(
-        modifier = Modifier.wrapContentSize(),
-        expanded = isChatBubbleDropdownMenuExpanded,
-        onDismissRequest = onDismissRequest
-    ) {
-        DropdownMenuItem(
-            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
-            enabled = canEdit,
-            leadingIcon = {
-                Icon(
-                    Icons.Rounded.Edit,
-                    contentDescription = stringResource(R.string.edit)
-                )
-            },
-            text = { Text(text = stringResource(R.string.edit)) },
-            onClick = {
-                onEditItemClick.invoke()
-                onDismissRequest.invoke()
-            }
-        )
-        DropdownMenuItem(
-            colors = androidx.compose.material3.MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.primary, leadingIconColor = MaterialTheme.colorScheme.primary, trailingIconColor = MaterialTheme.colorScheme.primary, disabledTextColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledLeadingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f), disabledTrailingIconColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
-            leadingIcon = {
-                Icon(
-                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_copy),
-                    contentDescription = stringResource(R.string.copy_text)
-                )
-            },
-            text = { Text(text = stringResource(R.string.copy_text)) },
-            onClick = {
-                onCopyItemClick.invoke()
-                onDismissRequest.invoke()
             }
         )
     }

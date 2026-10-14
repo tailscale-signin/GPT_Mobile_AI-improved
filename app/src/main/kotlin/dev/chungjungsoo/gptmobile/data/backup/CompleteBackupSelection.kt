@@ -30,8 +30,8 @@ enum class CompleteBackupGroup(val title: String, val description: String, val s
     ),
     CONVERSATIONS(
         "Conversations",
-        "Chats, favorites, memory, attachments, tool history, statistics and Amazon data.",
-        setOf(CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.MEMORY, CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.STATISTICS, CompleteBackupSection.AMAZON_DATA)
+        "Chats, favorites, attachments, run history, statistics and shopping data.",
+        setOf(CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.STATISTICS, CompleteBackupSection.AMAZON_DATA)
     ),
     SETTINGS_AND_TOOLS(
         "Settings & tools",
@@ -44,9 +44,9 @@ enum class CompleteBackupGroup(val title: String, val description: String, val s
         setOf(CompleteBackupSection.RESEARCH_ARCHIVE, CompleteBackupSection.CHAT_RESEARCH, CompleteBackupSection.RESEARCH_APPRAISALS)
     ),
     HEALTH_DATA(
-        "Health data",
-        "Locally imported Health Connect history. Requires encrypted backups.",
-        setOf(CompleteBackupSection.HEALTH_DATA)
+        "Personal data",
+        "Saved memory and imported health history. Requires encryption.",
+        setOf(CompleteBackupSection.MEMORY, CompleteBackupSection.HEALTH_DATA)
     )
 }
 

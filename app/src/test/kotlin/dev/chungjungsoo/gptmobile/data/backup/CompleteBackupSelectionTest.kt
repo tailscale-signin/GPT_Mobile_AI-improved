@@ -7,12 +7,13 @@ import org.junit.Test
 
 class CompleteBackupSelectionTest {
     @Test fun groupsCoverEveryArchiveSectionExactlyOnce() {
+        assertTrue(CompleteBackupGroup.entries.size <= 5)
         val grouped = CompleteBackupGroup.entries.flatMap { it.sections }
         assertEquals(CompleteBackupSection.entries.toSet(), grouped.toSet())
         assertEquals(grouped.size, grouped.distinct().size)
     }
 
-    @Test fun conversationGroupIncludesMediaMemoryHistoryAndStatisticsAndCanBeClearedTogether() {
+    @Test fun conversationGroupIncludesMediaHistoryAndStatisticsAndCanBeClearedTogether() {
         val selected = CompleteBackupSelection(emptySet()).toggled(CompleteBackupGroup.CONVERSATIONS, true)
         assertTrue(selected.sections.containsAll(CompleteBackupGroup.CONVERSATIONS.sections))
         assertTrue(selected.includes(CompleteBackupSection.PLATFORMS))
@@ -55,4 +56,11 @@ class CompleteBackupSelectionTest {
         assertFalse(selection.includes(CompleteBackupSection.ATTACHMENTS))
         assertFalse(selection.includes(CompleteBackupSection.AGENT_HISTORY))
     }
+    @Test fun personalDataGroupsMemoryAndHealthWithoutPullingInConversations() {
+        val selection = CompleteBackupSelection(emptySet()).toggled(CompleteBackupGroup.HEALTH_DATA, true)
+        assertEquals(setOf(CompleteBackupSection.MEMORY, CompleteBackupSection.HEALTH_DATA), selection.sections)
+        assertTrue(selection.requiresEncryption)
+        assertFalse(selection.includes(CompleteBackupSection.CONVERSATIONS))
+    }
+
 }

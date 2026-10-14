@@ -26,6 +26,7 @@ class LocalWorkloadAdmissionTest {
         assertNotNull(admission.rejection(DeviceHardwareState(), 199, 100, 100, false))
         assertNotNull(admission.rejection(DeviceHardwareState(thermalState = DeviceThermalState.SEVERE), 1000, 100, 100, false))
     }
+
     @Test fun `documented log values reject with four GB reserve but admit with recommended default`() {
         val admission = LocalWorkloadAdmission { 0L }
         val required = 4_123_590_656L
@@ -36,5 +37,4 @@ class LocalWorkloadAdmissionTest {
         assertNotNull(admission.rejection(DeviceHardwareState(), available, required, fourGiB, false))
         assertNull(admission.rejection(DeviceHardwareState(), available, required, default, false))
     }
-
 }

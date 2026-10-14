@@ -72,9 +72,28 @@ class PlannedLocalRuntime(
             File(spec.modelPath).length() + spec.maxTokens * 256L * 1024 + (if (chosen.speculativeDecoding == true) File(spec.modelPath).length() / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
         }
         val memoryEstimate = LocalMemoryEstimate(estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, LocalWorkloadAdmission.availableMemory(context), chosen.maxTokens, if (warm?.engineConfiguration() == chosen.engineConfiguration()) "warm_incremental_reserve" else "conservative_unmeasured")
-        admission.rejection(getHardwareState(), memoryEstimate.availableBytes, estimate, memoryEstimate.reserveBytes, optional = false)?.let { reason ->
-            if (memoryEstimate.availableBytes?.let { it < estimate + memoryEstimate.reserveBytes } == true) throw memoryEstimate.rejection(reason)
-            error(reason)
+        val preflightRejection = admission.rejection(
+            getHardwareState(),
+            memoryEstimate.availableBytes,
+            estimate,
+            memoryEstimate.reserveBytes,
+            optional = false
+        )
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "LocalModel",
+            "LOCAL_MEMORY_PREFLIGHT · stage=load · status=${if (preflightRejection == null) "ADMITTED" else "REJECTED"}" +
+                " · requiredBytes=${memoryEstimate.requiredBytes} · configuredReserveMb=${current.localMemoryReserveMb}" +
+                " · availableBytes=${memoryEstimate.availableBytes ?: "unknown"} · contextTokens=${memoryEstimate.contextTokens}" +
+                " · estimate=${memoryEstimate.method} · accelerator=${chosen.accelerator} · nativeLoadAttempted=false"
+        )
+        if (preflightRejection != null) {
+            val failure = if (memoryEstimate.availableBytes?.let { it < estimate + memoryEstimate.reserveBytes } == true) {
+                memoryEstimate.rejection(preflightRejection)
+            } else {
+                IllegalStateException(preflightRejection)
+            }
+            mutableState.value = state.value.copy(lifecycle = "FAILED", decision = decision, fallbackReason = failure.message)
+            throw failure
         }
         mutableState.value = state.value.copy(lifecycle = "LOADING", decision = decision)
         try {

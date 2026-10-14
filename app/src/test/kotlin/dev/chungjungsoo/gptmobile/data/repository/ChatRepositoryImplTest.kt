@@ -1242,6 +1242,42 @@ class ChatRepositoryImplTest {
         assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Fresh answer") })
     }
 
+    @Test
+    fun revokedSavedRecoveryIsDiscardedForFreshChatWithoutLeakingEvidence() = runBlocking {
+        val platform = groqPlatform(false, "working-model")
+        val current = MessageV2(id = 11, chatId = 1, content = "Answer a new question", platformType = null)
+        val previous = MessageV2(id = 20, chatId = 1, content = "PRIVATE_EVIDENCE_DO_NOT_SEND", platformType = platform.uid, currentRunId = "failed-run")
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        coEvery { persistence.getIncompleteRuns(1, listOf(11)) } returns listOf(
+            dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("failed-run", 1, 11, 20, platform.uid, "GROQ", platform.model, status = "FAILED")
+        )
+        coEvery { persistence.getToolEvents(listOf("failed-run")) } returns emptyList()
+        coEvery { persistence.getMessages(1) } returns listOf(current, previous)
+        coEvery { persistence.getChatRoom(1) } returns dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(
+            id = 1,
+            title = "Previously shared chat",
+            enabledPlatform = listOf("different-profile")
+        )
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+        coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+        val api = FakeGroqAPI(
+            flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "Fresh safe answer"), finishReason = "stop")))),
+            enforcePhysicalBoundary = true
+        )
+        val states = createRepository(groqAPI = api, persistenceOverride = persistence, settingsOverride = settings).completeChat(
+            listOf(current),
+            emptyList(),
+            platform,
+            "fresh-after-revocation",
+            null
+        ).toList()
+        assertTrue(states.toString(), states.any { it is ApiState.Notice && it.message.contains("was not reused") })
+        assertEquals(states.toString(), 1, api.streamCalls)
+        assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Fresh safe answer") })
+        assertFalse(api.lastRequest.toString().contains("PRIVATE_EVIDENCE_DO_NOT_SEND"))
+    }
+
     private fun createRepository(
         groqAPI: GroqAPI = FakeGroqAPI(emptyFlow()),
         openAIAPI: OpenAIAPI = RecordingOpenAIAPI(),

@@ -37,6 +37,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +50,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupGroup
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
+import dev.chungjungsoo.gptmobile.data.backup.RestoreProgress
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -76,11 +80,14 @@ fun CompleteBackupDialog(
             modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge
         ) {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(if (restoreOnly) "Restore" else stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
+            if (state.isWorking && state.isRestoring) {
+                RestoreWorkingContent(state.restoreProgress)
+            } else {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()).padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(if (restoreOnly) "Restore" else stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
                 if (!restoreOnly) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
@@ -102,7 +109,6 @@ fun CompleteBackupDialog(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                if (restoreOnly) Text("Choose your backup to restore your conversations, profiles and settings.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!state.isBusy && state.recentBackups.isNotEmpty()) {
                     Surface(
                         shape = MaterialTheme.shapes.large,
@@ -110,11 +116,6 @@ fun CompleteBackupDialog(
                     ) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Recent backups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "The three most recent backups remembered from the last backup folder.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                             state.recentBackups.take(3).forEach { recent ->
                                 TextButton(
                                     onClick = { onRecentRestore(recent.uri) },
@@ -212,8 +213,9 @@ fun CompleteBackupDialog(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
-                TextButton(onClick = onDismiss, enabled = !state.isBusy, modifier = Modifier.align(Alignment.End)) {
-                    Text(stringResource(R.string.close))
+                    TextButton(onClick = onDismiss, enabled = !state.isBusy, modifier = Modifier.align(Alignment.End)) {
+                        Text(stringResource(R.string.close))
+                    }
                 }
             }
         }
@@ -231,6 +233,55 @@ fun CompleteBackupDialog(
                 if (action == BackupAction.BACKUP) onBackup() else onRestore()
             }
         )
+    }
+}
+
+@Composable
+internal fun RestoreWorkingContent(progress: RestoreProgress?) {
+    val fraction = progress?.fraction
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(24.dp).testTag("restore_progress_panel"),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(
+                    Icons.Rounded.Restore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Restoring backup", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    progress?.phase?.label ?: "Opening backup",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("restore_current_task").semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+        }
+        if (fraction == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().testTag("restore_loading_bar"))
+        } else {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth().testTag("restore_loading_bar")
+            )
+            Text(
+                "${(fraction * 100).toInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.align(Alignment.End).testTag("restore_percentage")
+            )
+        }
     }
 }
 

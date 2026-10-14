@@ -10,6 +10,8 @@ import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection
+import dev.chungjungsoo.gptmobile.data.backup.RestorePhase
+import dev.chungjungsoo.gptmobile.data.backup.RestoreProgress
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
@@ -404,6 +406,8 @@ class SettingViewModelV2 @Inject constructor(
             it.copy(
                 isBusy = false,
                 isWorking = false,
+                isRestoring = false,
+                restoreProgress = null,
                 restoreUri = null,
                 backupUri = null,
                 recoveryKeyUri = null,
@@ -515,7 +519,16 @@ class SettingViewModelV2 @Inject constructor(
         runBackupOperation(restoring = true) {
             val password = state.legacyPassword.takeIf(String::isNotBlank)
             backupProtectionMutex.withLock {
-                val result = completeBackupManager.restore(uri, password, state.selection, state.recoveryKeyUri)
+                val result = completeBackupManager.restoreWithProgress(
+                    uri,
+                    password,
+                    state.selection,
+                    state.recoveryKeyUri
+                ) { progress ->
+                    _backupUi.update { ui ->
+                        if (ui.isWorking && ui.isRestoring) ui.copy(restoreProgress = progress) else ui
+                    }
+                }
                 if (result.success) loadBackupProtection()
                 result
             }
@@ -531,7 +544,11 @@ class SettingViewModelV2 @Inject constructor(
             it.copy(
                 isBusy = true,
                 isWorking = true,
-                workingMessage = if (restoring) "Restoring your selected sections…" else "Preparing your backup…"
+                isRestoring = restoring,
+                restoreProgress = if (restoring) RestoreProgress(RestorePhase.READING) else null,
+                message = null,
+                isError = false,
+                workingMessage = if (restoring) "Opening backup…" else "Preparing your backup…"
             )
         }
         viewModelScope.launch {
@@ -548,7 +565,11 @@ class SettingViewModelV2 @Inject constructor(
                 _backupUi.update { it.copy(recentBackups = completeBackupManager.recentBackups()) }
                 if (result.success) {
                     fetchPlatforms()
-                    if (restoring) _restoreCompleted.emit(Unit)
+                    if (restoring) {
+                        // Unlock the completed dialog before notifying the host to close it.
+                        cancelBackupPicker()
+                        _restoreCompleted.emit(Unit)
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -568,6 +589,8 @@ class SettingViewModelV2 @Inject constructor(
         val requiresLegacyPassword: Boolean = false,
         val isBusy: Boolean = false,
         val isWorking: Boolean = false,
+        val isRestoring: Boolean = false,
+        val restoreProgress: RestoreProgress? = null,
         val workingMessage: String = "Working…",
         val restoreUri: Uri? = null,
         val backupUri: Uri? = null,

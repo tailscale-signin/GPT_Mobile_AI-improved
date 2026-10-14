@@ -31,4 +31,11 @@ class BubbleMenuPositionTest {
     @Test fun largerThanWindowMenuDoesNotCreateInvalidClampRange() {
         assertEquals(IntOffset.Zero, bubbleMenuOffset(IntRect.Zero, IntOffset.Zero, IntSize(100, 100), IntSize(224, 300), 48, 12))
     }
+
+    @Test fun centerThumbOnNarrowPhonePlacesOptionsAboveTheFinger() {
+        val menu = IntSize(224, 200)
+        val offset = bubbleMenuOffset(IntRect(0, 0, 320, 600), IntOffset(160, 300), IntSize(320, 600), menu, 48, 12)
+        assertEquals(52, offset.y)
+        assertEquals(48, 300 - offset.y - menu.height)
+    }
 }

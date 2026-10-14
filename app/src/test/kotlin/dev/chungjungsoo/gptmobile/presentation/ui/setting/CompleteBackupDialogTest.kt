@@ -118,6 +118,7 @@ class CompleteBackupDialogTest {
         compose.onNodeWithTag("backup_all").assertDoesNotExist()
         compose.onNodeWithTag("restore_all").assertDoesNotExist()
     }
+
     @Test
     fun expandedCategoryLetsUserChangeOneSectionWithoutSelectingTheWholeCategory() {
         var changed: CompleteBackupSection? = null
@@ -135,5 +136,4 @@ class CompleteBackupDialogTest {
         compose.onNodeWithTag("backup_group_expand_AI_PLATFORMS").performScrollTo().performClick()
         compose.onNodeWithTag("backup_section_CREDENTIALS").assertDoesNotExist()
     }
-
 }

@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -68,15 +69,25 @@ internal fun bubbleMenuOffset(anchor: IntRect, touch: IntOffset, window: IntSize
     val left = x.toLong() - gap - menu.width
     val maxX = (window.width - menu.width - margin).coerceAtLeast(0)
     val maxY = (window.height - menu.height - margin).coerceAtLeast(0)
+    val fitsRight = right + menu.width <= window.width - margin
+    val fitsLeft = left >= margin
     val preferred = when {
-        x < window.width / 2 && right + menu.width <= window.width - margin -> right
-        left >= margin -> left
-        right + menu.width <= window.width - margin -> right
+        x < window.width / 2 && fitsRight -> right
+        fitsLeft -> left
+        fitsRight -> right
         else -> left
+    }
+    val above = y.toLong() - gap - menu.height
+    val below = y.toLong() + gap
+    val preferredY = when {
+        fitsLeft || fitsRight -> y.toLong() - menu.height / 2
+        above >= margin -> above
+        below + menu.height <= window.height - margin -> below
+        else -> y.toLong() - menu.height / 2
     }
     return IntOffset(
         preferred.coerceIn(minOf(margin, maxX).toLong(), maxX.toLong()).toInt(),
-        (y.toLong() - menu.height / 2).coerceIn(minOf(margin, maxY).toLong(), maxY.toLong()).toInt()
+        preferredY.coerceIn(minOf(margin, maxY).toLong(), maxY.toLong()).toInt()
     )
 }
 
@@ -86,6 +97,7 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
     var touch by remember(identity) { mutableStateOf<Offset?>(null) }
     val latestActions by rememberUpdatedState(actions)
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val viewConfiguration = LocalViewConfiguration.current
     val scope = rememberCoroutineScope()
@@ -107,17 +119,20 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
         }
         scope.launch {
             shake.snapTo(0f)
-            shake.animateTo(0f, keyframes {
-                durationMillis = 500
-                -1f at 45
-                1f at 95
-                -0.85f at 150
-                0.85f at 210
-                -0.6f at 275
-                0.6f at 340
-                -0.3f at 405
-                0f at 500
-            })
+            shake.animateTo(
+                0f,
+                keyframes {
+                    durationMillis = 500
+                    -1f at 45
+                    1f at 95
+                    -0.85f at 150
+                    0.85f at 210
+                    -0.6f at 275
+                    0.6f at 340
+                    -0.3f at 405
+                    0f at 500
+                }
+            )
         }
     }
 
@@ -137,7 +152,10 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Main)
                             val change = event.changes.firstOrNull { it.id == down.id }
-                            if (change == null || !change.pressed || event.changes.count { it.pressed } != 1 ||
+                            if (
+                                change == null ||
+                                !change.pressed ||
+                                event.changes.count { it.pressed } != 1 ||
                                 (change.position - down.position).getDistance() > viewConfiguration.touchSlop ||
                                 change.isConsumed
                             ) {
@@ -186,7 +204,8 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
                     tonalElevation = 8.dp,
                     shadowElevation = 16.dp
                 ) {
-                    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+                    // Leave room above/below a central thumb when neither horizontal side fits.
+                    Column(Modifier.heightIn(max = minOf(420f, configuration.screenHeightDp * 0.4f).dp).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
                         Text(menuLabel, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         actions.forEach { action ->
                             DropdownMenuItem(

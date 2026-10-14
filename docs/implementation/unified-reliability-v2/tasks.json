@@ -688,7 +688,7 @@
       "IX14"
     ],
     "implementation_commits": [
-      "e6bdad46b8551a64efb89d32c82ad008fb2109b3"
+      "87511a3096b750832f07806ea019db427009604b"
     ],
     "evidence": [
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedFullInputPlanTest.kt",

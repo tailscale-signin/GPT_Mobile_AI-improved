@@ -1733,8 +1733,11 @@ class ChatRepositoryImpl(
                     systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
                 )
                 fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
-                    if (synthesisRun) dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, prompt, settings)
-                    else planPrimaryContext(turns, prompt, tools, settings)
+                    if (synthesisRun) {
+                        dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, prompt, settings)
+                    } else {
+                        planPrimaryContext(turns, prompt, tools, settings)
+                    }
                 var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                 AppLogRecorder.record(
                     "Tools",

@@ -56,11 +56,11 @@ class CompleteBackupSelectionTest {
         assertFalse(selection.includes(CompleteBackupSection.ATTACHMENTS))
         assertFalse(selection.includes(CompleteBackupSection.AGENT_HISTORY))
     }
+
     @Test fun personalDataGroupsMemoryAndHealthWithoutPullingInConversations() {
         val selection = CompleteBackupSelection(emptySet()).toggled(CompleteBackupGroup.HEALTH_DATA, true)
         assertEquals(setOf(CompleteBackupSection.MEMORY, CompleteBackupSection.HEALTH_DATA), selection.sections)
         assertTrue(selection.requiresEncryption)
         assertFalse(selection.includes(CompleteBackupSection.CONVERSATIONS))
     }
-
 }

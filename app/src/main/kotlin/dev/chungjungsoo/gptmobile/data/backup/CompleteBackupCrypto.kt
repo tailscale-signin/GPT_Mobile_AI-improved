@@ -78,7 +78,13 @@ internal object CompleteBackupCrypto {
         encryptChunks(source, output, rawKey, prefix, header)
     }
 
-    fun decryptPortable(input: InputStream, target: File, rawKey: ByteArray, maxBytes: Long = MAX_BYTES) {
+    fun decryptPortable(
+        input: InputStream,
+        target: File,
+        rawKey: ByteArray,
+        maxBytes: Long = MAX_BYTES,
+        onProgress: ((Long, Long) -> Unit)? = null
+    ) {
         requireRawKey(rawKey)
         val data = DataInputStream(input)
         val header = ByteArray(PORTABLE_HEADER).also(data::readFully)
@@ -88,7 +94,7 @@ internal object CompleteBackupCrypto {
         val prefix = ByteArray(8).also(buffer::get)
         val size = buffer.long
         require(size in 1..minOf(maxBytes, MAX_BYTES)) { "Invalid backup size or insufficient free space." }
-        decryptChunks(data, target, rawKey, prefix, header, size)
+        decryptChunks(data, target, rawKey, prefix, header, size, onProgress)
     }
 
     fun encrypt(source: File, output: OutputStream, password: String) {
@@ -117,7 +123,8 @@ internal object CompleteBackupCrypto {
         input: InputStream,
         target: File,
         password: String,
-        maxBytes: Long = MAX_BYTES
+        maxBytes: Long = MAX_BYTES,
+        onProgress: ((Long, Long) -> Unit)? = null
     ) {
         require(password.isNotEmpty()) { "Enter the original backup password." }
         val data = DataInputStream(input)
@@ -134,7 +141,7 @@ internal object CompleteBackupCrypto {
         }
         val key = passwordKey(password, salt)
         try {
-            decryptChunks(data, target, key, prefix, header, size)
+            decryptChunks(data, target, key, prefix, header, size, onProgress)
         } finally {
             key.fill(0)
             salt.fill(0)
@@ -147,7 +154,8 @@ internal object CompleteBackupCrypto {
         input: InputStream,
         target: File,
         rawKey: ByteArray,
-        maxBytes: Long = MAX_BYTES
+        maxBytes: Long = MAX_BYTES,
+        onProgress: ((Long, Long) -> Unit)? = null
     ) {
         requireRawKey(rawKey)
         val data = DataInputStream(input)
@@ -162,7 +170,7 @@ internal object CompleteBackupCrypto {
             "Invalid backup size or insufficient free space."
         }
         try {
-            decryptChunks(data, target, rawKey, prefix, header, size)
+            decryptChunks(data, target, rawKey, prefix, header, size, onProgress)
         } finally {
             prefix.fill(0)
         }
@@ -199,12 +207,15 @@ internal object CompleteBackupCrypto {
         rawKey: ByteArray,
         prefix: ByteArray,
         header: ByteArray,
-        size: Long
+        size: Long,
+        onProgress: ((Long, Long) -> Unit)?
     ) {
         try {
+            onProgress?.invoke(0L, size)
             target.outputStream().buffered().use { output ->
                 var remaining = size
                 var index = 0
+                var lastReportNs = System.nanoTime()
                 while (remaining > 0) {
                     val count = minOf(remaining, CHUNK.toLong()).toInt()
                     val encrypted = ByteArray(count + GCM_TAG_BYTES).also(data::readFully)
@@ -219,6 +230,11 @@ internal object CompleteBackupCrypto {
                         bytes.fill(0)
                     }
                     remaining -= count
+                    val now = System.nanoTime()
+                    if (remaining == 0L || now - lastReportNs >= 150_000_000L) {
+                        onProgress?.invoke(size - remaining, size)
+                        lastReportNs = now
+                    }
                 }
                 require(data.read() == -1) { "Unexpected data after the backup." }
             }

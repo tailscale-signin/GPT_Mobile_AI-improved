@@ -38,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,6 +50,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupGroup
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
+import dev.chungjungsoo.gptmobile.data.backup.RestoreProgress
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -76,144 +80,142 @@ fun CompleteBackupDialog(
             modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge
         ) {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()).padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(if (restoreOnly) "Restore" else stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
-                if (!restoreOnly) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
-                                "Health data, credentials and memory are encrypted with a separate recovery key file."
-                            } else {
-                                stringResource(if (state.passwordProtectionEnabled) R.string.backup_password_recovery_notice else R.string.backup_unencrypted_notice)
-                            },
-                            modifier = Modifier.padding(start = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Text(
-                        backupStatus.lastBackupEpochMs?.let {
-                            stringResource(R.string.complete_backup_last, DateFormat.getDateTimeInstance().format(Date(it)))
-                        } ?: stringResource(R.string.complete_backup_none),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                if (restoreOnly) Text("Choose your backup to restore your conversations, profiles and settings.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!state.isBusy && state.recentBackups.isNotEmpty()) {
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Recent backups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (state.isWorking && state.isRestoring) {
+                RestoreWorkingContent(state.restoreProgress)
+            } else {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()).padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(if (restoreOnly) "Restore" else stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
+                    if (!restoreOnly) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
                             Text(
-                                "The three most recent backups remembered from the last backup folder.",
-                                style = MaterialTheme.typography.bodySmall,
+                                if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
+                                    "Health data, credentials and memory are encrypted with a separate recovery key file."
+                                } else {
+                                    stringResource(if (state.passwordProtectionEnabled) R.string.backup_password_recovery_notice else R.string.backup_unencrypted_notice)
+                                },
+                                modifier = Modifier.padding(start = 10.dp),
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            state.recentBackups.take(3).forEach { recent ->
-                                TextButton(
-                                    onClick = { onRecentRestore(recent.uri) },
-                                    enabled = !state.isBusy,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Rounded.Restore, null)
-                                    Column(
-                                        Modifier.weight(1f).padding(start = 10.dp),
-                                        horizontalAlignment = Alignment.Start
+                        }
+                        Text(
+                            backupStatus.lastBackupEpochMs?.let {
+                                stringResource(R.string.complete_backup_last, DateFormat.getDateTimeInstance().format(Date(it)))
+                            } ?: stringResource(R.string.complete_backup_none),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (!state.isBusy && state.recentBackups.isNotEmpty()) {
+                        Surface(
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow
+                        ) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Recent backups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                state.recentBackups.take(3).forEach { recent ->
+                                    TextButton(
+                                        onClick = { onRecentRestore(recent.uri) },
+                                        enabled = !state.isBusy,
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text(recent.displayName, maxLines = 1)
-                                        Text(
-                                            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                                                .format(Date(recent.savedAtEpochMs)),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Icon(Icons.Rounded.Restore, null)
+                                        Column(
+                                            Modifier.weight(1f).padding(start = 10.dp),
+                                            horizontalAlignment = Alignment.Start
+                                        ) {
+                                            Text(recent.displayName, maxLines = 1)
+                                            Text(
+                                                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                                    .format(Date(recent.savedAtEpochMs)),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                if (!state.isBusy && !state.isWorking) {
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (!restoreOnly) {
-                                Button(
-                                    onClick = { pendingAction = BackupAction.BACKUP },
-                                    enabled = state.canBackup,
-                                    modifier = Modifier.fillMaxWidth().testTag("backup_all")
-                                ) {
-                                    Icon(Icons.Rounded.Backup, null)
-                                    Text("Backup", Modifier.padding(start = 8.dp))
+                    if (!state.isBusy && !state.isWorking) {
+                        Surface(
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow
+                        ) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                if (!restoreOnly) {
+                                    Button(
+                                        onClick = { pendingAction = BackupAction.BACKUP },
+                                        enabled = state.canBackup,
+                                        modifier = Modifier.fillMaxWidth().testTag("backup_all")
+                                    ) {
+                                        Icon(Icons.Rounded.Backup, null)
+                                        Text("Backup", Modifier.padding(start = 8.dp))
+                                    }
                                 }
-                            }
-                            OutlinedButton(
-                                onClick = onRestore,
-                                enabled = !state.isBusy,
-                                modifier = Modifier.fillMaxWidth().testTag("restore_all")
-                            ) {
-                                Icon(Icons.Rounded.Restore, null)
-                                Text("Restore", Modifier.padding(start = 8.dp))
+                                OutlinedButton(
+                                    onClick = onRestore,
+                                    enabled = !state.isBusy,
+                                    modifier = Modifier.fillMaxWidth().testTag("restore_all")
+                                ) {
+                                    Icon(Icons.Rounded.Restore, null)
+                                    Text("Restore", Modifier.padding(start = 8.dp))
+                                }
                             }
                         }
                     }
-                }
 
-                if (!restoreOnly) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Encrypt backup", Modifier.weight(1f).padding(start = 10.dp))
-                        Switch(
-                            checked = state.passwordProtectionEnabled,
-                            onCheckedChange = onPasswordProtectionChange,
-                            enabled = !state.isBusy,
-                            modifier = Modifier.testTag("backup_encrypt")
-                        )
+                    if (!restoreOnly) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                            Text("Encrypt backup", Modifier.weight(1f).padding(start = 10.dp))
+                            Switch(
+                                checked = state.passwordProtectionEnabled,
+                                onCheckedChange = onPasswordProtectionChange,
+                                enabled = !state.isBusy,
+                                modifier = Modifier.testTag("backup_encrypt")
+                            )
+                        }
+                        if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
+                            Text(
+                                "Health data, credentials and memory are still encrypted. Save the separate recovery key file to restore without a password.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (state.passwordProtectionEnabled) {
+                            OutlinedTextField(
+                                value = state.backupPassword,
+                                onValueChange = onPasswordChange,
+                                label = { Text("Password") },
+                                supportingText = { Text("Saved automatically. Use at least 8 characters.") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                singleLine = true,
+                                enabled = !state.isBusy,
+                                modifier = Modifier.fillMaxWidth().testTag("backup_password")
+                            )
+                        }
                     }
-                    if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
+
+                    if (state.isWorking) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text(state.workingMessage, style = MaterialTheme.typography.bodySmall)
+                    }
+                    state.message?.let {
                         Text(
-                            "Health data, credentials and memory are still encrypted. Save the separate recovery key file to restore without a password.",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall
+                            it,
+                            color = if (state.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
-                    if (state.passwordProtectionEnabled) {
-                        OutlinedTextField(
-                            value = state.backupPassword,
-                            onValueChange = onPasswordChange,
-                            label = { Text("Password") },
-                            supportingText = { Text("Saved automatically. Use at least 8 characters.") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            singleLine = true,
-                            enabled = !state.isBusy,
-                            modifier = Modifier.fillMaxWidth().testTag("backup_password")
-                        )
+                    TextButton(onClick = onDismiss, enabled = !state.isBusy, modifier = Modifier.align(Alignment.End)) {
+                        Text(stringResource(R.string.close))
                     }
-                }
-
-                if (state.isWorking) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text(state.workingMessage, style = MaterialTheme.typography.bodySmall)
-                }
-                state.message?.let {
-                    Text(
-                        it,
-                        color = if (state.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-                TextButton(onClick = onDismiss, enabled = !state.isBusy, modifier = Modifier.align(Alignment.End)) {
-                    Text(stringResource(R.string.close))
                 }
             }
         }
@@ -231,6 +233,55 @@ fun CompleteBackupDialog(
                 if (action == BackupAction.BACKUP) onBackup() else onRestore()
             }
         )
+    }
+}
+
+@Composable
+internal fun RestoreWorkingContent(progress: RestoreProgress?) {
+    val fraction = progress?.fraction
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(24.dp).testTag("restore_progress_panel"),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(
+                    Icons.Rounded.Restore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Restoring backup", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    progress?.phase?.label ?: "Opening backup",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("restore_current_task").semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+        }
+        if (fraction == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().testTag("restore_loading_bar"))
+        } else {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth().testTag("restore_loading_bar")
+            )
+            Text(
+                "${(fraction * 100).toInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.align(Alignment.End).testTag("restore_percentage")
+            )
+        }
     }
 }
 

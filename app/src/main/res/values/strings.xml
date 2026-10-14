@@ -676,7 +676,7 @@
     <string name="complete_backup_last">Last backup: %1$s</string>
     <string name="complete_backup_none">No backups created yet</string>
     <string name="complete_restore_title">Restore backup?</string>
-    <string name="complete_restore_confirmation">A complete backup replaces current settings, chats, favourites, credentials, and app files with the saved copy. Newer data will be removed. Back up your current data first if you need to keep it. Keep the app open until restore finishes. Older partial backups restore only their own data.</string>
+    <string name="complete_restore_confirmation">Selected sections replace existing data. Back up anything you want to keep.</string>
     <string name="backup_picker_unavailable">No file picker is available on this device.</string>
     <plurals name="chat_queued_prompts">
         <item quantity="one">%d prompt queued</item>

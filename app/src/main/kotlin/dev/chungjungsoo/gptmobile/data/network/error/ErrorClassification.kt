@@ -14,6 +14,10 @@ enum class ErrorSeverity {
  * High-level error classification categories.
  */
 enum class ErrorCategory {
+    INVALID_OUTPUT_CAP,
+    POLICY_STALE,
+    MEMORY_STALE,
+    PERMISSION_REQUIRED,
     NETWORK_TIMEOUT,
     NETWORK_DISCONNECTED,
     RATE_LIMIT_EXCEEDED,
@@ -50,6 +54,10 @@ object ErrorClassification {
 
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
+            "memory_stale" in msg || "memory changed before sending" in msg -> ClassifiedError(ErrorCategory.MEMORY_STALE, ErrorSeverity.MEDIUM, false, 0, "Memory changed before sending. Retry to prepare with current authorized memory, or disable recall for this profile and retry.", throwable)
+            "dispatch_policy_changed" in msg || "profile_configuration_changed" in msg || "request_identity_changed" in msg -> ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.MEDIUM, false, 0, "Permissions, budgets or profile settings changed. Retry to prepare a fresh request; no stale request was sent.", throwable)
+            "source_permission_revoked" in msg || "blocked_permission" in msg -> ClassifiedError(ErrorCategory.PERMISSION_REQUIRED, ErrorSeverity.MEDIUM, false, 0, "Saved evidence permission is missing. Restore its source/tool grants in Plugins/Tools and retry, or start a fresh request without protected evidence. Completed actions will not be replayed.", throwable)
+            "output_capacity_exceeded" in msg || "invalid_output_cap" in msg -> ClassifiedError(ErrorCategory.INVALID_OUTPUT_CAP, ErrorSeverity.MEDIUM, false, 0, "The output allowance exceeds this route. Lower the profile output limit or retry with automatic limits; retain the full request for continuation.", throwable)
             msg.contains("402") || msg.contains("budget or credit restriction") -> ClassifiedError(ErrorCategory.BUDGET_RESTRICTED, ErrorSeverity.HIGH, false, 0, "The provider reported a budget or credit restriction.", throwable)
             msg.contains("403") -> ClassifiedError(ErrorCategory.ACCESS_FORBIDDEN, ErrorSeverity.HIGH, false, 0, "HTTP 403: access forbidden. The provider's specific cause is unavailable.", throwable)
             throwable is CircuitBreakerOpenException -> ClassifiedError(
@@ -70,7 +78,7 @@ object ErrorClassification {
                 originalThrowable = throwable
             )
 
-            msg.contains("unable to resolve host") || msg.contains("network is unreachable") || throwable is java.net.UnknownHostException -> ClassifiedError(
+            msg.contains("unable to resolve host") || msg.contains("network is unreachable") || msg.contains("dns_recovery") || msg.contains("local_service_unreachable") || generateSequence(throwable) { it.cause }.take(8).any { it is java.net.UnknownHostException } -> ClassifiedError(
                 category = ErrorCategory.NETWORK_DISCONNECTED,
                 severity = ErrorSeverity.MEDIUM,
                 isRetryable = true,

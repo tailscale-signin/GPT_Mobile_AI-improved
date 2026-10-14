@@ -453,6 +453,20 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
+        return finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, onConnectionError)
+    }
+
+    /** Catalog normalization has its own method instead of inflating the resolution coroutine. */
+    private fun finalizeResolvedTools(
+        resolved: List<ResolvedAgentTool>,
+        profileUid: String,
+        platform: PlatformV2?,
+        featureSettings: AppFeatureSettings,
+        bindings: List<AgentToolBindingWithConnection>,
+        chatToolConfig: ChatMcpToolConfig?,
+        freeProfile: Boolean,
+        onConnectionError: (String) -> Unit
+    ): List<ResolvedAgentTool> {
         val collisions = resolved.groupBy { it.modelToolName }.filterValues { group -> group.map { it.connectionUid to it.realToolName }.distinct().size > 1 }.keys
         if (collisions.isNotEmpty()) onConnectionError("Ambiguous tool aliases excluded: " + collisions.sorted().joinToString(", "))
         return resolved.filterNot { it.modelToolName in collisions }.distinctBy { it.modelToolName }

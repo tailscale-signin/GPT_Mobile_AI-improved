@@ -32,7 +32,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
         AppLogRecorder.record("Memory", "ENRICHMENT_STARTED · work=$id · attempt=$runAttemptCount · message=${inputData.getInt("messageId", 0)}")
         var reason = "NO_ELIGIBLE_FACTS"
         return try {
-            val message = database.messageDao().message(inputData.getInt("messageId", 0))
+            val message = dev.chungjungsoo.gptmobile.data.diagnostics.timedDatabaseOperation("memory.source_load") { database.messageDao().message(inputData.getInt("messageId", 0)) }
                 ?: return outcome("SKIPPED", "SOURCE_MISSING")
             if (message.chatId != inputData.getInt("chatId", 0) || MemoryEnrichmentQueue.digest(message.content) != inputData.getString("hash")) {
                 return outcome("SKIPPED", "SOURCE_CHANGED")
@@ -104,7 +104,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                         withContext(NonCancellable) { closeConversation() }
                     }
                 }
-                val current = database.messageDao().message(message.id)
+                val current = dev.chungjungsoo.gptmobile.data.diagnostics.timedDatabaseOperation("memory.source_revalidate") { database.messageDao().message(message.id) }
                 if (current?.content == message.content && vault.scopeForChat(message.chatId) == scope) {
                     result
                 } else {

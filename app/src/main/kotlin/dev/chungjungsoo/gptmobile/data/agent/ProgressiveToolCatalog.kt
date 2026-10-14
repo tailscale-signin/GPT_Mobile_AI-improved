@@ -8,9 +8,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Shrinks advertised schemas, never the authorized executable set. A new catalog is created per run. */
-internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String) : AgentTool {
+internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null) : AgentTool {
     private val candidates = definitions.associateBy { it.name }
-    private val active = window(ranked(task)).map { it.name }.toMutableSet()
+    private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
     override val definition = AgentToolDefinition(
         NAME,
@@ -80,7 +80,7 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
     }
 
     private fun window(ordered: List<AgentToolDefinition>): List<AgentToolDefinition> {
-        var tokens = 0L
+        var tokens = 256L
         val selected = mutableListOf<AgentToolDefinition>()
         for (tool in ordered.distinctBy { it.name }) {
             if (selected.size >= INITIAL_TOOLS) break
@@ -118,13 +118,15 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
         // Leaves room for the discovery schema and source content in the parent request planner.
         const val SCHEMA_TOKEN_ALLOWANCE = 8_000
         internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
-        fun create(definitions: List<AgentToolDefinition>, task: String): ProgressiveToolCatalog? =
-            if (definitions.any { it.name == NAME } || definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task)
+        fun create(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null): ProgressiveToolCatalog? =
+            if (definitions.any { it.name == NAME } || definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task, initialNames)
     }
 }
 
 internal fun AgentProviderSession.withToolCatalog(catalog: ProgressiveToolCatalog): AgentProviderSession = object : AgentProviderSession {
     override val handlesToolsInternally = this@withToolCatalog.handlesToolsInternally
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
-        this@withToolCatalog.streamRound(catalog.selected(tools), exchanges)
+        this@withToolCatalog.streamRound(catalog.selected(tools).also { selected ->
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${tools.size} · advertised=${selected.size} · estimatedTokens=${selected.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
+        }, exchanges)
 }

@@ -321,6 +321,18 @@ class FactVaultRepository @Inject constructor(
         }
     }
 
+    /** Queue preflight mirrors enrichment privacy/eligibility; the worker still rechecks before inference. */
+    suspend fun canEnrich(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2): Boolean = mutex.withLock {
+        loadLocked()
+        val boundary = scopeForChat(message.chatId)
+        val state = _state.value
+        state.enabled && !boundary.isTemporary && message.platformType == null &&
+            state.settings.learningEnabled && state.settings.localModelLearning &&
+            message.chatId !in state.suppressedChats &&
+            "${boundary.key}:${sourceKey(message.chatId, message.id)}" !in state.suppressedMessages &&
+            MemoryLearning.statements(message.content.take(MAX_QUERY_CHARS)).isNotEmpty()
+    }
+
     /** Serializes enrichment across parallel AI profiles and rechecks settings after inference. */
     suspend fun enrichTurn(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, extract: suspend (String) -> JsonObject?) = enrichmentMutex.withLock enrichment@{
         val boundary = scopeForChat(message.chatId)
@@ -680,7 +692,7 @@ class FactVaultRepository @Inject constructor(
     suspend fun validateRecall(recall: FactRecall, chatId: Int, isLocal: Boolean) {
         if (recall.facts.isEmpty()) return
         val allowed = visibleFacts(chatId, isLocal, includeLocalOnly = true).associateBy { it.id }
-        require(recall.facts.all { allowed[it.id] == it }) { "Memory changed before sending. Retry to use the current permissions and wording." }
+        require(recall.facts.all { old -> allowed[old.id]?.hasSameRecallContent(old) == true }) { "MEMORY_STALE: Memory changed before sending. Retry to prepare from current authorized memory, or disable recall for this profile and retry." }
     }
 
     private suspend fun loadLocked() {
@@ -911,3 +923,12 @@ class FactVaultRepository @Inject constructor(
             if (scope == "personal") factId(fact) else "$scope:${factId(fact)}"
     }
 }
+
+/** Usage bookkeeping may change while queued; exact content, revisions and privacy must match. */
+internal fun VaultFact.hasSameRecallContent(other: VaultFact): Boolean =
+    id == other.id && revision == other.revision && fact == other.fact &&
+        scope == other.scope && localOnly == other.localOnly && source == other.source &&
+        sourceChatId == other.sourceChatId && sourceMessageId == other.sourceMessageId &&
+        evidenceHash == other.evidenceHash && enabled == other.enabled &&
+        awaitingReview == other.awaitingReview && supersededBy == other.supersededBy &&
+        validFromMillis == other.validFromMillis && validUntilMillis == other.validUntilMillis

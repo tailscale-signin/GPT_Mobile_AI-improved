@@ -11,6 +11,33 @@ import org.junit.Test
 
 class FactVaultRepositoryTest {
     @Test
+    fun `enrichment preflight rejects disabled learning assistant and question candidates`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 1, chatId = 1, content = "I prefer Kotlin", platformType = null)
+        assertTrue(repository.canEnrich(message))
+        assertFalse(repository.canEnrich(message.copy(platformType = "assistant")))
+        assertFalse(repository.canEnrich(message.copy(content = "What is Kotlin?")))
+        assertFalse(repository.canEnrich(message.copy(content = "Do not remember that I prefer Kotlin")))
+        repository.updateSettings(FactVaultSettings(localModelLearning = false))
+        assertFalse(repository.canEnrich(message))
+        repository.updateSettings(FactVaultSettings())
+        repository.setEnabled(false)
+        assertFalse(repository.canEnrich(message))
+    }
+
+    @Test
+    fun `recall bookkeeping can change but content privacy and revisions cannot`() {
+        val original = VaultFact("id", MemoryLearning.observation("I prefer Kotlin"))
+        assertTrue(original.copy(occurrences = 2, lastSeenMillis = 500).hasSameRecallContent(original))
+        assertFalse(original.copy(revision = 2).hasSameRecallContent(original))
+        assertFalse(original.copy(localOnly = true).hasSameRecallContent(original))
+        assertFalse(original.copy(scope = "project").hasSameRecallContent(original))
+        assertFalse(original.copy(enabled = false).hasSameRecallContent(original))
+        assertFalse(original.copy(fact = MemoryLearning.observation("I prefer Java")).hasSameRecallContent(original))
+    }
+
+    @Test
     fun `editing preserves reference identity and advances revision after reload`() = runBlocking {
         val storage = MemoryVault()
         val repository = FactVaultRepository(storage, KnowledgeGraphEngine())

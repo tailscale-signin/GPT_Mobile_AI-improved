@@ -22,7 +22,8 @@ import kotlinx.coroutines.launch
 class MemoryEnrichmentQueue @Inject constructor(
     @ApplicationContext private val context: Context,
     private val database: ChatDatabaseV2,
-    private val runtime: LocalRuntime
+    private val runtime: LocalRuntime,
+    private val vault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 ) {
     private val observedStates = mutableMapOf<String, String>()
     private val diagnosticsScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
@@ -46,7 +47,7 @@ class MemoryEnrichmentQueue @Inject constructor(
                 }
                 if (state.engineSpec != null && !runtime.isBusy) {
                     try {
-                        resumeWaiting()
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { resumeWaiting() }
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -62,7 +63,7 @@ class MemoryEnrichmentQueue @Inject constructor(
         for ((key, value) in waitingStore(context).all) {
             val id = key.toIntOrNull() ?: continue
             val saved = value as? String ?: continue
-            val message = database.messageDao().message(id)
+            val message = dev.chungjungsoo.gptmobile.data.diagnostics.timedDatabaseOperation("memory.source_resume") { database.messageDao().message(id) }
             if (message == null || saved != "${message.chatId}:${digest(message.content)}") {
                 clearWaiting(context, id)
                 continue
@@ -71,12 +72,25 @@ class MemoryEnrichmentQueue @Inject constructor(
             val work = manager.getWorkInfosForUniqueWorkFlow(uniqueName).first()
             if (work.any { !it.state.isFinished }) continue
             // Terminal work plus loaded-model/idle signals close the wakeup race without polling or replacing active work.
-            enqueue(message)
+            enqueueEligible(message)
         }
     }
 
     fun enqueue(message: MessageV2) {
+        diagnosticsScope.launch(kotlinx.coroutines.Dispatchers.IO) { enqueueEligible(message) }
+    }
+
+    private suspend fun enqueueEligible(message: MessageV2) {
         if (message.id <= 0 || message.chatId <= 0) return
+        if (!vault.canEnrich(message)) {
+            clearWaiting(context, message.id)
+            return
+        }
+        if (runtime.state.value.engineSpec == null || runtime.isBusy) {
+            markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to digest(message.content)))
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_DEFERRED · message=${message.id} · reason=${if (runtime.state.value.engineSpec == null) "WAITING_FOR_MODEL" else "WAITING_FOR_IDLE"} · workerScheduled=false")
+            return
+        }
         val hash = digest(message.content)
         if (completedStore(context).getString(message.id.toString(), null) == completionKey(message.chatId, hash)) return
         val request = OneTimeWorkRequestBuilder<MemoryEnrichmentWorker>()

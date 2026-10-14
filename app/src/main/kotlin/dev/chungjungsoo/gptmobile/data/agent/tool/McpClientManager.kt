@@ -362,7 +362,7 @@ class McpClientManager internal constructor(
         _health.update { current ->
             val previous = current[connectionUid] ?: McpConnectionHealth()
             val failures = previous.consecutiveFailures + 1
-            val delay = retryDelayMs(failures)
+            val delay = retryDelayMs(failures) + kotlin.random.Random.nextLong(0, 1001)
             val authenticationRequired = error.isMcpUnauthorized()
             updated = previous.copy(
                 state = when {

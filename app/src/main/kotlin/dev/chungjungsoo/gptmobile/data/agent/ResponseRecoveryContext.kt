@@ -233,7 +233,7 @@ internal sealed interface RecoveryPrefix {
     data class Blocked(val reason: RecoveryBlock) : RecoveryPrefix
 }
 
-internal const val RECOVERY_ACCESS_MESSAGE = "Saved evidence access changed. Review the conversation, destination and source permissions before resuming. No further saved evidence will be sent."
+internal const val RECOVERY_ACCESS_MESSAGE = "Saved evidence permission is missing. Review the destination and source/tool grants in Plugins/Tools, then retry. You can also start a fresh request without protected evidence. Completed actions are retained and will not be replayed."
 
 /** Display-only edits must not revoke an otherwise identical disclosure grant. */
 internal fun sameRecoveryDestination(

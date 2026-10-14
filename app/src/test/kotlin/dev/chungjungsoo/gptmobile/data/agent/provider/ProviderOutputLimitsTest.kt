@@ -10,7 +10,8 @@ class ProviderOutputLimitsTest {
         assertEquals(131072, ProviderOutputLimits.learn(route, "max_tokens is too large: 256000. This model supports at most 131072 completion tokens, whereas you provided 256000.", 256000))
         assertEquals(131072, ProviderOutputLimits.effective(route, 256000))
         assertEquals(4096, ProviderOutputLimits.effective(route, 4096))
-        assertNull(ProviderOutputLimits.effective("$route-other", null))
+        assertEquals(4096, ProviderOutputLimits.effective("$route-other", null))
+        assertNull(ProviderOutputLimits.ceiling("$route-other"))
     }
 
     @Test fun contextErrorsAndUnrelatedNumbersNeverBecomeCompletionCeilings() {

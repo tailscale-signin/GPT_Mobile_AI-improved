@@ -35,7 +35,8 @@ class CombinedCorpusMultipassTest {
         assertTrue(passes.passes.all { it.source.text.isNotEmpty() })
     }
 
-    @Test(timeout = 5000) fun unicodeSurrogatePairsAreNeverCutBetweenPasses() {
+    @Test(timeout = 5000)
+    fun unicodeSurrogatePairsAreNeverCutBetweenPasses() {
         val original = "🌍✨".repeat(3000)
         val corpus = CombinedCorpusMultipass.plan(
             listOf(turn("Previous", false), turn("{\"original_request\":\"Describe\",\"contributions\":\"$original\"}", true)),

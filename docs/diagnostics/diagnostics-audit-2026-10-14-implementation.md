@@ -33,7 +33,7 @@ Evidence: supplied GPT_Mobile_AI_Diagnostics_Audit_2026-10-14.md, logged source 
 
 ## Validation
 
-Local: Android regex/resource preflights passed; unified reliability inventory check passed; 109 Python script tests passed; `git diff --check` passed. Script test fixture messages about instrumentation are fixture verification, not a real device test.
+Local: Android regex/resource preflights passed; unified reliability inventory check passed; 116 Python script tests passed after integrating current main; `git diff --check` passed. Script test fixture messages about instrumentation are fixture verification, not a real device test.
 
 Android Gradle tests were attempted but could not start: downloading Gradle 9.8.0 from services.gradle.org failed with `Network is unreachable`. This workspace also has JDK 17 and no configured Android SDK; CI supplies JDK 21/SDK 37. New Kotlin tests are committed but are not reported as passing until CI executes them.
 

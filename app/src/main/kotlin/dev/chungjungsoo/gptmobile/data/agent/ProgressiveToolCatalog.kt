@@ -126,7 +126,10 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
 internal fun AgentProviderSession.withToolCatalog(catalog: ProgressiveToolCatalog): AgentProviderSession = object : AgentProviderSession {
     override val handlesToolsInternally = this@withToolCatalog.handlesToolsInternally
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
-        this@withToolCatalog.streamRound(catalog.selected(tools).also { selected ->
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${tools.size} · advertised=${selected.size} · estimatedTokens=${selected.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
-        }, exchanges)
+        this@withToolCatalog.streamRound(
+            catalog.selected(tools).also { selected ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${tools.size} · advertised=${selected.size} · estimatedTokens=${selected.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
+            },
+            exchanges
+        )
 }

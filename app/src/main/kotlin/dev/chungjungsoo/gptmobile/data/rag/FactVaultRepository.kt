@@ -326,8 +326,11 @@ class FactVaultRepository @Inject constructor(
         loadLocked()
         val boundary = scopeForChat(message.chatId)
         val state = _state.value
-        state.enabled && !boundary.isTemporary && message.platformType == null &&
-            state.settings.learningEnabled && state.settings.localModelLearning &&
+        state.enabled &&
+            !boundary.isTemporary &&
+            message.platformType == null &&
+            state.settings.learningEnabled &&
+            state.settings.localModelLearning &&
             message.chatId !in state.suppressedChats &&
             "${boundary.key}:${sourceKey(message.chatId, message.id)}" !in state.suppressedMessages &&
             MemoryLearning.statements(message.content.take(MAX_QUERY_CHARS)).isNotEmpty()
@@ -926,9 +929,17 @@ class FactVaultRepository @Inject constructor(
 
 /** Usage bookkeeping may change while queued; exact content, revisions and privacy must match. */
 internal fun VaultFact.hasSameRecallContent(other: VaultFact): Boolean =
-    id == other.id && revision == other.revision && fact == other.fact &&
-        scope == other.scope && localOnly == other.localOnly && source == other.source &&
-        sourceChatId == other.sourceChatId && sourceMessageId == other.sourceMessageId &&
-        evidenceHash == other.evidenceHash && enabled == other.enabled &&
-        awaitingReview == other.awaitingReview && supersededBy == other.supersededBy &&
-        validFromMillis == other.validFromMillis && validUntilMillis == other.validUntilMillis
+    id == other.id &&
+        revision == other.revision &&
+        fact == other.fact &&
+        scope == other.scope &&
+        localOnly == other.localOnly &&
+        source == other.source &&
+        sourceChatId == other.sourceChatId &&
+        sourceMessageId == other.sourceMessageId &&
+        evidenceHash == other.evidenceHash &&
+        enabled == other.enabled &&
+        awaitingReview == other.awaitingReview &&
+        supersededBy == other.supersededBy &&
+        validFromMillis == other.validFromMillis &&
+        validUntilMillis == other.validUntilMillis

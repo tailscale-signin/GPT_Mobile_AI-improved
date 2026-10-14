@@ -97,6 +97,14 @@ internal fun applyOutputAllowance(root: JsonObject, provider: String?, tokens: L
         val config = root["generationConfig"] as? JsonObject ?: JsonObject(emptyMap())
         return JsonObject(root + ("generationConfig" to JsonObject(config + ("maxOutputTokens" to value))))
     }
-    val keys = existing.ifEmpty { listOf(if (root.containsKey("input")) "max_output_tokens" else if (provider == "OPENAI") "max_completion_tokens" else "max_tokens") }
+    val keys = existing.ifEmpty {
+        listOf(
+            when {
+                root.containsKey("input") -> "max_output_tokens"
+                provider == "OPENAI" -> "max_completion_tokens"
+                else -> "max_tokens"
+            }
+        )
+    }
     return JsonObject(root + keys.associateWith { value })
 }

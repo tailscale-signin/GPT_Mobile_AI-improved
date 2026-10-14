@@ -1,0 +1,904 @@
+[
+  {
+    "id": "LA-QA01",
+    "fixture": "Assist off",
+    "assertion": "No local dispatch; explicit OFF snapshot and no fake invocation.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA02",
+    "fixture": "Enabled without eligible helper",
+    "assertion": "Persist the precise selection/readiness reason; primary evidence remains usable.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA03",
+    "fixture": "Helper missing, disabled or changed",
+    "assertion": "Distinguish reasons; do not substitute an unapproved profile.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA04",
+    "fixture": "Warm-only, unloaded model",
+    "assertion": "Show WARM_MODEL_REQUIRED; no cold load and no invented usage.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA05",
+    "fixture": "Warm-only, matching session",
+    "assertion": "Reuse the qualified session and record its actual runtime identity.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA06",
+    "fixture": "Automatic preparation",
+    "assertion": "One admitted imported-model load; separate loading/inference timings; no silent download.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA07",
+    "fixture": "Memory learning disabled",
+    "assertion": "Resolve Assist permission independently without broadening old exclusions.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "LA-QA08",
+    "fixture": "All task toggles on",
+    "assertion": "Rejected passage selection does not prevent another eligible task.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA09",
+    "fixture": "Character boundary fixtures",
+    "assertion": "4,095 / 4,096 / 12,000 / 12,001 units do not trigger the old whole-result admission gate.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "LA-QA10",
+    "fixture": "Unicode and 3,000-word evidence",
+    "assertion": "Measure bytes, UTF-16 and tokens separately; every local prompt fits its qualified budget.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA11",
+    "fixture": "Long article and short snippet",
+    "assertion": "Both normalize into useful source-linked passages without arbitrary field-length exclusions.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "LA-QA12",
+    "fixture": "Text, Markdown and checkpoint JSON",
+    "assertion": "Recognized envelopes normalize; malformed or over-nested input fails explicitly.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA13",
+    "fixture": "Concurrent tool results",
+    "assertion": "Queue or persist deadline/capacity outcome; no silent tryLock bypass.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA14",
+    "fixture": "Two chats and Combined profiles",
+    "assertion": "Fair scheduling and run-state isolation; no helper card overwrites another run.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA15",
+    "fixture": "Shared task subscribers",
+    "assertion": "One physical invocation and separate reuse links; permission is revalidated.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA16",
+    "fixture": "Timeout with late native callback",
+    "assertion": "Native acknowledgment precedes lease reuse; terminal task cannot return to Running.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA17",
+    "fixture": "Cancel or revoke Assist",
+    "assertion": "Queued tasks removed, active work stopped, and no post-revocation handoff.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA18",
+    "fixture": "Native process death",
+    "assertion": "Interrupted terminal outcome preserves partial usage; require a new runtime session epoch.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA19",
+    "fixture": "Fabricated/repeated span IDs",
+    "assertion": "Reject artifact, retain original evidence and count real generated usage.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA20",
+    "fixture": "Artifact lost in compaction",
+    "assertion": "Record NOT_INCLUDED and a reason; never show successful consumption.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA21",
+    "fixture": "Artifact in serialized request",
+    "assertion": "Receipt binds the exact attempt, representation digest and included span IDs.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA22",
+    "fixture": "Retry and final Combined request",
+    "assertion": "Distinct attempt receipts; contributor inclusion does not imply final-writer inclusion.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA23",
+    "fixture": "Absent or partial usage",
+    "assertion": "Unknown/estimated labels remain truthful; no invented zero or throughput.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA24",
+    "fixture": "One call reused twice",
+    "assertion": "Count physical usage once; show per-consumer reuse without double charging.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA25",
+    "fixture": "Search A incident shape",
+    "assertion": "Retained Markdown leads normalize or have an explicit parsing limitation.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA26",
+    "fixture": "Search B incident shape",
+    "assertion": "Fourteen source rows and five page rows retain URLs and coverage through delivery.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA27",
+    "fixture": "Text truncation with false flag",
+    "assertion": "Canonical result is partial/legacy-inconsistent; never claim complete examination.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA28",
+    "fixture": "Auth or malformed engine response",
+    "assertion": "Correct actionable engine class, preserved siblings and no unbounded retry.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA29",
+    "fixture": "Delivery budget exhausted",
+    "assertion": "Source manifest/read-back survives with explicit per-question coverage.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA30",
+    "fixture": "Restart and historical response",
+    "assertion": "Persisted outcome is stable; legacy history never uses live readiness as evidence.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA31",
+    "fixture": "Export profile dependency closure",
+    "assertion": "Include configured/actual helper and producer snapshots or missing states; redact secrets/paths.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA32",
+    "fixture": "Temporary chat and logging off",
+    "assertion": "No unintended durable task/statistics/content records; transient generation still works.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA33",
+    "fixture": "Supported database upgrades",
+    "assertion": "Preserve conversations/settings/usage with explicit tested migrations.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA34",
+    "fixture": "Expand, collapse and off-screen cards",
+    "assertion": "No new loads/network calls; polling is scoped and list/task keys stable.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA35",
+    "fixture": "Accessibility variants",
+    "assertion": "Readable 200%-text/narrow/landscape controls, non-color states and reduced motion.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LA-QA36",
+    "fixture": "Context/performance replay",
+    "assertion": "Phase timings explain overhead while preserving complete current user requirements.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T01",
+    "fixture": "Exact context boundary",
+    "assertion": "P + O + S = C fits; one extra token blocks non-destructively.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "LC-T02",
+    "fixture": "Unlimited app setting, 8K server",
+    "assertion": "Enforce the verified runtime limit without sentinel arithmetic overflow.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T03",
+    "fixture": "Manual 32K versus verified 8K",
+    "assertion": "Do not raise the runtime maximum; explain the conflict.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T04",
+    "fixture": "Destination/model/template changes",
+    "assertion": "Invalidate stale capabilities after alias, credentials, reload, template or route changes.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T05",
+    "fixture": "76 tools, six advertised, discovery expansion",
+    "assertion": "Final accounting reflects actual advertised schemas and re-admits each expansion.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T06",
+    "fixture": "Later-round payload grows",
+    "assertion": "Measure new tool results, memory, attachment and follow-up content; no hidden task loss.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T07",
+    "fixture": "Tokenizer parity fixtures",
+    "assertion": "Prose, code, JSON, accents and emoji preserve exact versus estimated measurement truth.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T08",
+    "fixture": "Payload mutation after admission",
+    "assertion": "Changed content or gateway transform invalidates digest/revision and blocks dispatch.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T09",
+    "fixture": "Long active stream and slow prefill",
+    "assertion": "Progressing generation exceeds 180 seconds safely; observed prefill remains distinct.",
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
+  },
+  {
+    "id": "LC-T10",
+    "fixture": "Heartbeats and empty chunks only",
+    "assertion": "No false progress reset; correct phase/idle timeout fires once.",
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
+  },
+  {
+    "id": "LC-T11",
+    "fixture": "Reasoning then stall versus active reasoning",
+    "assertion": "Distinguish outcomes; neither is completed visible output or automatic prompt overflow.",
+    "outcome": "PASS",
+    "commit": "71c1b8bdaad9b76d1ed87cabd35676f6e373f196",
+    "evidence": [
+      "evidence/progress-fixtures-71c1b8bd.json"
+    ]
+  },
+  {
+    "id": "LC-T12",
+    "fixture": "Reasoning OFF capabilities",
+    "assertion": "Send only supported mapping or show unsupported strict OFF; no false confirmation.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T13",
+    "fixture": "Length, continuation and repetition",
+    "assertion": "Preserve draft/source coverage, re-admit, and reject duplicate/no-progress continuation loops.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T14",
+    "fixture": "Timeout/completion/cancel races",
+    "assertion": "One terminal event and bounded cleanup even when upstream shutdown blocks.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T15",
+    "fixture": "Shared backend parent and child",
+    "assertion": "Cancellable fair queue with no permit deadlock or duplicate terminal work.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T16",
+    "fixture": "Uncertain external write",
+    "assertion": "Reconcile execution before retry; reuse never expands read/write authority.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T17",
+    "fixture": "Bad phone artifact, healthy desktop",
+    "assertion": "Isolate local incompatibility and honor optional/required preparation policy.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "LC-T18",
+    "fixture": "Legacy settings/export/privacy/restart",
+    "assertion": "Intent-preserving migration, compatible readers, redaction and valid checkpoint restoration.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T01",
+    "fixture": "Complete fitting contributors",
+    "assertion": "Full authorized source texts are represented in sent manifests, not summary replacements.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T02",
+    "fixture": "Constraint outside visible history window",
+    "assertion": "Read authoritative repository history and include the relevant earlier constraint.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T03",
+    "fixture": "Current/prior attachments",
+    "assertion": "Include supported authorized representation; label derived or unsupported modalities.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T04",
+    "fixture": "Unset cap, 16,384 synthesis target",
+    "assertion": "No hidden 4,096 clamp; assert outgoing parameter and provenance.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T05",
+    "fixture": "Explicit user cap of 4,096",
+    "assertion": "Honor the actual restriction and disclose authorized sectioning or incomplete output.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T06",
+    "fixture": "Reasoning-only length stop",
+    "assertion": "Start full-outline answer writing; never continue after nonexistent completed sections.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T07",
+    "fixture": "Visible continuation",
+    "assertion": "Persist ordered early and later segments, preserving prefix and removing only exact overlap.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T08",
+    "fixture": "Provider stop misses required topics",
+    "assertion": "Repair missing coverage or report incomplete, not complete solely on stop.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T09",
+    "fixture": "Duplicate synthesis trigger",
+    "assertion": "One durable logical owner; duplicate observer/recreated ViewModel attaches or is rejected.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T10",
+    "fixture": "Old attempt callback",
+    "assertion": "Reject stale stream, checkpoint, message and terminal writes after takeover.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T11",
+    "fixture": "Useful evidence from failed contributor",
+    "assertion": "Retain validated authorized reads with partial lineage, excluding error/control text.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T12",
+    "fixture": "Exact shared claim",
+    "assertion": "Default foreground; record both supporters.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T13",
+    "fixture": "Shared paraphrase",
+    "assertion": "Equivalent meaning stays default despite different wording.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T14",
+    "fixture": "Genuinely exclusive sentence",
+    "assertion": "Apply the sole supporting profile's stable color with inspectable source spans.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T15",
+    "fixture": "Mixed shared/exclusive sentence",
+    "assertion": "Whole sentence stays default, including when only one qualifier is unique.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T16",
+    "fixture": "Different quantities or negation",
+    "assertion": "Conflict/default; no similarity-only merge or false corroboration.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T17",
+    "fixture": "Primary contribution versus synthesis phase",
+    "assertion": "Reading contributors does not make their facts primary-owned or shared.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T18",
+    "fixture": "Missing/stale/incomplete comparison",
+    "assertion": "Abstain from exclusive color and explain the unavailable comparison.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T19",
+    "fixture": "Markdown/Unicode/RTL/math",
+    "assertion": "Stable range mapping, correct selection and no syntax/style corruption.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T20",
+    "fixture": "Debug toggle, rename and reorder",
+    "assertion": "Answer bytes/revision/scroll stay unchanged and profile color identities remain stable.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T21",
+    "fixture": "Local-only data and remote verifier",
+    "assertion": "Prevent leakage through inference, tokenization, sidecars and logs.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T22",
+    "fixture": "Nested secret-bearing payloads",
+    "assertion": "Redact before storage, previews and every export path.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T23",
+    "fixture": "Queue or disk pressure",
+    "assertion": "Responsive UI, explicit dropped ranges and no false complete-capture label.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T24",
+    "fixture": "Revision, deletion and resume",
+    "assertion": "Revision-bound provenance, reference-safe cleanup and durable restart without sensitive orphans.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T25",
+    "fixture": "Export while generation runs",
+    "assertion": "Consistent high-watermarks/active flags; replay matches the captured revision.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "CM-T26",
+    "fixture": "More than 256 items and long output",
+    "assertion": "Complete paginated inventory/chunked answer or disclosed limitation, never silent tail clipping.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX01",
+    "fixture": "Routing-only OpenRouter configuration",
+    "assertion": "With only provider routing present, decoding introduces no output override; a fitting 16,384 target stays 16,384.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "IX02",
+    "fixture": "Absent/null/explicit/zero settings",
+    "assertion": "Round-trip presence correctly; explicit caps/false/valid zeros survive, absent keys inherit and invalid types fail clearly.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "IX03",
+    "fixture": "Sampling default injection",
+    "assertion": "Routing-only JSON does not inject temperature 0.2, top_p 0.15, top_k 30, seed 42, penalties or stream.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "IX04",
+    "fixture": "Assist goal tail beyond 1,000 characters",
+    "assertion": "Required tail constraint reaches the admitted task representation or explicit scoped workflow.",
+    "outcome": "PASS",
+    "commit": "3cb82de795391a6e8b1c4324006c50a580156778",
+    "evidence": [
+      "docs/implementation/unified-reliability-v2/evidence/unit-fixtures-3cb82de7.json"
+    ]
+  },
+  {
+    "id": "IX05",
+    "fixture": "No spans before dispatch",
+    "assertion": "Unsupported/no-op planning does not consume a physical attempt; retries/chunks have separate counters.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX06",
+    "fixture": "Same text, different helper or permissions",
+    "assertion": "Cache key and reuse validation reject changed model/backend/policy/permission epoch.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX07",
+    "fixture": "Goals share an 8,000-character prefix",
+    "assertion": "Full task identity prevents incorrect research-snapshot attachment.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX08",
+    "fixture": "New corpus, same final answer slot",
+    "assertion": "Fence across logical keys prevents an old corpus revision from committing any output/status.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX09",
+    "fixture": "Primary/Assist/delegate/title share resource",
+    "assertion": "No nested-lease deadlock; foreground fairness and cancellation subscribers behave across roles.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX10",
+    "fixture": "Permission changes between count and send",
+    "assertion": "Revalidate and block/reprepare; no dispatch or inclusion under a revoked epoch.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX11",
+    "fixture": "All physical request roles",
+    "assertion": "Primary, contributor, writer, research, delegate, reviewer, Assist, attribution, title and recovery use admission.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX12",
+    "fixture": "Independent schema namespaces",
+    "assertion": "Conversation v3, event v5, policy versions and database migration remain independent; old readers degrade safely.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX13",
+    "fixture": "Internal versus redacted/gateway digests",
+    "assertion": "Correct representation labels and permission scope; transformed body cannot reuse an incompatible admission receipt.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX14",
+    "fixture": "Same-primary full-corpus multipass",
+    "assertion": "Every required chunk is inspected/accounted for and unique detail survives assembly without a final lossy summary.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX15",
+    "fixture": "Operational storage failure versus log failure",
+    "assertion": "Log gaps do not stop healthy generation; lost operational durability blocks a false resumable/complete claim.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX16",
+    "fixture": "Delete/revoke a source during active work",
+    "assertion": "Revoke access and relevant reuse/styling; cancel affected subscribers and release blobs only when references permit.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX17",
+    "fixture": "Unknown accelerator and permitted fallback",
+    "assertion": "Show Not reported or actual observed backend; never infer NPU execution or implicit cloud recovery.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX18",
+    "fixture": "Navigation and 4-Hz progress pressure",
+    "assertion": "Measure p95 back/expand under 100 ms and event visibility under 250 ms; no whole-answer work on UI thread.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX19",
+    "fixture": "Active snapshot export and replay gaps",
+    "assertion": "Capture fixed high-watermarks; surface dropped sequences; deterministic replay covers only captured transformations.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX20",
+    "fixture": "Diagnostics disabled and temporary sessions",
+    "assertion": "Essential status still works; optional logs off and ephemeral paths leave no durable sensitive task/statistics/provenance artifacts.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX21",
+    "fixture": "3,000-word input comprehension",
+    "assertion": "Exact hashed 3,000-word synthetic source with at least 12 distributed facts is fully sent when fitting; test recall separately.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX22",
+    "fixture": "Approximately 3,000-word visible answer",
+    "assertion": "Short input isolates output; 2,700\u20133,300 visible words is the initial approximate band, excluding reasoning/tool text.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX23",
+    "fixture": "3,000-word input plus long answer",
+    "assertion": "Run tools-off, minimal-tools and research variants; prove full inclusion plus correct output/recovery under real capacity.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX24",
+    "fixture": "Verified 8K/16K/32K capacity matrix",
+    "assertion": "Correct non-destructive rejection is a fit-policy pass, not a completion pass; test supported allocation/route variants.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX25",
+    "fixture": "Cold/warm runtime qualification",
+    "assertion": "Record three cold/five warm samples per chosen actual model/backend/route; no unsupported reliability or accelerator claim.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX26",
+    "fixture": "Paired Assist/compression benchmark",
+    "assertion": "Measure failed work, context/coverage, cost/latency and uncertainty; local tokens are not automatically cloud tokens saved.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX27",
+    "fixture": "Exact-commit release and upgrade",
+    "assertion": "Version/tag collision check, all required CI, signature/package/artifacts and upgrade data agree with the released commit.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX28",
+    "fixture": "Engine-to-aggregate typed evidence flow",
+    "assertion": "Normalization precedes Assist; no schema corruption, duplicate assistance or loss of retained/read-back source identity.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX29",
+    "fixture": "Repeated tensor-contract failure",
+    "assertion": "Quarantine the exact incompatibility without disabling healthy routes; only relevant qualified changes permit retry.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  },
+  {
+    "id": "IX30",
+    "fixture": "Attribution/reasoning capability failure",
+    "assertion": "Unsupported verifier/strict reasoning mapping abstains or reports a restriction without silently changing model/privacy policy.",
+    "outcome": "NOT_RUN",
+    "commit": null,
+    "evidence": []
+  }
+]

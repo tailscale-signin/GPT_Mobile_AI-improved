@@ -70,7 +70,10 @@ data class MessageV2(
     val timestamp: Long = 0,
 
     @ColumnInfo(name = "combined_sources", defaultValue = "'[]'")
-    val combinedSources: List<CombinedModelResponse> = emptyList()
+    val combinedSources: List<CombinedModelResponse> = emptyList(),
+
+    @ColumnInfo(name = "ownership_fence", defaultValue = "0")
+    val ownershipFence: Long = 0
 )
 
 @Serializable

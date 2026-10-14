@@ -203,6 +203,9 @@ class ChatRepositoryImplTest {
             assertTrue(states.filterIsInstance<ApiState.Notice>().any { it.message.contains("Local memory is unavailable") })
             assertTrue(states.toString(), states.none { it is ApiState.Error || it is ApiState.MemoryRecalled })
             assertEquals("Hello", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+            val assist = states.filterIsInstance<ApiState.AssistStatus>().single().status
+            assertEquals(dev.chungjungsoo.gptmobile.data.assist.AssistAdmission.OFF, assist.admission)
+            assertEquals(dev.chungjungsoo.gptmobile.data.assist.AssistExecution.SKIPPED, assist.execution)
         }
         assertEquals(2, api.streamChatCompletionCalls)
     }
@@ -391,7 +394,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3-32b"),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit.") || it.message.startsWith("Local context:"))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit.") || it.message.startsWith("Local context:"))) }
 
         assertEquals(
             listOf(
@@ -463,7 +466,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = localPlatform(),
             runId = "local-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit.") || it.message.startsWith("Local context:"))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit.") || it.message.startsWith("Local context:"))) }
 
         assertEquals(
             listOf(
@@ -512,7 +515,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = localPlatform().copy(maxTokens = 2048),
             runId = "run-local-tool"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
@@ -587,7 +590,7 @@ class ChatRepositoryImplTest {
         repository.completeChat(
             userMessages = listOf(MessageV2(content = "What tools do you have?", platformType = null)),
             assistantMessages = emptyList(),
-            platform = localPlatform().copy(maxTokens = 16384),
+            platform = localPlatform().copy(maxTokens = 512),
             runId = "run-local-litert-tools"
         ).toList()
 
@@ -620,7 +623,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b"),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
@@ -654,7 +657,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3-32b"),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
@@ -677,7 +680,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = false, model = "qwen/qwen3-32b"),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         val request = groqAPI.lastRequest
         assertEquals("hidden", request?.reasoningFormat)
@@ -695,7 +698,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = false, model = "openai/gpt-oss-20b"),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         val request = groqAPI.lastRequest
         assertNull(request?.reasoningFormat)
@@ -713,7 +716,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = googlePlatform(),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(1, googleAPI.streamCalls)
         assertEquals(
@@ -744,7 +747,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = googlePlatform(),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
@@ -773,7 +776,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = googlePlatform(),
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
@@ -838,7 +841,7 @@ class ChatRepositoryImplTest {
             ),
             platform = customPlatform,
             runId = "test-run"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(listOf(ApiState.Loading, ApiState.Success("Answer"), ApiState.Done), states)
         assertEquals(1, openAIAPI.streamChatCompletionCalls)
@@ -906,7 +909,7 @@ class ChatRepositoryImplTest {
             platform = customPlatform(),
             runId = "run-web",
             chatToolConfig = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(connection.connectionUid))
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
@@ -953,7 +956,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = customPlatform(),
             runId = "test-cb"
-        ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(

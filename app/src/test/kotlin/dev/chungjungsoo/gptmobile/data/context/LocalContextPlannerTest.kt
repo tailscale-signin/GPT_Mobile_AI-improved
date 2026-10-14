@@ -10,6 +10,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun schemaCountHasNoArbitraryCeilingWhenAllSchemasFit() {
+        val tools = (1..30).map { AgentToolDefinition("tool$it", "Short", buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(emptyList(), "Compare the available actions", "", tools, 32_768, 1024)
+        assertEquals(30, plan.tools.size)
+        assertEquals(0, plan.omittedTools)
+    }
+
     @Test
     fun `large tool catalog fits a 1024 context with response and result headroom`() {
         val tools = (1..40).map { AgentToolDefinition("tool$it", "description ".repeat(20), buildJsonObject {}) }
@@ -54,6 +61,13 @@ class LocalContextPlannerTest {
         val prior = turn("界".repeat(1000))
         val plan = LocalContextPlanner.plan(listOf(prior), "Hello", "", emptyList(), 1024, null)
         assertTrue(plan.priorTurns.isEmpty())
+    }
+
+    @Test
+    fun explicitOutputReserveIsNeverSilentlyReducedToAQuarterOfContext() {
+        val plan = LocalContextPlanner.plan(emptyList(), "Full task", "", emptyList(), 8192, 4096)
+        assertEquals(4096, plan.outputReserveTokens)
+        assertThrows(IllegalArgumentException::class.java) { LocalContextPlanner.plan(emptyList(), "Full task", "", emptyList(), 8192, 16384) }
     }
 
     @Test

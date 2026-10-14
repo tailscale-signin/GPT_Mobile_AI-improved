@@ -31,7 +31,7 @@ class LocalReadinessRegistryTest {
         assertEquals(1, attempts)
         assertTrue(errors.all { it is LocalArtifactIncompatibleException })
         assertEquals("ready", registry.qualify("replacement-runtime-cpu") { "ready" })
-        registry.reset()
+        registry.reset("artifact-runtime-cpu")
         assertEquals("ready", registry.qualify("artifact-runtime-cpu") { "ready" })
     }
 
@@ -39,5 +39,26 @@ class LocalReadinessRegistryTest {
         val registry = LocalReadinessRegistry()
         runCatching { registry.qualify("model") { error("Not enough memory") } }
         assertEquals("ready", registry.qualify("model") { "ready" })
+    }
+
+    @Test fun `deterministic quarantine survives process restart and reset is scoped to the exact tuple`() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("readiness-fixture").toFile()
+        try {
+            val first = LocalReadinessRegistry(directory)
+            for (key in listOf("artifact-a-runtime-gpu", "artifact-b-runtime-npu")) {
+                runCatching { first.qualify(key) { error("Input tensor not found") } }
+            }
+            val restarted = LocalReadinessRegistry(directory)
+            var dispatched = false
+            assertTrue(runCatching { restarted.qualify("artifact-a-runtime-gpu") { dispatched = true } }.exceptionOrNull() is LocalArtifactIncompatibleException)
+            assertTrue(!dispatched)
+            restarted.reset("artifact-a-runtime-gpu")
+            assertEquals("ready", restarted.qualify("artifact-a-runtime-gpu") { "ready" })
+            assertTrue(runCatching { restarted.qualify("artifact-b-runtime-npu") { "unexpected" } }.exceptionOrNull() is LocalArtifactIncompatibleException)
+            assertEquals("ready", restarted.qualify("artifact-b-new-runtime-npu") { "ready" })
+            assertTrue(directory.listFiles().orEmpty().all { it.name.matches(Regex("[a-f0-9]{64}")) })
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 }

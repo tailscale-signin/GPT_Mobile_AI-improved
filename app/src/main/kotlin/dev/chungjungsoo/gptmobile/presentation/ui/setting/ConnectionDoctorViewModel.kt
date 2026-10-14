@@ -21,11 +21,13 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 @HiltViewModel
 class ConnectionDoctorViewModel @Inject constructor(
@@ -36,6 +38,22 @@ class ConnectionDoctorViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
     val detectedContext = MutableStateFlow<Pair<String, Int>?>(null)
+    val deadlineProfile = MutableStateFlow<PlatformV2?>(null)
+    val deadlineSettings = MutableStateFlow(dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings())
+
+    fun saveProgressDeadlines(first: String, idle: String, queue: String, load: String, round: String, adaptive: Boolean) = action {
+        val profile = deadlineProfile.value ?: return@action
+        fun milliseconds(value: String): Long? {
+            if (value.isBlank()) return null
+            val seconds = requireNotNull(value.trim().toLongOrNull()) { "Enter whole seconds or leave the field blank" }
+            require(seconds > 0) { "Deadlines must be positive; leave blank to inherit" }
+            return Math.multiplyExact(seconds, 1000L)
+        }
+        val updated = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(milliseconds(first), milliseconds(idle), milliseconds(queue), milliseconds(load), milliseconds(round), adaptive)
+        settings.mutateFeatureSettings { current -> current.copy(profileProgressDeadlines = current.profileProgressDeadlines + (profile.uid to updated)) }
+        deadlineSettings.value = updated
+        diagnosticReport.value = "Wait settings saved for ${profile.name}. They apply to new requests; the conversation's total generation limit still applies."
+    }
     fun applyDetectedContext() = action {
         val detected = detectedContext.value ?: return@action
         settings.mutateFeatureSettings { current -> current.copy(tokenBudget = current.tokenBudget.copy(profileContextCeilings = current.tokenBudget.profileContextCeilings + detected)) }
@@ -44,7 +62,14 @@ class ConnectionDoctorViewModel @Inject constructor(
     }
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val preferences = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
-    val report = MutableStateFlow(preferences.getString("last_inspection", "Choose a profile to check its connection. Benchmarks are in Debug and Statistics → Benchmarks.").orEmpty())
+    val report = MutableStateFlow("Choose a profile to check its connection. Benchmarks are in Debug and Statistics → Benchmarks.")
+    val contextReport = MutableStateFlow("Inspect a profile to see verified and declared context limits.")
+    val diagnosticReport = MutableStateFlow("Inspection does not generate an answer or reconfigure the server.")
+    private val llamaCapacity = dev.chungjungsoo.gptmobile.data.context.LlamaCapacityRepository(network)
+    init {
+        // Older versions persisted arbitrary inspection text in plaintext preferences.
+        preferences.edit().remove("last_inspection").apply()
+    }
     val busy = MutableStateFlow(false)
     private var job: Job? = null
     fun cancel() {
@@ -52,29 +77,82 @@ class ConnectionDoctorViewModel @Inject constructor(
     }
     fun inspect(profile: PlatformV2) = action {
         detectedContext.value = null
+        deadlineProfile.value = profile.takeIf { it.compatibleType == ClientType.LLAMA }
+        deadlineSettings.value = settings.getFeatureSettings().profileProgressDeadlines[profile.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
+        contextReport.value = "Context details for ${profile.name} are not verified yet."
+        diagnosticReport.value = "Checking ${profile.name}. Inspection does not generate an answer or change server configuration."
         val destination = if (profile.compatibleType == ClientType.LITERT_LM) "ON_DEVICE" else endpointLocality(profile.apiUrl).name
         val lines = mutableListOf("Destination: $destination", "Profile: ${profile.name} · ${profile.model}")
         if (profile.compatibleType == ClientType.LITERT_LM) {
             lines += "Actual runtime: ${runtime.state.value.backend ?: "not loaded"}"
             lines += "Accelerator: ${runtime.state.value.engineSpec?.accelerator ?: "not loaded"}"
             runtime.state.value.fallbackReason?.let { lines += "Fallback: $it" }
+            contextReport.value = "Loaded local context: ${runtime.admittedEngineSpec()?.maxTokens ?: "unknown"} tokens. Requested output cap: ${profile.maxTokens ?: "inherited"}. Model context is independent of the output cap."
+            diagnosticReport.value = "Runtime phase: ${runtime.state.value.lifecycle}. Actual backend and artifact must pass their own readiness checks. This inspection does not load or download a model."
         } else {
             require(!profile.apiUrl.contains('?') && !profile.apiUrl.contains('@')) { "Use a clean provider URL and the credential field." }
             val base = profile.apiUrl.trimEnd('/')
             val modelsUrl = if (profile.compatibleType == ClientType.OLLAMA && !base.endsWith("/v1")) "$base/api/tags" else "$base/models"
-            val response = network().get(modelsUrl) { profile.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) } }
-            val modelBody = response.bodyAsText()
-            lines += "Model discovery: HTTP ${response.status.value} (${modelBody.length} response characters)"
-            if (response.status.value == 200) {
-                dev.chungjungsoo.gptmobile.data.context.discoverContextCeiling(modelBody, profile.model)?.let { ceiling ->
-                    detectedContext.value = profile.uid to ceiling
-                    lines += "Server reports a context ceiling of $ceiling tokens. Apply it below to constrain this profile."
+            val discovery = try {
+                withTimeoutOrNull(5000L) {
+                    val response = network().get(modelsUrl) { profile.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) } }
+                    response.status.value to response.bodyAsText()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             }
-            if (response.status.value in setOf(401, 403)) lines += "Authentication was rejected. Reconnect or replace the credential."
+            if (discovery == null) {
+                lines += "Model catalog unavailable or timed out. Serving-capacity checks continue independently."
+            } else {
+                val (status, modelBody) = discovery
+                lines += "Model discovery: HTTP $status (${modelBody.length} response characters)"
+                if (status == 200) {
+                    dev.chungjungsoo.gptmobile.data.context.discoverContextCeiling(modelBody, profile.model)?.let { ceiling ->
+                        detectedContext.value = profile.uid to ceiling
+                        lines += "Model catalog declares a context ceiling of $ceiling tokens. A verified serving allocation can constrain it further."
+                    }
+                }
+                if (status in setOf(401, 403)) lines += "Authentication was rejected. Reconnect or replace the credential."
+            }
             if (profile.compatibleType == ClientType.LLAMA) {
-                val capabilities = gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token))
-                lines += if (capabilities == null) "No Gateway capability response; this may be a direct llama.cpp server." else "Gateway capabilities: $capabilities"
+                val capabilities = try {
+                    withTimeoutOrNull(5000L) { gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token)) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                lines += if (capabilities == null) "Route: llama.cpp-compatible; direct/router identity unverified. Missing Gateway metadata does not mean chat is offline." else "Route: Gateway capability endpoint available. Gateway prompt transformations require separate verification."
+                llamaCapacity.invalidate()
+                val capacity = llamaCapacity.discover(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, providerType = "LLAMA"), profile.model)
+                val features = settings.getFeatureSettings()
+                val declared = features.tokenBudget.profileContextCeilings[profile.uid]?.takeIf { it > 0 }
+                val global = features.tokenBudget.normalized().contextTokens.takeIf { it != Int.MAX_VALUE }
+                val effective = listOfNotNull(capacity?.contextTokens, declared?.toLong(), global?.toLong()).minOrNull()
+                val output = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(profile.maxTokens, features.tokenBudget.outputTokens)
+                val reasoning = features.llamaReasoningModes[profile.uid] ?: if (profile.reasoning) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+                contextReport.value = listOf(
+                    "Verified serving allocation: ${capacity?.contextTokens ?: "unknown"} tokens",
+                    "Manual profile ceiling: ${declared ?: "not declared"}",
+                    "Global ceiling: ${global ?: "no additional app cap"}",
+                    "Effective ceiling: ${effective ?: "unknown"}",
+                    "Output allowance: ${output.tokens ?: "inherited"}; sources: ${output.sources.joinToString().ifBlank { "provider/app defaults" }}",
+                    "Reasoning requested: $reasoning. Template control is checked when a request needs explicit On/Off; observed computation is separate.",
+                    "Fit requires full prompt + generated-token allowance + safety/uncertainty ≤ serving context. Future tool headroom is planning space, not a second charge for serialized evidence.",
+                    "Overflow preserves the current task and returns a shortfall. Increase verified context or choose an explicit segmented workflow."
+                ).joinToString("\n\n")
+                val deadlines = features.profileProgressDeadlines[profile.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
+                diagnosticReport.value = listOf(
+                    "Capacity source: ${capacity?.provenance ?: "UNKNOWN"}; metadata refreshed on this check.",
+                    "Allocation: ${capacity?.fingerprint?.allocationRevision ?: "unknown"}. Slot count is not used to divide n_ctx.",
+                    "Loaded-model context and a model catalog limit are different. Missing or sleeping model metadata remains unknown.",
+                    "Waiting: first progress ${deadlines.firstProgressMillis?.let { "${it / 1000} s (explicit)" } ?: "180 s baseline; bounded adaptation from admitted runtime observations"}; idle ${(deadlines.meaningfulIdleMillis ?: 90_000) / 1000} s; queue ${deadlines.queueMillis?.let { "${it / 1000} s" } ?: "first-progress allowance"}; load ${deadlines.loadMillis?.let { "${it / 1000} s" } ?: "first-progress allowance"}. Repeated counters and pings do not extend waits. Profile round deadline: ${deadlines.roundDeadlineMillis?.let { "${it / 1000} s" } ?: "none"}. User total-generation setting: ${features.tokenBudget.generationTimeoutMinutes.takeIf { it > 0 }?.let { "$it minutes" } ?: "no explicit deadline"}.",
+                    "Connection/authentication failure, unavailable model, context overflow, reasoning-only output, stalled decoding and output-limit exhaustion require different recovery actions. Details and saved evidence remain attached to the response.",
+                    "On-device Assist uses its own artifact/backend readiness; a healthy desktop connection does not qualify that runtime."
+                ).joinToString("\n\n")
+                capacity?.contextTokens?.takeIf { it <= Int.MAX_VALUE }?.let { detectedContext.value = profile.uid to it.toInt() }
             }
             lines += "Streaming and performance tests are in Debug and Statistics → Benchmarks. Check live tool connections in Tool connections."
         }
@@ -83,7 +161,6 @@ class ConnectionDoctorViewModel @Inject constructor(
     private fun finish(text: String) {
         val safe = DiagnosticRedactor.redact(text).take(12000)
         report.value = safe
-        preferences.edit().putString("last_inspection", safe).apply()
     }
     private fun action(block: suspend () -> Unit) {
         if (busy.value) return
@@ -91,6 +168,8 @@ class ConnectionDoctorViewModel @Inject constructor(
         job = viewModelScope.launch(Dispatchers.IO) {
             try {
                 withTimeout(180_000) { block() }
+            } catch (_: TimeoutCancellationException) {
+                report.value = "Connection inspection timed out. No generation request was sent; check the route and server availability."
             } catch (e: CancellationException) {
                 report.value = "Canceled. The request was stopped on this client."
                 throw e

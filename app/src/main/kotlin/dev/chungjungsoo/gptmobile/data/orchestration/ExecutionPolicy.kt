@@ -1,7 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.orchestration
 
-import dev.chungjungsoo.gptmobile.data.assist.AssistPreparation
 import dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy
+import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import kotlinx.serialization.Serializable
 
@@ -57,16 +57,6 @@ data class ExecutionPolicy(
     }
 }
 
-fun AppFeatureSettings.effectiveAssistPolicy(): LocalAssistPolicy {
-    val policy = executionPolicy
-    if (policy.mode == OptimizationMode.OFF) return localAssistPolicy.validated()
-    return localAssistPolicy.copy(
-        evidenceSelection = localAssistPolicy.evidenceSelection && policy.evidenceHandoff,
-        summarizeRetrievedText = localAssistPolicy.summarizeRetrievedText && policy.assistCompression,
-        preparation = if (policy.coldLoadAssist && policy.mode in setOf(OptimizationMode.MAXIMUM_SAVINGS, OptimizationMode.CUSTOM)) localAssistPolicy.preparation else AssistPreparation.WARM_ONLY,
-        maxAttempts = if (policy.mode == OptimizationMode.FAST_RESPONSE) 1 else localAssistPolicy.maxAttempts,
-        taskTimeoutSeconds = if (policy.mode == OptimizationMode.FAST_RESPONSE) minOf(3, localAssistPolicy.taskTimeoutSeconds) else localAssistPolicy.taskTimeoutSeconds
-    ).validated()
-}
+fun AppFeatureSettings.effectiveAssistPolicy(): LocalAssistPolicy = resolveAssistPolicy().effective
 
-fun AppFeatureSettings.assistEnabled(): Boolean = localAssist && (executionPolicy.mode == OptimizationMode.OFF || executionPolicy.warmLocalAssist)
+fun AppFeatureSettings.assistEnabled(): Boolean = resolveAssistPolicy().enabled

@@ -105,50 +105,51 @@ data class OpenRouterPlugin(
 )
 
 /**
- * OpenRouter advanced platform configuration options and defaults.
+ * Sparse profile overrides. Preset defaults belong exclusively to [createDefault].
+ * Absent or null fields inherit the profile's existing generation preferences.
  */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class OpenRouterOptions(
     @SerialName("stream")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val stream: Boolean? = DEFAULT_STREAM,
+    val stream: Boolean? = null,
 
     @SerialName("max_tokens")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val maxTokens: Int? = DEFAULT_MAX_TOKENS,
+    val maxTokens: Int? = null,
 
     @SerialName("temperature")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val temperature: Float? = DEFAULT_TEMPERATURE,
+    val temperature: Float? = null,
 
     @SerialName("top_p")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val topP: Float? = DEFAULT_TOP_P,
+    val topP: Float? = null,
 
     @SerialName("top_k")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val topK: Int? = DEFAULT_TOP_K,
+    val topK: Int? = null,
 
     @SerialName("frequency_penalty")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val frequencyPenalty: Float? = DEFAULT_FREQUENCY_PENALTY,
+    val frequencyPenalty: Float? = null,
 
     @SerialName("presence_penalty")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val presencePenalty: Float? = DEFAULT_PRESENCE_PENALTY,
+    val presencePenalty: Float? = null,
 
     @SerialName("repetition_penalty")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val repetitionPenalty: Float? = DEFAULT_REPETITION_PENALTY,
+    val repetitionPenalty: Float? = null,
 
     @SerialName("seed")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val seed: Int? = DEFAULT_SEED,
+    val seed: Int? = null,
 
     @SerialName("provider")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val provider: OpenRouterProviderRouting? = DEFAULT_PROVIDER
+    val provider: OpenRouterProviderRouting? = null
 ) {
     companion object {
         const val DEFAULT_STREAM = true

@@ -7,8 +7,6 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -32,7 +30,8 @@ class LocalEngineHolder(
 
     override fun loadedEngineSpec(): LocalEngineSpec? = delegate.loadedEngineSpec()
 
-    private val mutex = Mutex()
+    private val mutex = FairNativeLock(timeProvider)
+    private val queued = java.util.concurrent.atomic.AtomicInteger()
     private var loadedSpec: LocalEngineSpec? = null
 
     @Volatile
@@ -139,7 +138,7 @@ class LocalEngineHolder(
 
     override fun hasOpenConversation(): Boolean = delegate.hasOpenConversation()
 
-    override val isBusy: Boolean get() = mutex.isLocked || InferenceAdmission.isExclusiveBusy
+    override val isBusy: Boolean get() = mutex.isLocked || delegate.isBusy || InferenceAdmission.isExclusiveBusy
 
     override suspend fun <T> tryRunExclusive(block: suspend LocalRuntime.() -> T): T? = InferenceAdmission.tryShared {
         if (coroutineContext[GenerationLock] != null || !mutex.tryLock()) return@tryShared null
@@ -164,19 +163,14 @@ class LocalEngineHolder(
             block(this@LocalEngineHolder).collect { send(it) }
             return@channelFlow
         }
-        var locked = mutex.tryLock()
-        if (!locked) {
-            onContended()
-            mutex.lock()
-            locked = true
-        }
+        acquireGenerationLock(onContended)
         try {
             withContext(GenerationLock()) {
                 markAccessed()
                 block(this@LocalEngineHolder).collect { send(it) }
             }
         } finally {
-            if (locked) mutex.unlock()
+            mutex.unlock()
         }
     }.let { InferenceAdmission.sharedFlow(it) }
 
@@ -188,8 +182,33 @@ class LocalEngineHolder(
         if (coroutineContext[GenerationLock] != null) {
             return@shared block()
         }
-        mutex.withLock {
+        acquireGenerationLock()
+        try {
             withContext(GenerationLock()) { block() }
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    /** Cancellation removes only this waiter; visible priority has bounded bypass and aging. */
+    private suspend fun acquireGenerationLock(onContended: suspend () -> Unit = {}) {
+        if (mutex.tryLock()) return
+        val position = queued.incrementAndGet()
+        var acquired = false
+        try {
+            if (position > 128) throw NativeAdmissionRejected("NATIVE_QUEUE_FULL")
+            onContended()
+            val admitted = kotlinx.coroutines.withTimeoutOrNull(180_000L) {
+                mutex.lock()
+                acquired = true
+                true
+            }
+            if (admitted != true) throw NativeAdmissionRejected("NATIVE_QUEUE_DEADLINE")
+        } catch (error: Throwable) {
+            if (acquired) mutex.unlock()
+            throw error
+        } finally {
+            queued.decrementAndGet()
         }
     }
 

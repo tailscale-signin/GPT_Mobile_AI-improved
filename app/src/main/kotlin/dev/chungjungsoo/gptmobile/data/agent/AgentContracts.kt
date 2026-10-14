@@ -11,7 +11,7 @@ sealed interface ProviderEvent {
     data class TextDelta(val text: String) : ProviderEvent
     data class ToolCall(val callId: String, val name: String, val arguments: JsonObject) : ProviderEvent
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
-    data class Failed(val message: String) : ProviderEvent
+    data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false) : ProviderEvent
     data class PhaseChanged(val phase: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase) : ProviderEvent
     data class LocalMetrics(val metrics: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics) : ProviderEvent
@@ -72,7 +72,8 @@ data class AgentToolResult(
     val toolResultBudgetLimitBytes: Int? = null,
     val retainedContent: ToolResultContent? = null,
     val errorCode: String? = null,
-    val dispatched: Boolean = true
+    val dispatched: Boolean = true,
+    val assistMetadata: List<JsonObject> = emptyList()
 )
 
 sealed interface ToolResultContent {

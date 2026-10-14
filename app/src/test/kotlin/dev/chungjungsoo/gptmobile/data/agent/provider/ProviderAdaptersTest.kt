@@ -448,7 +448,7 @@ class ProviderAdaptersTest {
             events
         )
         assertNull(api.responseRequests.single().tools)
-        assertEquals(ProviderRequestConfig("https://provider.example/v1", "secret"), api.configs.single())
+        assertEquals(ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "OPENAI"), api.configs.single())
     }
 
     @Test
@@ -608,8 +608,8 @@ class ProviderAdaptersTest {
         assertEquals("call_exact", continuation[1].toolCallId)
         assertEquals(
             listOf(
-                ProviderRequestConfig("https://provider.example/v1", "secret"),
-                ProviderRequestConfig("https://provider.example/v1", "secret")
+                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ"),
+                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ")
             ),
             groq.configs
         )
@@ -1298,9 +1298,10 @@ class ProviderAdaptersTest {
                 assertEquals(cap, events.filterIsInstance<ProviderEvent.RequestConfigured>().single().effectiveOutputTokens)
                 if (type == ClientType.LLAMA) {
                     assertEquals(cap.toString(), api.configs.single().extraHeaders["X-Gateway-Intermediate-Max-Tokens"])
-                    assertEquals("none", api.configs.single().extraHeaders["X-Gateway-Reasoning-Effort"])
-                    assertEquals("none", request["reasoning_effort"]?.jsonPrimitive?.content)
-                    assertEquals("false", request["chat_template_kwargs"]?.jsonObject?.get("enable_thinking")?.jsonPrimitive?.content)
+                    assertEquals(null, api.configs.single().extraHeaders["X-Gateway-Reasoning-Effort"])
+                    assertEquals(null, request["reasoning_effort"])
+                    assertEquals(null, request["chat_template_kwargs"])
+                    assertFalse(api.configs.single().allowReasoning)
                     assertEquals("true", api.configs.single().extraHeaders["X-Gateway-Delegated-Worker"])
                 }
                 assertEquals("none", request["tool_choice"]?.jsonPrimitive?.content)

@@ -25,7 +25,7 @@ internal fun searchProviderPayload(value: JsonElement?, depth: Int = 0): JsonObj
     return when (value) {
         is JsonObject -> searchProviderPayload(value["structuredContent"], depth + 1)
             ?: value.takeIf { it["results"] is JsonArray || it["sources"] is JsonArray }
-            ?: listOf("result", "data", "text", "content").firstNotNullOfOrNull { searchProviderPayload(value[it], depth + 1) }
+            ?: listOf("result", "data", "text", "content", "payload").firstNotNullOfOrNull { searchProviderPayload(value[it], depth + 1) }
         is JsonArray -> value.firstNotNullOfOrNull { searchProviderPayload(it, depth + 1) }
         is JsonPrimitive -> if (value.isString) runCatching { Json.parseToJsonElement(value.content) }.getOrNull()?.let { searchProviderPayload(it, depth + 1) } else null
         else -> null
@@ -38,11 +38,14 @@ internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<Jso
         is JsonArray -> value.flatMap { extractSearchSources(it, depth + 1) }
         is JsonObject -> {
             if (value.stringValue("status") in setOf("unavailable", "failed", "error")) return emptyList()
+            if (value["payload_type"] != null && value["payload"] is JsonPrimitive) return extractSearchSources(value["payload"], depth + 1)
             val url = value.stringValue("url", "link", "uri")
             if (url != null) {
                 listOf(
                     buildJsonObject {
-                        put("url", url)
+                        put("url", resolveSearchRedirect(url) ?: url)
+                        if (value["truncated"] == JsonPrimitive(true) || evidenceHasTruncation(value)) put("partial", true)
+                        if (value["truncated"] == JsonPrimitive(false) && evidenceHasTruncation(value)) put("truncationInconsistent", true)
                         put("title", value.stringValue("title", "name") ?: url)
                         val highlights = (value["highlights"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.joinToString("\n")
                         put("snippet", value.stringValue("snippet", "description", "content", "text", "raw_content") ?: highlights.orEmpty())
@@ -53,7 +56,7 @@ internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<Jso
                     }
                 )
             } else {
-                listOf("sources", "results", "result", "data", "web", "organic", "organic_results", "search_results", "items", "content", "text", "structuredContent", "resourceLinks", "engines", "detail")
+                listOf("sources", "results", "result", "data", "web", "organic", "organic_results", "search_results", "items", "content", "text", "structuredContent", "resourceLinks", "engines", "detail", "pages")
                     .flatMap { extractSearchSources(value[it], depth + 1) }
             }
         }
@@ -76,7 +79,12 @@ private fun labeledSearchSources(text: String): List<JsonObject> {
     val fields = linkedMapOf<String, String>()
     var activeField: String? = null
     fun finish() {
-        if (!fields["url"].isNullOrBlank()) results += JsonObject(fields.mapValues { JsonPrimitive(it.value.trim()) })
+        if (!fields["url"].isNullOrBlank()) {
+            val payload = fields.mapValues { JsonPrimitive(it.value.trim()) }.toMutableMap()
+            resolveSearchRedirect(fields.getValue("url"))?.let { payload["url"] = JsonPrimitive(it) }
+            if (evidenceHasTruncation(JsonPrimitive(text))) payload["partial"] = JsonPrimitive(true)
+            results += JsonObject(payload)
+        }
         fields.clear()
         activeField = null
     }
@@ -93,7 +101,7 @@ private fun labeledSearchSources(text: String): List<JsonObject> {
             fields["title"] = heading.groupValues[1]
             continue
         }
-        val match = sourceField.matchEntire(line.replace(boldField, "$1 "))
+        val match = sourceField.matchEntire(line.replace(Regex("^\\*\\*([A-Za-z ]+)\\*\\*:\\s*"), "$1: ").replace(boldField, "$1 "))
         if (match != null) {
             val key = when (match.groupValues[1].lowercase()) {
                 "title" -> "title"

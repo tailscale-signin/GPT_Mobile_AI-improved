@@ -138,7 +138,7 @@ internal fun ExecutionEfficiencyScreen(onClose: () -> Unit, viewModel: Execution
                                 Text("Remote: ${remote.filter { it.inputTokenSource == "provider_reported" }.sumOf { it.inputTokens.toLong() }} reported input · ${remote.filter { it.outputTokenSource == "provider_reported" }.sumOf { it.outputTokens.toLong() }} reported output")
                                 Text("Local: ${local.filter { it.outputTokenSource == "runtime_reported" }.sumOf { it.outputTokens.toLong() }} native output tokens")
                                 Text("${filtered.count { it.estimated }} requests have estimates or incomplete receipts")
-                                Text("${filtered.count { it.consumedAssistInvocationIds != null }} primary requests received validated Assist handoffs")
+                                Text("${filtered.count { it.assistInclusionVerified && it.consumedAssistInvocationIds != null }} requests serialized Assist handoffs; downstream use is unknown")
                                 Text("Cost: ${if (filtered.isEmpty() || filtered.any { it.costMicros == null || it.estimated } || filtered.map { it.currency }.distinct().size != 1) "Unavailable: missing receipts or prices" else "${filtered.sumOf { it.costMicros ?: 0 } / 1_000_000.0} ${filtered.first().currency}"}")
                                 Text("Measured A/B savings: unavailable. Local tokens are not subtracted from remote tokens.")
                             }
@@ -150,7 +150,7 @@ internal fun ExecutionEfficiencyScreen(onClose: () -> Unit, viewModel: Execution
                                     Text("${record.inputTokens} in (${record.inputTokenSource}) · ${record.outputTokens} out (${record.outputTokenSource})")
                                     Text("${record.durationMs} ms · first token ${record.firstTokenMs?.let { "$it ms" } ?: "Unavailable"} · runtime ${record.actualRuntime ?: "Unreported"}")
                                     Text("Finish: ${record.finishReason ?: "Unreported"} · invocation ${record.id}")
-                                    record.consumedAssistInvocationIds?.let { Text("Consumed Assist producers: $it") }
+                                    record.consumedAssistInvocationIds?.let { Text(if (record.assistInclusionVerified) "Serialized Assist producers (downstream use unknown): $it" else "Legacy Assist producer references (inclusion unverified): $it") }
                                 }
                             }
                         }

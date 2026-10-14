@@ -15,36 +15,35 @@ internal class CombinedCoverage(envelope: String) {
     init {
         val contributions = runCatching { (Json.parseToJsonElement(envelope) as? JsonObject)?.get("contributions") as? JsonArray }.getOrNull().orEmpty()
         val collected = mutableListOf<Item>()
-        var omitted = false
         contributions.forEachIndexed { contributor, element ->
             val source = element as? JsonObject ?: return@forEachIndexed
             val response = (source["response"] as? JsonPrimitive)?.content.orEmpty()
             response.lineSequence().filter { it.isNotBlank() }.forEachIndexed { paragraph, text ->
-                if (collected.size >= 256) {
-                    omitted = true
-                } else {
-                    val urls = Regex("https?://[^\\s<>\\\"]+").findAll(text).take(12).map { it.value.trimEnd(')', '.', ',') }.toList()
-                    collected += Item("C${contributor + 1}:P${paragraph + 1}", text.take(1200), urls)
-                    if (text.length > 1200) omitted = true
-                }
+                val urls = Regex("https?://[^\\s<>\\\"]+").findAll(text).map { it.value.trimEnd(')', '.', ',') }.toList()
+                collected += Item("C${contributor + 1}:P${paragraph + 1}", text, urls)
             }
         }
         items = collected
-        inventoryTruncated = omitted
+        inventoryTruncated = false
     }
 
-    fun manifest(answer: String): JsonObject = buildJsonObject {
+    fun manifest(answer: String, offset: Int = 0, pageSize: Int = Int.MAX_VALUE): JsonObject = buildJsonObject {
+        require(offset >= 0 && pageSize > 0)
+        val page = items.drop(offset).take(pageSize)
+        put("totalItems", items.size)
+        put("offset", offset)
+        put("remainingItems", (items.size - offset - page.size).coerceAtLeast(0))
         put("verification", "TEXT_COVERAGE_HINTS_ONLY; external claims require supplied evidence")
         put("inventoryTruncated", inventoryTruncated)
         put(
             "items",
             JsonArray(
-                items.map { item ->
+                page.map { item ->
                     buildJsonObject {
                         put("id", item.id)
                         put("status", if (answer.contains(item.text)) "EXACT_TEXT_PRESENT" else "UNVERIFIED_OR_PENDING")
                         put("sourceReferencesPresent", item.urls.isNotEmpty() && item.urls.all(answer::contains))
-                        val references = item.urls.filter { it.length <= 160 }.take(2)
+                        val references = item.urls
                         put("urls", JsonArray(references.map(::JsonPrimitive)))
                         put("omittedSourceReferenceCount", item.urls.size - references.size)
                     }
@@ -53,8 +52,11 @@ internal class CombinedCoverage(envelope: String) {
         )
     }
 
-    fun pendingOutline(answer: String): String = items.asSequence().filterNot { answer.contains(it.text) }
-        .take(24).joinToString("\n") { "${it.id}: ${it.text.take(240)}" }.take(7000)
+    fun pendingOutline(answer: String): String {
+        val pending = items.filterNot { answer.contains(it.text) }
+        return "Unverified inventory items: ${pending.size}; preview shows ${minOf(24, pending.size)}. Full inventory remains stored.\n" +
+            pending.take(24).joinToString("\n") { "${it.id}: ${it.text.take(240)}" }
+    }
 
     fun continuationContext(answer: String): String = buildString {
         appendLine("Committed headings (continue the same shared outline):")

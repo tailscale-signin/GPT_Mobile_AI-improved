@@ -51,6 +51,7 @@ internal object ToolResultEnvelope {
         put("compacted", result.retainedContent != null)
         put("evidenceAllowanceReached", result.outputBudgetExhausted)
         put("data", element(result.content))
+        if (result.assistMetadata.isNotEmpty()) put("assist", JsonArray(result.assistMetadata))
     }.toString()
 
     fun element(content: ToolResultContent): JsonElement = when (content) {

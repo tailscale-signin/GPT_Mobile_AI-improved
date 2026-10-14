@@ -10,11 +10,13 @@ import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -260,60 +262,63 @@ class FactVaultRepository @Inject constructor(
         enrichedMessages.clear()
     }
 
-    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String? = null, previousContext: String = "", includeLocalOnly: Boolean = false): FactRecall = mutex.withLock {
-        val boundary = scopeForChat(chatId)
-        if (boundary.isTemporary) return@withLock FactRecall()
-        val scope = scope ?: boundary.key
-        require(scopes == null || scope == boundary.key) { "The supplied scope must match the conversation." }
-        val recallBoundary = if (scopes == null) boundary.copy(key = scope) else boundary
-        loadLocked()
-        if (!_state.value.enabled) return@withLock FactRecall()
-        require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
-        val original = _state.value
-        val settings = original.settings.normalized()
-        val now = System.currentTimeMillis()
-        val cutoff = if (settings.retentionDays > 0) now - settings.retentionDays * 86_400_000L else 0L
-        var current = original.copy(facts = original.facts.filter { it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff })
-        if (capture && settings.learningEnabled && chatId !in current.suppressedChats) {
-            val automatic = MemoryLearning.extract(query.take(MAX_QUERY_CHARS), settings.captureSensitivity)
-            if (settings.learnRecurringTopics) {
-                // Explicitly extracted facts already carry reinforcement. Do not create
-                // redundant topic memories from “I live”, “I prefer”, etc.
-                val topicInput = automatic.fold(query.take(MAX_QUERY_CHARS)) { text, fact ->
-                    fact.relation.context.takeIf { it.isNotBlank() }?.let { text.replace(it, "", ignoreCase = true) } ?: text
+    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String? = null, previousContext: String = "", includeLocalOnly: Boolean = false): FactRecall = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val boundary = scopeForChat(chatId)
+            if (boundary.isTemporary) return@withLock FactRecall()
+            val scope = scope ?: boundary.key
+            require(scopes == null || scope == boundary.key) { "The supplied scope must match the conversation." }
+            val recallBoundary = if (scopes == null) boundary.copy(key = scope) else boundary
+            loadLocked()
+            if (!_state.value.enabled) return@withLock FactRecall()
+            require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
+            val original = _state.value
+            val settings = original.settings.normalized()
+            val now = System.currentTimeMillis()
+            val cutoff = if (settings.retentionDays > 0) now - settings.retentionDays * 86_400_000L else 0L
+            var current = original.copy(facts = original.facts.filter { it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff })
+            if (capture && settings.learningEnabled && chatId !in current.suppressedChats) {
+                val automatic = MemoryLearning.extract(query.take(MAX_QUERY_CHARS), settings.captureSensitivity)
+                if (settings.learnRecurringTopics) {
+                    // Explicitly extracted facts already carry reinforcement. Do not create
+                    // redundant topic memories from “I live”, “I prefer”, etc.
+                    val topicInput = automatic.fold(query.take(MAX_QUERY_CHARS)) { text, fact ->
+                        fact.relation.context.takeIf { it.isNotBlank() }?.let { text.replace(it, "", ignoreCase = true) } ?: text
+                    }
+                    val evidence = RecurringTopicLearning.observe(current.topics, topicInput, chatId, messageId, scope, now)
+                        .filterNot { scopedFactId(topicFact(it.label), it.scope) in current.suppressedIds }
+                    current = current.copy(topics = evidence)
+                    val topics = evidence.filter { it.scope == scope && it.messageKeys.size >= settings.topicRepetitions }
+                        .filter { sourceKey(chatId, messageId) in it.messageKeys }
+                        .map { topicFact(it.label) }
+                    current = mergeAutomatic(current, topics, chatId, messageId, scope, "recurring_topic", now)
                 }
-                val evidence = RecurringTopicLearning.observe(current.topics, topicInput, chatId, messageId, scope, now)
-                    .filterNot { scopedFactId(topicFact(it.label), it.scope) in current.suppressedIds }
-                current = current.copy(topics = evidence)
-                val topics = evidence.filter { it.scope == scope && it.messageKeys.size >= settings.topicRepetitions }
-                    .filter { sourceKey(chatId, messageId) in it.messageKeys }
-                    .map { topicFact(it.label) }
-                current = mergeAutomatic(current, topics, chatId, messageId, scope, "recurring_topic", now)
+                current = mergeAutomatic(current, automatic, chatId, messageId, scope, "user_message", now)
             }
-            current = mergeAutomatic(current, automatic, chatId, messageId, scope, "user_message", now)
+            if (current != original) persist(current)
+            if (!settings.recallEnabled || (!isLocal && !settings.allowCloudRecall)) return@withLock FactRecall()
+            val candidates = current.facts.filter {
+                it.enabled &&
+                    (isLocal && includeLocalOnly || !it.localOnly) &&
+                    (it.validFromMillis == null || it.validFromMillis <= now) &&
+                    (it.validUntilMillis == null || it.validUntilMillis > now) &&
+                    it.supersededBy == null &&
+                    !it.awaitingReview &&
+                    boundary.acceptsSource(it) &&
+                    recallBoundary.accepts(it.scope) &&
+                    (!settings.sameChatOnly || it.sourceChatId == chatId) &&
+                    !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
+            }
+            val selected = mutableListOf<VaultFact>()
+            // Long requests still use the complete lexical query. Do not rank a truncated prefix as the full task.
+            val semanticScores = if (settings.semanticRecall && query.length <= MAX_QUERY_CHARS) semantic?.search(query, scope, includePersonal = recallBoundary.includePersonal, inheritedScopes = recallBoundary.inheritedScopes).orEmpty() else emptyMap()
+            for (entry in MemoryRecallPolicy.rank(query, candidates, previousContext, settings.rankByRecency, settings.rankByFrequency, now, semanticScores)) {
+                if (selected.any { it.id == entry.id || FactRecall(listOf(it)).prefix() == FactRecall(listOf(entry)).prefix() }) continue
+                if (selected.size >= settings.maxRecall) break
+                if (dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(FactRecall(selected + entry).prefix()) <= settings.recallTokens) selected += entry
+            }
+            FactRecall(selected)
         }
-        if (current != original) persist(current)
-        if (!settings.recallEnabled || (!isLocal && !settings.allowCloudRecall)) return@withLock FactRecall()
-        val candidates = current.facts.filter {
-            it.enabled &&
-                (isLocal && includeLocalOnly || !it.localOnly) &&
-                (it.validFromMillis == null || it.validFromMillis <= now) &&
-                (it.validUntilMillis == null || it.validUntilMillis > now) &&
-                it.supersededBy == null &&
-                !it.awaitingReview &&
-                boundary.acceptsSource(it) &&
-                recallBoundary.accepts(it.scope) &&
-                (!settings.sameChatOnly || it.sourceChatId == chatId) &&
-                !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
-        }
-        val selected = mutableListOf<VaultFact>()
-        val semanticScores = if (settings.semanticRecall) semantic?.search(query.take(MAX_QUERY_CHARS), scope, includePersonal = recallBoundary.includePersonal, inheritedScopes = recallBoundary.inheritedScopes).orEmpty() else emptyMap()
-        for (entry in MemoryRecallPolicy.rank(query.take(MAX_QUERY_CHARS), candidates, previousContext, settings.rankByRecency, settings.rankByFrequency, now, semanticScores)) {
-            if (selected.any { it.id == entry.id }) continue
-            if (selected.size >= settings.maxRecall) break
-            if (FactRecall(selected + entry).prefix().encodeToByteArray().size <= settings.recallTokens) selected += entry
-        }
-        FactRecall(selected)
     }
 
     /** Serializes enrichment across parallel AI profiles and rechecks settings after inference. */

@@ -77,15 +77,19 @@ internal class SearchCrawlStage(
             } ?: continue
             if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) break
             if (result.isError) continue
-            val payload = result.content.researchPayload()
-            val text = pageText(payload).ifBlank { result.content.researchText() }
+            val retained = result.retainedContent ?: result.content
+            val payload = retained.researchPayload()
+            val text = pageText(payload).ifBlank { retained.researchText() }
             if (text.isBlank() || looksLikeConsentOrScriptShell(text)) continue
             return buildJsonObject {
                 put("url", url)
                 put("crawler", reader.realToolName)
                 put("status", "completed")
-                put("content", dev.chungjungsoo.gptmobile.data.agent.truncateUtf8(text, 6000))
-                put("truncated", text.toByteArray().size > 6000 || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true))
+                put("content", text)
+                put("retainedBytes", text.toByteArray(Charsets.UTF_8).size)
+                put("truncated", evidenceHasTruncation(payload))
+                put("evidenceOutcome", if (evidenceHasTruncation(payload)) SearchEvidenceOutcome.PARTIAL.name else SearchEvidenceOutcome.SUCCESS.name)
+                if ((payload as? JsonObject)?.get("truncated") == JsonPrimitive(false) && evidenceHasTruncation(payload)) put("truncationInconsistent", true)
             }
         }
         return buildJsonObject {

@@ -76,14 +76,18 @@ internal fun relevantEvidence(text: String, task: String, maxBytes: Int): String
 
 /** JSON framing keeps supplied tasks and retrieved evidence distinct from worker instructions. */
 internal fun delegationPrompt(instruction: String, task: String, evidence: String, maxBytes: Int): String {
-    var taskText = truncateUtf8(task, (maxBytes / 4).coerceAtLeast(100))
-    var data = relevantEvidence(evidence, task, (maxBytes - instruction.toByteArray().size - taskText.toByteArray().size - 100).coerceAtLeast(0))
+    // A task is an instruction contract, not an evidence excerpt. An oversized
+    // full task is left intact for admission to reject instead of silently dropping constraints.
+    var data = relevantEvidence(evidence, task, (maxBytes - instruction.toByteArray().size - task.toByteArray().size - 100).coerceAtLeast(0))
     fun render() = instruction + "\n" + buildJsonObject {
-        put("task", taskText)
+        put("task", task)
         put("untrusted_evidence", data)
+        put("evidence_excerpted", data != evidence)
+        put("retained_evidence_bytes", evidence.toByteArray().size)
+        put("delivered_evidence_bytes", data.toByteArray().size)
     }
-    while (render().toByteArray().size > maxBytes && (data.isNotEmpty() || taskText.isNotEmpty())) {
-        if (data.isNotEmpty()) data = truncateUtf8(data, (data.toByteArray().size * 3 / 4)) else taskText = truncateUtf8(taskText, taskText.toByteArray().size / 2)
+    while (render().toByteArray().size > maxBytes && data.isNotEmpty()) {
+        data = truncateUtf8(data, data.toByteArray().size * 3 / 4)
     }
     return render()
 }

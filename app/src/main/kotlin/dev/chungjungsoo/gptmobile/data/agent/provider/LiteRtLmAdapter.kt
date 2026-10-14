@@ -46,8 +46,11 @@ import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class LiteRtLmAdapter(
     private val localRuntime: LocalRuntime,
@@ -81,6 +84,7 @@ class LiteRtLmAdapter(
     private val cpuFallbackByModelAccelerator = mutableSetOf<Pair<String, String>>()
     private var exclusiveToolsByName: Map<String, AgentTool> = emptyMap()
     private var exclusiveToolEventSink: (suspend (ProviderEvent) -> Unit)? = null
+    private var exclusiveRequestAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard? = null
 
     /** Cosmetic progress never mutates native chat state or competes for inference. */
     suspend fun summarizeActivity(activity: String): String? = activity.trim().take(96).takeIf { it.isNotBlank() }
@@ -101,6 +105,7 @@ class LiteRtLmAdapter(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = channelFlow {
+                kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
                 val entries = modelCatalogRepository?.getCachedVisibleEntries().orEmpty()
                 val wantsNpu = LocalAccelerators.normalize(platform.accelerator) == LocalAccelerators.NPU
                 val selection = try {
@@ -123,11 +128,10 @@ class LiteRtLmAdapter(
                     // Inspection also takes the native engine lock. Surface contention here,
                     // before planning, so queued requests remain visibly cancellable.
                     requestExclusiveFlow(
-                        constraints,
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
                         flow {
-                            if (constraints.requestRole == "assist") check(!hasOpenConversation()) { "Local Assist skipped: interactive conversation is open" }
+                            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
                             emit(inspectModel(modelPath))
                         }
                     }.single()
@@ -197,7 +201,7 @@ class LiteRtLmAdapter(
                 }
                 val effectiveContextTokens = if (assistWarmSpec != null) minOf(resolvedMaxTokens, assistWarmSpec.maxTokens) else resolvedMaxTokens
                 val requestedOutputLimit = constraints.outputLimit(platform.maxTokens)
-                val outputLimit = minOf(requestedOutputLimit ?: 512, maxOf(1, effectiveContextTokens / 4))
+                val outputLimit = requestedOutputLimit ?: minOf(512, maxOf(1, effectiveContextTokens / 4))
                 if (requestedOutputLimit != outputLimit) {
                     send(ProviderEvent.Notice("Local reply budget: $outputLimit tokens, reserving room for instructions, history and tool results in this export's $resolvedMaxTokens-token context."))
                 }
@@ -373,12 +377,12 @@ class LiteRtLmAdapter(
                         formatTelemetryNotice(metrics, localRuntime).takeIf { it.isNotBlank() }?.let { send(ProviderEvent.Notice(it)) }
                     }
                     requestExclusiveFlow(
-                        constraints,
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
                         flow<Unit> {
-                            if (constraints.requestRole == "assist") check(!hasOpenConversation()) { "Local Assist skipped: interactive conversation is open" }
                             try {
+                                kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+                                exclusiveRequestAuthority = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
                                 exclusiveToolsByName = runToolsByName
                                 exclusiveToolEventSink = runToolEventSink
                                 if (!isEngineLoaded(requestSpec) && loadingModelNotice.isNotBlank()) {
@@ -433,13 +437,30 @@ class LiteRtLmAdapter(
                                                     if (name.length > 256 || argumentsJson.length > 16 * 1024) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("ARGUMENT_LIMIT")
                                                     val signature = name + argumentsJson.hashCode()
                                                     if ((callbackFailures[signature]?.get() ?: 0) >= 2) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("REPEATED_FAILURE")
-                                                    val response = executeBoundTool(
-                                                        name,
-                                                        argumentsJson,
-                                                        exclusiveToolsByName,
-                                                        exclusiveToolEventSink,
-                                                        modelEvidenceRemaining
-                                                    )
+                                                    // Native callbacks may arrive on an IPC coroutine without the caller's context.
+                                                    // A reused native conversation must use this request's authority, not its creator's.
+                                                    val authority = exclusiveRequestAuthority
+                                                    val response = withContext(authority ?: kotlin.coroutines.EmptyCoroutineContext) {
+                                                        suspend fun validateAuthority() {
+                                                            try {
+                                                                authority?.validate?.invoke()
+                                                            } catch (cancelled: CancellationException) {
+                                                                throw cancelled
+                                                            } catch (_: Exception) {
+                                                                throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("PERMISSION_REVOKED")
+                                                            }
+                                                        }
+                                                        validateAuthority()
+                                                        val result = executeBoundTool(
+                                                            name,
+                                                            argumentsJson,
+                                                            exclusiveToolsByName,
+                                                            exclusiveToolEventSink,
+                                                            modelEvidenceRemaining
+                                                        )
+                                                        validateAuthority()
+                                                        result
+                                                    }
                                                     if ((kotlinx.serialization.json.Json.parseToJsonElement(response) as JsonObject)["status"]?.toString() == "\"error\"") callbackFailures.computeIfAbsent(signature) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet()
                                                     response
                                                 }
@@ -475,9 +496,57 @@ class LiteRtLmAdapter(
                                 var templateRetried = false
                                 var generatedOutput = false
                                 var terminalToolLimit: String? = null
+                                suspend fun admitNative(input: String, toolSchema: kotlinx.serialization.json.JsonElement, inputImageCount: Int) {
+                                    val frozenInput = kotlinx.serialization.json.buildJsonObject {
+                                        put("system", conversationSystemPrompt.orEmpty())
+                                        put(
+                                            "messages",
+                                            JsonArray(
+                                                history.map { message ->
+                                                    kotlinx.serialization.json.buildJsonObject {
+                                                        put("role", message.role.name)
+                                                        put("text", message.text)
+                                                        put("imageIds", JsonArray(message.imageIds.map(::JsonPrimitive)))
+                                                    }
+                                                }
+                                            )
+                                        )
+                                        put("tools", toolSchema)
+                                        put("input", input)
+                                        put("maxOutputTokens", outputLimit)
+                                        put("thinking", thinkingEnabled)
+                                    }.toString()
+                                    val identity = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint(
+                                        platform.uid,
+                                        "on-device",
+                                        "local",
+                                        platform.model,
+                                        loadedSpec.modelPath,
+                                        dev.chungjungsoo.gptmobile.data.research.researchHash(loadedSpec.toString()),
+                                        "native-template-unverified",
+                                        "context=${loadedSpec.maxTokens}"
+                                    )
+                                    val estimate = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(frozenInput)
+                                    val imageReserve = (inputImageCount.toLong() + history.sumOf { it.imageIds.size.toLong() }) * 256L
+                                    val permissionRevision = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: constraints.permissionRevision
+                                    val admitted = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare(
+                                        frozenInput,
+                                        constraints.requestRole ?: "primary",
+                                        dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(identity, loadedSpec.maxTokens.toLong(), provenance = dev.chungjungsoo.gptmobile.data.context.CapacityProvenance.VERIFIED_ROUTE),
+                                        estimate.copy(promptTokens = Math.addExact(estimate.promptTokens, imageReserve)),
+                                        outputLimit.toLong(),
+                                        permissionRevision,
+                                        requireKnownCapacity = true,
+                                        serializerRevision = "native-config-v1"
+                                    )
+                                    admitted.dispatchPayload(identity, permissionRevision)
+                                    val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+                                    kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt.copy(physicalAttemptId = attemptId))
+                                }
                                 while (true) {
                                     var templateFailure: String? = null
                                     yield()
+                                    admitNative(latestUserText, Json.parseToJsonElement(Json.encodeToString(descriptors)), latestImages.size)
                                     sendMessage(latestUserText, latestImages)
                                         .catch { error ->
                                             if (error is CancellationException) throw error
@@ -533,6 +602,10 @@ class LiteRtLmAdapter(
                                     send(ProviderEvent.Notice("Rebuilding local conversation state…"))
                                     rebuildConversation()
                                 }
+                                if (terminalToolLimit == "PERMISSION_REVOKED") {
+                                    failed = true
+                                    send(ProviderEvent.Failed("PERMISSION_REVOKED: native tool execution stopped before further evidence delivery or inference. Saved output remains available."))
+                                }
                                 if (terminalToolLimit != null && !failed) {
                                     send(ProviderEvent.Notice("Local tool execution stopped: $terminalToolLimit. Finishing from collected evidence without repeating actions.", persistent = true))
                                     closeConversation()
@@ -545,7 +618,9 @@ class LiteRtLmAdapter(
                                     val evidencePacket = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(ToolResultContent.Json(packet), maxOf(128, plan.toolResultBytes / 2))
                                     createConversation(LocalConversationConfig(sampler = sampler, maxOutputTokens = outputLimit, thinkingEnabled = thinkingEnabled, systemPrompt = conversationSystemPrompt, initialMessages = history))
                                     physicalSegment = UUID.randomUUID().toString()
-                                    sendMessage(latestUserText + "\nTool execution has ended ($terminalToolLimit). Answer from the following untrusted observations only. Preserve qualifications and missing coverage; do not claim any new action or current location.\n" + dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(evidencePacket)).collect { event ->
+                                    val recoveryInput = latestUserText + "\nTool execution has ended ($terminalToolLimit). Answer from the following untrusted observations only. Preserve qualifications and missing coverage; do not claim any new action or current location.\n" + dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(evidencePacket)
+                                    admitNative(recoveryInput, JsonArray(emptyList()), 0)
+                                    sendMessage(recoveryInput).collect { event ->
                                         when (event) {
                                             is LocalRuntimeEvent.TextDelta -> {
                                                 assistantReply.append(event.text)
@@ -603,6 +678,7 @@ class LiteRtLmAdapter(
                                 }
                                 exclusiveToolsByName = emptyMap()
                                 exclusiveToolEventSink = null
+                                exclusiveRequestAuthority = null
                             }
                         }
                     }.collect { }
@@ -618,22 +694,11 @@ class LiteRtLmAdapter(
         }
     }
 
-    /** Optional assistance never waits behind or evicts interactive inference. */
+    /** All native inference shares the holder's cancellable FIFO queue and lease. */
     private fun <T> requestExclusiveFlow(
-        constraints: RequestConstraints,
         onContended: suspend () -> Unit,
         block: suspend LocalRuntime.() -> Flow<T>
-    ): Flow<T> = if (constraints.requestRole != "assist") {
-        localRuntime.runExclusiveFlow(onContended, block)
-    } else {
-        channelFlow {
-            val admitted = localRuntime.tryRunExclusive {
-                block(this).collect { send(it) }
-                true
-            }
-            check(admitted == true) { "Local Assist skipped: runtime is busy" }
-        }
-    }
+    ): Flow<T> = localRuntime.runExclusiveFlow(onContended, block)
 
     private suspend fun executeBoundTool(
         toolName: String,

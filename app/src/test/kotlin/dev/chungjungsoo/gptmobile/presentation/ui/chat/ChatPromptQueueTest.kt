@@ -309,6 +309,28 @@ class ChatPromptQueueTest {
     }
 
     @Test
+    fun `pending optional palette persistence cannot delay profile selection or queued membership`() = runTest(dispatcher) {
+        val paletteGate = CompletableDeferred<Unit>()
+        try {
+            val model = createViewModel(availableProfileCount = 2, paletteGate = paletteGate)
+            runCurrent()
+            model.setPlatformMembership("profile-2", true)
+            runCurrent()
+            model.selectNextMessageProfile("profile-2")
+            assertEquals("profile-2", model.nextMessageProfileUid.value)
+            assertEquals(listOf("profile-1", "profile-2"), model.activePlatformUids.value)
+            assertFalse(paletteGate.isCompleted)
+            send(model, "Selected while colors are pending")
+            completePersistedRuns()
+            activeRuns.value = emptyMap()
+            runCurrent()
+            assertEquals(listOf("profile-2"), starts.single().map { it.platform.uid })
+        } finally {
+            paletteGate.complete(Unit)
+        }
+    }
+
+    @Test
     fun `queued one-message choice snapshots its profile and preserves membership`() = runTest(dispatcher) {
         val model = createViewModel(availableProfileCount = 2)
         runCurrent()
@@ -380,7 +402,7 @@ class ChatPromptQueueTest {
         }
     }
 
-    private fun createViewModel(combined: Boolean = false, availableProfileCount: Int = if (combined) 2 else 1, groupingDispatcher: CoroutineDispatcher = dispatcher): ChatViewModel {
+    private fun createViewModel(combined: Boolean = false, availableProfileCount: Int = if (combined) 2 else 1, groupingDispatcher: CoroutineDispatcher = dispatcher, paletteGate: CompletableDeferred<Unit>? = null): ChatViewModel {
         val profiles = (1..availableProfileCount).map { index ->
             PlatformV2(
                 uid = "profile-$index",
@@ -459,6 +481,12 @@ class ChatPromptQueueTest {
         val settings = mockk<SettingRepository>(relaxed = true)
         coEvery { settings.fetchPlatformV2s() } returns profiles
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
+        if (paletteGate != null) {
+            coEvery { settings.mutateFeatureSettings(any()) } coAnswers {
+                paletteGate.await()
+                firstArg<(AppFeatureSettings) -> AppFeatureSettings>()(AppFeatureSettings())
+            }
+        }
         every { settings.observeDebugMode() } returns flowOf(false)
         every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings(automaticConversationTitles = false))
         val coordinator = mockk<AgentRunCoordinator>(relaxed = true)

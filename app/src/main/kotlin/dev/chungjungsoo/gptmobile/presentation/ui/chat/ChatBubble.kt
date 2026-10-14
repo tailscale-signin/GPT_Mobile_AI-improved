@@ -86,6 +86,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -239,6 +240,7 @@ fun OpponentChatBubble(
     canEdit: Boolean = false,
     isFavorite: Boolean = false,
     debugMode: Boolean = false,
+    profileColorIdentity: dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity? = null,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
     debugSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
@@ -412,7 +414,9 @@ fun OpponentChatBubble(
                 }
 
                 AssistantChronologicalContent(
+                    outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0") },
                     animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
+                    proseColor = profileColorIdentity?.takeIf { debugMode }?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
                     toolEvents = toolEvents,
                     fallbackText = text,
                     fallbackThoughts = visibleThoughts,
@@ -469,6 +473,7 @@ fun OpponentChatBubble(
                         telemetryNotice = telemetryNotice,
                         notices = (nonTelemetryNotices + contentTimeline.filter { it.type == AssistantTimelineItemType.NOTICE && isContextDiagnostic(it.content) }.map { it.content }).distinct(),
                         invocations = invocations,
+                        assistTasks = contentTimeline.mapNotNull { it.assistDiagnostic },
                         settings = debugSettings,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1000,6 +1005,7 @@ internal fun TelemetryBadge(notice: String, modifier: Modifier = Modifier) {
 internal fun ChatDebugDiagnosticsCard(
     agentRun: AgentRun?,
     telemetryNotice: String?,
+    assistTasks: List<dev.chungjungsoo.gptmobile.data.assist.AssistTaskState> = emptyList(),
     notices: List<String> = emptyList(),
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
     settings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
@@ -1028,6 +1034,7 @@ internal fun ChatDebugDiagnosticsCard(
                 Text(if (running) "Live diagnostics" else "Response diagnostics", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
                 TextButton(onClick = { copyScope.launch { dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(copyContext, dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(report), "Response diagnostics") } }) { Text("Copy") }
             }
+            LocalAssistDiagnosticsCard(assistTasks, invocations.filter { it.kind == "assist" })
             val requests = invocations.distinctBy { it.id }
             if (settings.debugShowTokenComparison && requests.isNotEmpty()) {
                 TokenComparisonPanel(requests)

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.ModelConstants
+import dev.chungjungsoo.gptmobile.data.assist.migrateProcessingPermissions
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ProviderConnectionDao
@@ -156,10 +157,20 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun mutateThemes(transform: (ThemeSetting) -> ThemeSetting): ThemeSetting = settingDataSource.mutateThemes(transform)
 
-    override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings =
-        settingDataSource.mutateFeatureSettings(transform).also {
-            dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection
+    override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings {
+        val profiles = fetchPlatformV2s()
+        return settingDataSource.mutateFeatureSettings { current ->
+            transform(current.copy(localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles)))
+        }.also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
+    }
+
+    private suspend fun migrateAssistPermissions(settings: AppFeatureSettings): AppFeatureSettings {
+        if (settings.localAssistPolicy.permissionVersion >= 1) return settings
+        val profiles = fetchPlatformV2s()
+        return settingDataSource.mutateFeatureSettings { current ->
+            current.copy(localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles))
         }
+    }
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
         settingDataSource.getLocalRuntimeBackend()
@@ -179,7 +190,7 @@ class SettingRepositoryImpl @Inject constructor(
 
     override fun observeDebugMode(): Flow<Boolean> = settingDataSource.observeDebugMode().map { it.also(dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy::setEnabled) }
 
-    override suspend fun getFeatureSettings(): AppFeatureSettings = settingDataSource.getFeatureSettings().also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
+    override suspend fun getFeatureSettings(): AppFeatureSettings = migrateAssistPermissions(settingDataSource.getFeatureSettings()).also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
 
     override suspend fun updateFeatureSettings(settings: AppFeatureSettings) {
         settingDataSource.updateFeatureSettings(settings)
@@ -189,7 +200,7 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) = settingDataSource.updateResearchSettings(settings)
 
     override fun observeFeatureSettings(): Flow<AppFeatureSettings> =
-        settingDataSource.observeFeatureSettings()
+        settingDataSource.observeFeatureSettings().map { migrateAssistPermissions(it) }
 
     override suspend fun getFavoriteGroups(): List<String> = settingDataSource.getFavoriteGroups()
 

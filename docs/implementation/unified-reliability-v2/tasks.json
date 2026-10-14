@@ -1,0 +1,1137 @@
+[
+  {
+    "id": "V01",
+    "title": "Freeze the implementation baseline and version plan",
+    "priority": "P0",
+    "dependencies": [],
+    "status": "IMPLEMENTED",
+    "acceptance_ids": [
+      "IX27",
+      "LA-QA33",
+      "LC-T18"
+    ],
+    "implementation_commits": [],
+    "evidence": [
+      "BASELINE.json"
+    ],
+    "remaining_work": [
+      "Android baseline tests require CI. Device qualification unavailable in this workspace."
+    ]
+  },
+  {
+    "id": "V02",
+    "title": "Turn all three incidents into sanitized regression fixtures",
+    "priority": "P0",
+    "dependencies": [
+      "V01"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA25",
+      "LA-QA26",
+      "LC-T11",
+      "CM-T04",
+      "CM-T06",
+      "CM-T09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "All three source exports located and privately hash-verified. Synthetic incident shapes and parser replay tests added; complete sanitized model/transport fixture replay and evidence linking remain."
+    ]
+  },
+  {
+    "id": "V03",
+    "title": "Define one shared execution and evidence contract",
+    "priority": "P0",
+    "dependencies": [
+      "V01"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA21",
+      "LA-QA24",
+      "LC-T08",
+      "IX09",
+      "IX11"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Shared immutable admission/capacity identities and serialized inclusion receipts added. Shared operational journal and all role boundaries remain."
+    ]
+  },
+  {
+    "id": "V04",
+    "title": "Add additive persistence and intent-preserving migrations",
+    "priority": "P0",
+    "dependencies": [
+      "V01",
+      "V03"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA30",
+      "LA-QA32",
+      "LA-QA33",
+      "LC-T18",
+      "CM-T24",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "KSP-generated schema 40 added. Migration/backup fixture verification running; temporary-chat retention review remains."
+    ]
+  },
+  {
+    "id": "V05",
+    "title": "Fix OpenRouter's omitted-field default injection",
+    "priority": "P0",
+    "dependencies": [
+      "V02",
+      "V03"
+    ],
+    "status": "IMPLEMENTED",
+    "acceptance_ids": [
+      "CM-T04",
+      "CM-T05",
+      "IX01",
+      "IX02",
+      "IX03"
+    ],
+    "implementation_commits": [
+      "d259c5a6379306f76e17c2e4fe24df66c793439c"
+    ],
+    "evidence": [
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterPresenceTest.kt"
+    ],
+    "remaining_work": [
+      "Wait for exact-commit CI and resolve review findings."
+    ]
+  },
+  {
+    "id": "V06",
+    "title": "Resolve output and reasoning with auditable precedence",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V05"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T02",
+      "LC-T12",
+      "CM-T04",
+      "CM-T05",
+      "CM-T06",
+      "IX30"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Llama AUTO/ON/OFF settings now resolve at final serialization with synthetic same-route template toggle probes; unsupported strict controls block before inference and computation remains observed-unknown. Other provider capability mappings and real-server qualification remain."
+    ]
+  },
+  {
+    "id": "V07",
+    "title": "Discover the capacity of the actual llama.cpp route",
+    "priority": "P0",
+    "dependencies": [
+      "V03"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T03",
+      "LC-T04",
+      "LC-T17",
+      "IX24"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Scoped per-route single-flight cache, short negative TTL and invalidation epoch added. Actual runtime reload notification and router/gateway qualification remain."
+    ]
+  },
+  {
+    "id": "V08",
+    "title": "Count and admit the final immutable request",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V06",
+      "V07"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T01",
+      "LC-T02",
+      "LC-T06",
+      "LC-T07",
+      "LC-T08",
+      "IX13"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Checked-Long final serialized payload admission added for HTTP providers. Serving-tokenizer parity, bounded re-plan and live permission invalidation remain."
+    ]
+  },
+  {
+    "id": "V09",
+    "title": "Wire every physical inference route through admission",
+    "priority": "P0",
+    "dependencies": [
+      "V08"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T05",
+      "LC-T06",
+      "LC-T08",
+      "IX10",
+      "IX11",
+      "IX13"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Final HTTP/native serialization records unique physical-attempt IDs after authorization and allowance. Primary/contributor/Combined/continuation sessions, delegates/reviewers/Assist and titles now capture configured destination and policy fingerprints before preparation and revalidate at physical dispatch, preserving parent authority. Display-only changes do not cancel requests. Legacy Free GET is admitted with honestly unknown output limits. Complete native internal rounds, provider batch routes and acceptance matrix remain."
+    ]
+  },
+  {
+    "id": "V10",
+    "title": "Make tool exposure and history retention token-aware",
+    "priority": "P1",
+    "dependencies": [
+      "V08",
+      "V09"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T05",
+      "LC-T06",
+      "CM-T02",
+      "LA-QA36"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Removed count-based 4/8/16 tool ceiling; schema admission uses remaining token budget with required tools first. Full history-retention UI, exact final counts and tests across every provider remain."
+    ]
+  },
+  {
+    "id": "V11",
+    "title": "Replace the fixed watchdog with observable progress stages",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V07",
+      "V09"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T09",
+      "LC-T10",
+      "LC-T11",
+      "LC-T14"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Meaningful progress now tracks monotonic native/provider counters and unique tool/checkpoint transitions; observed queue/load phases have separate deadlines. Explicit per-profile deadlines override bounded runtime/prompt-bucket timing observations, with typed terminal metadata retained in the timeline. Connection Doctor edits waits. Full transport phase exposure and device timing/cleanup qualification remain."
+    ]
+  },
+  {
+    "id": "V12",
+    "title": "Unify backend leases and acknowledged cancellation",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V11"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA13",
+      "LA-QA15",
+      "LA-QA16",
+      "LA-QA17",
+      "LA-QA18",
+      "LC-T14",
+      "LC-T15",
+      "IX09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Shared holder has bounded FIFO waits; timed-out IPC worker is quarantined until binder death. Native generation has no unrelated ten-minute cutoff. Cooperative parent yield, root-priority fairness and real-device cancellation/death qualification remain."
+    ]
+  },
+  {
+    "id": "V13",
+    "title": "Repair continuation and safe generation-stage recovery",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V06",
+      "V09",
+      "V11",
+      "V12"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T13",
+      "LC-T16",
+      "CM-T06",
+      "CM-T07",
+      "CM-T08"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Recovery retains evidence and user response allowance and distinguishes empty first draft; classified recovery/coverage repair remains."
+    ]
+  },
+  {
+    "id": "V14",
+    "title": "Resolve Assist policy and separate it from memory learning",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA01",
+      "LA-QA02",
+      "LA-QA03",
+      "LA-QA07",
+      "LA-QA17"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "One requested/effective policy resolver now feeds settings and response snapshots. Explicit per-helper processing permission preserves old exclusions on migration. Full live-revocation and migration matrix qualification remain."
+    ]
+  },
+  {
+    "id": "V15",
+    "title": "Persist run-scoped Assist decisions and every exit",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V14"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA01",
+      "LA-QA02",
+      "LA-QA03",
+      "LA-QA30",
+      "LA-QA32",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V16",
+    "title": "Preflight the actual local artifact and backend",
+    "priority": "P0",
+    "dependencies": [
+      "V07",
+      "V12",
+      "V14",
+      "V15"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA04",
+      "LA-QA05",
+      "LA-QA06",
+      "LA-QA18",
+      "LC-T17",
+      "IX17",
+      "IX29"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Assist now preflights installed readability, known artifact/backend/context metadata, model configuration and loaded session/cancellation health. Deterministic tensor incompatibility quarantine is durable and reset only for the explicitly verified tuple; identities include artifact bytes, runtime libraries and firmware. Real CPU/GPU/NPU/GGUF device qualification and task-quality observations remain."
+    ]
+  },
+  {
+    "id": "V17",
+    "title": "Normalize evidence before Assist without breaking adapters",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V15"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA11",
+      "LA-QA12",
+      "LA-QA25",
+      "LA-QA26",
+      "IX28"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V18",
+    "title": "Plan independent Assist tasks and preserve complete goals",
+    "priority": "P1",
+    "dependencies": [
+      "V14",
+      "V15",
+      "V17"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA08",
+      "LA-QA09",
+      "IX04"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V19",
+    "title": "Replace character windows and premature attempt charging",
+    "priority": "P1",
+    "dependencies": [
+      "V08",
+      "V16",
+      "V18"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA09",
+      "LA-QA10",
+      "LA-QA11",
+      "IX05"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Attempt reservations now run at admitted physical dispatch, with live permission/runtime recheck; no charge for preparation/queue failures. Initial/retry/native writer recovery use the boundary. Native-internal tool rounds and authoritative local tokenizer integration remain."
+    ]
+  },
+  {
+    "id": "V20",
+    "title": "Queue Assist fairly and fix shared cache identity",
+    "priority": "P0",
+    "dependencies": [
+      "V12",
+      "V15",
+      "V18",
+      "V19"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA13",
+      "LA-QA14",
+      "LA-QA15",
+      "LA-QA17",
+      "LA-QA24",
+      "IX06",
+      "IX09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Shared producers revalidate individual subscribers, retain subscriber links and survive cancellation until none remain. Native resource scheduling now prioritizes visible work with bounded bypass, aging and root alternation. Preparation/queue and generation use independent deadlines with explicit rejection reasons. Queue position/wait projection and device concurrency qualification remain."
+    ]
+  },
+  {
+    "id": "V21",
+    "title": "Validate source-linked handoff and record real inclusion",
+    "priority": "P0",
+    "dependencies": [
+      "V09",
+      "V17",
+      "V19",
+      "V20"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA19",
+      "LA-QA20",
+      "LA-QA21",
+      "LA-QA22",
+      "IX13"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "HTTP serializer receipts compare exact validated sidecars; task delivery status and native dispatch still require integration."
+    ]
+  },
+  {
+    "id": "V22",
+    "title": "Account for local usage once and report unknowns honestly",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V15",
+      "V16",
+      "V20",
+      "V21"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA23",
+      "LA-QA24",
+      "LA-QA31",
+      "LC-T18",
+      "IX26"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Nullable observed counts and verified-versus-legacy inclusion metadata added; full attempt-level accounting and response reporting remain."
+    ]
+  },
+  {
+    "id": "V23",
+    "title": "Build the Assist settings and expected-helper card",
+    "priority": "P1",
+    "dependencies": [
+      "V14",
+      "V15",
+      "V16",
+      "V21",
+      "V22"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA30",
+      "LA-QA31",
+      "LA-QA34",
+      "LA-QA35",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Implementation and full acceptance verification in progress; not a completion claim."
+    ]
+  },
+  {
+    "id": "V24",
+    "title": "Repair search parsing, error classes and truncation truth",
+    "priority": "P0",
+    "dependencies": [
+      "V02",
+      "V17"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA25",
+      "LA-QA26",
+      "LA-QA27",
+      "LA-QA28",
+      "IX28"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Incident Markdown fields, bounded known redirect decoding, checkpoint payloads, source/error separation and typed evidence outcomes added. Provider matrix and full acquisition cancellation outcomes remain."
+    ]
+  },
+  {
+    "id": "V25",
+    "title": "Separate acquisition, retention and delivery budgets",
+    "priority": "P0",
+    "dependencies": [
+      "V08",
+      "V17",
+      "V24"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA26",
+      "LA-QA29",
+      "CM-T11",
+      "IX14",
+      "IX28"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Search aggregation reads retained acquisition payloads, preserves all retained candidates separately from selected delivery and preserves full crawler text. Scoped source read-back and separate bounded retention policy remain."
+    ]
+  },
+  {
+    "id": "V26",
+    "title": "Keep research/query execution parent-controlled and finite",
+    "priority": "P1",
+    "dependencies": [
+      "V12",
+      "V18",
+      "V24",
+      "V25"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA14",
+      "LA-QA28",
+      "LA-QA29",
+      "LC-T15",
+      "IX09"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Research and reviewer prompts now retain the complete goal through storage and reject insufficient input capacity before dispatch; evidence excerpts report retained/delivered bytes. Parent-owned acquisition already has durable goal budgets and per-operation cancellation. Structured query lineage, fair engine scheduling and complete terminal engine-outcome persistence remain."
+    ]
+  },
+  {
+    "id": "V27",
+    "title": "Reduce irrelevant memory and context-preparation overhead",
+    "priority": "P1",
+    "dependencies": [
+      "V09",
+      "V10",
+      "V14",
+      "V25"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA36",
+      "LC-T06",
+      "CM-T02",
+      "IX18"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Full-query lexical and connected memory recall, conservative generic-term filtering, serialized-fact deduplication, off-main preparation and separate typed phase timings added. Bounded capability-discovery invalidation, complete serialization timing and performance qualification remain."
+    ]
+  },
+  {
+    "id": "V28",
+    "title": "Freeze full Combined context and explicitly pin the primary",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V09",
+      "V25"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T01",
+      "CM-T02",
+      "CM-T03",
+      "CM-T11",
+      "CM-T17",
+      "IX07"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Explicit Combined retry now reloads the original frozen prompt/history/sources with pinned-profile/configuration validation and verified committed segments. Explicit primary replacement UI and complete device restart qualification remain."
+    ]
+  },
+  {
+    "id": "V29",
+    "title": "Fence one output slot across every synthesis revision",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V12",
+      "V28"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T09",
+      "CM-T10",
+      "CM-T24",
+      "IX08"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Transactional owner fence and same-key deduplication added; race tests pending execution."
+    ]
+  },
+  {
+    "id": "V30",
+    "title": "Implement full-input and explicit finite-context workflows",
+    "priority": "P0",
+    "dependencies": [
+      "V08",
+      "V21",
+      "V28",
+      "V29"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "CM-T01",
+      "CM-T03",
+      "CM-T26",
+      "LC-T01",
+      "IX14"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V31",
+    "title": "Persist answer segments and protect every committed prefix",
+    "priority": "P0",
+    "dependencies": [
+      "V13",
+      "V29",
+      "V30"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T06",
+      "CM-T07",
+      "CM-T08",
+      "CM-T24",
+      "CM-T26",
+      "IX08"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Append-only checked answer segments preserve complete prefixes; explicit recovery re-fences and copies verified segments, including text-only native continuation. Terminal errors stay outside answer text. Process-death and long-answer device qualification remain."
+    ]
+  },
+  {
+    "id": "V32",
+    "title": "Build complete coverage inventories and targeted repair",
+    "priority": "P0",
+    "dependencies": [
+      "V28",
+      "V30",
+      "V31"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T08",
+      "CM-T16",
+      "CM-T26",
+      "IX14"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Frozen Combined snapshots now persist a complete paginated source inventory with UTF-16 and UTF-8 ranges, digests and partial contributor occurrences. Proposed atomic-claim dispositions are structurally validated against complete source coverage and exact output links; exclusions cannot inflate inclusion and unprocessed sections suppress a coverage fraction. Model extraction, independent semantic auditing, targeted section repair and completion gating remain."
+    ]
+  },
+  {
+    "id": "V33",
+    "title": "Build contribution lineage before assigning ownership",
+    "priority": "P1",
+    "dependencies": [
+      "V21",
+      "V28",
+      "V32"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T11",
+      "CM-T17",
+      "CM-T18",
+      "CM-T21"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Frozen selected-profile lineage now records original body revisions, exact UTF-16/UTF-8 span locators, all exact duplicate occurrences and missing/partial competitors. Support remains unverified until semantic comparison; validated evidence producer links and live permission revision checks remain."
+    ]
+  },
+  {
+    "id": "V34",
+    "title": "Verify exclusive meaning conservatively and allow abstention",
+    "priority": "P1",
+    "dependencies": [
+      "V09",
+      "V16",
+      "V20",
+      "V33"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T12",
+      "CM-T13",
+      "CM-T14",
+      "CM-T15",
+      "CM-T16",
+      "CM-T18",
+      "IX30"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Independent provenance validation now binds every claim to answer/corpus/parser/permission revisions, requires complete per-profile span comparisons, rejects malformed or overlapping evidence and supports shared/mixed/conflicting/unknown abstention. A separately qualified semantic verifier, whole-corpus execution and held-out human precision qualification still remain."
+    ]
+  },
+  {
+    "id": "V35",
+    "title": "Assign stable, accessible profile text colors",
+    "priority": "P1",
+    "dependencies": [
+      "V04",
+      "V33",
+      "V34"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T14",
+      "CM-T20",
+      "LA-QA35"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Profile color identities and numbered markers persist by UID in feature settings; contrast is resolved against actual surfaces; Combined profile names and original prose receive native foreground colors in debug mode. Final verified-sentence integration and device accessibility/theme qualification remain."
+    ]
+  },
+  {
+    "id": "V36",
+    "title": "Make attribution safe for Markdown, Unicode and streaming",
+    "priority": "P1",
+    "dependencies": [
+      "V31",
+      "V34",
+      "V35"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T19",
+      "CM-T20",
+      "CM-T24"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "The actual Markdown parser now emits verbatim source runs through math transformations; renderer consumes validated mapped foreground spans and rejects stale or malformed maps. Stable-sentence background verification, full response-block projection, semantic sidecar persistence and Unicode/device rendering qualification remain."
+    ]
+  },
+  {
+    "id": "V37",
+    "title": "Add the contribution legend and sentence inspector",
+    "priority": "P1",
+    "dependencies": [
+      "V23",
+      "V34",
+      "V35",
+      "V36"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T14",
+      "CM-T18",
+      "CM-T20",
+      "CM-T24"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Added debug-only lazy passage inspector with numbered profile identities, primary badge, immutable original-contribution navigation, exact validated spans, comparison counts, revision and safe evidence links. Absent/stale qualification remains UNKNOWN. Production semantic sidecar persistence, inline sentence activation and device accessibility/selection qualification remain."
+    ]
+  },
+  {
+    "id": "V38",
+    "title": "Create one structured journal without replacing operational state",
+    "priority": "P0",
+    "dependencies": [
+      "V03",
+      "V04",
+      "V09",
+      "V15",
+      "V29"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA32",
+      "LC-T18",
+      "CM-T23",
+      "IX12",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Typed schema-5 metadata journal integrated at request, invocation, reducer and commit boundaries; remaining lifecycle/evidence/recovery event seams and qualification remain."
+    ]
+  },
+  {
+    "id": "V39",
+    "title": "Protect diagnostic content before it reaches storage",
+    "priority": "P0",
+    "dependencies": [
+      "V04",
+      "V38"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA31",
+      "LA-QA32",
+      "CM-T21",
+      "CM-T22",
+      "CM-T23",
+      "IX15",
+      "IX16"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "New metadata journal stores typed allowlisted values through the AES-GCM SecretVault, with temporary-chat capture exclusion and visible storage/gap reporting. Legacy logging audit and separately consented content capture remain."
+    ]
+  },
+  {
+    "id": "V40",
+    "title": "Export a consistent v3 bundle with complete dependencies",
+    "priority": "P0",
+    "dependencies": [
+      "V21",
+      "V22",
+      "V31",
+      "V36",
+      "V38",
+      "V39"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA31",
+      "CM-T25",
+      "IX12",
+      "IX13",
+      "IX19"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Conversation schema v3 and five-file redacted ZIP bundle implemented with per-file digests, bounded corruption-detecting reader and legacy v2 reading. Frozen journal watermarks and explicit missing profile dependencies included. Cross-store transactional export, complete artifacts and payload consent integration remain."
+    ]
+  },
+  {
+    "id": "V41",
+    "title": "Add four-boundary output tracing and offline replay",
+    "priority": "P1",
+    "dependencies": [
+      "V31",
+      "V36",
+      "V38",
+      "V39",
+      "V40"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "CM-T07",
+      "CM-T10",
+      "CM-T25",
+      "IX13",
+      "IX19"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Representation-labeled UTF-8 fingerprints now trace provider-visible streams, reduced output, committed messages and accepted renderer inputs/transforms. Split surrogate pairs remain exact and capture stores no body content. Offline inspection identifies reducer-to-commit digest divergence only across complete matching sequence/fence scopes. Consented content chunks and deterministic provider/reducer/renderer content replay remain unavailable and are explicitly reported."
+    ]
+  },
+  {
+    "id": "V42",
+    "title": "Unify the response diagnostics projection",
+    "priority": "P1",
+    "dependencies": [
+      "V22",
+      "V23",
+      "V32",
+      "V37",
+      "V38",
+      "V40"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA23",
+      "LA-QA30",
+      "LA-QA34",
+      "LA-QA35",
+      "IX18",
+      "IX20"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Conversation-scoped invocation query replaces global recent-100 data for chat cards; journal and helper dependencies added to export. Unified UI projection and detail controls remain."
+    ]
+  },
+  {
+    "id": "V43",
+    "title": "Add focused llama.cpp connection/context diagnostics",
+    "priority": "P1",
+    "dependencies": [
+      "V06",
+      "V07",
+      "V08",
+      "V11",
+      "V42"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LC-T03",
+      "LC-T04",
+      "LC-T12",
+      "LC-T17",
+      "LA-QA35"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Connection Doctor now separates Connection, Context & Output and Diagnostics; refreshes same-route serving capacity; shows declared/effective limits, output sources, reasoning and watchdog policy; removes plaintext inspection persistence. Remaining: complete editable overflow/retention policies, adaptive timing observations and device UI qualification."
+    ]
+  },
+  {
+    "id": "V44",
+    "title": "Profile navigation, memory pressure and incremental rendering",
+    "priority": "P1",
+    "dependencies": [
+      "V23",
+      "V27",
+      "V36",
+      "V40",
+      "V42",
+      "V43"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA34",
+      "LA-QA35",
+      "LA-QA36",
+      "CM-T19",
+      "CM-T20",
+      "IX18"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Moved Combined prompt serialization and source hashing off the UI thread. Routine log snapshots and per-invocation usage updates are coalesced to four per second, retaining immediate terminal publication. Full on-device navigation/frame/memory profiling, off-screen polling audit and accessibility matrix remain."
+    ]
+  },
+  {
+    "id": "V45",
+    "title": "Ship optional optimizations with measured safeguards",
+    "priority": "P2",
+    "dependencies": [
+      "V19",
+      "V21",
+      "V22",
+      "V30",
+      "V34",
+      "V44"
+    ],
+    "status": "IN_PROGRESS",
+    "acceptance_ids": [
+      "LA-QA10",
+      "LA-QA24",
+      "CM-T01",
+      "IX26"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": [
+      "Remote final-writing history compression is now an explicit off-by-default setting, preserving stored originals and the complete current goal. Bounded adaptive progress policy and separate execution controls exist. Paired same-input/route Assist and compression evaluations, quality/cost/latency/thermal observations and rollout qualification remain."
+    ]
+  },
+  {
+    "id": "V46",
+    "title": "Execute the complete cross-mode regression suite",
+    "priority": "P0",
+    "dependencies": [
+      "V05",
+      "V09",
+      "V13",
+      "V20",
+      "V25",
+      "V32",
+      "V37",
+      "V40",
+      "V41",
+      "V43",
+      "V44",
+      "V45"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LC-T01",
+      "LC-T08",
+      "LC-T09",
+      "LC-T14",
+      "CM-T09",
+      "CM-T19",
+      "LA-QA33",
+      "IX11",
+      "IX12"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V47",
+    "title": "Qualify real server and on-device runtime combinations",
+    "priority": "P0",
+    "dependencies": [
+      "V16",
+      "V43",
+      "V44",
+      "V46"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA05",
+      "LA-QA06",
+      "LA-QA16",
+      "LC-T17",
+      "IX21",
+      "IX22",
+      "IX23",
+      "IX24",
+      "IX25",
+      "IX29"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  },
+  {
+    "id": "V48",
+    "title": "Close every requirement and gate release on evidence",
+    "priority": "P0",
+    "dependencies": [
+      "V46",
+      "V47"
+    ],
+    "status": "NOT_STARTED",
+    "acceptance_ids": [
+      "LA-QA33",
+      "LC-T18",
+      "CM-T24",
+      "IX27"
+    ],
+    "implementation_commits": [],
+    "evidence": [],
+    "remaining_work": []
+  }
+]

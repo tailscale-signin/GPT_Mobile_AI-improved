@@ -22,6 +22,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test fun combinedTerminalErrorIsMetadataAndNeverEntersTheCommittedAnswer() {
+        val partial = MessageV2(content = "Saved chapter", platformType = "primary", currentRunId = "combined-synthesis:run")
+        val terminal = terminalAgentMessage(partial, "Provider disconnected", 42)
+        assertEquals("Saved chapter", terminal.content)
+        assertEquals(AssistantTimelineItemType.NOTICE, terminal.timeline.last().type)
+        assertTrue(terminal.timeline.last().content.contains("Provider disconnected"))
+    }
+
     @Test
     fun `gateway recovery expires stale jobs using started time before created time`() {
         val run = AgentRun(

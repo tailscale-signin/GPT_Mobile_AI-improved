@@ -40,6 +40,23 @@ class ConnectedMemoryRecallTest {
         assertNull(ConnectedMemoryRecall.arguments(tool("mem0", "search_memories", "\"limit\":{\"type\":\"integer\"}"), "query", "must-not-disappear", 5))
     }
 
+    @Test fun `recall preserves full query and namespace rather than changing authority or intent`() {
+        val query = "context ".repeat(100) + "final requirement"
+        val namespace = "private-project-".repeat(30)
+        val args = ConnectedMemoryRecall.arguments(mem0, query, namespace, 5)!!
+        assertEquals(query, args.getValue("query").jsonPrimitive.content)
+        assertEquals(namespace, args.getValue("user_id").jsonPrimitive.content)
+    }
+
+    @Test fun `revocation during connected recall discards captured evidence`() = runTest {
+        var enabled = true
+        val result = ConnectedMemoryRecall.recall(listOf(mem0), "query", config, "turn", { enabled }) { _, id, _ ->
+            enabled = false
+            AgentToolResult(id, ToolResultContent.Text("revoked fact"), false)
+        }
+        assertEquals("", result)
+    }
+
     @Test fun `automatic recall requires explicit selection and all memory privacy gates`() {
         val tools = listOf(mem0, supermemory, graphiti, tool("other", "search_memory", "\"limit\":{\"type\":\"integer\"}"))
         assertEquals(3, ConnectedMemoryRecall.select(tools, config).size)

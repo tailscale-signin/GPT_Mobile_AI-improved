@@ -53,7 +53,7 @@ internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false,
                 if (debugMode) {
                     ExportFormatCard(
                         "Debug export",
-                        ".debug.json",
+                        ".debug.zip",
                         "All conversation records and diagnostic evidence",
                         Icons.Rounded.Description,
                         "Includes prompts, all stored responses and revisions, thinking, original Combined contributions, run and request IDs, tool arguments/results, context receipts, queued prompts, settings and research evidence. Credentials are redacted. Attachment contents and unrecorded network payloads are not included. The file contains private conversation data. Active responses are a snapshot taken during export."

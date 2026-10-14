@@ -52,12 +52,23 @@ data class ProviderContextPolicy(
                 )
             }
 
-            ClientType.NVIDIA, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE -> {
+            ClientType.NVIDIA, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.FREE -> {
                 ProviderContextPolicy(
                     recentTurnWindow = 6,
                     historicalImageTurnWindow = 0,
                     maxInlineAttachmentBytes = INLINE_ATTACHMENT_LIMIT_BYTES,
                     maxHistoryCharBudget = 20_000
+                )
+            }
+
+            ClientType.LLAMA -> {
+                // The final serialized request now owns capacity admission. Preserve fitting
+                // history for that planner instead of discarding it at six turns / 20k chars.
+                ProviderContextPolicy(
+                    recentTurnWindow = UNBOUNDED_TURN_WINDOW,
+                    historicalImageTurnWindow = UNBOUNDED_TURN_WINDOW,
+                    maxInlineAttachmentBytes = INLINE_ATTACHMENT_LIMIT_BYTES,
+                    maxHistoryCharBudget = UNBOUNDED_CHAR_BUDGET
                 )
             }
 

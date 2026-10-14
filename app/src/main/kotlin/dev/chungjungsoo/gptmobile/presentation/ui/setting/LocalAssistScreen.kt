@@ -22,6 +22,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.assist.AssistProcessingPermission
+import dev.chungjungsoo.gptmobile.data.assist.processingPermission
+import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
@@ -32,13 +35,16 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val testStatus by viewModel.status.collectAsStateWithLifecycle()
     val readiness by dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.state.collectAsStateWithLifecycle()
-    val policy = settings.localAssistPolicy.validated()
+    val resolution = settings.resolveAssistPolicy()
+    val policy = resolution.requested.validated()
     val target = profiles.firstOrNull { it.uid == policy.profileUid }
     var advanced by remember { mutableStateOf(false) }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             SettingsPanel(stringResource(R.string.local_assist_screen_1)) {
                 LocalAssistToggle(settings.localAssist, { viewModel.updateTuning(assist = it) })
+                resolution.explanations.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text("Effective: ${resolution.effective.preparation.name.lowercase().replace('_', ' ')} · ${resolution.effective.maxAttempts} attempts · ${resolution.effective.taskTimeoutSeconds}s per task", style = MaterialTheme.typography.bodySmall)
                 Text(
                     when {
                         !settings.localAssist -> "Off"
@@ -85,6 +91,13 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                 Text(stringResource(R.string.local_assist_screen_10))
                 SettingsHelpIcon(stringResource(R.string.local_assist_screen_11), title = "Local processing and cloud synthesis")
                 Text(stringResource(R.string.local_assist_screen_12), style = MaterialTheme.typography.bodySmall)
+                Text("Permission to process task data is separate from memory learning. New helpers and previously excluded profiles require review.", style = MaterialTheme.typography.bodySmall)
+                profiles.filter { it.compatibleType == ClientType.LITERT_LM }.forEach { profile ->
+                    val permission = policy.processingPermission(profile)
+                    AssistSwitch("Allow ${profile.name}", "This helper may receive the current task and authorized evidence locally. Current permission: ${permission.name.lowercase().replace('_', ' ')}.", permission == AssistProcessingPermission.ALLOWED) { allowed ->
+                        viewModel.updateAssist { it.copy(permissionVersion = 1, profilePermissions = it.profilePermissions + (profile.uid to if (allowed) AssistProcessingPermission.ALLOWED else AssistProcessingPermission.DENIED)) }
+                    }
+                }
             }
         }
         item {
@@ -97,7 +110,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                     Slider(seconds, { seconds = it }, valueRange = 2f..30f, steps = 27, onValueChangeFinished = { viewModel.updateAssist { it.copy(taskTimeoutSeconds = seconds.toInt()) } })
                     Text("Attempts per turn: ${attempts.toInt()}")
                     Slider(attempts, { attempts = it }, valueRange = 1f..8f, steps = 6, onValueChangeFinished = { viewModel.updateAssist { it.copy(maxAttempts = attempts.toInt()) } })
-                    Text("One native helper job at a time. Up to ${policy.candidateRecords} candidates and ${policy.selectedRecords} selected records; 12,000-character transport boundary. These are character bounds, not token measurements.", style = MaterialTheme.typography.bodySmall)
+                    Text("One native helper job at a time. Tasks are split against the loaded context, output allowance and uncertainty reserve. Unprocessed evidence is recorded; original sources remain available.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

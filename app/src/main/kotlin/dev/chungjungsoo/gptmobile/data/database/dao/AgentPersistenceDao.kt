@@ -128,6 +128,22 @@ interface AgentPersistenceDao {
     )
     suspend fun cancelInterruptedToolEvents(completedAt: Long)
 
+    @Query("SELECT * FROM answer_segments WHERE runId = :runId ORDER BY sequence")
+    suspend fun answerSegments(runId: String): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>
+
+    @Query("SELECT answer_segments.* FROM answer_segments JOIN agent_runs ON agent_runs.run_id = answer_segments.runId WHERE agent_runs.chat_id = :chatId ORDER BY answer_segments.runId, answer_segments.sequence")
+    suspend fun answerSegmentsForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>
+
+    @Insert
+    suspend fun insertAnswerSegments(segments: List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>)
+
+    suspend fun preserveCombinedPrefix(message: MessageV2) {
+        val runId = message.currentRunId ?: return
+        if (!runId.startsWith("combined-synthesis:")) return
+        val additions = dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.append(answerSegments(runId), runId, message.ownershipFence, message.content)
+        if (additions.isNotEmpty()) insertAnswerSegments(additions)
+    }
+
     @Query("SELECT * FROM agent_runs WHERE run_id = :runId")
     suspend fun recoveryRun(runId: String): AgentRun?
 
@@ -140,7 +156,7 @@ interface AgentPersistenceDao {
         val run = recoveryRun(runId) ?: return false
         if (run.gatewayJobId != jobId || run.status != "INTERRUPTED" || run.terminalError == "BACKUP_RESTORED") return false
         val message = recoveryMessage(run.assistantMessageId) ?: return false
-        if (message.currentRunId != runId || message.chatId != run.chatId) return false
+        if (message.currentRunId != runId || message.chatId != run.chatId || message.ownershipFence != run.ownershipFence) return false
         updateMessage(message.copy(content = content, thoughts = "", timeline = emptyList()))
         updateRunStatus(runId, "COMPLETED", run.startedAt, completedAt, null)
         cancelActiveToolEvents(runId, completedAt)
@@ -192,15 +208,20 @@ interface AgentPersistenceDao {
             require(queuedTurnReady(pending.chatId, request.queuedPausedProfiles)) { "Conversation is still running or awaiting its combined answer." }
             require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
         }
+        val pinnedRequestRoom = request.chatRoom.let { room ->
+            if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED && room.combinedPrimaryUid == null) room.copy(combinedPrimaryUid = room.activePlatform.firstOrNull()) else room
+        }
         val chatRoom = if (request.chatRoom.id == 0) {
-            request.chatRoom.copy(id = insertChatRoom(request.chatRoom).toInt())
+            pinnedRequestRoom.copy(id = insertChatRoom(pinnedRequestRoom).toInt())
         } else {
             val current = requireNotNull(getChatRoom(request.chatRoom.id))
             val submittedDraft = request.queuedPromptId == null &&
                 current.draftText.orEmpty() == request.userMessage.content &&
                 runCatching { kotlinx.serialization.json.Json.decodeFromString<List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment>>(current.draftAttachments) }.getOrNull() == request.userMessage.attachments
             // A queue worker may have read this room before the user changed membership.
-            val roomSnapshot = if (request.queuedPromptId == null) request.chatRoom else current
+            val roomSnapshot = (if (request.queuedPromptId == null) pinnedRequestRoom else current).let { room ->
+                if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED) room.copy(combinedPrimaryUid = current.combinedPrimaryUid ?: room.combinedPrimaryUid ?: room.activePlatform.firstOrNull()) else room
+            }
             val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken)
             updateChatRoom(merged)
             merged
@@ -278,9 +299,28 @@ interface AgentPersistenceDao {
         require(request.userMessage.id > 0 && request.assistantMessage.id > 0)
         require(request.userMessage.chatId == request.assistantMessage.chatId)
 
-        val previousRevision = request.assistantMessage.snapshotLatestAssistantRevision(request.run.createdAt)
+        val current = requireNotNull(recoveryMessage(request.assistantMessage.id)) { "The answer slot was deleted." }
+        val previousRun = current.currentRunId?.let { recoveryRun(it) }
+        if (request.run.synthesisKey != null && previousRun?.synthesisKey == request.run.synthesisKey) {
+            return PersistAgentRetryResult(current, previousRun)
+        }
+        require(current.currentRunId == request.assistantMessage.currentRunId && current.ownershipFence == request.assistantMessage.ownershipFence) { "The answer slot changed; reload before retrying." }
+        require(request.run.synthesisKey == null || previousRun?.status !in setOf("QUEUED", "RUNNING")) { "A Combined writer still owns this answer. Stop it before replacing the corpus." }
+        val resumedPrefix = request.resumeCombinedFrom?.let { priorId ->
+            val priorRun = requireNotNull(previousRun)
+            require(priorId == priorRun.runId && priorRun.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) { "The Combined recovery owner changed." }
+            val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(request.run.synthesisSnapshot))
+            require(snapshot.resumeFromRunId == priorId && request.run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(requireNotNull(request.run.synthesisSnapshot)))
+            val original = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(priorRun.synthesisSnapshot))
+            require(snapshot.copy(version = original.version, resumeFromRunId = original.resumeFromRunId, committedPrefix = original.committedPrefix) == original) { "Recovery cannot replace the frozen input." }
+            val prefix = if (priorRun.status == "COMPLETED") "" else dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.text(answerSegments(priorId), priorId, priorRun.ownershipFence)
+            require(snapshot.committedPrefix == prefix && (priorRun.status == "COMPLETED" || current.content == prefix)) { "The committed Combined prefix changed." }
+            prefix
+        }.orEmpty()
+        val nextFence = Math.addExact(current.ownershipFence, 1L)
+        val previousRevision = current.snapshotLatestAssistantRevision(request.run.createdAt)
         val assistantMessage = request.assistantMessage.copy(
-            content = "",
+            content = resumedPrefix,
             thoughts = "",
             timeline = listOfNotNull(
                 request.recovery?.let { descriptor ->
@@ -298,6 +338,7 @@ interface AgentPersistenceDao {
                 ?: request.assistantMessage.revisions,
             activeRevisionIndex = ACTIVE_REVISION_LATEST,
             currentRunId = request.run.runId,
+            ownershipFence = nextFence,
             createdAt = request.run.createdAt
         )
         updateMessage(assistantMessage)
@@ -310,9 +351,13 @@ interface AgentPersistenceDao {
             profileUid = request.run.profileUid,
             providerSnapshot = request.run.providerSnapshot,
             modelSnapshot = request.run.modelSnapshot,
+            ownershipFence = nextFence,
+            synthesisKey = request.run.synthesisKey,
+            synthesisSnapshot = request.run.synthesisSnapshot,
             createdAt = request.run.createdAt
         )
         insertRun(run)
+        preserveCombinedPrefix(assistantMessage)
         return PersistAgentRetryResult(assistantMessage, run)
     }
 
@@ -325,6 +370,9 @@ interface AgentPersistenceDao {
         completedAt: Long?,
         terminalError: String?
     ) {
+        val current = recoveryMessage(assistantMessage.id) ?: return
+        val run = recoveryRun(runId) ?: return
+        if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || assistantMessage.ownershipFence != run.ownershipFence) return
         updateMessage(assistantMessage)
         updateRunStatus(runId, status, startedAt, completedAt, terminalError)
         if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
@@ -343,13 +391,16 @@ interface AgentPersistenceDao {
         val run = recoveryRun(runId) ?: return false
         if (run.status != "RUNNING" && !(run.status == "QUEUED" && status != "COMPLETED")) return false
         val current = recoveryMessage(run.assistantMessageId) ?: return false
-        if (current.currentRunId != runId ||
+        if (current.ownershipFence != run.ownershipFence ||
+            assistantMessage.ownershipFence != run.ownershipFence ||
+            current.currentRunId != runId ||
             assistantMessage.currentRunId != runId ||
             assistantMessage.id != run.assistantMessageId ||
             assistantMessage.chatId != run.chatId
         ) {
             return false
         }
+        preserveCombinedPrefix(assistantMessage)
         updateMessage(assistantMessage)
         updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
         cancelActiveToolEvents(runId, completedAt)
@@ -363,7 +414,9 @@ interface AgentPersistenceDao {
         val runId = message.currentRunId ?: return false
         val run = recoveryRun(runId) ?: return false
         if (run.status != "RUNNING" || run.assistantMessageId != message.id || run.chatId != message.chatId) return false
-        if (recoveryMessage(message.id)?.currentRunId != runId) return false
+        val current = recoveryMessage(message.id) ?: return false
+        if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || message.ownershipFence != run.ownershipFence) return false
+        preserveCombinedPrefix(message)
         updateMessage(message)
         return true
     }

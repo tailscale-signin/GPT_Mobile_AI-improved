@@ -11,6 +11,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DelegationEvidenceTest {
+    @Test fun `oversized goal stays complete for rejection instead of losing tail constraints`() {
+        val task = "Task 東京 😀 ".repeat(2000) + "Final constraint: NEVER publish."
+        val prompt = delegationPrompt("Plan.", task, "Evidence text", 1500)
+        val payload = Json.parseToJsonElement(prompt.substringAfter('\n')).jsonObject
+        assertEquals(task, payload.getValue("task").jsonPrimitive.content)
+        assertEquals("true", payload.getValue("evidence_excerpted").jsonPrimitive.content)
+        assertTrue(prompt.toByteArray().size > 1500)
+    }
+
     @Test fun `compaction restores omitted exact identifiers and quantities before summary`() {
         val result = preserveDelegationFacts("Parcel PKG-a1b2c3d4 weighs 42 kg [S1].", "Parcel found.", 256)
         assertTrue(result.contains("PKG-a1b2c3d4"))

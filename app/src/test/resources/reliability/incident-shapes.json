@@ -1,0 +1,39 @@
+{
+  "scope": "Synthetic shape fixtures from privately rechecked I01-I03. No original prompts, identities, memory, endpoint or answer text.",
+  "I01": {
+    "remoteInvocations": 2,
+    "recordedLocalInvocations": 0,
+    "inputTokens": 14049,
+    "outputTokens": 636,
+    "searchAUtf16": 4025,
+    "searchBDecodedUtf16": 28944,
+    "searchBRecords": 14,
+    "engineCount": 7,
+    "causality": "These aggregate sizes do not establish the Assist ingress or first blocker."
+  },
+  "I02": {
+    "joinedRequests": 14,
+    "completedSegments": 13,
+    "failedSegments": 1,
+    "failureDurationMs": 64029,
+    "visibleBytes": 0,
+    "reasoningBytes": 866,
+    "preliminaryPromptEstimate": 43911,
+    "causality": "Reasoning then stall, not proven context overflow or pure prefill timeout."
+  },
+  "I03": {
+    "profiles": 4,
+    "completedContributors": 3,
+    "failedContributors": 1,
+    "overlappingSynthesisRuns": 2,
+    "requestedOutputTokens": 16384,
+    "inventedOverrideTokens": 4096,
+    "profileOutputTokens": null,
+    "routingOnly": {
+      "provider": {
+        "allow_fallbacks": true,
+        "sort": "throughput"
+      }
+    }
+  }
+}

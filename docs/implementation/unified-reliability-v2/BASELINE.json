@@ -1,0 +1,25 @@
+{
+  "spec_version": "2.0",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "branch": "feat/unified-reliability-v2-2026-10-13",
+  "baseline_commit": "04babee81194d4ad6d16c492edcbcd13824afdcd",
+  "latest_published_release": "v0.9.52.0",
+  "latest_release_commit": "25e3c1d6b3ab4f90d1f8e1d6660cf540b98badf7",
+  "application_version": "0.9.52.0",
+  "version_code": 121,
+  "database_schema": 39,
+  "candidate_release": "0.9.53.0",
+  "candidate_version_code": 122,
+  "release_identity_reserved": false,
+  "initial_worktree": "clean",
+  "local_java": "17.0.20; project requires 21",
+  "local_android_sdk": null,
+  "local_device": null,
+  "gradle_baseline": "BLOCKED: gradle-9.8.0 distribution download failed with Network is unreachable",
+  "local_python_tests": {
+    "tests": 99,
+    "result": "PASS",
+    "scope": "existing script fixtures; not Android or native qualification"
+  },
+  "docx_sha256": "afd74897b39fbf026e09afb393a12295eb8823d94a106466caad8b0ac7da1da8"
+}

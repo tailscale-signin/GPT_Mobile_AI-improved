@@ -1177,6 +1177,8 @@ private fun ChatMessagePair(
                 if (hasCombinedTabs) {
                     CombinedProfileBubbles(
                         profiles = combinedProfiles,
+                        identities = if (debugMode) debugSettings.profileAttributionColors else emptyMap(),
+                        primaryUid = assistantMessages.getOrNull(combinedSynthesisIndex)?.platformType,
                         selectedUid = selectedProfile?.uid,
                         combinedStatus = combinedStatus,
                         animateArrival = isActiveMessage && !isIdle,
@@ -1213,6 +1215,17 @@ private fun ChatMessagePair(
                         }
                     }
                 }
+                if (hasCombinedTabs && debugMode && selectedProfile == null) {
+                    val synthesis = assistantMessages.getOrNull(combinedSynthesisIndex)
+                    CombinedContributionInspector(
+                        answer = assistantContent,
+                        sources = synthesis?.combinedSources.orEmpty(),
+                        selectedProfileUids = combinedProfiles.map { it.uid },
+                        identities = debugSettings.profileAttributionColors,
+                        primaryUid = synthesis?.platformType,
+                        onOpenContribution = onCombinedProfileClick
+                    )
+                }
                 OpponentChatBubble(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1234,6 +1247,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
+                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { debugMode && isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
                     debugMemorySources = debugMemorySources,
@@ -1598,7 +1612,13 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             return
         }
         val file = File(context.getExternalFilesDir(null), fileName)
-        withContext(Dispatchers.IO) { file.writeText(fileContent) }
+        withContext(Dispatchers.IO) {
+            if (format == ChatExportFormat.DEBUG) {
+                file.outputStream().use { DebugExportBundle.write(fileContent, it) }
+            } else {
+                file.writeText(fileContent)
+            }
+        }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = format.mimeType

@@ -34,6 +34,7 @@ class ContextBudgetServiceTest {
     @Test fun `context reservation does not silently lower explicit output limits`() {
         val plan = ContextBudgetService.plan(emptyList(), "", emptyList(), TokenBudgetSettings(contextTokens = 4096, outputTokens = 2048))
         assertEquals(2048, plan.outputTokens)
+        assertTrue(plan.notice.contains("2048 output reserved"))
     }
 
     @Test fun `small text only contexts do not reserve space for unavailable tools`() {

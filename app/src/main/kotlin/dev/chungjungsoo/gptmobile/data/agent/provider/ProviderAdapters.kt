@@ -128,7 +128,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
                     val assembler = OpenAIResponsesEventAssembler()
                     var roundFailed = false
                     var canRotate = false
@@ -183,7 +183,8 @@ class OpenAICompatibleAdapter @Inject constructor(
     private val openAIAPI: OpenAIAPI,
     private val groqAPI: GroqAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder,
-    private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null
+    private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null,
+    private val settingRepository: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -226,6 +227,12 @@ class OpenAICompatibleAdapter @Inject constructor(
         val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
         val isOllama = platform.compatibleType == ClientType.OLLAMA
         val isLlama = platform.compatibleType == ClientType.LLAMA
+        val llamaReasoning = if (isLlama) {
+            settingRepository?.getFeatureSettings()?.llamaReasoningModes?.get(platform.uid)
+                ?: if (platform.reasoning) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+        } else {
+            dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+        }
         val routerSettings = openRouterProviderSettings ?: dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings(apiKey = "")
         val (parsedOpenRouterOptions, profileRouting) = if (isOpenRouter) {
             dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.decodeProfile(platform.openRouterRouting)
@@ -306,6 +313,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
+                        profileUid = platform.uid,
+                        providerType = platform.compatibleType.name,
+                        requestRole = constraints.requestRole ?: "primary",
+                        contextCeiling = constraints.contextCeiling,
+                        permissionRevision = constraints.permissionRevision,
+                        requireKnownCapacity = constraints.requireKnownCapacity,
+                        reasoningMode = llamaReasoning,
+                        allowReasoning = if (isLlama) constraints.allowReasoning else true,
                         token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
                         freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
                         extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
@@ -425,15 +440,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                             topP = effectiveTopP,
                             topK = effectiveTopK,
                             maxTokens = effectiveOutputTokens,
-                            reasoningEffort = if (isLlama && !constraints.allowReasoning) "none" else null,
-                            chatTemplateKwargs = if (isLlama && !constraints.allowReasoning) {
-                                kotlinx.serialization.json.buildJsonObject {
-                                    put("enable_thinking", JsonPrimitive(false))
-                                    put("thinking", JsonPrimitive(false))
-                                }
-                            } else {
-                                null
-                            },
                             frequencyPenalty = effectiveFrequencyPenalty,
                             presencePenalty = effectivePresencePenalty,
                             repetitionPenalty = effectiveRepetitionPenalty,
@@ -746,7 +752,6 @@ class OpenAICompatibleAdapter @Inject constructor(
         if (!isLlama) return config
         val headers = buildMap {
             effectiveOutputTokens?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
-            if (!constraints.allowReasoning) put("X-Gateway-Reasoning-Effort", "none")
             if (constraints.requestRole != null || constraints.maxOutputTokens != null) {
                 put("X-Gateway-Delegated-Worker", "true")
                 put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools && constraints.requestRole != "reviewer").toString())
@@ -754,7 +759,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                 constraints.attemptId?.let { put("X-Gateway-Attempt-ID", it) }
             }
         }
-        return if (headers.isEmpty()) config else config.copy(extraHeaders = config.extraHeaders + headers)
+        val prior = if (!config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) {
+            config.extraHeaders.filterKeys { !it.equals("X-Gateway-Reasoning-Effort", ignoreCase = true) }
+        } else {
+            config.extraHeaders
+        }
+        return config.copy(extraHeaders = prior + headers)
     }
     private fun isLocalLoopbackUrl(url: String): Boolean = runCatching {
         val uri = URI(if ("://" in url) url else "http://$url")
@@ -869,6 +879,12 @@ class AnthropicMessagesAdapter @Inject constructor(
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
+                        profileUid = platform.uid,
+                        providerType = platform.compatibleType.name,
+                        requestRole = constraints.requestRole ?: "primary",
+                        contextCeiling = constraints.contextCeiling,
+                        permissionRevision = constraints.permissionRevision,
+                        requireKnownCapacity = constraints.requireKnownCapacity,
                         token = activeKey,
                         anthropicBetaFeatures = thinkingPolicy.betaFeatures
                     )
@@ -1090,7 +1106,7 @@ class GeminiAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
                     var roundFailed = false
                     var canRotate = false
                     val roundParts = mutableListOf<Pair<String?, Part>>()
@@ -1215,23 +1231,31 @@ private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Co
     )
 }
 
-private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): String = when (val value = content) {
-    is ToolResultContent.Text -> value.text
-    is ToolResultContent.Json -> value.value.toString()
-    is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
-}.ifBlank { if (isError) "Tool failed without error details." else "Tool returned no content." }
+private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): String = if (assistMetadata.isNotEmpty()) {
+    JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata))).toString()
+} else {
+    when (val value = content) {
+        is ToolResultContent.Text -> value.text
+        is ToolResultContent.Json -> value.value.toString()
+        is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
+    }.ifBlank { if (isError) "Tool failed without error details." else "Tool returned no content." }
+}
 
-private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelJson(): JsonObject = when (val value = content) {
-    is ToolResultContent.Json -> value.value.asResponseObject()
+private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelJson(): JsonObject = if (assistMetadata.isNotEmpty()) {
+    JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata)))
+} else {
+    when (val value = content) {
+        is ToolResultContent.Json -> value.value.asResponseObject()
 
-    is ToolResultContent.Text -> buildJsonObject {
-        put("result", value.text)
-        if (isError) put("isError", true)
-    }
+        is ToolResultContent.Text -> buildJsonObject {
+            put("result", value.text)
+            if (isError) put("isError", true)
+        }
 
-    is ToolResultContent.ResourceLinks -> buildJsonObject {
-        put("resources", JsonArray(value.links.map { link -> JsonPrimitive(link.uri) }))
-        if (isError) put("isError", true)
+        is ToolResultContent.ResourceLinks -> buildJsonObject {
+            put("resources", JsonArray(value.links.map { link -> JsonPrimitive(link.uri) }))
+            if (isError) put("isError", true)
+        }
     }
 }
 

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
@@ -29,8 +30,64 @@ internal fun buildChatDebugExport(
     research: List<ResearchSession>,
     json: Json
 ): String {
+    val credentials = profiles.mapNotNull { it.token }
+    val dependencyIds = buildSet {
+        addAll(room.activePlatform)
+        features.localAssistPolicy.profileUid?.let(::add)
+        messages.forEach { message ->
+            message.platformType?.let(::add)
+            message.combinedSources.forEach { add(it.platformUid) }
+            (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
+        }
+        (records["invocations"] as? JsonArray).orEmpty().forEach { row ->
+            ((row as? JsonObject)?.get("profileUid") as? JsonPrimitive)?.content?.let(::add)
+        }
+    }
+    fun exportedBody(text: String): String = (redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(text), credentials) as kotlinx.serialization.json.JsonPrimitive).content
     val raw = buildJsonObject {
-        put("schema", "gptmobile.conversation.debug.v2")
+        put("schema", "gptmobile.conversation.debug.v3")
+        put(
+            "schemaVersions",
+            buildJsonObject {
+                put("conversation", 3)
+                put("runEvents", 5)
+                put("legacyEvents", 4)
+                put("assist", 2)
+            }
+        )
+        put(
+            "capture",
+            buildJsonObject {
+                put("level", if (records["runJournal"] != null) "metadata-and-retained-records" else "retained-records")
+                put("capturedFully", false)
+                put("replayableReducer", false)
+                put("completeProviderWireCapture", false)
+                put("exportTruncated", false)
+                put("sourceCompleteness", "unknown; inspect each retained artifact")
+                put("consistency", "Frozen component snapshots; live overlays are not a database transaction")
+                put("highWatermarks", (records["runJournal"] as? JsonObject)?.get("highWatermarks") ?: JsonObject(emptyMap()))
+                put(
+                    "activeRunIds",
+                    JsonArray(
+                        (records["runs"] as? JsonArray).orEmpty().mapNotNull { row ->
+                            val run = row as? JsonObject ?: return@mapNotNull null
+                            if ((run["status"] as? JsonPrimitive)?.content in setOf("QUEUED", "RUNNING", "STOPPING")) run["runId"] else null
+                        }
+                    )
+                )
+            }
+        )
+        put(
+            "profileDependencies",
+            JsonArray(
+                dependencyIds.sorted().map { uid ->
+                    buildJsonObject {
+                        put("profileUid", uid)
+                        put("state", if (profiles.any { it.uid == uid }) "retained" else "missing-or-deleted")
+                    }
+                }
+            )
+        )
         put("exportedAt", java.time.Instant.now().toString())
         put("version", BuildConfig.VERSION_NAME)
         put("build", BuildConfig.VERSION_CODE)
@@ -43,7 +100,34 @@ internal fun buildChatDebugExport(
         put("chatTools", json.encodeToJsonElement(tools))
         put("featureSettings", json.encodeToJsonElement(features))
         put("composerDraft", draft)
-        records.forEach { (key, value) -> put(key, value) }
+        records.forEach { (key, value) ->
+            if (key == "answerSegments" && value is JsonArray) {
+                val previous = mutableMapOf<String, String>()
+                put(
+                    key,
+                    JsonArray(
+                        value.map { element ->
+                            val segment = element as JsonObject
+                            val run = (segment["runId"] as JsonPrimitive).content
+                            val body = exportedBody((segment["text"] as JsonPrimitive).content)
+                            val digest = debugBodyDigest(body)
+                            JsonObject(
+                                segment.toMutableMap().apply {
+                                    put("text", JsonPrimitive(body))
+                                    put("digest", JsonPrimitive(digest))
+                                    put("previousDigest", previous[run]?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                                    put("utf8Bytes", JsonPrimitive(body.toByteArray(Charsets.UTF_8).size))
+                                    put("digestRepresentation", JsonPrimitive("redacted-export-segment-utf8"))
+                                    previous[run] = digest
+                                }
+                            )
+                        }
+                    )
+                )
+            } else {
+                put(key, value)
+            }
+        }
         put(
             "research",
             JsonArray(
@@ -65,8 +149,9 @@ internal fun buildChatDebugExport(
                         put("userMessageId", message.linkedMessageId)
                         put("runId", message.currentRunId)
                         put("profileUid", message.platformType)
-                        put("bodySha256", debugBodyDigest(message.content))
-                        put("selectedBodySha256", debugBodyDigest(message.effectiveContent()))
+                        put("digestRepresentation", "redacted-export-body-utf8")
+                        put("bodySha256", debugBodyDigest(exportedBody(message.content)))
+                        put("selectedBodySha256", debugBodyDigest(exportedBody(message.effectiveContent())))
                         put("characters", message.content.length)
                         put("activeRevisionIndex", message.activeRevisionIndex)
                         put(
@@ -76,7 +161,7 @@ internal fun buildChatDebugExport(
                                     buildJsonObject {
                                         put("index", index)
                                         put("runId", revision.runId)
-                                        put("bodySha256", debugBodyDigest(revision.content))
+                                        put("bodySha256", debugBodyDigest(exportedBody(revision.content)))
                                     }
                                 }
                             )
@@ -88,7 +173,7 @@ internal fun buildChatDebugExport(
                                     buildJsonObject {
                                         put("id", "C${index + 1}")
                                         put("profileUid", source.platformUid)
-                                        put("bodySha256", debugBodyDigest(source.content))
+                                        put("bodySha256", debugBodyDigest(exportedBody(source.content)))
                                         put("characters", source.content.length)
                                     }
                                 }
@@ -100,7 +185,7 @@ internal fun buildChatDebugExport(
             )
         )
     }
-    return json.encodeToString(JsonElement.serializer(), redactChatDebugData(raw, profiles.mapNotNull { it.token }))
+    return json.encodeToString(JsonElement.serializer(), redactChatDebugData(raw, credentials))
 }
 
 internal fun debugBodyDigest(text: String): String = MessageDigest.getInstance("SHA-256")

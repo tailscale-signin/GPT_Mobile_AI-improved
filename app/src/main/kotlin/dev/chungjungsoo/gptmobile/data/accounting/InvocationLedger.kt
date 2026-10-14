@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -53,7 +54,11 @@ data class ModelInvocation(
     val finishReason: String? = null,
     val actualRuntime: String? = null,
     val executionPolicyJson: String? = null,
-    val consumedAssistInvocationIds: String? = null
+    val consumedAssistInvocationIds: String? = null,
+    val requestAdmissionReceipts: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0") val assistInclusionVerified: Boolean = false,
+    val observedInputTokens: Long? = null,
+    val observedOutputTokens: Long? = null
 )
 
 class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
@@ -64,6 +69,9 @@ interface InvocationDao {
 
     @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
     suspend fun forChat(chatId: Int): List<ModelInvocation>
+
+    @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
+    fun observeForChat(chatId: Int): Flow<List<ModelInvocation>>
 
     @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 100")
     fun recent(): Flow<List<ModelInvocation>>
@@ -123,6 +131,15 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
         if (enabled) (live.values + saved.filterNot { it.id in live || it.status == "RUNNING" }).distinctBy { it.id }.sortedByDescending { it.startedAt }.take(100) else emptyList()
     }
 
+    fun diagnosticsForChat(chatId: Int): Flow<List<ModelInvocation>> = combine(dao.observeForChat(chatId), active, LocalDiagnosticsPolicy.state) { saved, live, enabled ->
+        if (!enabled) {
+            emptyList()
+        } else {
+            val scoped = live.values.filter { it.turnKey.substringBefore(':') == chatId.toString() || saved.any { row -> row.id == it.id } }
+            (saved.associateBy { it.id } + scoped.associateBy { it.id }).values.sortedByDescending { it.startedAt }
+        }
+    }
+
     suspend fun recover() {
         // Statistics are user data. Recovery ends abandoned requests without deleting history.
         dao.recover()
@@ -178,8 +195,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 profileUid = profileUid,
                 durationMs = activeAllowance ?: 0,
                 costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" },
-                executionPolicyJson = if (executionPolicy.sharedRunBudget) kotlinx.serialization.json.Json.encodeToString(executionPolicy) else null,
-                consumedAssistInvocationIds = exchanges.flatMap { it.results }.flatMap { dev.chungjungsoo.gptmobile.data.assist.AssistHandoffContract.producerIds(it.content) }.distinct().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) }
+                executionPolicyJson = if (executionPolicy.sharedRunBudget) kotlinx.serialization.json.Json.encodeToString(executionPolicy) else null
             )
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
@@ -195,7 +211,9 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 emit(ProviderEvent.Completed)
                 return@flow
             }
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id)
             onInvocation(record.id)
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_STARTED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
             val started = System.nanoTime()
             var first: Long? = null
@@ -205,6 +223,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var outputSource = "estimated"
             var actualRuntime: String? = null
             var generatedBytes = 0L
+            val visibleFingerprint = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputFingerprintAccumulator() }
             var visibleBytes = 0L
             var reasoningBytes = 0L
             var finishReason: String? = null
@@ -214,11 +233,12 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             liveRequests.update { it + (record.id to record.copy(outputTokens = 0)) }
             try {
                 suspend fun collectRound() {
-                    session.streamRound(tools, exchanges).collect { event ->
+                    session.streamRound(tools, exchanges).flowOn(dispatch).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
                                 if (first == null) first = (System.nanoTime() - started) / 1_000_000
                                 val size = event.text.toByteArray().size
+                                visibleFingerprint?.append(event.text)
                                 visibleBytes += size
                                 generatedBytes += size
                             }
@@ -248,7 +268,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             else -> Unit
                         }
                         val now = System.nanoTime()
-                        if (now - lastPublished >= 500_000_000 || event is ProviderEvent.Usage || (first != null && liveRequests.value[record.id]?.firstTokenMs == null)) {
+                        if (now - lastPublished >= 250_000_000 || event is ProviderEvent.Completed || event is ProviderEvent.Failed || (first != null && liveRequests.value[record.id]?.firstTokenMs == null)) {
                             lastPublished = now
                             liveRequests.update {
                                 it + (
@@ -292,6 +312,12 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 throw error
             } finally {
                 withContext(NonCancellable) {
+                    visibleFingerprint?.snapshot()?.let { fingerprint ->
+                        visibleBytes = fingerprint.utf8Bytes
+                        generatedBytes = visibleBytes + reasoningBytes
+                        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = record.id, outputBoundary = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = fingerprint)
+                    }
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = input != null && output != null)
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
@@ -306,6 +332,11 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                                     finishReason = finishReason,
                                     actualRuntime = actualRuntime,
                                     status = status,
+                                    consumedAssistInvocationIds = dispatch.includedProducers.sorted().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
+                                    assistInclusionVerified = dispatch.receipts.isNotEmpty(),
+                                    requestAdmissionReceipts = dispatch.receipts.toList().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
+                                    observedInputTokens = input?.toLong(),
+                                    observedOutputTokens = output?.toLong(),
                                     costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
                                     durationMs = (System.nanoTime() - started) / 1_000_000,
                                     firstTokenMs = first

@@ -50,6 +50,9 @@ class ConversationTitleSummarizer(
         val activeKey = ApiCredentialRotator.parseKeys(platform.token).firstOrNull() ?: ""
         return ProviderRequestConfig(
             apiUrl = platform.apiUrl,
+            profileUid = platform.uid,
+            providerType = platform.compatibleType.name,
+            requestRole = "title",
             token = activeKey
         )
     }

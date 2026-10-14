@@ -39,9 +39,10 @@ class AssistCoordinatorTest {
     fun selectedRecordsAreCopiedExactlyWithQualifications() = runBlocking {
         val assist = AssistCoordinator("Find evidence", { true }, { "[0,2]" }, {})
         val result = assist.bind(tool()).execute("call", buildJsonObject {})
-        val data = (result.content as ToolResultContent.Json).value as JsonObject
-        assertEquals(JsonArray(listOf(records[0], records[2])), data["results"])
-        assertEquals(payload["notice"], data["notice"])
+        val data = result.assistMetadata.single()
+        assertEquals(payload, (result.content as ToolResultContent.Json).value)
+        assertEquals(JsonArray(listOf(records[0], records[2])), data["assistSelectedRecords"])
+        assertEquals(payload["notice"], ((result.content as ToolResultContent.Json).value as JsonObject)["notice"])
         assertEquals(JsonPrimitive(true), data["assistSelection"])
         assertFalse(result.isError)
     }
@@ -95,6 +96,7 @@ class AssistCoordinatorTest {
         val turn = java.util.UUID.randomUUID().toString()
         repeat(3) { index ->
             val assist = AssistCoordinator("goal $index", { true }, {
+                dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
                 generated++
                 "[0]"
             }, {}, policy = LocalAssistPolicy(maxAttempts = 1), turnId = turn)
@@ -103,15 +105,52 @@ class AssistCoordinatorTest {
         assertEquals(1, generated)
     }
 
+    @Test fun rejectedPreparationDoesNotSpendPhysicalAllowance() = runBlocking {
+        val states = mutableListOf<AssistTaskState>()
+        var preparations = 0
+        var dispatched = 0
+        val assist = AssistCoordinator("goal", { true }, {
+            preparations++
+            if (preparations == 1) error("admission rejected before dispatch")
+            dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+            dispatched++
+            "[0]"
+        }, {}, policy = LocalAssistPolicy(maxAttempts = 1), status = { states += it })
+        val wrapped = assist.bind(tool())
+        wrapped.execute("rejected", JsonObject(emptyMap()))
+        assertEquals(0, states.last().physicalAttempts)
+        wrapped.execute("admitted", JsonObject(emptyMap()))
+        wrapped.execute("exhausted", JsonObject(emptyMap()))
+        assertEquals(1, dispatched)
+        assertEquals(1, states.last().physicalAttempts)
+        assertEquals("PHYSICAL_ATTEMPT_ALLOWANCE", states.last().reason)
+    }
+
+    @Test fun permissionsAreCheckedAfterQueueAndBeforeCharging() = runBlocking {
+        var enabled = true
+        val states = mutableListOf<AssistTaskState>()
+        var dispatched = false
+        val assist = AssistCoordinator("goal", { true }, {
+            enabled = false
+            dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+            dispatched = true
+            "[0]"
+        }, {}, stillEnabled = { enabled }, status = { states += it })
+        assist.bind(tool()).execute("call", JsonObject(emptyMap()))
+        assertFalse(dispatched)
+        assertEquals(0, states.last().physicalAttempts)
+        assertEquals("PERMISSION_OR_RUNTIME_CHANGED", states.last().reason)
+    }
+
     @Test fun explicitProbeUsesProductionSelectionAndKeepsSyntheticOriginals() = runBlocking {
         val probe = AssistTestFixture.tool()
         val original = probe.execute("probe", JsonObject(emptyMap()))
         val assist = AssistCoordinator("water bottles", { true }, { "[0,2,4]" }, {})
         val selected = assist.bind(probe).execute("probe", JsonObject(emptyMap()))
-        assertEquals(original.content, selected.retainedContent)
-        val payload = (selected.content as ToolResultContent.Json).value as JsonObject
+        assertEquals(original.content, selected.content)
+        val payload = selected.assistMetadata.single()
         assertEquals(JsonPrimitive(true), payload["assistSelection"])
-        assertEquals(3, (payload["results"] as JsonArray).size)
+        assertEquals(3, (payload["assistSelectedRecords"] as JsonArray).size)
     }
 
     @Test fun cachedSelectionCannotSurviveRuntimeReadinessRevocation() = runBlocking {

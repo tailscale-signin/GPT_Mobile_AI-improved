@@ -255,7 +255,7 @@ data class ResearchSnapshot(
             ResearchSnapshot(
                 delegationPlan = value["delegationPlan"]?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it) },
                 frontierCursors = (value["frontierCursors"] as? JsonObject)?.mapValues { (_, cursor) -> (cursor as JsonPrimitive).content.also { require(it.toIntOrNull()?.let { page -> page > 0 } == true) } }.orEmpty(),
-                task = value.text("task").take(8000), targetSources = value.number("targetSources").coerceAtLeast(0), phase = value.text("phase").take(40), round = value.number("round").coerceAtLeast(0),
+                task = value.text("task"), targetSources = value.number("targetSources").coerceAtLeast(0), phase = value.text("phase").take(40), round = value.number("round").coerceAtLeast(0),
                 searches = value.number("searches").coerceAtLeast(0), attempts = value.number("attempts").coerceAtLeast(0),
                 engineResponses = value.number("engineResponses").coerceAtLeast(0), engineFailures = value.number("engineFailures").coerceAtLeast(0),
                 sources = sources, claims = claims,

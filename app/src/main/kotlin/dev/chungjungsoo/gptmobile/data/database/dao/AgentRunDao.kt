@@ -52,13 +52,13 @@ interface AgentRunDao {
 
     @Query(
         "UPDATE agent_runs SET status = 'RUNNING', started_at = :startedAt, " +
-            "completed_at = NULL, terminal_error = NULL WHERE run_id = :runId AND status = 'QUEUED'"
+            "completed_at = NULL, terminal_error = NULL WHERE run_id = :runId AND status = 'QUEUED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)"
     )
     suspend fun markRunning(runId: String, startedAt: Long): Int
 
     @Query(
         "UPDATE agent_runs SET status = :status, completed_at = :completedAt, terminal_error = :terminalError " +
-            "WHERE run_id = :runId AND status = 'RUNNING'"
+            "WHERE run_id = :runId AND status = 'RUNNING' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)"
     )
     suspend fun finishRunning(
         runId: String,
@@ -69,7 +69,7 @@ interface AgentRunDao {
 
     @Query(
         "UPDATE agent_runs SET status = :status, completed_at = :completedAt, terminal_error = :terminalError " +
-            "WHERE run_id = :runId AND status = 'QUEUED'"
+            "WHERE run_id = :runId AND status = 'QUEUED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)"
     )
     suspend fun finishQueued(
         runId: String,
@@ -80,7 +80,7 @@ interface AgentRunDao {
 
     @Query(
         "UPDATE agent_runs SET status = :status, completed_at = :completedAt, terminal_error = :terminalError " +
-            "WHERE run_id = :runId AND status IN ('QUEUED', 'RUNNING')"
+            "WHERE run_id = :runId AND status IN ('QUEUED', 'RUNNING') AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)"
     )
     suspend fun finishActive(
         runId: String,

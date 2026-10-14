@@ -52,6 +52,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         ToolConnection::class,
         AgentToolBinding::class,
         AgentRun::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment::class,
         ToolEvent::class,
         LocalModel::class,
         OpenRouterBatchCacheEntity::class,
@@ -67,7 +68,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 39,
+    version = 40,
     exportSchema = true
 )
 @TypeConverters(

@@ -56,7 +56,6 @@ import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
-import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettingsJson
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -1610,34 +1609,22 @@ private fun OpenRouterAdvancedSettingsDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (String?) -> Unit
 ) {
-    val jsonSerializer = remember {
-        Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-            coerceInputValues = true
-        }
-    }
     val initialParsed = remember(initialRoutingJson) {
-        if (!initialRoutingJson.isNullOrBlank()) {
-            runCatching { jsonSerializer.decodeFromString<OpenRouterOptions>(initialRoutingJson) }.getOrNull()
-                ?: runCatching {
-                    val routing = jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson)
-                    OpenRouterOptions(provider = routing)
-                }.getOrNull()
-        } else {
-            OpenRouterOptions.createDefault()
-        } ?: OpenRouterOptions.createDefault()
+        runCatching {
+            val (options, routing) = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.decodeProfile(initialRoutingJson)
+            options ?: OpenRouterOptions(provider = routing)
+        }.getOrElse { OpenRouterOptions() }
     }
-
-    var streamEnabled by remember { mutableStateOf(initialParsed.stream ?: OpenRouterOptions.DEFAULT_STREAM) }
-    var maxTokensText by remember { mutableStateOf((initialParsed.maxTokens ?: OpenRouterOptions.DEFAULT_MAX_TOKENS).toString()) }
-    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OpenRouterOptions.DEFAULT_TEMPERATURE).toString()) }
-    var topPText by remember { mutableStateOf((initialParsed.topP ?: OpenRouterOptions.DEFAULT_TOP_P).toString()) }
-    var topKText by remember { mutableStateOf((initialParsed.topK ?: OpenRouterOptions.DEFAULT_TOP_K).toString()) }
-    var freqPenaltyText by remember { mutableStateOf((initialParsed.frequencyPenalty ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY).toString()) }
-    var presPenaltyText by remember { mutableStateOf((initialParsed.presencePenalty ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY).toString()) }
-    var repPenaltyText by remember { mutableStateOf((initialParsed.repetitionPenalty ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY).toString()) }
-    var seedText by remember { mutableStateOf((initialParsed.seed ?: OpenRouterOptions.DEFAULT_SEED).toString()) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+    var streamOverride by remember { mutableStateOf(initialParsed.stream) }
+    var maxTokensText by remember { mutableStateOf(initialParsed.maxTokens?.toString().orEmpty()) }
+    var temperatureText by remember { mutableStateOf(initialParsed.temperature?.toString().orEmpty()) }
+    var topPText by remember { mutableStateOf(initialParsed.topP?.toString().orEmpty()) }
+    var topKText by remember { mutableStateOf(initialParsed.topK?.toString().orEmpty()) }
+    var freqPenaltyText by remember { mutableStateOf(initialParsed.frequencyPenalty?.toString().orEmpty()) }
+    var presPenaltyText by remember { mutableStateOf(initialParsed.presencePenalty?.toString().orEmpty()) }
+    var repPenaltyText by remember { mutableStateOf(initialParsed.repetitionPenalty?.toString().orEmpty()) }
+    var seedText by remember { mutableStateOf(initialParsed.seed?.toString().orEmpty()) }
 
     var allowFallbacks by remember {
         mutableStateOf(initialParsed.provider?.allowFallbacks ?: OpenRouterOptions.DEFAULT_PROVIDER_ALLOW_FALLBACKS)
@@ -1679,11 +1666,16 @@ private fun OpenRouterAdvancedSettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = stringResource(R.string.openrouter_stream))
-                    Switch(
-                        checked = streamEnabled,
-                        onCheckedChange = { streamEnabled = it }
-                    )
+                    Row {
+                        listOf(null to "Inherit", true to "On", false to "Off").forEach { (value, label) ->
+                            TextButton(onClick = { streamOverride = value }) {
+                                Text(if (streamOverride == value) "✓ $label" else label)
+                            }
+                        }
+                    }
                 }
+                Text("Blank values inherit profile settings. Existing explicit values remain in effect; review them if an older preset filled them automatically.", style = MaterialTheme.typography.bodySmall)
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
@@ -1806,24 +1798,33 @@ private fun OpenRouterAdvancedSettingsDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val routing = OpenRouterProviderRouting(
-                        sort = sortStrategy,
-                        allowFallbacks = allowFallbacks
-                    )
-                    val options = OpenRouterOptions(
-                        stream = streamEnabled,
-                        maxTokens = maxTokensText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_MAX_TOKENS,
-                        temperature = temperatureText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TEMPERATURE,
-                        topP = topPText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TOP_P,
-                        topK = topKText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_TOP_K,
-                        frequencyPenalty = freqPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY,
-                        presencePenalty = presPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY,
-                        repetitionPenalty = repPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY,
-                        seed = seedText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_SEED,
-                        provider = routing
-                    )
-                    val resultJson = jsonSerializer.encodeToString(options)
-                    onConfirmRequest(resultJson)
+                    runCatching {
+                        val decoded = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProfileOverrides.parse(initialRoutingJson ?: "{}")
+                        val wrapped = decoded.raw.keys.any { it == "provider" || it in dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProfileOverrides.GENERATION_FIELDS }
+                        val fields = (if (wrapped) decoded.raw else kotlinx.serialization.json.JsonObject(mapOf("provider" to decoded.raw))).toMutableMap()
+                        fun number(key: String, text: String, initial: Number?) {
+                            if (text == initial?.toString().orEmpty()) return
+                            fields[key] = if (text.isBlank()) kotlinx.serialization.json.JsonNull else Json.parseToJsonElement(text)
+                        }
+                        number("max_tokens", maxTokensText, initialParsed.maxTokens)
+                        number("temperature", temperatureText, initialParsed.temperature)
+                        number("top_p", topPText, initialParsed.topP)
+                        number("top_k", topKText, initialParsed.topK)
+                        number("frequency_penalty", freqPenaltyText, initialParsed.frequencyPenalty)
+                        number("presence_penalty", presPenaltyText, initialParsed.presencePenalty)
+                        number("repetition_penalty", repPenaltyText, initialParsed.repetitionPenalty)
+                        number("seed", seedText, initialParsed.seed)
+                        if (streamOverride != initialParsed.stream) fields["stream"] = streamOverride?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull
+                        val routing = ((fields["provider"] as? kotlinx.serialization.json.JsonObject)?.toMap().orEmpty()).toMutableMap()
+                        if (allowFallbacks != (initialParsed.provider?.allowFallbacks ?: OpenRouterOptions.DEFAULT_PROVIDER_ALLOW_FALLBACKS)) routing["allow_fallbacks"] = kotlinx.serialization.json.JsonPrimitive(allowFallbacks)
+                        if (sortStrategy != (initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)) routing["sort"] = kotlinx.serialization.json.JsonPrimitive(sortStrategy)
+                        if (routing.isNotEmpty()) fields["provider"] = kotlinx.serialization.json.JsonObject(routing)
+                        val resultJson = kotlinx.serialization.json.JsonObject(fields).toString()
+                        dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.decodeProfile(resultJson)
+                        resultJson
+                    }.onSuccess(onConfirmRequest).onFailure {
+                        validationError = "Invalid overrides. Use JSON numbers in range, or leave a field blank to inherit."
+                    }
                 }
             ) {
                 Text(stringResource(R.string.save))

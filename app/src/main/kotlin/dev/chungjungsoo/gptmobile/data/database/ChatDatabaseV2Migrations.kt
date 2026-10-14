@@ -422,6 +422,21 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_39_40 = object : Migration(39, 40) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `chats_v2` ADD COLUMN `combined_primary_uid` TEXT")
+            db.execSQL("ALTER TABLE `messages_v2` ADD COLUMN `ownership_fence` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `ownership_fence` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `synthesis_key` TEXT")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `synthesis_snapshot` TEXT")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `requestAdmissionReceipts` TEXT")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `assistInclusionVerified` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `observedInputTokens` INTEGER")
+            db.execSQL("ALTER TABLE `model_invocations` ADD COLUMN `observedOutputTokens` INTEGER")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `answer_segments` (`runId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `fence` INTEGER NOT NULL, `text` TEXT NOT NULL, `digest` TEXT NOT NULL, `previousDigest` TEXT, `utf8Bytes` INTEGER NOT NULL, PRIMARY KEY(`runId`, `sequence`), FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`run_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -451,7 +466,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_35_36,
         MIGRATION_36_37,
         MIGRATION_37_38,
-        MIGRATION_38_39
+        MIGRATION_38_39,
+        MIGRATION_39_40
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

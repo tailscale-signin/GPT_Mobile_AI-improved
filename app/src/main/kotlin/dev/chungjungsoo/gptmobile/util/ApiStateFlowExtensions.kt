@@ -89,6 +89,11 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     try {
         takeWhile { chunk ->
             when (chunk) {
+                is ApiState.AssistStatus -> {
+                    buffer.updateAssist(chunk.status)
+                    buffer.publishNow(onUpdate)
+                }
+
                 is ApiState.ProgressCheckpoint -> {
                     buffer.appendProgress(chunk.text, chunk.modelAuthored)
                     buffer.publishNow(onUpdate)
@@ -147,6 +152,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Error -> {
+                    chunk.progressDeadline?.let(buffer::appendProgressDeadline)
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
                 }
 
@@ -157,6 +163,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
             !isCompletedSuccessfully && terminalError == null
         }.collect {}
     } finally {
+        buffer.finishAssist(isCompletedSuccessfully, terminalError)
         buffer.flush(onUpdate)
     }
 
@@ -184,6 +191,37 @@ private class StreamingMessageBuffer(
     private var publishedContentLength = 0
     private var timelineVersion = 0
     private var publishedTimelineVersion = 0
+
+    fun finishAssist(completed: Boolean, error: String?) {
+        val hasCompletedTask = timeline.any { it.assistDiagnostic?.execution == dev.chungjungsoo.gptmobile.data.assist.AssistExecution.COMPLETED }
+        for (index in timeline.indices) {
+            val state = timeline[index].assistDiagnostic ?: continue
+            if (state.terminal) continue
+            val expected = state.taskId.startsWith("expected:")
+            val execution = when {
+                !completed -> dev.chungjungsoo.gptmobile.data.assist.AssistExecution.INTERRUPTED
+                expected && hasCompletedTask -> dev.chungjungsoo.gptmobile.data.assist.AssistExecution.COMPLETED
+                else -> dev.chungjungsoo.gptmobile.data.assist.AssistExecution.SKIPPED
+            }
+            val reason = when {
+                !completed -> if (error == null) "PARENT_INTERRUPTED" else "PARENT_FAILED"
+                expected && hasCompletedTask -> "SEE_TASK_OUTCOMES"
+                else -> "NO_ELIGIBLE_TASK_DISPATCHED"
+            }
+            timeline[index] = timeline[index].copy(assistDiagnostic = state.copy(sequence = state.sequence + 1, execution = execution, reason = reason))
+            timelineVersion++
+        }
+    }
+
+    fun updateAssist(status: dev.chungjungsoo.gptmobile.data.assist.AssistTaskState) {
+        flushTimelineText()
+        val index = timeline.indexOfFirst { it.assistDiagnostic?.taskId == status.taskId }
+        val prior = timeline.getOrNull(index)?.assistDiagnostic
+        if (prior != null && !prior.accepts(status)) return
+        val item = AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, assistDiagnostic = status)
+        if (index < 0) timeline += item else timeline[index] = item
+        timelineVersion++
+    }
 
     fun updateActivitySummary(chunk: ApiState.ActivitySummary) {
         flushTimelineText()
@@ -267,6 +305,12 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         if (facts.isEmpty()) return
         timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, recalledFacts = facts)
+        timelineVersion += 1
+    }
+
+    fun appendProgressDeadline(deadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome) {
+        flushTimelineText()
+        timeline.add(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = "${deadline.deadline}: stage ${deadline.stage}; last progress ${deadline.lastProgressAgeMillis} ms ago; cleanup ${deadline.cleanup}.", progressDeadline = deadline))
         timelineVersion += 1
     }
 

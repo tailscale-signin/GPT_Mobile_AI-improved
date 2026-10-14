@@ -688,7 +688,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
 
     private fun file(runId: String) = File(directory, researchHash(runId) + ".json")
-    private fun normalizedTask(task: String) = task.trim().replace(Regex("\\s+"), " ").take(8_000).lowercase()
+    private fun normalizedTask(task: String) = task.trim().replace(Regex("\\s+"), " ").lowercase()
     private fun read(file: File): ResearchSession? = runCatching {
         val bytes = AtomicFile(file).openRead().use { stream ->
             require(stream.channel.size() in 1..512 * 1024)

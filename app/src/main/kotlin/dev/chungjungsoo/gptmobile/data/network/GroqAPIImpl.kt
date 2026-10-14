@@ -28,6 +28,7 @@ import kotlinx.serialization.Serializable
 class GroqAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
 ) : GroqAPI {
+    private val requestPreparation = ModelRequestPreparation(networkClient)
 
     override fun streamChatCompletion(
         request: GroqChatCompletionRequest,
@@ -40,10 +41,11 @@ class GroqAPIImpl @Inject constructor(
             val resolvedApiUrl = config.apiUrl.ifBlank { ModelConstants.GROQ_API_URL }
             val endpoint = config.copy(apiUrl = resolvedApiUrl).buildEndpoint("chat/completions")
 
+            val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(request), config, request.model, null)
             networkClient().preparePost(endpoint) {
                 applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                 contentType(ContentType.Application.Json)
-                setBody(NetworkClient.openAIJson.encodeToString(request))
+                setBody(admittedPayload)
                 accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                 config.token?.let { bearerAuth(it) }
             }.execute { response ->

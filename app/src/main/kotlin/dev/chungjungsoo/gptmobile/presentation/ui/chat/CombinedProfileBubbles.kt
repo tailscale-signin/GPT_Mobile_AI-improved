@@ -64,6 +64,8 @@ private const val PROFILE_STAGGER_MS = 500L
 @Composable
 internal fun CombinedProfileBubbles(
     profiles: List<CombinedResponseProfile>,
+    identities: Map<String, dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity> = emptyMap(),
+    primaryUid: String? = null,
     selectedUid: String?,
     combinedStatus: CombinedResponseStatus,
     animateArrival: Boolean,
@@ -100,7 +102,9 @@ internal fun CombinedProfileBubbles(
                     }
                 }
                 CombinedProfileBubble(
-                    name = profile.name,
+                    name = identities[profile.uid]?.let { "[${it.marker}] ${profile.name}" } ?: profile.name,
+                    colorIdentity = identities[profile.uid],
+                    primary = identities.isNotEmpty() && profile.uid == primaryUid,
                     status = profile.status,
                     selected = selectedUid == profile.uid,
                     modifier = Modifier
@@ -124,6 +128,8 @@ internal fun CombinedProfileBubbles(
 @Composable
 private fun CombinedProfileBubble(
     name: String,
+    colorIdentity: dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity? = null,
+    primary: Boolean = false,
     status: CombinedResponseStatus,
     selected: Boolean,
     onClick: () -> Unit,
@@ -170,8 +176,8 @@ private fun CombinedProfileBubble(
             stateDescription = statusText
         },
         shape = RoundedCornerShape(24.dp),
-        color = background.copy(alpha = opacity),
-        contentColor = foreground.copy(alpha = opacity),
+        color = if (colorIdentity != null) colors.surfaceContainerHigh else background.copy(alpha = opacity),
+        contentColor = colorIdentity?.let { ProfileAttributionPalette.foreground(it, colors.surfaceContainerHigh) } ?: foreground.copy(alpha = opacity),
         border = BorderStroke(1.dp, (if (completed) colors.primary else Color.Gray).copy(alpha = (0.22f + selection * 0.5f) * opacity)),
         shadowElevation = if (completed) (2f + selection * 4f).dp else 0.dp
     ) {
@@ -180,8 +186,8 @@ private fun CombinedProfileBubble(
                 .background(
                     Brush.linearGradient(
                         listOf(
-                            primaryTint.copy(alpha = if (completed) 0.2f + selection * 0.65f else 0f),
-                            secondaryTint.copy(alpha = if (completed) 0.15f + selection * 0.35f else 0f)
+                            primaryTint.copy(alpha = if (completed && colorIdentity == null) 0.2f + selection * 0.65f else 0f),
+                            secondaryTint.copy(alpha = if (completed && colorIdentity == null) 0.15f + selection * 0.35f else 0f)
                         )
                     )
                 )
@@ -199,7 +205,7 @@ private fun CombinedProfileBubble(
                 Box(Modifier.size(9.dp).background(dotColor, CircleShape))
             }
             Text(
-                text = name,
+                text = if (primary) stringResource(R.string.combined_primary_profile_label, name) else name,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1

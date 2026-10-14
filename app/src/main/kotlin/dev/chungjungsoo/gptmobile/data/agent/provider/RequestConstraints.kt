@@ -8,11 +8,14 @@ data class RequestConstraints(
     val allowGatewayLocalTools: Boolean = false,
     val requestRole: String? = null,
     val attemptId: String? = null,
-    val freshResponse: Boolean = false
+    val freshResponse: Boolean = false,
+    val contextCeiling: Int? = null,
+    val permissionRevision: String = "legacy-unverified",
+    val requireKnownCapacity: Boolean = false
 ) {
     init {
         require(maxOutputTokens == null || maxOutputTokens > 0)
     }
 
-    fun outputLimit(preferred: Int?): Int? = listOfNotNull(maxOutputTokens, preferred?.takeIf { it > 0 }).minOrNull()
+    fun outputLimit(preferred: Int?): Int? = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(preferred, maxOutputTokens).tokens
 }

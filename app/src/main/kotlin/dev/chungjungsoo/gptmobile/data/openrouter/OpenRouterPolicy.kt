@@ -10,7 +10,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -30,8 +29,8 @@ object OpenRouterPolicy {
     }
     fun decodeProfile(value: String?): Pair<OpenRouterOptions?, OpenRouterProviderRouting?> {
         if (value.isNullOrBlank()) return null to null
-        val objectValue = json.parseToJsonElement(value).jsonObject
-        val wrapped = objectValue.keys.any { it in setOf("provider", "stream", "max_tokens", "temperature", "top_p", "top_k", "seed", "repetition_penalty") }
+        val objectValue = OpenRouterProfileOverrides.parse(value).raw
+        val wrapped = objectValue.keys.any { it == "provider" || it in OpenRouterProfileOverrides.GENERATION_FIELDS }
         return if (wrapped) {
             val options = json.decodeFromString<OpenRouterOptions>(value)
             options to (objectValue["provider"]?.takeIf { it is JsonObject }?.let { json.decodeFromString<OpenRouterProviderRouting>(it.toString()) })

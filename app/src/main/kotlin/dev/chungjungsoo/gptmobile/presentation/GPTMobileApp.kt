@@ -149,7 +149,8 @@ class GPTMobileApp :
         super.onTrimMemory(level)
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         applicationScope.launch {
-            semanticMemory.get().releaseWhenIdle(if (dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.releaseImmediately(level)) 0L else 180_000L)
+            val memoryPressure = dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.releaseImmediately(level)
+            semanticMemory.get().releaseWhenIdle(if (memoryPressure) 0L else 180_000L, memoryPressure = memoryPressure)
         }
         dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
         val hasActiveRuns = runCatching {

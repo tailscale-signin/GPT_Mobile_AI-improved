@@ -90,6 +90,12 @@ class LocalSemanticMemoryInstrumentedTest {
             assertTrue("Native search failed after clearing: ${engine.status.value.detail}", engine.status.value.available)
             assertTrue("Cleared native index still returned facts", afterClear.isEmpty())
             assertTrue("Cleared native index still returned document chunks", engine.searchDocuments("galaxies", 77, null).isEmpty())
+            // Unlike an explicit lifecycle close/reopen, genuine system memory pressure
+            // must defer native allocation until the bounded cooldown has expired.
+            engine.releaseWhenIdle(0, memoryPressure = true)
+            assertFalse("Memory-pressure release did not pause semantic recall", engine.status.value.available)
+            engine.synchronize(facts)
+            assertFalse("Pressure cooldown was bypassed by eager synchronization", engine.status.value.available)
         } finally {
             engine.releaseWhenIdle(0)
             directory.deleteRecursively()

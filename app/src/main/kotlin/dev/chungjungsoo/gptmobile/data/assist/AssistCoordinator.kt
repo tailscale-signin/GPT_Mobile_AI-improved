@@ -68,7 +68,10 @@ internal class AssistCoordinator(
         val fingerprint = runtimeFingerprint()
         val key = researchHash("$turnId|$authority|$fingerprint|$policy|$goal|${researchHash(source.toString())}")
         val subscriber = SharedAssistWork.Subscriber(
-            allowed = { stillEnabled() && runtimeFingerprint() == fingerprint },
+            // An admitted cold helper may change its runtime fingerprint while preparing.
+            // Authorization is live policy here; reduceOnce pins and checks the post-load
+            // identity before dispatch, after generation and before publishing evidence.
+            allowed = stillEnabled,
             status = { publish(it) },
             notice = notice
         )

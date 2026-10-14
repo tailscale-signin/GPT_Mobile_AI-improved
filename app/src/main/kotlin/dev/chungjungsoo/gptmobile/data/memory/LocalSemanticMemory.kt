@@ -61,6 +61,12 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         val vector = engine.embed(text.take(4000)).embeddingResult().embeddings().first().floatEmbedding()
         require(vector.size == 100 && vector.all(Float::isFinite)) { "Embedding model dimensions changed." }
         if (firstInput) AppLogRecorder.checkpoint("Memory", "EMBEDDING_FIRST_INPUT_COMPLETED · dimensions=${vector.size}")
+        // A completed native embed is positive recovery evidence after pressure cooldown.
+        // Do not leave the status in a permanently paused state after the engine succeeds.
+        if (!_status.value.available) {
+            retryAfter = 0L
+            _status.value = _status.value.copy(available = true, detail = "Ready · on-device sentence encoder")
+        }
         return vector
     }
 
@@ -202,15 +208,18 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     }
 
     /** Shares the app's idle/pressure lifecycle without interrupting native inference. */
-    suspend fun releaseWhenIdle(idleMillis: Long = 180_000L) = withContext(ownerDispatcher) {
+    suspend fun releaseWhenIdle(idleMillis: Long = 180_000L, memoryPressure: Boolean = false) = withContext(ownerDispatcher) {
         if (!mutex.tryLock()) return@withContext
         try {
             if (android.os.SystemClock.elapsedRealtime() - lastUsed >= idleMillis) {
-                if (idleMillis <= 0) {
+                // A forced release is not necessarily a low-memory signal. Only actual
+                // pressure should defer reacquisition; explicit reopen and idle tests must
+                // remain recoverable without a fabricated 30-second memory-pressure stall.
+                if (memoryPressure) {
                     retryAfter = maxOf(retryAfter, android.os.SystemClock.elapsedRealtime() + MemoryTrimPolicy.REACQUIRE_COOLDOWN_MS)
                     _status.value = _status.value.copy(available = false, detail = "Semantic recall paused for memory recovery; exact and topic recall remain active")
                 }
-                closeEmbedder(if (idleMillis <= 0) "memory_pressure" else "idle_timeout")
+                closeEmbedder(if (memoryPressure) "memory_pressure" else if (idleMillis <= 0) "explicit_release" else "idle_timeout")
                 store?.closeThreadResources()
                 store?.close()
                 store = null

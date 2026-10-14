@@ -93,6 +93,28 @@ class LocalAssistQueueTest {
         assertFalse(result.assistMetadata.isEmpty())
     }
 
+    @Test fun replacingPreparedRuntimeBeforeReplyRejectsAssistanceButPreservesEvidence() = runTest {
+        var fingerprint = "cold"
+        var calls = 0
+        val content = ToolResultContent.Json(JsonObject(mapOf("papers" to JsonArray((1..8).map { JsonPrimitive("paper $it") }))))
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("academic_source", "source", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, content, false)
+        }
+        val worker = AssistCoordinator("goal", {
+            fingerprint = "warm"
+            true
+        }, {
+            calls++
+            fingerprint = "different-runtime"
+            "[0]"
+        }, {}, turnId = UUID.randomUUID().toString(), runtimeFingerprint = { fingerprint })
+        val result = worker.bind(tool).execute("call", JsonObject(emptyMap()))
+        assertEquals(1, calls)
+        assertEquals(content, result.content)
+        assertTrue(result.assistMetadata.isEmpty())
+    }
+
     @Test fun physicalAttemptAllowanceIsSharedAcrossTaskKinds() {
         val turn = UUID.randomUUID().toString()
         assertTrue(AssistTurnBudget.available(turn, 2))

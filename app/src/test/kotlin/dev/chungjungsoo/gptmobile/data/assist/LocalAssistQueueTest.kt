@@ -115,6 +115,21 @@ class LocalAssistQueueTest {
         assertTrue(result.assistMetadata.isEmpty())
     }
 
+    @Test fun unrelatedTurnsDoNotGloballyDisableLocalAssistAfter128Requests() {
+        // Each turn keeps its own limit. A process-wide history cap must never
+        // become a new cross-conversation refusal to generate.
+        val original = UUID.randomUUID().toString()
+        assertTrue(AssistTurnBudget.reserve(original, 1))
+        assertFalse(AssistTurnBudget.reserve(original, 1))
+        repeat(160) {
+            val separateTurn = UUID.randomUUID().toString()
+            assertTrue("Fresh turn $it was blocked by unrelated history", AssistTurnBudget.available(separateTurn, 1))
+            assertTrue(AssistTurnBudget.reserve(separateTurn, 1))
+            assertFalse(AssistTurnBudget.reserve(separateTurn, 1))
+        }
+        assertFalse(AssistTurnBudget.available(original, 1))
+    }
+
     @Test fun physicalAttemptAllowanceIsSharedAcrossTaskKinds() {
         val turn = UUID.randomUUID().toString()
         assertTrue(AssistTurnBudget.available(turn, 2))

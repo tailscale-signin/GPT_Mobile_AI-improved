@@ -19,6 +19,21 @@ class CombinedSynthesisGateTest {
         assertTrue(gate.reserve(7, listOf(source.copy(content = "new evidence"))))
     }
 
+    @Test fun `failed start can release only its own uncommitted reservation`() {
+        val gate = CombinedSynthesisGate()
+        val first = listOf(CombinedModelResponse(platformUid = "p", content = "original"))
+        val changed = listOf(CombinedModelResponse(platformUid = "p", content = "new revision"))
+        assertTrue(gate.reserve(91, first))
+        assertFalse(gate.abandonUncommitted(91, changed))
+        assertFalse(gate.reserve(91, first))
+        assertTrue(gate.abandonUncommitted(91, first))
+        assertTrue(gate.reserve(91, first))
+        assertTrue(gate.reserve(91, changed))
+        // A stale failure from the old turn must not erase the current generation.
+        assertFalse(gate.abandonUncommitted(91, first))
+        assertFalse(gate.reserve(91, changed))
+    }
+
     @Test fun `persisted row follows its identity when the history window moves`() {
         val optimistic = MessageV2(id = 0, chatId = 7, platformType = null, content = "new")
         val saved = optimistic.copy(id = 30)

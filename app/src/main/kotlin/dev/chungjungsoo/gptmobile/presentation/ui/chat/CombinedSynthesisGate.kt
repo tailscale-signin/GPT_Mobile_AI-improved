@@ -13,6 +13,13 @@ internal class CombinedSynthesisGate {
         return true
     }
 
+    /** Roll back a failed pre-persistence start only if this exact input still owns the slot. */
+    fun abandonUncommitted(userId: Int, sources: List<CombinedModelResponse>): Boolean {
+        if (attempts[userId] != sources) return false
+        attempts.remove(userId)
+        return true
+    }
+
     fun reset(userId: Int) {
         attempts.remove(userId)
     }

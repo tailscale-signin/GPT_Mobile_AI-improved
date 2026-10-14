@@ -2049,7 +2049,9 @@ class ChatViewModel @Inject constructor(
         val grouped = _groupedMessages.value
         grouped.userMessages.indices.forEach { turnIndex ->
             val userId = grouped.userMessages[turnIndex].id
-            if (userId in combinedSynthesisMessages) return@forEach
+            // Optimistic, unsaved turns share ID 0. They have no durable owner
+            // and must never consume the one-shot synthesis reservation.
+            if (userId <= 0 || userId in combinedSynthesisMessages) return@forEach
             val row = grouped.assistantMessages.getOrNull(turnIndex).orEmpty()
             val activeRow = activeSlotIndexes.mapNotNull { row.getOrNull(it) }
             if (activeRow.size != activeSlotIndexes.size) return@forEach
@@ -2059,11 +2061,17 @@ class ChatViewModel @Inject constructor(
             combinedSynthesisMessages += userId
             pendingRunDispatches += 1
             viewModelScope.launch {
+                var committed = false
                 try {
-                    startCombinedSynthesis(turnIndex, sources)
+                    startCombinedSynthesis(turnIndex, sources) { committed = true }
                 } catch (error: CancellationException) {
+                    if (!committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                     throw error
                 } catch (error: Throwable) {
+                    // Retain reservations after Room persistence: repeated UI emissions
+                    // must not purchase/dispatch a second identical synthesis.
+                    // Pre-commit network/database failures can be retried safely.
+                    if (!committed) combinedSynthesisAttempts.abandonUncommitted(userId, sources)
                     _attachmentNotice.update {
                         error.message?.takeIf(String::isNotBlank)
                             ?: "Could not combine the model responses."
@@ -2080,7 +2088,8 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun startCombinedSynthesis(
         turnIndex: Int,
-        sources: List<CombinedModelResponse>
+        sources: List<CombinedModelResponse>,
+        onPersisted: () -> Unit
     ) {
         val grouped = _groupedMessages.value
         val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
@@ -2177,6 +2186,9 @@ class ChatViewModel @Inject constructor(
                 run = run
             )
         )
+        // The durable run now owns this answer slot. No automatic retry may
+        // replace it, even if UI publication or provider dispatch subsequently fails.
+        onPersisted()
 
         _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
         _groupedMessages.update { current ->

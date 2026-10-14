@@ -5,6 +5,8 @@ env:
 
 on:
   pull_request:
+    # Changing draft status or retargeting a PR must re-run the completion gate.
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited]
     branches:
       - main
       - feat/unified-reliability-v2-2026-10-13
@@ -15,18 +17,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  reliability_v2_completion:
+    name: Unified Reliability v2 completion gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Enforce completion for v2 delivery and inventory integrity for all PRs
+        shell: bash
+        env:
+          # Passing an untrusted branch name through env avoids expression injection.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$HEAD_REF" == feat/unified-reliability-v2-* ]]; then
+            # Deliberately fail on drafts as well: a green draft check on the same
+            # commit must not be reusable to merge an unfinished v2 delivery.
+            python3 scripts/check_unified_reliability_v2.py --require-done
+          else
+            # Normal incremental PRs remain allowed but must preserve the ledger.
+            python3 scripts/check_unified_reliability_v2.py
+          fi
+
   validate:
     name: Unit tests and Android lint
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # Full v2 completion is a gate for the v2 delivery branch, not unrelated
-      # hotfixes that explicitly preserve the honest partial implementation ledger.
-      - name: Require completion evidence before leaving v2 draft
-        if: github.event.pull_request.draft == false && startsWith(github.head_ref, 'feat/unified-reliability-v2-')
-        run: python3 scripts/check_unified_reliability_v2.py --require-done
 
       - name: Check Android regex compatibility
         run: |

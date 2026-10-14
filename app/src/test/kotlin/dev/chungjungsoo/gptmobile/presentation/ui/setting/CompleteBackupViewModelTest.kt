@@ -219,8 +219,7 @@ class CompleteBackupViewModelTest {
         val uri = mockk<Uri>()
         coEvery { manager.requiresPassword(uri) } returns false
         coEvery { manager.requiresRecoveryKey(uri) } returns false
-        coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } returns
-            BackupRestoreResult(true, "Restored")
+        coEvery { manager.restoreWithProgress(uri, null, CompleteBackupSelection.ALL, null, any()) } returns BackupRestoreResult(true, "Restored")
 
         assertTrue(viewModel.prepareBackupPicker(restoring = true))
         viewModel.restoreSourceSelected(uri)

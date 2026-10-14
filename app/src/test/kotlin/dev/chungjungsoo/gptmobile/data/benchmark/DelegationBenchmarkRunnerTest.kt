@@ -111,7 +111,7 @@ class DelegationBenchmarkRunnerTest {
             createCoordinator = {
                 LocalDelegationCoordinator(source, { config }, { listOf(helper) }, { _, prompt, _ ->
                     researchScript(prompt)
-                })
+                }, researchMemoryAvailable = { true })
             },
             target = helper,
             config = config,
@@ -191,7 +191,7 @@ class DelegationBenchmarkRunnerTest {
                 LocalDelegationCoordinator(source, { config }, { listOf(helper) }, { _, prompt, _ ->
                     calls++
                     researchScript(prompt)
-                })
+                }, researchMemoryAvailable = { true })
             },
             target = helper,
             config = config,
@@ -212,7 +212,7 @@ class DelegationBenchmarkRunnerTest {
             workerCalls = { calls }
         )
         val result = runner.run(delegationBenchmarkSuite().first { it.id == "delegation-research" })
-        assertEquals(result.error, BenchmarkOutcome.PASSED, result.outcome)
+        assertEquals(result.error + "\n" + result.delegation?.diagnosticEvents?.joinToString("\n"), BenchmarkOutcome.PASSED, result.outcome)
         assertEquals(1, primaryCalls)
         assertEquals(1, result.delegation!!.pagesRead)
         assertEquals(100L, result.delegation!!.primaryInputTokens)

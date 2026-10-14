@@ -22,12 +22,13 @@ internal fun articleCitationOccurrences(text: String): List<CitationOccurrence> 
     if (text.length > 1_000_000) return emptyList()
     val withoutCode = text.replace(Regex("(?s)```.*?(?:```|$)|~~~.*?(?:~~~|$)")) { " ".repeat(it.value.length) }
         .replace(Regex("`[^`\n]*`")) { " ".repeat(it.value.length) }
-    val keys = Regex("\\[(S[0-9a-f]{1,32})\\]|https?://[^\\s<>()\\[\\]]+|(?i:doi:\\s*)(10\\.[0-9]{4,9}/[^\\s<>()]+)|(?i:PMID:\\s*)([0-9]{1,12})|(?i:PMCID:\\s*)(PMC[0-9]+)|(?i:arxiv:\\s*)((?:[0-9]{4}\\.[0-9]{4,5}|[a-z-]+/[0-9]{7})(?:v[0-9]+)?)")
+    val keys = Regex("\\[(S[0-9a-f]{1,32})\\]|https?://[^\\s<>()\\[\\]]+|(?i:doi:\\s*)(10\\.[0-9]{4,9}/[^\\s<>()]+)|(?i:PMID:\\s*)([0-9]{1,12})|(?i:PMCID:\\s*)(PMC[0-9]+)|(?i:arxiv:\\s*)((?:[0-9]{4}\\.[0-9]{4,5}|[a-z-]+/[0-9]{7})(?:v[0-9]+)?)|\\[((?:study|article):[a-f0-9]{64})\\]")
     return withoutCode.split(Regex("\\n\\s*\\n")).flatMapIndexed { index, paragraph ->
         val paragraphId = "$index:${researchHash(paragraph.trim())}"
         keys.findAll(paragraph).mapNotNull { match ->
             val raw = match.value.trimEnd('.', ',', ';', ':')
             val key = when {
+                match.groups[6] != null -> match.groupValues[6]
                 match.groups[1] != null -> match.groupValues[1]
                 match.groups[2] != null -> "doi:${SourceIdentity.normalizeDoi(match.groupValues[2])}"
                 match.groups[3] != null -> "pmid:${match.groupValues[3]}"
@@ -59,6 +60,7 @@ class CitationBindingResolver @Inject constructor(private val archive: ResearchA
         val occurrences = articleCitationOccurrences(text)
         return archive.database.withTransaction {
             check(archive.dao.deleted("chat:${message.chatId}") == null)
+            val explicit = occurrences.mapNotNull { occurrence -> exactArchivedReference(occurrence.key)?.let { occurrence.paragraphId to it } }.groupBy({ it.first }, { it.second })
             occurrences.forEach { occurrence ->
                 val candidates = registry.filter { (source, _, _) -> sourceCitationKeys(source).contains(occurrence.key) }
                 // Duplicate S1 namespaces or conflicting versions cannot be resolved by title or recency.
@@ -81,7 +83,11 @@ class CitationBindingResolver @Inject constructor(private val archive: ResearchA
                 } else {
                     null
                 }
-                val match = resolved.singleOrNull() ?: historical ?: return@forEach
+                val anchored = explicit[occurrence.paragraphId].orEmpty().filter { (_, version, _) ->
+                    archive.dao.aliases(version.workId).any { it.alias == "public|${occurrence.key}" }
+                }.distinctBy { it.second.versionId }
+                if (anchored.size > 1) return@forEach
+                val match = exactArchivedReference(occurrence.key) ?: anchored.singleOrNull() ?: resolved.singleOrNull() ?: historical ?: return@forEach
                 val (source, version, authority) = match
                 val snapshot = buildJsonObject {
                     put("schemaVersion", 1)
@@ -101,6 +107,20 @@ class CitationBindingResolver @Inject constructor(private val archive: ResearchA
             archive.dao.bindings(message.id.toString(), revision)
         }
     }
+
+    /** Explicit immutable references must never drift to a newer version of the same URL. */
+    private suspend fun exactArchivedReference(key: String): Triple<ResearchSource, ResearchWorkVersion, String>? {
+        val id = when {
+            key.startsWith("study:") -> archive.dao.outcomeById(key.substringAfter(':'))?.versionId
+            key.startsWith("article:") -> key.substringAfter(':')
+            else -> null
+        } ?: return null
+        val version = archive.dao.version(id)?.takeIf { it.publicSource } ?: return null
+        if (archive.dao.deleted("archive:${version.workId}") != null) return null
+        val work = archive.dao.work(version.workId) ?: return null
+        return Triple(ResearchSource("archive", work.canonicalUrl, work.title, publicationType = work.publicationType, reviewStatus = work.peerReview.name, retrievedAt = version.retrievedAt), version, "public")
+    }
+
     private fun sourceCitationKeys(source: ResearchSource): Set<String> = buildSet {
         add(source.id)
         add("url:${source.canonicalUrl}")

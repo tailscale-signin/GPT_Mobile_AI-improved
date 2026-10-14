@@ -153,6 +153,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 is ApiState.Error -> {
                     chunk.progressDeadline?.let(buffer::appendProgressDeadline)
+                    chunk.recoveryBlock?.let(buffer::appendRecoveryBlock)
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
                 }
 
@@ -305,6 +306,13 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         if (facts.isEmpty()) return
         timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, recalledFacts = facts)
+        timelineVersion += 1
+    }
+
+    fun appendRecoveryBlock(block: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock) {
+        flushTimelineText()
+        if (timeline.any { it.recoveryBlock?.generationId == block.generationId && it.recoveryBlock?.fingerprint == block.fingerprint }) return
+        timeline.add(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = block.message, recoveryBlock = block))
         timelineVersion += 1
     }
 

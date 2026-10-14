@@ -4,7 +4,7 @@ Sources: the user-supplied October 13 runtime design, log issue audit, and engin
 
 ## Changes
 
-- Expected saved-evidence authorization denial becomes a typed outcome and clean repository exit. Cosmetic profile edits do not change destination authorization; endpoint, credentials, model and other policy changes still do. Evidence is checked again before outbound requests.
+- Expected saved-evidence authorization denial becomes a typed outcome and clean repository exit. Reason code, root/generation, evidence and destination revisions, allowed actions and repeated-generation counts persist in the existing assistant timeline. Cosmetic profile edits do not change destination authorization; endpoint, credentials, model and other policy changes still do. Evidence is checked again before outbound requests.
 - Partial text stays partial; source bodies and deferred handoff packets are retained separately from the fitting inline packet.
 - PubMed uses NCBI ESearch followed by bounded EFetch, preserves biomedical metadata and abstracts, has a shared rate budget, and exposes the 10,000-result query limitation. Europe PMC requests core metadata with query/owner-scoped cursors. Neither provider grants peer review merely by indexing an article.
 - Scholar is an explicit browser handoff with bounded DOI/PMID/PMCID/URL, BibTeX and RIS import previews. No Scholar automation or background waiting is claimed.
@@ -12,6 +12,8 @@ Sources: the user-supplied October 13 runtime design, log issue audit, and engin
 - Standalone imports have independent owners. Existing FIFO retention, exact identity conflict checks, immutable source versions and deletion fences remain in force. Metadata refresh does not replace retained readable text. Provider discovery provenance is recorded independently.
 - Organization uses source metadata and stable rules. It does not call a model. Empty topic groups are omitted; user-created categories and topic changes remain available.
 - Learned outcomes require exact supporting passage references and separate research-memory consent. They never enter personal-fact storage. Current-version, body-hash, retraction, exclusion, deletion and consent checks run again before recall dispatch. Historical outcomes do not answer a request for current evidence automatically.
+- Explicit study/article citation references bind the version supplied to the writer even after a refresh; a URL in the same paragraph inherits that immutable reference. Article details offer Open source and Use in chat through the existing reviewed share flow.
+- Hub metadata has a bounded, credential-scoped cache at pinned revisions; ordinary Hub discovery renders partial results incrementally.
 - Research database 1→2 adds discovery, outcome, recall exclusion and browser handoff records. Backup schema 2 reads schema 1 and restores imported outcomes as NEEDS_REVIEW.
 
 ## Validation and release status
@@ -27,7 +29,7 @@ All thirty original IDs remain visible. “Existing” identifies code to valida
 | Findings | Components / evidence | Remaining acceptance |
 | --- | --- | --- |
 | CR-01, CR-02 | ResponseRecoveryContext; ChatRepository dispatch authorization; denial tests | T01–08, physical runtime denial/restart and zero unauthorized sends |
-| CR-03 | Existing root work identity, AgentRun recovery; typed denial | T03/T05/T06 durable repeated-action admission |
+| CR-03 | Existing root work identity and AgentRun compare-and-set; persisted typed denial/fingerprint | T03/T05/T06 durable repeated-action admission |
 | RS-01, RS-06 | Existing ResearchSessionStore frontier and budget fences; retained chunks; partial labels | T04/T09/T12 windows, restart and coverage |
 | RS-02 | Existing canonical review identity and currentReviewRecord | T13–14 source-bound independent review |
 | RS-03 | Existing extraction validation; conservative outcome builder | T10–11 yield and repair fixtures |
@@ -39,7 +41,7 @@ All thirty original IDs remain visible. “Existing” identifies code to valida
 | CT-02, CT-03 | Existing model catalog provenance and invocation ledger | T22–25 route caps, provider usage vs estimates |
 | BM-01 | Existing benchmark cohorts and invocation outcomes | T25 complete/partial/failed/canceled denominators |
 | UI-01, UI-02, UI-03 | Background discovery and reactive paginated archive; existing stream method extraction | T40–42 release-like traces, generated method inspection |
-| LC-01 | Shared bounded Hugging Face requests and cached catalog | T39 partial refresh and navigation/download isolation |
+| LC-01 | Shared bounded Hugging Face requests, pinned metadata cache and incremental results | T39 partial refresh and navigation/download isolation |
 | MM-01, MM-02 | Existing FTS fallback and durable model-ready enrichment queue | T26–28/T37–38 driver matrix, wake-up and deletion |
 | DV-01 | Structured diagnostic classification/export | T44–46 raw capture incident accounting |
 | PL-01 | OEM classification preserved independently | T43 isolate recurring protected-setting observation |
@@ -47,4 +49,4 @@ All thirty original IDs remain visible. “Existing” identifies code to valida
 
 ## Engines/archive acceptance register
 
-RE-01 through RE-08 and AT-01 through AT-24 are the source requirements; this document does not silently reduce their scope. Fixture coverage includes native XML/citation parsing, migration, archive identity/provenance, reactive insertion, clear fences, exact outcomes and recall revocation. Live provider contracts, large-font/two-pane UI, originating-chat sharing, detached-job/process-death scenarios and device latency require additional acceptance before declaring the entire design complete.
+RE-01 through RE-08 and AT-01 through AT-24 are the source requirements; this document does not silently reduce their scope. Fixture coverage includes native XML/citation parsing, migration, archive identity/provenance, reactive insertion, clear fences, exact outcomes and recall revocation. Live provider contracts, large-font/two-pane UI, detached-job/process-death scenarios and device latency require additional acceptance before declaring the entire design complete.

@@ -29,7 +29,8 @@ data class AssistantTimelineItem(
     val delegatedTool: Boolean = false,
     val recovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null,
     val assistDiagnostic: dev.chungjungsoo.gptmobile.data.assist.AssistTaskState? = null,
-    val progressDeadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome? = null
+    val progressDeadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome? = null,
+    val recoveryBlock: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null
 )
 
 // Fallback for callers without a resource context; keep in sync with R.string.legacy_assistant_order_unavailable.

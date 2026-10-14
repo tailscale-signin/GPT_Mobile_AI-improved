@@ -78,6 +78,9 @@ interface ResearchDao {
     @Query("SELECT * FROM research_outcomes WHERE versionId=:id ORDER BY createdAt DESC")
     suspend fun outcomes(id: String): List<ResearchOutcome>
 
+    @Query("SELECT * FROM research_outcomes WHERE outcomeId=:id LIMIT 1")
+    suspend fun outcomeById(id: String): ResearchOutcome?
+
     @Query("SELECT primaryTopicId AS topicId, COUNT(*) AS count FROM research_archive GROUP BY primaryTopicId")
     fun topicCounts(): Flow<List<ResearchTopicCount>>
 

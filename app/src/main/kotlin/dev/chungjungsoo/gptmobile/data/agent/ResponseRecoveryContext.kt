@@ -20,13 +20,29 @@ internal class ResponseRecoveryContext(
     private val events: List<ToolEvent>,
     research: List<dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot> = emptyList(),
     private val rootWorkId: String? = null,
+    private val blockedRootWorkId: String = rootWorkId ?: "saved-response",
+    private val generationId: String = "",
+    private val destinationIdentity: String = "unknown",
+    private val policyRevision: String = "unknown",
+    private val lastAction: String = "CONTINUE_RUN",
     private val authorization: suspend () -> Boolean = { true }
 ) {
     suspend fun isAuthorized(): Boolean = authorization()
 
     /** Operational denial is data. Callers must terminate before constructing a request. */
     suspend fun authorizedPrefix(maxCharacters: Int, pagingAvailable: Boolean = true): RecoveryPrefix =
-        if (isAuthorized()) RecoveryPrefix.Allowed(prefix(maxCharacters, pagingAvailable)) else RecoveryPrefix.Blocked
+        if (isAuthorized()) RecoveryPrefix.Allowed(prefix(maxCharacters, pagingAvailable)) else RecoveryPrefix.Blocked(blocked())
+
+    private val evidenceIds = events.map { "tool:${it.eventId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(it.recoveryResult().orEmpty())}" } +
+        research.flatMap { it.sources }.map { "source:${it.id}:${it.versionId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(it.passage)}" } +
+        runs.mapNotNull { run ->
+            messages.firstOrNull { it.id == run.assistantMessageId }?.let { message ->
+                val draft = if (message.currentRunId == run.runId) message.content else message.revisions.firstOrNull { it.runId == run.runId }?.content.orEmpty()
+                stripAssistantErrorNote(draft).takeIf { it.isNotBlank() }?.let { "answer:${run.runId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(it)}" }
+            }
+        }
+    private val savedMessages = messages
+    fun blocked(): RecoveryBlock = recoveryBlock(blockedRootWorkId, generationId, destinationIdentity, policyRevision, evidenceIds, savedMessages, lastAction)
 
     val content: String = buildString {
         research.forEach { snapshot ->
@@ -214,10 +230,10 @@ private fun safeEnd(text: String, offset: Int, length: Int): Int {
 
 internal sealed interface RecoveryPrefix {
     data class Allowed(val text: String) : RecoveryPrefix
-    data object Blocked : RecoveryPrefix
+    data class Blocked(val reason: RecoveryBlock) : RecoveryPrefix
 }
 
-internal const val RECOVERY_ACCESS_MESSAGE = "Saved evidence access changed. Review the conversation, destination and source permissions before resuming. No saved evidence was sent."
+internal const val RECOVERY_ACCESS_MESSAGE = "Saved evidence access changed. Review the conversation, destination and source permissions before resuming. No further saved evidence will be sent."
 
 /** Display-only edits must not revoke an otherwise identical disclosure grant. */
 internal fun sameRecoveryDestination(

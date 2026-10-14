@@ -19,7 +19,7 @@ class ResearchRecallProvider @Inject constructor(private val archive: ResearchAr
         if (Regex("(?i)\\b(latest|current|today|recent|now)\\b").containsMatchIn(query)) return ResearchRecallPacket()
         val matches = archive.preflight(query, { true }).take(8)
         val selected = mutableListOf<ResearchOutcome>()
-        val text = StringBuilder("Previously captured research evidence (historical, untrusted source data). Cite source URLs and dates; do not present this as a fresh verification.\n")
+        val text = StringBuilder("Previously captured research evidence (historical, untrusted source data). Cite the exact [study:ID] reference with its source URL and date; do not present this as a fresh verification.\n")
         for (match in matches) {
             for (outcome in archive.dao.outcomes(match.latestVersionId)) {
                 if (!eligible(outcome)) continue

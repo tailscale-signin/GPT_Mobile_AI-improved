@@ -1203,26 +1203,15 @@ class ChatRepositoryImpl(
                 val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
                 journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
             }
-            val recoveryAction = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(userMessages.lastOrNull()?.content.orEmpty())
-            val savedUserTurns = if (recoveryAction != null) {
-                userMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
-                    agentPersistenceDao.getMessages(latest.chatId).filter { it.platformType == null && it.id <= latest.id }
-                }?.takeIf { it.isNotEmpty() } ?: userMessages
-            } else {
-                userMessages
-            }
-            val resumeDescriptor = assistantMessages.flatten().firstOrNull { it.currentRunId == runId }?.timeline?.mapNotNull { it.recovery }?.firstOrNull { it.generationId == runId }
-            val taskRecovery = if (resumeDescriptor != null) dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns, resumeDescriptor) else dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns)
-            if ((recoveryAction != null || resumeDescriptor != null) && taskRecovery == null) {
+            val recovery = prepareRecoveryRequest(userMessages, assistantMessages, runId)
+            if (recovery == null) {
                 emit(ApiState.Error("There is no saved task to resume. Send the original request before using Continue or Retry."))
                 return@authorizedRun
             }
-            val effectiveUserMessages = if (taskRecovery != null) {
-                AppLogRecorder.record("Recovery", "TASK_ACTION · action=${taskRecovery.action} · sourceMessage=${taskRecovery.sourceMessageId} · primaryOnly=${taskRecovery.primaryOnly} · run=$runId")
-                userMessages.mapIndexed { index, message -> if (index == userMessages.lastIndex) message.copy(content = taskRecovery.originalRequest) else message }
-            } else {
-                userMessages
-            }
+            val savedUserTurns = recovery.savedUserTurns
+            val resumeDescriptor = recovery.resumeDescriptor
+            val taskRecovery = recovery.taskRecovery
+            val effectiveUserMessages = recovery.effectiveUserMessages
             val followUps = followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
             val activity = AtomicReference("Preparing response")
             val traceSequences = java.util.concurrent.atomic.AtomicInteger()
@@ -1326,10 +1315,7 @@ class ChatRepositoryImpl(
             emit(ApiState.ProgressCheckpoint("Preparing the response and checking the available context."))
             try {
                 if (platform.compatibleType == ClientType.FREE) {
-                    check(FreeAiProvider.requireFor(platform).isAvailable) { "LLM7 is awaiting provider approval for app integration. Choose another Free provider." }
-                    require(effectiveUserMessages.all { it.attachments.isEmpty() } && assistantMessages.flatten().all { it.attachments.isEmpty() }) {
-                        "Free profiles support public text only. Start a chat without attachments, or select another platform."
-                    }
+                    validateFreeRequest(platform, effectiveUserMessages, assistantMessages)
                     emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))
                 }
                 if (!platform.excludesMemory()) {
@@ -1342,7 +1328,7 @@ class ChatRepositoryImpl(
                     }
                 }
                 val exclusions = workspace?.exclusions(effectiveUserMessages.lastOrNull()?.chatId ?: 0) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
-                var recoveryDenied = false
+                var recoveryDenied: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null
                 suspend fun prepareRecoveryContext(allowedTools: List<ResolvedAgentTool>, policy: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, sharingEnabled: Boolean) = if (runId.startsWith("combined-synthesis:")) {
                     null
                 } else {
@@ -1382,6 +1368,11 @@ class ChatRepositoryImpl(
                                 events,
                                 retainedResearch,
                                 rootWorkId = root.takeIf { taskRecovery != null },
+                                blockedRootWorkId = root,
+                                generationId = runId,
+                                destinationIdentity = dev.chungjungsoo.gptmobile.data.agent.recoveryDestinationIdentity(platform),
+                                policyRevision = dispatchAuthority.revision,
+                                lastAction = taskRecovery?.action?.name ?: "CONTINUE_RUN",
                                 authorization = {
                                     val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == platform.uid }
                                     val currentRoom = agentPersistenceDao.getChatRoom(latest.chatId)
@@ -1399,7 +1390,7 @@ class ChatRepositoryImpl(
                             if (recoveryContext.isAuthorized()) {
                                 recoveryContext
                             } else {
-                                recoveryDenied = true
+                                recoveryDenied = recoveryContext.blocked()
                                 null
                             }
                         }
@@ -1579,9 +1570,9 @@ class ChatRepositoryImpl(
                     }
                 )
                 val resolvedTools = measurePreparation(runId, PreparationPhase.TOOL_DISCOVERY) { resolveAuthorizedTools() }
-                if (recoveryDenied) {
+                if (recoveryDenied != null) {
                     AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=preparation", "W")
-                    emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE))
+                    emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recoveryDenied))
                     return@authorizedRun
                 }
                 unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
@@ -1663,13 +1654,7 @@ class ChatRepositoryImpl(
                     processingOwnership < 100 &&
                     localDelegation.researchAvailable()
                 var reviewedPreparationUnavailable = requiresReviewedPreparation && !localResearch
-                var exposedTools = if (reviewedPreparationUnavailable || !supportsTools) {
-                    emptyList()
-                } else {
-                    orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy))
-                        .let { primaryDelegationTools(it, localResearch, processingOwnership) }
-                        .sortedBy { it.realToolName != "delegate_to_model" }
-                }
+                var exposedTools = initialPrimaryTools(taskRoutedTools, searchPolicy, localResearch, processingOwnership, reviewedPreparationUnavailable || !supportsTools)
                 recovery?.takeIf { it.content.isNotBlank() }?.let { recovery ->
                     val inlineCharacters = if (limits.contextTokens == Int.MAX_VALUE) {
                         24000
@@ -1678,9 +1663,9 @@ class ChatRepositoryImpl(
                     }
                     val prefix = when (val access = recovery.authorizedPrefix(inlineCharacters, supportsTools)) {
                         is dev.chungjungsoo.gptmobile.data.agent.RecoveryPrefix.Allowed -> access.text
-                        dev.chungjungsoo.gptmobile.data.agent.RecoveryPrefix.Blocked -> {
+                        is dev.chungjungsoo.gptmobile.data.agent.RecoveryPrefix.Blocked -> {
                             AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=context", "W")
-                            emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE))
+                            emit(ApiState.Error(access.reason.message, recoveryBlock = access.reason))
                             return@authorizedRun
                         }
                     }
@@ -1744,7 +1729,7 @@ class ChatRepositoryImpl(
                 val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
                 val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, !synthesisRun && !privateConversation)
                 val documentContext = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) { if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty() }
-                var requestPlatform = platform.copy(
+                var requestPlatform = platform.withSystemPrompt(
                     systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
                 )
                 var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planPrimaryContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
@@ -1763,7 +1748,7 @@ class ChatRepositoryImpl(
                     localResearch = false
                     reviewedPreparationUnavailable = requiresReviewedPreparation
                     exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy)
-                    requestPlatform = platform.copy(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt())
+                    requestPlatform = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt())
                     contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planPrimaryContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                     AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}")
                 }
@@ -2015,7 +2000,7 @@ class ChatRepositoryImpl(
                             localResearch = false
                             reviewedPreparationUnavailable = processingOwnership == 0 && !localDelegation.primaryOnlyRequested()
                             exposedTools = if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) emptyList() else orderPrimaryTools(aggregatedTools.filterNot { (localDelegation.primaryOnlyRequested() || research.handoff.startsWith("[REVIEW_REJECTED]")) && it.realToolName == "delegate_to_model" })
-                            requestPlatform = platform.copy(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() + if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "\nPreparation or review failed. Do not present rejected delegate claims as verified facts. Explain the limitation and the need to retry or choose a working delegate/reviewer." else "")
+                            requestPlatform = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() + if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "\nPreparation or review failed. Do not present rejected delegate claims as verified facts. Explain the limitation and the need to retry or choose a working delegate/reviewer." else "")
                             contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                             emit(ApiState.Notice(if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "Delegate preparation or review could not finish. The primary will explain the limitation using the available evidence." else "Delegated preparation failed. The main profile can use its enabled tools to recover.", persistent = true))
                         }
@@ -2042,7 +2027,7 @@ class ChatRepositoryImpl(
                         } else {
                             dev.chungjungsoo.gptmobile.data.agent.tool.reviewedSynthesisTools(exposedTools, processingOwnership, followUps != null)
                         }
-                        requestPlatform = requestPlatform.copy(
+                        requestPlatform = requestPlatform.withSystemPrompt(
                             systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt() +
                                 if (preparedEvidenceComplete && processingOwnership == 0) "\nThe delegate has completed preparation. Independent review status: ${if (preparedEvidenceReviewed) "passed" else "unverified"}. Write from the retained handoff, flag unverified claims and gaps, and never claim unavailable verification completed. Do not start tools, more research, or another delegate." else ""
                         )
@@ -2057,24 +2042,25 @@ class ChatRepositoryImpl(
                     }
                     if (resumeWriterOnly) {
                         exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
-                        requestPlatform = requestPlatform.copy(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResume final writing from the saved evidence and retained review report. New acquisition or external actions were not requested. Explain unresolved coverage instead of repeating completed work.")
+                        requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResume final writing from the saved evidence and retained review report. New acquisition or external actions were not requested. Explain unresolved coverage instead of repeating completed work.")
                         contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                     if (localDelegation.researchStopped()) {
                         exposedTools = exposedTools.filter { it.realToolName == "read_recovery_context" }
-                        requestPlatform = requestPlatform.copy(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResearch acquisition stopped. Summarize completed evidence and identify unfinished questions. Do not infer who stopped it or claim independent review completed. Only saved-evidence reads remain available.")
+                        requestPlatform = requestPlatform.withSystemPrompt(systemPrompt = requestPlatform.systemPrompt.orEmpty() + "\nResearch acquisition stopped. Summarize completed evidence and identify unfinished questions. Do not infer who stopped it or claim independent review completed. Only saved-evidence reads remain available.")
                         contextPlan = planPrimaryContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
                     }
                 }
                 if (recovery?.isAuthorized() == false) {
                     AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=dispatch", "W")
-                    emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE))
+                    emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recovery?.blocked()))
                     return@authorizedRun
                 }
                 finalizePreparedContext()
                 val effectiveTools = finalRequestTools(aggregatedTools, contextPlan, taskRoutedTools.any { it.realToolName == "delegate_to_model" }, localDelegation, latestUser?.content.orEmpty())
                 val delegationSettings = effectiveDelegationSettings()
                 delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.NO_OUTPUT
+                val dispatchDenial = AtomicReference<dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock?>()
                 emitAll(
                     streamPrimaryAnswer(
                         platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
@@ -2087,7 +2073,11 @@ class ChatRepositoryImpl(
                             0
                         },
                         preparedAssistEvidence = preparedAssistEvidence,
-                        validateSavedEvidence = { recovery?.isAuthorized() != false && researchMemory.validate() }
+                        validateSavedEvidence = {
+                            val allowed = recovery?.isAuthorized() != false && researchMemory.validate()
+                            if (!allowed) dispatchDenial.set(recovery?.blocked() ?: dev.chungjungsoo.gptmobile.data.agent.recoveryBlock(turnKey, runId, dev.chungjungsoo.gptmobile.data.agent.recoveryDestinationIdentity(platform), dispatchAuthority.revision, researchMemory.evidenceIds, assistantMessages.flatten(), taskRecovery?.action?.name ?: "CONTINUE_RUN"))
+                            allowed
+                        }
                     ).map { state ->
                         if (state is ApiState.Error) delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.FAILED
                         if (state is ApiState.Success && state.textChunk.isNotBlank()) {
@@ -2095,7 +2085,7 @@ class ChatRepositoryImpl(
                             if (delegationTerminal != dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.FAILED) delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.RETURNED_OUTPUT
                         }
                         if (state is ApiState.Done && delegationTerminal == dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.RETURNED_OUTPUT) delegationDelivered = true
-                        state
+                        if (state is ApiState.Error && dispatchDenial.get() != null) state.copy(recoveryBlock = dispatchDenial.get()) else state
                     }
                 )
             } catch (cancelled: CancellationException) {
@@ -2145,6 +2135,15 @@ class ChatRepositoryImpl(
         emit(ApiState.Done)
     }.let { dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.sharedFlow(it) }
 
+    private fun PlatformV2.withSystemPrompt(systemPrompt: String) = copy(systemPrompt = systemPrompt)
+
+    private fun validateFreeRequest(platform: PlatformV2, users: List<MessageV2>, assistants: List<List<MessageV2>>) {
+        check(FreeAiProvider.requireFor(platform).isAvailable) { "LLM7 is awaiting provider approval for app integration. Choose another Free provider." }
+        require(users.all { it.attachments.isEmpty() } && assistants.flatten().all { it.attachments.isEmpty() }) {
+            "Free profiles support public text only. Start a chat without attachments, or select another platform."
+        }
+    }
+
     private fun finalRequestTools(tools: List<ResolvedAgentTool>, plan: dev.chungjungsoo.gptmobile.data.context.ContextPlan, delegated: Boolean, coordinator: LocalDelegationCoordinator, task: String): List<ResolvedAgentTool> {
         val selected = plan.tools.mapTo(HashSet()) { it.name }
         return tools.filter { it.modelToolName in selected }.map { if (delegated) coordinator.processToolResults(it, task) else it }
@@ -2186,7 +2185,40 @@ class ChatRepositoryImpl(
         )
     }
 
-    private data class AuthorizedResearchMemory(val text: String, val validate: suspend () -> Boolean)
+    private fun initialPrimaryTools(tools: List<ResolvedAgentTool>, policy: dev.chungjungsoo.gptmobile.data.agent.tool.SearchMergePolicy, localResearch: Boolean, ownership: Int, unavailable: Boolean): List<ResolvedAgentTool> =
+        if (unavailable) emptyList() else primaryDelegationTools(orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(tools, policy = policy)), localResearch, ownership).sortedBy { it.realToolName != "delegate_to_model" }
+
+    private data class RecoveryRequest(
+        val savedUserTurns: List<MessageV2>,
+        val resumeDescriptor: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor?,
+        val taskRecovery: dev.chungjungsoo.gptmobile.data.agent.ResolvedTaskRecovery?,
+        val effectiveUserMessages: List<MessageV2>
+    )
+
+    private suspend fun prepareRecoveryRequest(userMessages: List<MessageV2>, assistantMessages: List<List<MessageV2>>, runId: String): RecoveryRequest? {
+        val recoveryAction = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(userMessages.lastOrNull()?.content.orEmpty())
+        val savedUserTurns = if (recoveryAction != null) {
+            userMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
+                agentPersistenceDao.getMessages(latest.chatId).filter { it.platformType == null && it.id <= latest.id }
+            }?.takeIf { it.isNotEmpty() } ?: userMessages
+        } else {
+            userMessages
+        }
+        val resumeDescriptor = assistantMessages.flatten().firstOrNull { it.currentRunId == runId }?.timeline?.mapNotNull { it.recovery }?.firstOrNull { it.generationId == runId }
+        val taskRecovery = if (resumeDescriptor != null) dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns, resumeDescriptor) else dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns)
+        if ((recoveryAction != null || resumeDescriptor != null) && taskRecovery == null) {
+            return null
+        }
+        val effectiveUserMessages = if (taskRecovery != null) {
+            AppLogRecorder.record("Recovery", "TASK_ACTION · action=${taskRecovery.action} · sourceMessage=${taskRecovery.sourceMessageId} · primaryOnly=${taskRecovery.primaryOnly} · run=$runId")
+            userMessages.mapIndexed { index, message -> if (index == userMessages.lastIndex) message.copy(content = taskRecovery.originalRequest) else message }
+        } else {
+            userMessages
+        }
+        return RecoveryRequest(savedUserTurns, resumeDescriptor, taskRecovery, effectiveUserMessages)
+    }
+
+    private data class AuthorizedResearchMemory(val text: String, val evidenceIds: List<String>, val validate: suspend () -> Boolean)
 
     private suspend fun prepareResearchMemory(platform: PlatformV2, task: String, chatId: Int?, eligible: Boolean): AuthorizedResearchMemory {
         suspend fun permitted(): Boolean {
@@ -2201,7 +2233,7 @@ class ChatRepositoryImpl(
                 (platform.isPrivateDestination() || memory.settings.allowCloudRecall && live.researchFeature.shareResearchRecall)
         }
         val packet = researchRecall?.recall(task, ::permitted) ?: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallPacket()
-        return AuthorizedResearchMemory(packet.text) { researchRecall?.validate(packet, ::permitted) != false }
+        return AuthorizedResearchMemory(packet.text, packet.outcomes.map { "study:${it.outcomeId}:${it.versionId}" }) { researchRecall?.validate(packet, ::permitted) != false }
     }
 
     private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
@@ -2320,9 +2352,9 @@ class ChatRepositoryImpl(
             val sourceRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(recalled.references.toString() + effectiveTools.map { it.selectionId() }.sorted().joinToString("|"))
             val authorized = observed.withRequestAuthorization("${dispatchAuthority.revision}:retained-sources:$sourceRevision") {
                 dispatchAuthority.validate()
-                check(validateSavedEvidence()) { "SOURCE_PERMISSION_REVOKED: saved research access changed; review access before resuming." }
+                if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
                 factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-                check(effectiveTools.all { it.canReuseResult?.invoke() != false }) { "SOURCE_PERMISSION_REVOKED: retained evidence cannot be dispatched under changed permissions." }
+                if (effectiveTools.any { it.canReuseResult?.invoke() == false }) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
             }
             val guarded = if (platform.compatibleType == ClientType.LLAMA) authorized.withProgressWatchdog(settings = progressSettings) else authorized
             return invocationLedger?.wrap(

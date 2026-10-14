@@ -34,6 +34,9 @@ import kotlinx.serialization.json.Json
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: String = "public", chatId: Int = 0, initialProfileUid: String = "", currentTools: () -> ChatMcpToolConfig = { ChatMcpToolConfig() }, onClose: () -> Unit, viewModel: ResearchArticleViewModel = hiltViewModel()) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    var actionError by rememberSaveable(workId) { mutableStateOf<String?>(null) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
@@ -46,10 +49,25 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
             LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (state.loading) item { Text("Loading saved article…") }
                 state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+                actionError?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
                 state.work?.let { work ->
                     item {
                         Text(work.title, style = MaterialTheme.typography.titleLarge)
                         Text(work.canonicalUrl, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = {
+                            runCatching { uriHandler.openUri(work.canonicalUrl) }.onFailure { actionError = "No browser is available to open this source." }
+                        }) { Text("Open source") }
+                        state.version?.takeIf { it.publicSource }?.let { version ->
+                            TextButton(onClick = {
+                                val share = android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.main.ShareIncomingActivity::class.java).apply {
+                                    action = android.content.Intent.ACTION_SEND
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_TEXT, "Use this saved article as historical evidence, preserving its coverage and limitations. Cite [article:${version.versionId}] with its URL.\n${work.title}\n${work.canonicalUrl}\nCaptured: ${java.time.Instant.ofEpochMilli(version.retrievedAt)}; coverage: ${version.coverage.name}")
+                                    if (chatId > 0) putExtra("research_origin_chat", chatId)
+                                }
+                                context.startActivity(share)
+                            }) { Text("Use in chat") }
+                        }
                         Text("Publication: ${work.publicationType} · ${work.publicationYear ?: "Year unknown"}")
                         Text("Peer review: ${work.peerReview.name.lowercase().replace('_', ' ')} · Preprint: ${work.preprint ?: "Unknown"}")
                         if (work.retracted == true) Text("Retraction reported", color = MaterialTheme.colorScheme.error)

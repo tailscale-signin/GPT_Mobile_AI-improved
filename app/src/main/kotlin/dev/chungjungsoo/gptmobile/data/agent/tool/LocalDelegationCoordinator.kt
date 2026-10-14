@@ -67,7 +67,8 @@ internal class LocalDelegationCoordinator(
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 },
     private val researchJournal: dev.chungjungsoo.gptmobile.data.research.ResearchJournal? = null,
     private val beforeDispatch: suspend () -> Boolean = { true },
-    private val onEvent: (DelegationEvent) -> Unit = {}
+    private val onEvent: (DelegationEvent) -> Unit = {},
+    private val researchMemoryAvailable: () -> Boolean = ::hasResearchMemoryHeadroom
 ) {
     private fun observe(event: DelegationEvent) {
         runCatching { onEvent(event) }
@@ -1597,6 +1598,7 @@ internal class LocalDelegationCoordinator(
                         generate = { prompt, tokens -> workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true) },
                         journal = researchJournal,
                         monotonicMs = nowMs,
+                        memoryAvailable = researchMemoryAvailable,
                         cancellationOrigin = { cancellationCause.get()?.name ?: researchJournal?.cancellationOrigin() ?: "UNKNOWN" },
                         stillEnabled = { !delegationCanceledByUser.get() }
                     ).run(LongResponsePolicy.evidenceTask(task), "$callId:$requestIndex")

@@ -251,7 +251,7 @@ internal class DelegationBenchmarkRunner(
                         rawBytes = result.rawBytes
                         handoffChars = result.handoff.length
                         event("RESEARCH_RESULT", "outcome=${result.outcome} searches=$searches pages=$pages rawBytes=$rawBytes handoffChars=$handoffChars")
-                        check(result.outcome == LocalResearchOutcome.SUCCESS && pages > 0 && code in result.handoff) { "Research fixture did not reach a complete handoff: outcome=${result.outcome}; readablePages=$pages; fixtureCalls=$fixtureCalls; exactCodeRetained=${code in result.handoff}. Check helper settings, resource headroom and output limits." }
+                        check(result.outcome == LocalResearchOutcome.SUCCESS && pages > 0 && code in result.handoff) { "Research fixture did not reach a complete handoff: outcome=${result.outcome}; phase=${result.completionReason}; readablePages=$pages; fixtureCalls=$fixtureCalls; workerCalls=${workerCalls() - callsBefore}; exactCodeRetained=${code in result.handoff}; workerFailure=${coordinator.failureReason()}; fixtureHandoff=${result.handoff.take(4000)}" }
                         val primary = BenchmarkRunner(openPrimary, now).run(
                             BenchmarkCase("handoff", "Primary handoff", "speed", "Using only this reference evidence, report the parcel code and its source URL in one sentence.\n${result.handoff}"),
                             false

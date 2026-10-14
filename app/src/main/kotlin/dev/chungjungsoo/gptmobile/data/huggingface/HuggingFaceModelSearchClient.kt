@@ -16,7 +16,9 @@ import javax.inject.Singleton
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -129,6 +131,7 @@ class HuggingFaceModelSearchClient @Inject constructor(
     private val tokenStore: HuggingFaceTokenStore
 ) {
     private val permits = Semaphore(4)
+    private val metadataCache = PinnedHubMetadataCache()
 
     suspend fun searchNpu(query: String, deviceSoc: String): List<HuggingFaceLiteRtResult> = searchNpuOutcome(query, deviceSoc).results
 
@@ -159,7 +162,7 @@ class HuggingFaceModelSearchClient @Inject constructor(
 
     suspend fun search(query: String, limit: Int = DEFAULT_LIMIT): List<HuggingFaceLiteRtResult> = searchOutcome(query, limit).results
 
-    suspend fun searchOutcome(query: String, limit: Int = DEFAULT_LIMIT): HubSearchOutcome {
+    suspend fun searchOutcome(query: String, limit: Int = DEFAULT_LIMIT, onPartial: suspend (HubSearchOutcome) -> Unit = {}): HubSearchOutcome {
         val normalized = query.trim()
         val token = tokenStore.readAccessToken()
         if (normalized.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*"))) {
@@ -176,6 +179,8 @@ class HuggingFaceModelSearchClient @Inject constructor(
             }.awaitAll().flatMap { it }.distinctBy { (it as? JsonObject)?.get("id") }
         }
         val failures = java.util.concurrent.atomic.AtomicInteger()
+        val partials = mutableListOf<HuggingFaceLiteRtResult>()
+        val partialLock = Mutex()
         // Listing siblings omit sizes. Resolve metadata at the pinned revision before
         // showing a package as suitable for the phone's memory budget.
         val files = supervisorScope {
@@ -188,8 +193,18 @@ class HuggingFaceModelSearchClient @Inject constructor(
                             val repo = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
                             val revision = obj["sha"]?.jsonPrimitive?.contentOrNull?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
                                 ?: return@run emptyList<HuggingFaceLiteRtResult>()
-                            val metadata = requestJson("$MODELS_API/$repo/revision/$revision", token, mapOf("blobs" to "true"))
+                            val metadata = metadataCache.get(repo, revision, token)
+                                ?: requestJson("$MODELS_API/$repo/revision/$revision", token, mapOf("blobs" to "true")).also { value ->
+                                    (value as? JsonObject)?.let { metadataCache.put(repo, revision, token, it) }
+                                }
                             parseCompatibleFiles(metadata).filter { it.sizeInBytes > 0 && it.sha == revision && it.repoId == repo }
+                        }
+                    }.also { ready ->
+                        if (ready.isNotEmpty()) {
+                            partialLock.withLock {
+                                partials += ready
+                                onPartial(HubSearchOutcome(partials.sortedWith(compareByDescending<HuggingFaceLiteRtResult> { it.downloads }.thenBy { it.repoId }.thenBy { it.filePath }), "Loading additional repository metadata…"))
+                            }
                         }
                     }
                 }

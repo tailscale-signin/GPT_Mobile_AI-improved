@@ -27,6 +27,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidResearchWorkflowTest {
+    @Test fun `memory pressure pauses before source admission without running fixture tools`() = runBlocking {
+        val journal = Journal()
+        var calls = 0
+        val workflow = AndroidResearchWorkflow(
+            config(1),
+            listOf(
+                tool("web_search") { _, _ ->
+                    calls++
+                    error("Must pause before acquisition")
+                },
+                reader { _, _ ->
+                    calls++
+                    error("Must pause before reading")
+                }
+            ),
+            generate = { _, _ -> """{"questions":[{"id":"Q1","text":"What is the device limit?","evidenceNeeded":"Exact passage"}],"queries":["device limit"]}""" },
+            journal = journal,
+            memoryAvailable = { false }
+        )
+        val result = workflow.run("Research https://example.org/device", "memory-pressure")
+        assertEquals(LocalResearchOutcome.NO_USEFUL_OUTPUT, result.outcome)
+        assertEquals("Paused for device resources", result.completionReason)
+        assertEquals("Paused for device resources", journal.snapshot?.phase)
+        assertEquals(0, result.pagesRead)
+        assertEquals(0, calls)
+    }
+
     private val passage = "The research device supports two parallel page requests. This documented limit applies to all ordinary page retrieval operations."
     private class Journal : ResearchJournal {
         var snapshot: ResearchSnapshot? = null

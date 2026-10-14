@@ -19,6 +19,6 @@ sealed class ApiState {
     data class Notice(val message: String, val persistent: Boolean = false) : ApiState()
     data class PhaseChanged(val phase: LocalInferencePhase) : ApiState()
     data class GatewayProgressChanged(val progress: GatewayProgress) : ApiState()
-    data class Error(val message: String, val progressDeadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome? = null) : ApiState()
+    data class Error(val message: String, val progressDeadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome? = null, val recoveryBlock: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null) : ApiState()
     data object Done : ApiState()
 }

@@ -17,6 +17,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun `permission denial checkpoint survives serialization and counts only new generations`() = runBlocking {
+        val block = dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-1", "destination", "policy-1", listOf("source:S1:v1"), emptyList(), "RETRY_FAILED_STAGE")
+        var saved = emptyList<AssistantTimelineItem>()
+        val result = flowOf(ApiState.Error(block.message, recoveryBlock = block), ApiState.Success("Must not appear"))
+            .collectApiStateUpdates(onUpdate = { _, _, timeline -> saved = timeline })
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<AssistantTimelineItem>(kotlinx.serialization.json.Json.encodeToString(AssistantTimelineItem.serializer(), saved.single()))
+        assertEquals(block, restored.recoveryBlock)
+        val history = listOf(MessageV2(id = 2, chatId = 7, content = "", platformType = "writer", timeline = listOf(restored)))
+        assertEquals(block, dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-1", "destination", "policy-1", listOf("source:S1:v1"), history, "RETRY_FAILED_STAGE"))
+        val retry = dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-2", "destination", "policy-1", listOf("source:S1:v1"), history, "RETRY_FAILED_STAGE")
+        assertEquals(block.fingerprint, retry.fingerprint)
+        assertEquals(2, retry.attemptCount)
+        val changed = dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-2", "destination", "policy-2", listOf("source:S1:v1"), history, "RETRY_FAILED_STAGE")
+        assertTrue(block.fingerprint != changed.fingerprint)
+        assertEquals(1, changed.attemptCount)
+    }
+
     @Test
     fun `typed progress deadline survives timeline serialization beside partial answer`() = runBlocking {
         val deadline = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome(

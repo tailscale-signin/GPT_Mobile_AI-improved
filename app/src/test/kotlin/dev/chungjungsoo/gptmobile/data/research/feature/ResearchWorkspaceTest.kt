@@ -102,6 +102,38 @@ class ResearchWorkspaceTest {
         assertTrue(provider.recall("clinical trial") { true }.outcomes.isEmpty())
     }
 
+    @Test fun exactRecallCitationRemainsBoundAfterANewerCaptureOfTheSameSource() = withArchive { archive ->
+        val body = "The clinical trial reported improved mobility by 10 points."
+        val first = archive.capture(ResearchSource("S1", "https://example.org/trial", "Clinical trial", "Read", body), body, "public", true, 7, "first", true, 0)
+        archive.dao.passage(EvidencePassage("p", first.versionId, "Results", 0, body.length, researchHash(body), body))
+        val outcome = ResearchOutcome(researchHash("selected-outcome"), first.workId, first.versionId, "mobility", "10 points", "Single trial", "[\"p\"]", "GROUNDED", 1)
+        archive.dao.outcome(outcome)
+        val packet = ResearchRecallProvider(archive).recall("clinical trial") { true }
+        assertTrue(packet.text.contains("[study:${outcome.outcomeId}]"))
+        // A refresh after dispatch cannot rewrite the version actually supplied to the writer.
+        val revised = body + " Correction: the result needs further study."
+        val second = archive.capture(ResearchSource("S1", "https://example.org/trial", "Clinical trial", "Read", revised), revised, "public", true, 7, "second", true, 0)
+        assertFalse(first.versionId == second.versionId)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val chats = Room.inMemoryDatabaseBuilder(app, dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2::class.java).allowMainThreadQueries().build()
+        val root = kotlin.io.path.createTempDirectory("citation-recall").toFile()
+        try {
+            chats.chatRoomDao().addChatRoom(dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(id = 7, title = "Second conversation"))
+            val context = object : ContextWrapper(app) {
+                override fun getFilesDir() = root
+            }
+            val resolver = CitationBindingResolver(archive, ResearchSessionStore(context, archive.database), chats)
+            val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 9, chatId = 7, platformType = "writer", currentRunId = "recall-run", content = "The historical trial reported 10 points [study:${outcome.outcomeId}], https://example.org/trial.")
+            val bindings = resolver.bind(message)
+            assertEquals(2, bindings.size)
+            assertEquals(setOf(first.versionId), bindings.map { it.versionId }.toSet())
+            assertTrue(archive.dao.allRoots().any { it.rootKind == "citation" && it.versionId == first.versionId })
+        } finally {
+            chats.close()
+            root.deleteRecursively()
+        }
+    }
+
     private fun withArchive(block: suspend kotlinx.coroutines.CoroutineScope.(ResearchArchiveRepository) -> Unit) = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
         val root = kotlin.io.path.createTempDirectory("research-workspace").toFile()

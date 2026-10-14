@@ -12,7 +12,7 @@ data class CombinedCorpusSourceSpan(
     val endUtf16: Int,
     val text: String
 ) {
-    val sourceId: String get() = "turn-${turnIndex}-${role}:${startUtf16}-${endUtf16}"
+    val sourceId: String get() = "turn-$turnIndex-$role:$startUtf16-$endUtf16"
 }
 
 /** A single same-primary read of one bounded, immutable source span. */
@@ -115,7 +115,9 @@ object CombinedCorpusMultipass {
                     if (candidate in 1 until text.length &&
                         Character.isHighSurrogate(text[candidate - 1]) &&
                         Character.isLowSurrogate(text[candidate])
-                    ) return candidate - 1
+                    ) {
+                        return candidate - 1
+                    }
                     return candidate
                 }
                 fun candidate(end: Int): Pair<ConversationTurn, Int> {

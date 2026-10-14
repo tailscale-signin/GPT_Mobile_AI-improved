@@ -25,10 +25,14 @@ class CombinedCorpusMultipassTest {
         assertNotNull(passes)
         assertTrue(plan.notice.contains("FULL_CORPUS_MULTIPASS"))
         assertEquals(original, plan.turns)
-        assertEquals(historical, passes!!.passes.filter { it.source.turnIndex == 0 }
-            .joinToString("") { it.source.text })
-        assertEquals(current, passes.passes.filter { it.source.turnIndex == 1 }
-            .joinToString("") { it.source.text })
+        assertEquals(
+            historical,
+            passes!!.passes.filter { it.source.turnIndex == 0 }.joinToString("") { it.source.text }
+        )
+        assertEquals(
+            current,
+            passes.passes.filter { it.source.turnIndex == 1 }.joinToString("") { it.source.text }
+        )
         assertTrue(passes.passes.all { it.estimatedPromptTokens + passes.inspectionOutputTokens + 256 <= 4096 })
         assertTrue(passes.passes.all { it.source.text.isNotEmpty() })
     }

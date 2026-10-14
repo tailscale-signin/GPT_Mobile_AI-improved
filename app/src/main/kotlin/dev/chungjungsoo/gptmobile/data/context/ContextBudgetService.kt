@@ -43,8 +43,8 @@ object ContextBudgetService {
     }
 
     /** Keep strict full-input planning available while allowing an explicit, bounded fallback. */
-    fun planFullInputOrMultipass(turns: List<ConversationTurn>, system: String, settings: TokenBudgetSettings): ContextPlan {
-        return try {
+    fun planFullInputOrMultipass(turns: List<ConversationTurn>, system: String, settings: TokenBudgetSettings): ContextPlan =
+        try {
             planFullInput(turns, system, settings)
         } catch (overflow: IllegalArgumentException) {
             if (overflow.message?.startsWith("COMBINED_CONTEXT_CAPACITY:") != true) throw overflow
@@ -61,7 +61,6 @@ object ContextBudgetService {
                 multipass = stages
             )
         }
-    }
 
     fun breakdown(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>): ContextCostBreakdown = ContextCostBreakdown(
         system = estimate(system),

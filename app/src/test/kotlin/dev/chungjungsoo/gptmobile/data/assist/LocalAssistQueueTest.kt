@@ -121,7 +121,9 @@ class LocalAssistQueueTest {
         val original = UUID.randomUUID().toString()
         assertTrue(AssistTurnBudget.reserve(original, 1))
         assertFalse(AssistTurnBudget.reserve(original, 1))
-        repeat(160) {
+        // Also cross the previous 4,096-entry eviction threshold: dropping an
+        // unexpired counter would reset the physical attempt allowance.
+        repeat(4_200) {
             val separateTurn = UUID.randomUUID().toString()
             assertTrue("Fresh turn $it was blocked by unrelated history", AssistTurnBudget.available(separateTurn, 1))
             assertTrue(AssistTurnBudget.reserve(separateTurn, 1))

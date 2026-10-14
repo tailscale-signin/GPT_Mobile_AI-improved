@@ -1575,9 +1575,14 @@ class ChatRepositoryImpl(
                 )
                 val resolvedTools = measurePreparation(runId, PreparationPhase.TOOL_DISCOVERY) { resolveAuthorizedTools() }
                 if (recoveryDenied != null) {
-                    AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=preparation", "W")
-                    emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recoveryDenied))
-                    return@authorizedRun
+                    AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=preparation · explicit=${taskRecovery != null}", "W")
+                    if (taskRecovery != null) {
+                        emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recoveryDenied))
+                        return@authorizedRun
+                    }
+                    // Fresh chat input is independent of the denied saved work. Do not
+                    // reuse its text, receipts or research, but still allow a new answer.
+                    emit(ApiState.Notice("Prior saved work is no longer authorized and was not reused. Starting a fresh response.", persistent = true))
                 }
                 unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
                 val latestUser = effectiveUserMessages.lastOrNull()

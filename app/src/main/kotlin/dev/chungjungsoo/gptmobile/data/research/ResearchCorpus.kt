@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.research
 
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -9,16 +8,13 @@ data class ResearchCorpus(
     val snapshotVersion: Int,
     val sources: List<ResearchSource>,
     val claims: List<ResearchClaim>,
-    val toolEvents: List<ResearchToolEvent>
+    val toolEvents: List<ResearchToolEvent>,
+    val task: String = "",
+    val complete: Boolean = false
 ) {
-    fun json() = buildJsonObject {
-        put("snapshotVersion", snapshotVersion)
-        put("corpusSourceCount", sources.size)
-        put("evidenceDelivery", "Bounded excerpts; full corpus retained in research history")
-        put("sources", JsonArray(sources.filter { it.readable }.sortedByDescending { source -> claims.any { it.sourceId == source.id } }.take(8).map { it.copy(passage = it.passage.take(1500)).json() }))
-        put("claims", JsonArray(claims.take(MAX_CLAIMS).map { it.json() }))
-        put("toolEvents", JsonArray(toolEvents.takeLast(MAX_EVENTS).map { it.json() }))
-    }
+    fun json() = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(
+        ResearchSnapshot(task = task, sources = sources, claims = claims, toolEvents = toolEvents, complete = complete)
+    ).json()
 
     /** Resolve only URLs explicitly present in a contribution; never guess from local S1 labels. */
     fun citedSources(text: String): List<ResearchSource> {
@@ -34,7 +30,6 @@ data class ResearchCorpus(
     }
 
     companion object {
-        private const val MAX_CLAIMS = 30
         private const val MAX_EVENTS = 200
 
         fun freeze(snapshot: ResearchSnapshot): ResearchCorpus {
@@ -52,8 +47,8 @@ data class ResearchCorpus(
                 snapshot.claims.firstOrNull { it.sourceId == valid.sourceId && it.text == valid.text && it.quote == valid.quote }
                     ?.takeIf { it.verdict in setOf("Supported", "Contradicted", "Insufficient") }
                     ?: valid
-            }.take(MAX_CLAIMS)
-            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList())
+            }
+            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList(), snapshot.task, snapshot.complete)
         }
     }
 }

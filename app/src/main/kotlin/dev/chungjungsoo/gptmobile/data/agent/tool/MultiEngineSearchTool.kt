@@ -55,6 +55,8 @@ class MultiEngineSearchTool(
         require(selected.map { it.tool.executionOwner() }.distinct().size <= 1) { "Search engines must have one execution owner." }
     }
 
+    private val emptyStreaks = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+    private val emptyPausedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val blockedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
@@ -104,7 +106,8 @@ class MultiEngineSearchTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if (!policy.reuseIdenticalRequests) return search(callId, arguments)
-        val key = "$ownerRoute|${selected.joinToString { it.selectionId() }}|$policy|${configurationRevision()}|${JsonObject(arguments.toSortedMap())}"
+        val normalizedArguments = JsonObject(arguments + ("query" to JsonPrimitive((arguments["query"] as? JsonPrimitive)?.content.orEmpty().trim().replace(Regex("\\s+"), " ").lowercase(java.util.Locale.ROOT))))
+        val key = "$ownerRoute|${selected.joinToString { it.selectionId() }}|$policy|${configurationRevision()}|${JsonObject(normalizedArguments.toSortedMap())}"
         return queryLocks[(key.hashCode() and Int.MAX_VALUE) % queryLocks.size].withLock {
             val now = clock.millis()
             val reusable = selected.all { it.canReuseResult?.invoke() ?: (it.tool !is PreparableAgentTool) }
@@ -121,8 +124,7 @@ class MultiEngineSearchTool(
                 !partial &&
                 !result.isError &&
                 !result.outputBudgetExhausted &&
-                !result.toolCallBudgetExhausted &&
-                (result.content as? ToolResultContent.Json)?.value?.let { extractSearchSources(it).isNotEmpty() } == true
+                !result.toolCallBudgetExhausted
             ) {
                 resultCache.entries.removeIf { now - it.value.first > 30_000L }
                 if (resultCache.size >= 32) resultCache.keys.firstOrNull()?.let(resultCache::remove)
@@ -136,6 +138,8 @@ class MultiEngineSearchTool(
     private data class Prepared(val invoke: suspend () -> AgentToolResult, val effectiveCount: Int)
 
     private suspend fun search(callId: String, arguments: JsonObject): AgentToolResult = supervisorScope {
+        val revision = configurationRevision()
+        fun emptyKey(index: Int) = "$revision|${selected[index].selectionId()}"
         fun invalid(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true)
         val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull.orEmpty().trim()
         if (query.isEmpty()) return@supervisorScope invalid("A search query is required.")
@@ -168,6 +172,7 @@ class MultiEngineSearchTool(
             val engine = selected[index]
             val id = "$callId:engine:$index${if (refill) ":unique" else ""}"
             val unavailable = when {
+                (emptyPausedUntil[emptyKey(index)] ?: 0L) > clock.millis() -> failure(id, "empty_budget", "Repeated valid empty searches: use retained evidence or another selected engine. This does not establish an outage.")
                 (blockedUntil[engine.selectionId()] ?: 0L) > clock.millis() -> failure(id, "cooldown", "Engine cooling down after a provider access or quota failure.")
                 !canExecute() || remainingBytes() < 1024 -> {
                     val lowBytes = remainingBytes() < 1024
@@ -213,6 +218,7 @@ class MultiEngineSearchTool(
             val outcome = when {
                 result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "budget_exhausted"
                 result.isError && text.contains("permission", true) -> "denied"
+                result.isError && text.startsWith("Repeated valid empty searches") -> "empty_budget"
                 result.isError && Regex("(?i)cooling down").containsMatchIn(text) -> "cooldown"
                 result.isError && Regex("(?i)invalid|exceeds.*limit").containsMatchIn(text) -> "invalid_request"
                 result.isError && Regex("(?i)429|rate.?limit|quota|calls are used up").containsMatchIn(text) -> "rate_limited"
@@ -223,6 +229,18 @@ class MultiEngineSearchTool(
             }
             if (outcome in setOf("authentication_failed", "rate_limited")) {
                 blockedUntil[selected[index].selectionId()] = clock.millis() + if (outcome == "rate_limited") 60_000L else 5 * 60_000L
+            }
+            if (!refill && ready.effectiveCount > 0) {
+                val key = emptyKey(index)
+                if (outcome == "empty") {
+                    if (emptyStreaks.getOrPut(key) { java.util.concurrent.atomic.AtomicInteger() }.incrementAndGet() >= 3) {
+                        emptyPausedUntil[key] = clock.millis() + 30_000L
+                        emptyStreaks.remove(key)
+                    }
+                } else if (outcome in setOf("success", "partial_success")) {
+                    emptyStreaks.remove(key)
+                    emptyPausedUntil.remove(key)
+                }
             }
             return Response(if (outcome == "malformed_response") result.copy(isError = true) else result, outcome, ready.effectiveCount)
         }

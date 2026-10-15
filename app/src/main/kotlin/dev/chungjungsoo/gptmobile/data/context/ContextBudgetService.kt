@@ -20,7 +20,7 @@ object ContextBudgetService {
         val config = settings.normalized()
         val cost = breakdown(turns, system, emptyList())
         val outputLimit = config.outputTokens.takeIf { it > 0 }
-        val outputReserve = outputLimit ?: minOf(32768, config.contextTokens / 4)
+        val outputReserve = outputLimit ?: minOf(4096, config.contextTokens / 4)
         val safetyReserve = minOf(256, config.contextTokens / 16)
         val required = cost.total.toLong() + outputReserve + safetyReserve
         require(config.contextTokens == Int.MAX_VALUE || required <= config.contextTokens.toLong()) {
@@ -83,7 +83,7 @@ object ContextBudgetService {
                 promptTokens = breakdown(turns, system, tools).total
             )
         }
-        val output = outputLimit ?: minOf(32768, config.contextTokens / 4)
+        val output = outputLimit ?: minOf(4096, config.contextTokens / 4)
         require(output < config.contextTokens) { "The requested output allowance exceeds the context budget. Choose a larger context or explicitly lower the output limit; the task was not truncated." }
         val resultReserve = if (tools.isEmpty()) 0 else (config.contextTokens / 8).coerceAtMost(8192)
         val promptLimit = config.contextTokens - output - resultReserve - minOf(256, config.contextTokens / 16)

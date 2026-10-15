@@ -201,22 +201,13 @@ class LiteRtLmAdapter(
                 }
                 val effectiveContextTokens = if (assistWarmSpec != null) minOf(resolvedMaxTokens, assistWarmSpec.maxTokens) else resolvedMaxTokens
                 val requestedOutputLimit = constraints.outputLimit(platform.maxTokens)
-                val outputLimit = requestedOutputLimit ?: minOf(512, maxOf(1, effectiveContextTokens / 4))
+                var outputLimit = requestedOutputLimit ?: minOf(512, maxOf(1, effectiveContextTokens / 4))
                 if (requestedOutputLimit != outputLimit) {
                     send(ProviderEvent.Notice("Local reply budget: $outputLimit tokens, reserving room for instructions, history and tool results in this export's $resolvedMaxTokens-token context."))
                 }
                 if (!toolsCapable && tools.isNotEmpty()) {
                     send(ProviderEvent.Failed("This export reports chat-only support. Select a tool-capable artifact to use the enabled tools."))
                     return@channelFlow
-                }
-                if (constraints.maxOutputTokens != null) {
-                    send(
-                        ProviderEvent.RequestConfigured(
-                            configuredProfileOutputTokens = platform.maxTokens,
-                            requestedOutputTokens = constraints.maxOutputTokens,
-                            effectiveOutputTokens = outputLimit
-                        )
-                    )
                 }
                 val thinkingEnabled = platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
 
@@ -267,6 +258,8 @@ class LiteRtLmAdapter(
                         return@channelFlow
                     }
                 }
+                outputLimit = plan.outputReserveTokens
+                send(ProviderEvent.RequestConfigured(platform.maxTokens, requestedOutputLimit, outputLimit))
                 if (usedCompactFallback) {
                     send(
                         ProviderEvent.Notice(

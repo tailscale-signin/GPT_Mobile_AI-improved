@@ -7,14 +7,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchRunLedgerTest {
-    @Test fun noLegacyRequestOrByteCeilingIsInherited() {
+    @Test fun sharedSafetyCeilingsSurviveRestoreAndReserveReview() {
         val ledger = ResearchRunLedger("policy", ResearchUserLimits())
-        assertTrue(ledger.charge(logical = 3001, physical = 4000, downloaded = 3L * 1024 * 1024 * 1024, activeMillis = 7_200_000))
-        assertEquals(4000L, ledger.snapshot().physical)
+        assertTrue(ledger.charge(physical = 1800))
+        assertFalse(ledger.discoveryAllowed())
+        assertTrue(ledger.charge(physical = 600))
+        assertFalse(ledger.charge(physical = 1))
+        assertEquals("safety_request_limit", ledger.snapshot().limitReason)
         val restored = ResearchRunLedger("policy", ResearchUserLimits())
         restored.restore(ledger.snapshot())
-        assertTrue(restored.charge(physical = 1))
-        assertEquals(4001L, restored.snapshot().physical)
+        assertFalse(restored.charge(physical = 1))
+        assertEquals(2400L, restored.snapshot().physical)
+    }
+
+    @Test fun safetyBytesAndTimeCannotBeDisabledByAbsentUserLimits() {
+        val bytes = ResearchRunLedger("bytes", ResearchUserLimits())
+        assertFalse(bytes.charge(downloaded = ResearchRunLedger.SAFETY_BYTES + 1))
+        assertEquals("safety_download_limit", bytes.snapshot().limitReason)
+        val time = ResearchRunLedger("time", ResearchUserLimits())
+        assertFalse(time.charge(activeMillis = ResearchRunLedger.SAFETY_MILLIS + 1))
+        assertEquals("safety_time_limit", time.snapshot().limitReason)
     }
 
     @Test fun enabledUserLimitStaysStoppedAcrossRestore() {

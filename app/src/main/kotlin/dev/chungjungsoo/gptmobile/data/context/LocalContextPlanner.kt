@@ -31,7 +31,7 @@ internal object LocalContextPlanner {
         historyImageCount: (ConversationTurn) -> Int = { 0 }
     ): LocalContextPlan {
         require(contextTokens > 0)
-        val outputReserve = outputLimit?.takeIf { it > 0 } ?: minOf(1024, maxOf(1, contextTokens / 4))
+        val requiredNames = requiredToolNames(currentUserPrompt, tools)
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
@@ -39,16 +39,16 @@ internal object LocalContextPlanner {
         val templateReserve = minOf(256, contextTokens / 8)
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
-        val promptLimit = contextTokens.toLong() - outputReserve - templateReserve -
-            toolResultReserve
         var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
+        val requiredSchemaTokens = tools.filter { it.name in requiredNames }.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
+        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, templateReserve + toolResultReserve + 1, outputLimit)
+        val promptLimit = contextTokens.toLong() - outputReserve - templateReserve - toolResultReserve
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +
                 "Shorten the message or system instructions, remove attachments, or choose a model with a larger context. " +
                 "Max Output Tokens controls reply length; it does not increase model context."
         }
 
-        val requiredNames = requiredToolNames(currentUserPrompt, tools)
         val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
         val selectedTools = mutableListOf<AgentToolDefinition>()
         var toolTokens = 0L

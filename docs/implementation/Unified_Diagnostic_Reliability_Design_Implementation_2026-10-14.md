@@ -11,6 +11,8 @@
 >
 > **Implementation rule:** ALL workstreams in this specification belong on the above single branch after explicit implementation approval. Do not start parallel feature branches, merge to main, publish APKs, or claim fixes are verified based on this design document.
 
+> **Subsequent implementation:** The user requested implementation on October 15. See [implementation and validation status](Research_3_Unified_Diagnostic_Implementation_Status_2026-10-15.md) for changed code, retained safeguards and open gates. The original design-only status above describes this document’s creation.
+
 ## Executive decision
 
 The two October 14 diagnostic audits expose a connected set of failure mechanisms, not isolated cosmetic warnings: (1) local capacity/output allocation and Local Assist metadata rejection; (2) expensive or invalid tool advertising and model-emitted tool batches; (3) request admission and stale authorization races; (4) built-in search returning empty results despite apparently completed transport; (5) academic research accumulating large amounts of metadata without verified evidence making it to synthesis; (6) connectivity, authorization and MCP protocol negotiation failures; (7) excessive conversation-replay compression; (8) memory-worker busy loops; and (9) serious Android rendering stalls. The remedy is a single, state-owned, measurable request pipeline that keeps optional preparation off the critical path, preserves evidence, and fails predictably.

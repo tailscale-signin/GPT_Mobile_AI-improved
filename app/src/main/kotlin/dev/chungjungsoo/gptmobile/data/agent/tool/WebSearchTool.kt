@@ -183,8 +183,15 @@ class WebSearchTool(
             )
         } catch (exception: CancellationException) {
             throw exception
-        } catch (_: Exception) {
-            error(callId, "Web search failed: malformed or unsupported provider response.")
+        } catch (failure: Exception) {
+            error(
+                callId,
+                when {
+                    generateSequence(failure as Throwable?) { it.cause }.any { it is java.net.UnknownHostException } -> "DNS_FAILURE: search host could not be resolved."
+                    failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException -> "CONNECT_TIMEOUT: search request timed out."
+                    else -> "PARSE_OR_TRANSPORT_FAILURE: web search returned no usable response."
+                }
+            )
         }
     }
 
@@ -269,7 +276,7 @@ class WebSearchTool(
     }
 
     private suspend fun queryDuckDuckGo(request: WebSearchRequest): List<JsonObject> {
-        if (clock.millis() < autoSearchBlockedUntilMs.get()) return emptyList()
+        if (clock.millis() < autoSearchBlockedUntilMs.get()) throw IllegalStateException("SEARCH_COOLDOWN: search endpoint temporarily unavailable")
         val encodedQuery = URLEncoder.encode(request.query, StandardCharsets.UTF_8.name())
         val endpoints = autoSearchEndpointTemplates.map { it.replace("{query}", encodedQuery) }
 
@@ -285,12 +292,13 @@ class WebSearchTool(
                     autoSearchBlockedUntilMs.updateAndGet { current ->
                         maxOf(current, clock.millis() + AUTO_SEARCH_BACKOFF_MS)
                     }
-                    return emptyList()
+                    throw IllegalStateException("SEARCH_UNAVAILABLE: endpoint refused the request")
                 }
                 if (response.status.value in 200..299) {
                     val html = researchBody(response.bodyAsText())
                     if (html.isNotBlank()) {
                         val parsed = parseDuckDuckGoHtml(html, request.maxResults)
+                        if (parsed.isEmpty() && Regex("(?i)no results found|no results for|no more results").containsMatchIn(html) && !Regex("(?i)anomaly|captcha|challenge-form").containsMatchIn(html)) return emptyList()
                         if (parsed.isNotEmpty()) {
                             var filtered = parsed
                             if (request.includeDomains.isNotEmpty()) {
@@ -305,9 +313,7 @@ class WebSearchTool(
                                     matchesSearchDomains(resultUrl, emptyList(), request.excludeDomains)
                                 }
                             }
-                            if (filtered.isNotEmpty()) {
-                                return filtered.take(request.maxResults)
-                            }
+                            return filtered.take(request.maxResults)
                         }
                     }
                 }
@@ -317,7 +323,8 @@ class WebSearchTool(
                 // Continue to next endpoint
             }
         }
-        return emptyList()
+        autoSearchBlockedUntilMs.set(clock.millis() + AUTO_SEARCH_BACKOFF_MS)
+        throw IllegalStateException("SEARCH_PARSE_OR_TRANSPORT_FAILURE: no valid search response")
     }
 
     private fun parseDuckDuckGoHtml(html: String, maxResults: Int): List<JsonObject> {

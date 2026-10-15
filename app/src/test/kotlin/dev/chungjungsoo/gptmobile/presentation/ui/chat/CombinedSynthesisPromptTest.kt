@@ -53,8 +53,8 @@ class CombinedSynthesisPromptTest {
         ).jsonObject
 
         val evidence = prompt.getValue("shared_evidence").jsonObject
-        assertEquals("S1", evidence.getValue("sources").jsonArray.single().jsonObject.getValue("id").jsonPrimitive.content)
-        assertEquals("Supported", evidence.getValue("claims").jsonArray.single().jsonObject.getValue("verdict").jsonPrimitive.content)
+        assertEquals("S1", evidence.getValue("studies").jsonArray.single().jsonObject.getValue("id").jsonPrimitive.content)
+        assertEquals("Supported", evidence.getValue("studies").jsonArray.single().jsonObject.getValue("claims").jsonArray.single().jsonObject.getValue("verdict").jsonPrimitive.content)
         assertEquals("SUCCESS", evidence.getValue("toolEvents").jsonArray.single().jsonObject.getValue("outcome").jsonPrimitive.content)
     }
 

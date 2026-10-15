@@ -130,8 +130,8 @@ internal class DeepResearchTool(
             if (remote != null && remoteCompatible) {
                 val counters = budget.sharedState()
                 val remoteLimits = buildJsonObject {
-                    counters?.limits?.maxRequests?.let { put("researchRequestAllowance", (it - counters.physical).coerceAtLeast(0)) }
-                    counters?.limits?.maxDownloadedBytes?.let { put("researchDownloadAllowance", (it - counters.downloaded).coerceAtLeast(0)) }
+                    counters?.let { put("researchRequestAllowance", (minOf(it.limits.maxRequests ?: 2400L, 2400L) - it.physical).coerceAtLeast(0)) }
+                    counters?.let { put("researchDownloadAllowance", (minOf(it.limits.maxDownloadedBytes ?: 536870912L, 536870912L) - it.downloaded).coerceAtLeast(0)) }
                 }
                 val bound = JsonObject(
                     arguments + remoteLimits + (if (peerReviewedOnly && operation == "search_papers") mapOf("reviewStatus" to JsonPrimitive("peer_reviewed")) else emptyMap()) + mapOf(

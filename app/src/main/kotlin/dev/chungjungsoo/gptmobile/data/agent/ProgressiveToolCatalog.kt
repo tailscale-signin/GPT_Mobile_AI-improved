@@ -9,6 +9,9 @@ import kotlinx.serialization.json.put
 
 /** Shrinks advertised schemas, never the authorized executable set. A new catalog is created per run. */
 class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null, private val acquireCold: (suspend (String, List<String>) -> List<AgentToolDefinition>)? = null) : AgentTool {
+    private val advanced = Regex("(?iu)\\b(research|study|studies|papers|repository|github)\\b").containsMatchIn(task)
+    private val toolAllowance = if (advanced) 16 else INITIAL_TOOLS
+    private val schemaAllowance = if (advanced) 6000 else SCHEMA_TOKEN_ALLOWANCE
     private val candidates = definitions.associateBy { it.name }.toMutableMap()
     private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
@@ -80,7 +83,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                 )
             )
             put("schema_budget_excluded", JsonArray(found.filterNot { it.name in active }.map { JsonPrimitive(it.name) }))
-            put("schema_token_allowance", SCHEMA_TOKEN_ALLOWANCE)
+            put("schema_token_allowance", schemaAllowance)
             put("selection_policy", "Exact requested tools replace older advertised tools; executable permissions are unchanged. Oversized schemas require a smaller provider definition.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             put("authorized_tool_count", candidates.size)
@@ -94,9 +97,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         var tokens = 256L
         val selected = mutableListOf<AgentToolDefinition>()
         for (tool in ordered.distinctBy { it.name }) {
-            if (selected.size >= INITIAL_TOOLS) break
+            if (selected.size >= toolAllowance) break
             val cost = schemaTokens(tool)
-            if (tokens + cost <= SCHEMA_TOKEN_ALLOWANCE) {
+            if (tokens + cost <= schemaAllowance) {
                 tokens += cost
                 selected += tool
             }
@@ -124,10 +127,10 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     companion object {
         const val NAME = "discover_available_tools"
-        const val INITIAL_TOOLS = 24
+        const val INITIAL_TOOLS = 8
 
         // Leaves room for the discovery schema and source content in the parent request planner.
-        const val SCHEMA_TOKEN_ALLOWANCE = 8_000
+        const val SCHEMA_TOKEN_ALLOWANCE = 2_000
         internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
         fun create(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null): ProgressiveToolCatalog? =
             if (definitions.any { it.name == NAME } || definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task, initialNames)

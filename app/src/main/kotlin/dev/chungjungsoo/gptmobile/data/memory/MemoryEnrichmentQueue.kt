@@ -33,8 +33,9 @@ class MemoryEnrichmentQueue @Inject constructor(
             kotlinx.coroutines.flow.combine(
                 runtime.state,
                 WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment"),
-                dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability
-            ) { state, infos, _ -> state to infos }.collect { (state, infos) ->
+                dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability,
+                dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active
+            ) { state, infos, _, _ -> state to infos }.collect { (state, infos) ->
                 if (dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) {
                     infos.forEach { info ->
                         val outcome = info.outputData.getString("outcome") ?: info.progress.getString("outcome") ?: "PENDING"
@@ -45,7 +46,7 @@ class MemoryEnrichmentQueue @Inject constructor(
                     }
                     observedStates.keys.retainAll(infos.map { it.id.toString() }.toSet())
                 }
-                if (state.engineSpec != null && !runtime.isBusy) {
+                if (state.engineSpec != null && !runtime.isBusy && !dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy && dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value == 0) {
                     try {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { resumeWaiting() }
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -86,7 +87,7 @@ class MemoryEnrichmentQueue @Inject constructor(
             clearWaiting(context, message.id)
             return
         }
-        if (runtime.state.value.engineSpec == null || runtime.isBusy) {
+        if (runtime.state.value.engineSpec == null || runtime.isBusy || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy || dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0) {
             markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to digest(message.content)))
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_DEFERRED · message=${message.id} · reason=${if (runtime.state.value.engineSpec == null) "WAITING_FOR_MODEL" else "WAITING_FOR_IDLE"} · workerScheduled=false")
             return

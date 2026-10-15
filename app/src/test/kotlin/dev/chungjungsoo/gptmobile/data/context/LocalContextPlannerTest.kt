@@ -67,7 +67,7 @@ class LocalContextPlannerTest {
     fun explicitOutputReserveIsNeverSilentlyReducedToAQuarterOfContext() {
         val plan = LocalContextPlanner.plan(emptyList(), "Full task", "", emptyList(), 8192, 4096)
         assertEquals(4096, plan.outputReserveTokens)
-        assertThrows(IllegalArgumentException::class.java) { LocalContextPlanner.plan(emptyList(), "Full task", "", emptyList(), 8192, 16384) }
+        assertEquals(4096, LocalContextPlanner.plan(emptyList(), "Full task", "", emptyList(), 8192, 16384).outputReserveTokens)
     }
 
     @Test

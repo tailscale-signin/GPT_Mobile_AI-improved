@@ -132,6 +132,7 @@ class McpClientManager internal constructor(
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value
 
     suspend fun peekToolsForConnection(uid: String): List<Tool>? {
+        if (healthSnapshot(uid).state in setOf(McpConnectionHealthState.AUTHENTICATION_REQUIRED, McpConnectionHealthState.UNREACHABLE)) return null
         val snapshot = catalogueIdentities[uid]?.takeIf { it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch }?.let { catalogue.peek(it.second) }
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(snapshot != null, snapshot?.let { System.nanoTime() / 1_000_000 - it.observedAt > 300_000 } == true)
         return snapshot?.value
@@ -145,6 +146,7 @@ class McpClientManager internal constructor(
 
     suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
+        if (healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) throw McpAuthenticationRequiredException()
         val key = config.validatedKey() + ":" + policyEpoch
         val ready = if (forceRefresh) null else catalogue.peek(key, 300_000)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)

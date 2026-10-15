@@ -24,7 +24,7 @@ data class AgentRunLimits(
     val runTimeoutMillis: Long = Long.MAX_VALUE,
     val maxRounds: Int = Int.MAX_VALUE,
     val maxToolCalls: Int = 50,
-    val maxConcurrentTools: Int = 32,
+    val maxConcurrentTools: Int = 6,
     val toolTimeoutMillis: Long = 45_000L,
     val maxToolOutputBytes: Int = 256 * 1024,
     val contextTokens: Int = Int.MAX_VALUE,
@@ -36,7 +36,7 @@ data class AgentRunLimits(
     /** Maximum budget retained from any one consumed tool result on later rounds. */
     val maxReplayResultTokens: Int = 512,
     val maxObservedToolCalls: Int = 256,
-    val maxToolCallsPerRound: Int = 32,
+    val maxToolCallsPerRound: Int = 8,
     val maxRetainedEvidenceTokens: Int = 16_000,
     val allowToolStormFinalization: Boolean = true,
     val maxGeneratedCharacters: Int = 0,
@@ -46,7 +46,7 @@ data class AgentRunLimits(
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
 
-        fun defaultMaxConcurrentTools(): Int = 32
+        fun defaultMaxConcurrentTools(): Int = 6
 
         fun defaultMaxToolOutputBytes(): Int = 256 * 1024
     }
@@ -335,7 +335,7 @@ class AgentRunner(
                 ToolExchangeCompactor.compact(
                     exchanges = projectedExchanges,
                     maxReplayTokens = limits.maxReplayTokens,
-                    maxResultTokens = limits.maxReplayResultTokens
+                    maxResultTokens = if (rawReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
                 )
             ).toLong()
             val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
@@ -519,7 +519,7 @@ class AgentRunner(
             val replayExchanges = ToolExchangeCompactor.compact(
                 exchanges = exchanges,
                 maxReplayTokens = limits.maxReplayTokens,
-                maxResultTokens = limits.maxReplayResultTokens
+                maxResultTokens = if (rawReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
             )
             val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges)
             if (rawReplayTokens > compactedReplayTokens) {
@@ -538,7 +538,7 @@ class AgentRunner(
             // Include synchronous stream construction failures in the upstream boundary.
             emitAll(session.streamRound(exposedDefinitions, replayExchanges).withAssistantTextMarkupGuard())
         }.catch { error ->
-            if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath) throw error
+            if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             if (error is ToolBatchOversizeException) {
                 batchRejected = true
                 return@catch

@@ -86,7 +86,7 @@ class ResearchCitationViewModel @Inject constructor(private val resolver: Citati
         mutable.value = emptyList()
         worker = viewModelScope.launch {
             try {
-                mutable.value = resolver.bind(message)
+                mutable.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { resolver.bind(message) }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
@@ -108,12 +108,24 @@ fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileU
     bindings.filter { it.citationKey.substringBefore('|') in keys }.distinctBy { it.versionId }.forEach { binding ->
         val snapshot = remember(binding.snapshotJson) { runCatching { Json.parseToJsonElement(binding.snapshotJson) as? JsonObject }.getOrNull() }
         fun value(key: String) = (snapshot?.get(key) as? JsonPrimitive)?.content.orEmpty()
+        var expanded by remember(binding.versionId) { mutableStateOf(false) }
         Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
             Column(Modifier.padding(if (compact) 10.dp else 16.dp)) {
                 Text(value("title"), style = MaterialTheme.typography.titleSmall)
                 Text(value("coverage").lowercase().replace('_', ' '), style = MaterialTheme.typography.labelMedium)
                 Text("Peer review: ${value("peerReview")} · Independent review: ${value("independentReview").replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
                 if (!compact) Text("Historical citation snapshot · ${binding.versionId.take(16)}", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide study evidence" else "Study evidence") }
+                if (expanded) {
+                    Text("Design: ${value("design").lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                    val fields = snapshot?.get("studyFields") as? kotlinx.serialization.json.JsonArray
+                    if (fields.isNullOrEmpty()) Text("Participants, results and limitations have not been extracted from this version.", style = MaterialTheme.typography.bodySmall)
+                    fields.orEmpty().filterIsInstance<JsonObject>().forEach { field ->
+                        val name = (field["name"] as? JsonPrimitive)?.content.orEmpty().replace('_', ' ')
+                        val content = (field["value"] as? JsonPrimitive)?.content?.takeUnless { it == "null" } ?: "Unknown / not reported"
+                        Text("$name: $content", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 TextButton(onClick = { selected = binding }) { Text("Article details / Examine") }
             }
         }

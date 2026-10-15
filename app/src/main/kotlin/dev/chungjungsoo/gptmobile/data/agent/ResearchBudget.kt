@@ -66,7 +66,7 @@ class ResearchBudget(
     @Synchronized
     fun tryCharge(phase: Phase, physicalRequest: Boolean, cost: Int = 1): Boolean {
         require(cost > 0)
-        ledger?.let { return it.charge(logical = cost.toLong(), physical = if (physicalRequest) cost.toLong() else 0) }
+        ledger?.let { return (phase != Phase.DISCOVERY || it.discoveryAllowed()) && it.charge(logical = cost.toLong(), physical = if (physicalRequest) cost.toLong() else 0) }
         val phaseUsed = used.getValue(phase)
         // Subtract before comparing so a large batch cannot wrap the counters.
         if (cost > limits.getValue(phase) - phaseUsed || cost > total - used.values.sum() || (physicalRequest && cost > total - physicalRequests)) return false

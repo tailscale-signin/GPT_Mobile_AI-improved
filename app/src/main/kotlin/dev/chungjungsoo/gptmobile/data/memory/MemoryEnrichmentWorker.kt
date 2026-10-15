@@ -46,7 +46,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             if (dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0 || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return finish("RUNTIME_BUSY")
             // load() already synchronizes changed facts. Full index rebuild is a user action,
             // not per-turn maintenance (it clears the embedding engine and every cached vector).
-            vault.enrichTurn(message) { input ->
+            val writes = vault.enrichTurn(message) { input ->
                 reason = "RUNTIME_BUSY"
                 val result = runtime.tryRunExclusive {
                     if (hasOpenConversation()) {
@@ -113,6 +113,8 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                     null
                 }
             }
+            if (writes == 0) reason = "PROCESSED_NO_NEW_FACTS"
+            if (writes != null && writes > 0) reason = "ENRICHED_WITH_WRITES"
             finish(reason)
         } catch (cancelled: CancellationException) {
             AppLogRecorder.record("Memory", "ENRICHMENT_CANCELLED · attempt=$runAttemptCount · stage=$reason")
@@ -132,8 +134,9 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             setProgress(androidx.work.workDataOf("outcome" to if (reason == "RUNTIME_BUSY") "WAITING_FOR_IDLE" else "WAITING_FOR_MODEL", "reason" to reason))
             outcome(if (reason == "RUNTIME_BUSY") "WAITING_FOR_IDLE" else "WAITING_FOR_MODEL", reason)
         }
-        reason in setOf("NO_ELIGIBLE_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
-        reason == "ENRICHED" -> outcome("SUCCESS", reason)
+        reason in setOf("NO_ELIGIBLE_FACTS", "PROCESSED_NO_NEW_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
+        reason == "ENRICHED_WITH_WRITES" -> outcome("SUCCESS", reason)
+        reason == "ENRICHED" -> outcome("SKIPPED", "SOURCE_OR_POLICY_CHANGED")
         nextInferenceFailure() <= enrichmentRetryLimit(reason) -> outcome("RETRY", reason)
         else -> {
             // Preserve the source for an explicit retry or a later compatible runtime, not a hot retry loop.
@@ -158,7 +161,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason",
             if (status == "FAILED" || (status == "RETRY" && reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY"))) "W" else "I"
         )
-        if (status == "SUCCESS" || status == "SKIPPED" && reason == "NO_ELIGIBLE_FACTS") {
+        if (status == "SUCCESS" || status == "SKIPPED" && reason in setOf("NO_ELIGIBLE_FACTS", "PROCESSED_NO_NEW_FACTS")) {
             MemoryEnrichmentQueue.markCompleted(applicationContext, inputData)
         }
         val data = androidx.work.workDataOf("outcome" to status, "reason" to reason)

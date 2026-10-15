@@ -16,6 +16,7 @@ internal class PhysicalAttemptBoundary(private val authorize: suspend (String) -
             context.ensureActive()
             val attemptId = UUID.randomUUID().toString()
             context[Key]?.authorize?.invoke(attemptId)
+            context[PreparationReplayFence]?.dispatched()
             context.ensureActive()
             return attemptId
         }

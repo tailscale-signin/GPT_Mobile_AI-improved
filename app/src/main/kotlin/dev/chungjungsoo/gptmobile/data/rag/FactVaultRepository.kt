@@ -403,9 +403,9 @@ class FactVaultRepository @Inject constructor(
     }
 
     /** Serializes enrichment across parallel AI profiles and rechecks settings after inference. */
-    suspend fun enrichTurn(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, extract: suspend (String) -> JsonObject?) = enrichmentMutex.withLock enrichment@{
+    suspend fun enrichTurn(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, extract: suspend (String) -> JsonObject?): Int? = enrichmentMutex.withLock enrichment@{
         val boundary = scopeForChat(message.chatId)
-        if (boundary.isTemporary) return@enrichment
+        if (boundary.isTemporary) return@enrichment null
         val scope = boundary.key
         val key = "$scope:${message.chatId}:${message.id}:${evidenceHash(message.content)}"
         val capturedPolicyGeneration = policyGeneration
@@ -415,13 +415,13 @@ class FactVaultRepository @Inject constructor(
             if (!state.enabled || message.chatId in state.suppressedChats || !state.settings.learningEnabled || !state.settings.localModelLearning || key in enrichedMessages || "$scope:${sourceKey(message.chatId, message.id)}" in state.suppressedMessages) return@withLock ""
             MemoryLearning.statements(message.content.take(MAX_QUERY_CHARS)).joinToString(".\n")
         }
-        if (input.isBlank()) return@enrichment
-        val response = extract(input) ?: return@enrichment
+        if (input.isBlank()) return@enrichment null
+        val response = extract(input) ?: return@enrichment null
         mutex.withLock {
             loadLocked()
             val current = _state.value
-            if (capturedPolicyGeneration != policyGeneration || !current.enabled || !current.settings.learningEnabled || !current.settings.localModelLearning) return@withLock
-            if (scopeForChat(message.chatId) != boundary || scopes?.sourceUnchanged(message) == false) return@withLock
+            if (capturedPolicyGeneration != policyGeneration || !current.enabled || !current.settings.learningEnabled || !current.settings.localModelLearning) return@withLock null
+            if (scopeForChat(message.chatId) != boundary || scopes?.sourceUnchanged(message) == false) return@withLock null
             val facts = MemoryLearning.modelObservations(input, response, current.settings.captureSensitivity)
             val merged = mergeAutomatic(current, facts, message.chatId, message.id, scope, "local_model_observation", System.currentTimeMillis())
             if (merged != current) persist(merged)
@@ -431,6 +431,7 @@ class FactVaultRepository @Inject constructor(
             AppLogRecorder.record("Memory", "ENRICHMENT_RECORDS · message=${message.id} · examined=${facts.size} · written=$written · updated=$updated · skipped=${(facts.size - written - updated).coerceAtLeast(0)}")
             enrichedMessages += key
             while (enrichedMessages.size > 128) enrichedMessages.remove(enrichedMessages.first())
+            written + updated
         }
     }
 

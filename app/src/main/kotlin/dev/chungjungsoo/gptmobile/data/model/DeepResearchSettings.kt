@@ -34,7 +34,8 @@ data class DeepResearchSettings(
     val migrationNotice: String = "",
     val customSourceTarget: Int? = null,
     val userLimits: ResearchUserLimits = ResearchUserLimits(),
-    val disabledEngineIds: Set<String> = emptySet()
+    val disabledEngineIds: Set<String> = emptySet(),
+    val reportDetail: ResearchReportDetail = ResearchReportDetail.DETAILED
 ) {
     fun normalized() = copy(
         maxPages = if (schemaVersion == 3) {

@@ -95,6 +95,20 @@ class CitationBindingResolver @Inject constructor(private val archive: ResearchA
                     put("canonicalUrl", source.canonicalUrl)
                     put("coverage", version.coverage.name)
                     put("contentHash", version.contentHash)
+                    put(
+                        "studyFields",
+                        kotlinx.serialization.json.JsonArray(
+                            archive.dao.fields(version.versionId).map { field ->
+                                buildJsonObject {
+                                    put("name", field.name)
+                                    put("value", field.value)
+                                    put("unit", field.unit)
+                                    put("missingness", field.missingness.name)
+                                }
+                            }
+                        )
+                    )
+                    put("design", archive.dao.appraisals(version.versionId).firstOrNull()?.design?.name ?: "UNKNOWN")
                     put("publicationType", source.publicationType)
                     put("peerReview", source.reviewStatus)
                     put("independentReview", "not_established")

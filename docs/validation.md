@@ -36,6 +36,15 @@ python3 -m venv /tmp/gateway-validation
 
 ## Required repository gates
 
+Robolectric component tests default to `android.app.Application` through
+`app/src/test/resources/robolectric.properties`. `manifest = Config.NONE` alone does
+not isolate the application when AGP supplies a merged manifest. Starting
+`GPTMobileApp` in a disk-store or HTTP fixture launches process-lifetime IO jobs
+that can outlive Robolectric teardown and contaminate unrelated coroutine tests.
+Tests that intentionally exercise application startup must explicitly select an
+application and own its background-work cleanup; device startup validation is
+unaffected. `ResearchSessionStoreTest` verifies the isolated application default.
+
 - Kotlin: ktlint 1.3.1 with the repository `.editorconfig`.
 - Android resources/regex preflight: `bash scripts/validate.sh resources` and `python3 scripts/check_android_regex.py`.
 - JVM tests, lint, debug APK and instrumented-test APK compilation.

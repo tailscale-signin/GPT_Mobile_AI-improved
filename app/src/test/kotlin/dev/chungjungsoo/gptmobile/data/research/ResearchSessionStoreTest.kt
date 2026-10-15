@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.research
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
@@ -32,6 +33,12 @@ class ResearchSessionStoreTest {
 
     @After fun cleanAfter() {
         directory.deleteRecursively()
+    }
+
+    @Test fun componentFixtureDoesNotStartProductionApplication() {
+        // Config.NONE does not prevent the merged manifest's Application from starting.
+        // The suite default must keep process-lifetime jobs out of this disk-store fixture.
+        assertEquals(Application::class.java, context.javaClass)
     }
 
     @Test fun persistentHistorySurvivesNewStoreInstance() = runBlocking {

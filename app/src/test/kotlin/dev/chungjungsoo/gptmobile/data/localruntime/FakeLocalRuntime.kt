@@ -11,7 +11,13 @@ import kotlinx.coroutines.yield
 
 class FakeLocalRuntime : LocalRuntime {
     var capabilities: LocalModelCapabilities? = LocalModelCapabilities(backends = setOf("cpu", "gpu", "npu"))
-    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = capabilities
+    val inspectModelCalls = mutableListOf<String>()
+    var metadataGate: CompletableDeferred<Unit>? = null
+    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? {
+        inspectModelCalls += modelPath
+        metadataGate?.await()
+        return capabilities
+    }
     override var deviceRamGb: Long = 8L
     var simulatedHardwareState: DeviceHardwareState = DeviceHardwareState()
 

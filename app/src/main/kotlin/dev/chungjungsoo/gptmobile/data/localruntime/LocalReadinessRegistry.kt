@@ -24,11 +24,12 @@ class LocalNativeQuarantinedException :
 internal class LocalReadinessRegistry(private val directory: File? = null) {
     private val blocked = ConcurrentHashMap.newKeySet<String>()
     private val lock = Mutex()
+    private val nativeLock = Mutex()
 
     private val nativeBlocked = ConcurrentHashMap.newKeySet<String>()
 
     /** Parent-process read: never touches native pointers or clears a worker's protective journal. */
-    suspend fun assertNativeAllowed(key: String) = lock.withLock {
+    suspend fun assertNativeAllowed(key: String) = nativeLock.withLock {
         val durable = directory?.let { File(it, dev.chungjungsoo.gptmobile.data.research.researchHash(key)) }
         if (key in nativeBlocked || withContext(Dispatchers.IO) { durable?.isFile == true && durable.readText().startsWith("NATIVE\n") }) {
             nativeBlocked += key
@@ -36,7 +37,7 @@ internal class LocalReadinessRegistry(private val directory: File? = null) {
         }
     }
 
-    suspend fun rememberNativeInterruption(key: String) = lock.withLock {
+    suspend fun rememberNativeInterruption(key: String) = nativeLock.withLock {
         nativeBlocked += key
         withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             directory?.let { root ->
@@ -81,13 +82,15 @@ internal class LocalReadinessRegistry(private val directory: File? = null) {
 
     /** Called only after the exact user-requested verification reset was acknowledged. */
     suspend fun reset(key: String) = lock.withLock {
-        withContext(Dispatchers.IO) {
-            directory?.let { File(it, dev.chungjungsoo.gptmobile.data.research.researchHash(key)) }?.let {
-                check(!it.exists() || it.delete()) { "Cannot reset this artifact's verification state" }
+        nativeLock.withLock {
+            withContext(Dispatchers.IO) {
+                directory?.let { File(it, dev.chungjungsoo.gptmobile.data.research.researchHash(key)) }?.let {
+                    check(!it.exists() || it.delete()) { "Cannot reset this artifact's verification state" }
+                }
             }
+            blocked.remove(key)
+            nativeBlocked.remove(key)
         }
-        blocked.remove(key)
-        nativeBlocked.remove(key)
     }
 
     companion object {

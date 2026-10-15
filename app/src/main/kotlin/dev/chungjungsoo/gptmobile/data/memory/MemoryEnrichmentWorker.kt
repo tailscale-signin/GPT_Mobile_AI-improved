@@ -43,6 +43,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             if (scope.isTemporary || !state.enabled || !state.settings.learningEnabled || !state.settings.localModelLearning) {
                 return outcome("SKIPPED", "DISABLED_OR_TEMPORARY")
             }
+            if (dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0 || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return finish("RUNTIME_BUSY")
             // load() already synchronizes changed facts. Full index rebuild is a user action,
             // not per-turn maintenance (it clears the embedding engine and every cached vector).
             vault.enrichTurn(message) { input ->
@@ -87,7 +88,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                                 return output.toString().takeUnless { failed }
                             }
                             val first = generate(source)
-                            var parsed = first?.let { parse(it, source) }
+                            var parsed = first?.let { parse(it, source) ?: MemoryEnrichmentContract.repair(it, source)?.also { AppLogRecorder.record("Memory", "ENRICHMENT_FORMAT_REPAIRED · message=${message.id} · modelCalls=0") } }
                             if (first != null && parsed == null) {
                                 AppLogRecorder.record("Memory", "ENRICHMENT_SCHEMA_REPAIR · message=${message.id} · attempt=1")
                                 parsed = generate("Return only the exact JSON schema in the system instruction. Previous output was invalid. Copy quotes exactly from this original source; do not infer new facts.\nSource:\n$source")?.let { parse(it, source) }

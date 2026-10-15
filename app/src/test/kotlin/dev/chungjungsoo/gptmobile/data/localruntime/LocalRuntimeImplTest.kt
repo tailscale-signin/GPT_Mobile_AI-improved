@@ -202,4 +202,26 @@ class LocalRuntimeImplTest {
         assertFalse(events.any { it is LocalRuntimeEvent.Error })
         assertNull(events.filterIsInstance<LocalRuntimeEvent.Metrics>().single().metrics.native)
     }
+
+    @Test
+    fun lifecycleCallsKeepOneOwnerAndCleanupFailureCannotBeHidden() = runTest {
+        val owners = mutableSetOf<String>()
+        val engine = mockk<Engine>(relaxed = true)
+        val conversation = mockk<Conversation>(relaxed = true)
+        every { engine.initialize() } answers { owners += Thread.currentThread().name }
+        every { engine.createConversation(any()) } answers {
+            owners += Thread.currentThread().name
+            conversation
+        }
+        every { conversation.close() } answers {
+            owners += Thread.currentThread().name
+            throw IllegalStateException("native close failed")
+        }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
+        runtime.loadEngine(spec("cpu"))
+        runtime.createConversation(LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), null, emptyList()))
+        assertTrue(runCatching { runtime.closeConversation() }.exceptionOrNull() is NativeResourceCleanupException)
+        assertFalse(runtime.hasOpenConversation())
+        assertEquals(setOf("litert-lifecycle-owner"), owners)
+    }
 }

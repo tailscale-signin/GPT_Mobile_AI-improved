@@ -40,7 +40,10 @@ import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings
+import dev.chungjungsoo.gptmobile.data.model.excludesMemory
+import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
@@ -70,6 +73,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -105,7 +109,8 @@ class ChatViewModel @Inject constructor(
     private val factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null,
     private val researchSessionStore: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val conversationExitWork: dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork,
-    @dev.chungjungsoo.gptmobile.di.DefaultDispatcher private val messageGroupingDispatcher: kotlinx.coroutines.CoroutineDispatcher
+    @dev.chungjungsoo.gptmobile.di.DefaultDispatcher private val messageGroupingDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -389,6 +394,12 @@ class ChatViewModel @Inject constructor(
 
     init {
         fetchChatRoom()
+        viewModelScope.launch {
+            combine(_chatRoom.distinctUntilChangedBy { listOf(it.id, it.isTemporary, it.parentChatId, it.branchMessageId, it.activePlatform, it.conversationMode) }, _enabledPlatformsInApp) { room, profiles -> room to profiles }.collectLatest { (room, profiles) ->
+                if (!leavingConversation) dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(profiles.filter { it.uid in room.activePlatform && it.enabled }.map { it.uid })
+                memoryPreview?.clear()
+            }
+        }
         durablePromptQueue?.let { queue ->
             viewModelScope.launch {
                 _chatRoom.collectLatest { room ->
@@ -1291,6 +1302,7 @@ class ChatViewModel @Inject constructor(
     fun leaveConversation(done: () -> Unit) {
         if (leavingConversation) return
         leavingConversation = true
+        memoryPreview?.clear()
         val room = _chatRoom.value
         val text = question.text.toString()
         val attachments = _selectedAttachments.value.mapNotNull { it.attachment }
@@ -1456,6 +1468,8 @@ class ChatViewModel @Inject constructor(
         val turnIndex = _groupedMessages.value.assistantMessages.lastIndex
 
         pendingRunDispatches += 1
+        val readinessLease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("Readiness", "SEND_TAPPED")
         viewModelScope.launch {
             try {
                 val disabled = _disabledPlatformUids.value
@@ -1568,7 +1582,7 @@ class ChatViewModel @Inject constructor(
                 syncLoadingStates(_agentRunsById.value)
                 drainPromptQueueIfIdle()
             }
-        }
+        }.invokeOnCompletion { readinessLease.close() }
     }
 
     private fun showPersistenceFailure(turnIndex: Int, platformIndexes: List<Int>, error: Throwable) {
@@ -1827,12 +1841,40 @@ class ChatViewModel @Inject constructor(
         return groupPersistedMessages(messages, enabledPlatformsInChat, chatId)
     }
 
+    private data class ReadinessDraftInput(
+        val text: String,
+        val composing: Boolean,
+        val hasAttachments: Boolean,
+        val room: ChatRoomV2,
+        val profiles: List<PlatformV2>,
+        val features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+    )
+
     private var composerRestored = false
     private var modelsRestored = false
     private val draftMutex = Mutex()
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun observeComposerDraft() {
+        viewModelScope.launch {
+            combine(
+                androidx.compose.runtime.snapshotFlow { question.text.toString() to (question.composition != null) },
+                _selectedAttachments,
+                _chatRoom.distinctUntilChangedBy { listOf(it.id, it.isTemporary, it.parentChatId, it.branchMessageId, it.activePlatform) },
+                _enabledPlatformsInApp,
+                settingRepository.observeFeatureSettings()
+            ) { draft, attachments, room, profiles, features ->
+                ReadinessDraftInput(draft.first, draft.second, attachments.isNotEmpty(), room, profiles, features)
+            }.collectLatest { input ->
+                memoryPreview?.clear()
+                val room = input.room
+                val features = input.features
+                if (leavingConversation || !composerRestored || room.id <= 0 || room.isTemporary || input.composing || input.hasAttachments || !dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker.visibility.value || !features.readiness.enabled || !features.readiness.predictMemory) return@collectLatest
+                val profile = input.profiles.firstOrNull { it.uid in room.activePlatform && it.enabled } ?: return@collectLatest
+                if (profile.excludesMemory()) return@collectLatest
+                memoryPreview?.draft(room.id, profile.uid, input.text, profile.isPrivateDestination(), profile.compatibleType == ClientType.LITERT_LM, _groupedMessages.value.userMessages.takeLast(2).joinToString("\n") { it.content.takeLast(1000) })
+            }
+        }
         viewModelScope.launch {
             combine(
                 androidx.compose.runtime.snapshotFlow { question.text.toString() },

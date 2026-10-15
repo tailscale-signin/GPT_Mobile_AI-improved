@@ -29,6 +29,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val wire = prepared.dispatchPayload(runtime, permission)
         val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt))
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
     }
 
@@ -85,6 +86,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val wire = prepared.dispatchPayload(snapshot.fingerprint, permissionRevision)
         val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
     }
 }

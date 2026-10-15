@@ -33,6 +33,7 @@ class NetworkClient @Inject constructor(
     private val client by lazy {
         HttpClient(httpEngine) {
             install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+            if (httpEngine == OkHttp) install(ReadinessHttpPlugin)
             expectSuccess = false
             followRedirects = false
 
@@ -53,6 +54,8 @@ class NetworkClient @Inject constructor(
             } else if (httpEngine == OkHttp) {
                 engine {
                     (this as? OkHttpConfig)?.config {
+                        addInterceptor(ReadinessHttpTrace.stripHeader)
+                        eventListenerFactory(ReadinessHttpTrace.listener)
                         retryOnConnectionFailure(false)
                         connectTimeout(60, TimeUnit.SECONDS)
                         readTimeout(5, TimeUnit.MINUTES)

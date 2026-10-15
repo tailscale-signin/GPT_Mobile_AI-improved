@@ -37,4 +37,18 @@ class LocalWorkloadAdmissionTest {
         assertNotNull(admission.rejection(DeviceHardwareState(), available, required, fourGiB, false))
         assertNull(admission.rejection(DeviceHardwareState(), available, required, default, false))
     }
+
+    @Test fun `recovery records original pressure cause and remaining time`() {
+        var now = 0L
+        val admission = LocalWorkloadAdmission { now }
+        admission.evaluate(DeviceHardwareState(isPowerSaveMode = true), 1000, 100, 100, true)
+        val recovering = requireNotNull(admission.evaluate(DeviceHardwareState(), 1000, 100, 100, true))
+        org.junit.Assert.assertEquals(LocalAdmissionReason.PRESSURE, recovering.recoveryCause)
+        org.junit.Assert.assertEquals(30_000L, recovering.remainingMillis)
+        org.junit.Assert.assertTrue(recovering.message.contains("Battery Saver"))
+        now = 12_000
+        org.junit.Assert.assertEquals(18_000L, admission.evaluate(DeviceHardwareState(), 1000, 100, 100, true)?.remainingMillis)
+        now = 30_000
+        assertNull(admission.evaluate(DeviceHardwareState(), 1000, 100, 100, true))
+    }
 }

@@ -13,6 +13,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -136,6 +137,7 @@ class FactVaultRepository @Inject constructor(
                 indexMutex.withLock {
                     val generation = durable?.generation() ?: 0
                     do {
+                        kotlinx.coroutines.flow.combine(dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active, dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability) { active, _ -> active == 0 && !dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy }.first { it }
                         refreshDerivedIndexes(snapshot)
                         kotlinx.coroutines.yield()
                     } while (_state.value == snapshot && semantic?.status?.value?.let { it.available && it.indexed < it.total } == true)
@@ -149,7 +151,9 @@ class FactVaultRepository @Inject constructor(
         }
     }
     private val enrichedMessages = linkedSetOf<String>()
-    private var hasLoaded = false
+    private val capturedAcceptedMessages = linkedSetOf<String>()
+
+    @Volatile private var hasLoaded = false
     private var indexedFacts: List<VaultFact>? = null
     private val json = Json { ignoreUnknownKeys = true }
     private val _state = MutableStateFlow(FactVaultSnapshot())
@@ -158,6 +162,29 @@ class FactVaultRepository @Inject constructor(
     val indexWarning = _indexWarning.asStateFlow()
 
     suspend fun scopeForChat(chatId: Int) = scopes?.resolve(chatId) ?: dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
+
+    /** Metadata-only warmup. It never creates a vault, captures facts or starts native indexing. */
+    suspend fun ensureLoadedReadOnly() = mutex.withLock {
+        val authoritative = durable?.read()
+        if (authoritative != null) {
+            _state.value = authoritative
+            hasLoaded = true
+        } else {
+            val bytes = vault.read(VAULT_REFERENCE) ?: run {
+                _state.value = FactVaultSnapshot()
+                hasLoaded = false
+                return@withLock
+            }
+            try {
+                val snapshot = decodeSnapshot(bytes)
+                require(snapshot.version == 1) { "Unsupported memory storage version." }
+                _state.value = snapshot
+                hasLoaded = true
+            } finally {
+                bytes.fill(0)
+            }
+        }
+    }
 
     suspend fun load() = mutex.withLock { loadLocked() }
 
@@ -262,7 +289,40 @@ class FactVaultRepository @Inject constructor(
         enrichedMessages.clear()
     }
 
-    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String? = null, previousContext: String = "", includeLocalOnly: Boolean = false): FactRecall = withContext(Dispatchers.Default) {
+    /** Nonblocking lexical snapshot: no capture, retention writes, semantic initialization or native lock. */
+    suspend fun recallReadOnly(query: String, chatId: Int, messageId: Int = 0, isLocal: Boolean = false, includeLocalOnly: Boolean = false, previousContext: String = ""): FactRecall {
+        if (chatId <= 0 || !hasLoaded) return FactRecall()
+        val boundary = scopeForChat(chatId)
+        if (boundary.isTemporary) return FactRecall()
+        val snapshot = _state.value
+        val settings = snapshot.settings.normalized()
+        if (!snapshot.enabled || !settings.recallEnabled || !isLocal && !settings.allowCloudRecall) return FactRecall()
+        val now = System.currentTimeMillis()
+        val cutoff = if (settings.retentionDays > 0) now - settings.retentionDays * 86_400_000L else 0L
+        val candidates = snapshot.facts.filter {
+            it.enabled &&
+                (isLocal && includeLocalOnly || !it.localOnly) &&
+                !it.awaitingReview &&
+                it.supersededBy == null &&
+                (it.validFromMillis == null || it.validFromMillis <= now) &&
+                (it.validUntilMillis == null || it.validUntilMillis > now) &&
+                (it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) &&
+                boundary.acceptsSource(it) &&
+                boundary.accepts(it.scope) &&
+                (!settings.sameChatOnly || it.sourceChatId == chatId) &&
+                !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
+        }
+        val selected = mutableListOf<VaultFact>()
+        for (entry in MemoryRecallPolicy.rank(query, candidates, previousContext, settings.rankByRecency, settings.rankByFrequency, now, emptyMap())) {
+            if (selected.size >= settings.maxRecall) break
+            if (selected.any { it.id == entry.id || FactRecall(listOf(it)).prefix() == FactRecall(listOf(entry)).prefix() }) continue
+            if (dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(FactRecall(selected + entry).prefix()) <= settings.recallTokens) selected += entry
+        }
+        // Policy/fact mutation while ranking makes the entire preview ineligible.
+        return if (_state.value == snapshot) FactRecall(selected) else FactRecall()
+    }
+
+    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String? = null, previousContext: String = "", includeLocalOnly: Boolean = false, recall: Boolean = true): FactRecall = withContext(Dispatchers.Default) {
         mutex.withLock {
             val boundary = scopeForChat(chatId)
             if (boundary.isTemporary) return@withLock FactRecall()
@@ -277,7 +337,9 @@ class FactVaultRepository @Inject constructor(
             val now = System.currentTimeMillis()
             val cutoff = if (settings.retentionDays > 0) now - settings.retentionDays * 86_400_000L else 0L
             var current = original.copy(facts = original.facts.filter { it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff })
-            if (capture && settings.learningEnabled && chatId !in current.suppressedChats) {
+            val acceptedKey = sourceKey(chatId, messageId)?.let { "$it:${dev.chungjungsoo.gptmobile.data.research.researchHash(query)}" }
+            val captureThisTurn = capture && (acceptedKey == null || acceptedKey !in capturedAcceptedMessages) && settings.learningEnabled && chatId !in current.suppressedChats
+            if (captureThisTurn) {
                 val automatic = MemoryLearning.extract(query.take(MAX_QUERY_CHARS), settings.captureSensitivity)
                 if (settings.learnRecurringTopics) {
                     // Explicitly extracted facts already carry reinforcement. Do not create
@@ -296,7 +358,11 @@ class FactVaultRepository @Inject constructor(
                 current = mergeAutomatic(current, automatic, chatId, messageId, scope, "user_message", now)
             }
             if (current != original) persist(current)
-            if (!settings.recallEnabled || (!isLocal && !settings.allowCloudRecall)) return@withLock FactRecall()
+            if (captureThisTurn && acceptedKey != null) {
+                capturedAcceptedMessages.add(acceptedKey)
+                while (capturedAcceptedMessages.size > 2048) capturedAcceptedMessages.remove(capturedAcceptedMessages.first())
+            }
+            if (!recall || !settings.recallEnabled || (!isLocal && !settings.allowCloudRecall)) return@withLock FactRecall()
             val candidates = current.facts.filter {
                 it.enabled &&
                     (isLocal && includeLocalOnly || !it.localOnly) &&
@@ -733,7 +799,7 @@ class FactVaultRepository @Inject constructor(
             val effective = snapshot
             runCatching { preferences?.save(effective.enabled) }
             _state.value = effective
-            refreshDerivedIndexes(effective)
+            scheduleIndexes(effective)
         }
     }
 
@@ -872,7 +938,7 @@ class FactVaultRepository @Inject constructor(
         }
         // The canonical encrypted records feed transient recall. Do not persist plaintext graph copies.
         persistentGraph?.replaceFromVault(emptyList())
-        semantic?.synchronize(if (snapshot.settings.semanticRecall) visible else emptyList())
+        semantic?.synchronize(if (snapshot.settings.semanticRecall) visible else emptyList(), batchSize = 8)
         indexedFacts = indexed
     }
 

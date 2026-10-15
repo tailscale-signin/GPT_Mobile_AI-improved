@@ -70,6 +70,7 @@ internal object SettingsSearchRegistry {
         SettingsSearchEntry("debug.logs", "Diagnostic Logs", "Debug › Logs", SettingsSearchDestination.DEBUG, "logs", "redacted export events"),
         SettingsSearchEntry("statistics", "Usage Statistics", "Diagnostics › Statistics", SettingsSearchDestination.STATISTICS, keywords = "tokens cost spending accounting"),
         SettingsSearchEntry("benchmarks", "Benchmarks", "Diagnostics › Benchmarks", SettingsSearchDestination.BENCHMARKS, keywords = "scores ranking cohort local remote throughput speed delegation history"),
+        SettingsSearchEntry("smart-readiness", "Smart Readiness", "Advanced › Performance", SettingsSearchDestination.ADVANCED, "smart-readiness", "preload cache memory typing latency warmup"),
         SettingsSearchEntry("backup", "Backup & Restore", "Data › Backup & Restore", SettingsSearchDestination.BACKUP, keywords = "encryption recovery password statistics plugins export import"),
         SettingsSearchEntry("workspace", "GitHub Workspace", "Plugins & Tools › GitHub Workspace", SettingsSearchDestination.WORKSPACE, keywords = "repository code branch diff pull request"),
         SettingsSearchEntry("about", "About", "Settings › About", SettingsSearchDestination.ABOUT, keywords = "version licence license")

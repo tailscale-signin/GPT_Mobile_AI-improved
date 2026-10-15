@@ -24,7 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -53,7 +55,13 @@ fun AdvancedSettingsScreen(
     val groups = remember { AppFeature.entries.groupBy(SettingsSearchRegistry::group) }
     val rows = remember { groups.values.flatMap { listOf<AppFeature?>(null) + it } }
     LaunchedEffect(initialFocus) {
-        val target = if (initialFocus.startsWith("privacy")) 0 else rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(2)
+        val target = if (initialFocus.startsWith("privacy")) {
+            0
+        } else if (initialFocus == "smart-readiness") {
+            1
+        } else {
+            rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(3)
+        }
         if (target != null) listState.scrollToItem(target)
     }
     CompositionLocalProvider(LocalSettingSearchFocus provides initialFocus.substringAfter(':', "")) {
@@ -71,6 +79,7 @@ fun AdvancedSettingsScreen(
                 item(key = "privacy") {
                     SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) }
                 }
+                item(key = "smart-readiness") { SmartReadinessPanel(settings.readiness, viewModel) }
                 item(key = "price-actions") { SettingsPanel("New Chat — Pricing Sources") { NewChatInsightsSettingsPanel() } }
                 groups.forEach { (group, features) ->
                     item(key = "group.$group") { Text(group, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = AppSpacing.medium)) }
@@ -98,6 +107,38 @@ fun AdvancedSettingsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SmartReadinessPanel(settings: dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings, viewModel: SettingViewModelV2) {
+    var expanded by remember { mutableStateOf(false) }
+    SettingsPanel("Smart Readiness") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Prepare while app is open", Modifier.weight(1f))
+            SettingsHelpIcon("Prepares selected tool metadata while idle. Sending never waits for optional warmup. Pilot default is off pending device validation.", title = "Smart Readiness")
+            Switch(settings.enabled, { enabled -> viewModel.updateReadiness { it.copy(enabled = enabled) } })
+        }
+        androidx.compose.material3.TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide options" else "Options") }
+        if (expanded) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Predict memory while typing", Modifier.weight(1f))
+                SettingsHelpIcon("Read-only, on-device lexical preview. Drafts are not sent to a model or saved by readiness. Existing memory privacy still applies.", title = "Memory preview")
+                Switch(settings.predictMemory, { enabled -> viewModel.updateReadiness { it.copy(predictMemory = enabled) } }, enabled = settings.enabled)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Warm on metered networks", Modifier.weight(1f))
+                Switch(settings.warmMeteredNetworks, { enabled -> viewModel.updateReadiness { it.copy(warmMeteredNetworks = enabled) } }, enabled = settings.enabled)
+            }
+            dev.chungjungsoo.gptmobile.data.readiness.PreparationStrategy.entries.forEach { strategy ->
+                androidx.compose.material3.FilterChip(settings.strategy == strategy, { viewModel.updateReadiness { it.copy(strategy = strategy) } }, label = { Text(if (strategy == dev.chungjungsoo.gptmobile.data.readiness.PreparationStrategy.BALANCED) "Balanced" else "Minimal resources") })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Discover remote tools when needed", Modifier.weight(1f))
+                Switch(settings.lazyCatalogues, { enabled -> viewModel.updateReadiness { it.copy(lazyCatalogues = enabled) } })
+            }
+            androidx.compose.material3.TextButton(onClick = { viewModel.updateReadiness { it.copy(cacheGeneration = it.cacheGeneration + 1) } }) { Text("Clear readiness cache") }
         }
     }
 }

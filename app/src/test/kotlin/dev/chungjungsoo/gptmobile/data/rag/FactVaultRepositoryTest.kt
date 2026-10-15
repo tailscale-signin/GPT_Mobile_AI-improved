@@ -11,6 +11,25 @@ import org.junit.Test
 
 class FactVaultRepositoryTest {
     @Test
+    fun `read only warmup and draft recall create no writes or captures`() = runBlocking {
+        val storage = MemoryVault()
+        val fresh = FactVaultRepository(storage, KnowledgeGraphEngine())
+        fresh.ensureLoadedReadOnly()
+        assertTrue(storage.values.isEmpty())
+        fresh.setEnabled(true)
+        fresh.saveManual("I prefer Kotlin")
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        val saved = storage.values.mapValues { it.value.toList() }
+        restored.ensureLoadedReadOnly()
+        val snapshot = restored.state.value
+        assertTrue(restored.recallReadOnly("What language do I prefer?", 1, isLocal = true).facts.isNotEmpty())
+        assertEquals(snapshot, restored.state.value)
+        assertEquals(saved, storage.values.mapValues { it.value.toList() })
+        restored.recallReadOnly("I prefer Java", 1, isLocal = true)
+        assertEquals(snapshot, restored.state.value)
+    }
+
+    @Test
     fun `enrichment preflight rejects disabled learning assistant and question candidates`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.setEnabled(true)

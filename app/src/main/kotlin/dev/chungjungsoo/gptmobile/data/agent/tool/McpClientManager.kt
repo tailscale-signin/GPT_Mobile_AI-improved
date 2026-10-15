@@ -22,6 +22,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -80,10 +81,11 @@ class McpClientManager internal constructor(
     private val modern: ModernMcpTransport? = null,
     private val trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
-    private val retryJitterMs: () -> Long = { kotlin.random.Random.nextLong(0, 1001) }
+    private val retryJitterMs: () -> Long = { kotlin.random.Random.nextLong(0, 1001) },
+    private val catalogueScope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 ) {
     @Inject
-    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust, statistics = statistics)
+    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository, @dev.chungjungsoo.gptmobile.di.ReadinessScope scope: kotlinx.coroutines.CoroutineScope) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust, statistics = statistics, catalogueScope = scope)
 
     private val mutex = Mutex()
     private val healthOrder = McpHealthObservationOrder()
@@ -123,7 +125,47 @@ class McpClientManager internal constructor(
         return transport.takeIf { it.supports(config, refresh) }
     }
 
+    private val catalogue = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSnapshotStore<String, List<Tool>>(clock = { System.nanoTime() / 1_000_000 })
+    private val catalogueIdentities = ConcurrentHashMap<String, Pair<Long, String>>()
+    private val catalogueFlights = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSingleFlight<String, List<Tool>>(catalogueScope)
+
+    fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value
+
+    suspend fun peekToolsForConnection(uid: String): List<Tool>? {
+        val snapshot = catalogueIdentities[uid]?.takeIf { it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch }?.let { catalogue.peek(it.second) }
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(snapshot != null, snapshot?.let { System.nanoTime() / 1_000_000 - it.observedAt > 300_000 } == true)
+        return snapshot?.value
+    }
+
+    fun clearReadinessCache(cancelProducers: Boolean = true) {
+        catalogueIdentities.clear()
+        catalogue.invalidate()
+        if (cancelProducers) catalogueFlights.invalidate()
+    }
+
     suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
+        val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
+        val key = config.validatedKey() + ":" + policyEpoch
+        val ready = if (forceRefresh) null else catalogue.peek(key, 300_000)
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)
+        ready?.let { return it.value }
+        return catalogueFlights.acquire(key) {
+            val epoch = catalogue.epoch
+            val tools = fetchCatalogue(config, forceRefresh).toList()
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val bytes = tools.sumOf { it.toString().toByteArray(Charsets.UTF_8).size.toLong() }
+            require(tools.size <= 2048 && bytes <= 4 * 1024 * 1024) { "MCP catalogue exceeds metadata bounds." }
+            require(tools.map { it.name }.distinct().size == tools.size) { "Duplicate MCP tool names." }
+            check(policyEpoch == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch) { "MCP readiness invalidated during acquisition." }
+            if (catalogue.publish(key, tools, bytes.toInt(), epoch)) {
+                if (catalogueIdentities.size >= 16) catalogueIdentities.keys.firstOrNull()?.let(catalogueIdentities::remove)
+                catalogueIdentities[config.connectionUid] = policyEpoch to key
+            }
+            tools
+        }
+    }
+
+    private suspend fun fetchCatalogue(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
         val observation = healthOrder.begin(config.connectionUid, config.validatedKey())
         return try {
             listToolsUnchecked(config, forceRefresh, observation)

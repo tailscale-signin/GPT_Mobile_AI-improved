@@ -63,6 +63,8 @@ class GPTMobileApp :
     var secretMigrationErrors: List<SecretMigrationError> = emptyList()
         private set
 
+    @Inject lateinit var readiness: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.readiness.ChatReadinessCoordinator>
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val isHighRamDevice: Boolean by lazy {
@@ -134,6 +136,11 @@ class GPTMobileApp :
         }
 
         applicationScope.launch {
+            StartupRecoveryGate.await()
+            readiness.get().start()
+        }
+
+        applicationScope.launch {
             while (isActive) {
                 delay(60_000L)
                 semanticMemory.get().releaseWhenIdle()
@@ -152,6 +159,7 @@ class GPTMobileApp :
             val memoryPressure = dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.releaseImmediately(level)
             semanticMemory.get().releaseWhenIdle(if (memoryPressure) 0L else 180_000L, memoryPressure = memoryPressure)
         }
+        applicationScope.launch { readiness.get().trim() }
         dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
         val hasActiveRuns = runCatching {
             startupDependencies().agentRunCoordinator().activeRuns.value.isNotEmpty()

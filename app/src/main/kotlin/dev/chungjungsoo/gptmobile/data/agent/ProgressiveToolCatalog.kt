@@ -8,8 +8,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Shrinks advertised schemas, never the authorized executable set. A new catalog is created per run. */
-internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null) : AgentTool {
-    private val candidates = definitions.associateBy { it.name }
+class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null, private val acquireCold: (suspend (String, List<String>) -> List<AgentToolDefinition>)? = null) : AgentTool {
+    private val candidates = definitions.associateBy { it.name }.toMutableMap()
     private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
     override val definition = AgentToolDefinition(
@@ -44,7 +44,18 @@ internal class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, ta
     @Synchronized
     fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> = allowed.filter { it.name in active || it.name == NAME }
 
-    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
+    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
+        val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
+        if (query.isNotBlank() || names.isNotEmpty()) {
+            // The required acquisition suspends outside the catalogue monitor.
+            val acquired = acquireCold?.invoke(query, names).orEmpty()
+            synchronized(this) { acquired.forEach { candidates[it.name] = it } }
+        }
+        return selectResult(callId, arguments)
+    }
+
+    private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
         if (query.isBlank() && names.isEmpty()) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Provide a task query or exact tool names."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)

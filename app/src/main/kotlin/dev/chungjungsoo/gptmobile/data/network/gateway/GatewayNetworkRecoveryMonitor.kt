@@ -46,6 +46,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
             val identity = 31 * network.hashCode() + linkProperties.hashCode()
             if (routeIdentity != identity) {
                 routeIdentity = identity
+                dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.networkChanged()
                 if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
                 if (validatedNetwork == network) scope.launch { agentRunCoordinator.recoverInterruptedGatewayRuns() }
             }
@@ -58,6 +59,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                 networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
             if (validated && validatedNetwork != network) {
                 validatedNetwork = network
+                dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.networkChanged()
                 if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
                 scope.launch {
                     agentRunCoordinator.recoverInterruptedGatewayRuns()
@@ -69,6 +71,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
 
         override fun onLost(network: Network) {
             routeIdentity = null
+            dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.networkChanged()
             if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
             if (validatedNetwork == network) {
                 validatedNetwork = null

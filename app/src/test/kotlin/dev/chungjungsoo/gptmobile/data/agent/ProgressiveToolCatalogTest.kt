@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -87,5 +89,23 @@ class ProgressiveToolCatalogTest {
             assertTrue(catalog.selected(tools).sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() } <= ProgressiveToolCatalog.SCHEMA_TOKEN_ALLOWANCE)
             assertTrue(catalog.selected(tools).any { it.name == "task_$index" })
         }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun coldDiscoverySuspendsWithoutHoldingTheSelectionMonitor() = runTest {
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val acquired = AgentToolDefinition("cold_tool", "Authorized cold tool", JsonObject(emptyMap()))
+        val catalog = ProgressiveToolCatalog(emptyList(), "cold", acquireCold = { _, _ ->
+            release.await()
+            listOf(acquired)
+        })
+        val discovery = kotlinx.coroutines.CoroutineScope(coroutineContext).async { catalog.execute("discover", JsonObject(mapOf("query" to JsonPrimitive("cold_tool")))) }
+        runCurrent()
+        assertEquals(listOf(catalog.definition), catalog.selected(listOf(catalog.definition)))
+        release.complete(Unit)
+        assertFalse(discovery.await().isError)
+        assertEquals(listOf(acquired), catalog.selected(listOf(acquired)))
+        assertTrue(catalog.selected(emptyList()).isEmpty())
     }
 }

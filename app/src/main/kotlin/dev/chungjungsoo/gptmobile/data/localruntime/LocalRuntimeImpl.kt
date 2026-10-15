@@ -29,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -48,6 +49,10 @@ class LocalRuntimeImpl(
     private val inspectMetadata: (String) -> LocalModelCapabilities? = LiteRtModelInspector::inspect,
     private val createEngine: (EngineConfig) -> Engine = { Engine(it) }
 ) : LocalRuntime {
+    private val nativeOwner = java.util.concurrent.Executors.newSingleThreadExecutor { work -> Thread(work, "litert-lifecycle-owner").apply { isDaemon = true } }.asCoroutineDispatcher()
+    private val nativeScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + nativeOwner + kotlinx.coroutines.CoroutineExceptionHandler { _, error -> dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "NATIVE_OWNER_FAILURE · cause=${error.javaClass.simpleName}", "E") })
+
+    @Volatile private var lifecycleFailed = false
     private var engine: Engine? = null
     private var conversation: Conversation? = null
 
@@ -92,7 +97,7 @@ class LocalRuntimeImpl(
 
     override fun loadedEngineSpec(): LocalEngineSpec? = loadedSpec
 
-    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = withContext(Dispatchers.IO) {
+    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = withContext(nativeOwner) {
         val identity = "inspection|" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(modelPath, "cpu", 1)).toString()
         operationJournal.before(identity, "INSPECT")
         try {
@@ -102,14 +107,15 @@ class LocalRuntimeImpl(
         }
     }
 
-    override suspend fun allowVerification(spec: LocalEngineSpec) = withContext(Dispatchers.IO) {
+    override suspend fun allowVerification(spec: LocalEngineSpec) = withContext(nativeOwner) {
         check(isInferenceProcess()) { "Verification reset requires the isolated worker" }
         operationJournal.allowVerification(RuntimeEvidenceIdentity.key(context, spec).toString())
         operationJournal.allowVerification("inspection|" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(spec.modelPath, "cpu", 1)).toString())
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
-        withContext(Dispatchers.IO) {
+        withContext(nativeOwner) {
+            check(!lifecycleFailed) { "Native lifecycle is quarantined until this worker restarts." }
             require(spec.modelPath.endsWith(".litertlm", ignoreCase = true)) {
                 "This runtime requires a LiteRT-LM (.litertlm) model package"
             }
@@ -185,7 +191,8 @@ class LocalRuntimeImpl(
 
     @OptIn(ExperimentalApi::class)
     override suspend fun createConversation(config: LocalConversationConfig) {
-        withContext(Dispatchers.IO) {
+        withContext(nativeOwner) {
+            check(!lifecycleFailed) { "Native lifecycle is quarantined until this worker restarts." }
             val currentEngine = engine ?: error("LiteRT-LM engine is not loaded")
             capabilities?.let { supported ->
                 require(config.tools.isEmpty() || supported.tools != false) { "This export does not support native tool calling. Use chat only or choose a tools-capable artifact." }
@@ -209,8 +216,9 @@ class LocalRuntimeImpl(
             require(requestedMtp != true || capabilities?.speculative == true) { "This artifact has no verified drafter support." }
             conversationMtp = requestedMtp
             nativeIdentity?.let { operationJournal.before(it, "OPEN") }
+            var nextConversation: Conversation? = null
             try {
-                conversation = LiteRtExperimentalSettings.conversation(config.isConstrainedDecodingEnabled) {
+                nextConversation = LiteRtExperimentalSettings.conversation(config.isConstrainedDecodingEnabled) {
                     currentEngine.createConversation(
                         ConversationConfig(
                             systemInstruction = config.systemPrompt?.takeIf { it.isNotBlank() }?.let { Contents.of(it) },
@@ -236,7 +244,10 @@ class LocalRuntimeImpl(
                         )
                     )
                 }
+                coroutineContext.ensureActive()
+                conversation = nextConversation
             } catch (error: Throwable) {
+                nextConversation?.let { runCatching { it.close() } }
                 conversation = null
                 throw error
             } finally {
@@ -280,74 +291,90 @@ class LocalRuntimeImpl(
         }
         offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
         try {
-            launch(Dispatchers.IO) {
-                activeConversation.sendMessageAsync(
-                    contentsOf(text, images),
-                    object : MessageCallback {
-                        override fun onMessage(message: Message) {
-                            if (finished.get() || overflow.get()) return
-                            val now = SystemClock.elapsedRealtime()
-                            val visible = message.visibleText()
-                            val thought = message.channels[THOUGHT_CHANNEL].orEmpty()
-                            if ((visible.isNotEmpty() || thought.isNotEmpty()) && firstTokenTimeMs.compareAndSet(0L, now)) {
-                                offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
-                            }
-                            if (thought.isNotEmpty()) offerText(thought, true)
-                            if (visible.isNotEmpty()) {
-                                firstVisibleTimeMs.compareAndSet(0L, now)
-                                chunkCount.incrementAndGet()
-                                totalCharacters.addAndGet(visible.length)
-                                offerText(visible, false)
-                            }
-                        }
-
-                        override fun onDone() {
-                            if (!finished.compareAndSet(false, true)) return
-                            try {
-                                val end = SystemClock.elapsedRealtime()
-                                val duration = end - startTimeMs
-                                val chars = totalCharacters.get()
-                                val tokens = (chars / 4).coerceAtLeast(chunkCount.get())
-                                val native = if (loadedSpec?.nativeMetricsEnabled == true) {
-                                    runCatching {
-                                        val info = activeConversation.getBenchmarkInfo()
-                                        NativeInferenceMetrics(info.lastPrefillTokenCount, info.lastDecodeTokenCount, info.lastPrefillTokensPerSecond, info.lastDecodeTokensPerSecond).takeIf { it.hasValidTokenCounts }
-                                    }.getOrNull()
-                                } else {
-                                    null
+            nativeScope.launch {
+                var enteredNative = false
+                try {
+                    if (requestJob?.isActive != true) throw kotlinx.coroutines.CancellationException("Local request cancelled before native start")
+                    enteredNative = true
+                    activeConversation.sendMessageAsync(
+                        contentsOf(text, images),
+                        object : MessageCallback {
+                            override fun onMessage(message: Message) {
+                                if (finished.get() || overflow.get()) return
+                                val now = SystemClock.elapsedRealtime()
+                                val visible = message.visibleText()
+                                val thought = message.channels[THOUGHT_CHANNEL].orEmpty()
+                                if ((visible.isNotEmpty() || thought.isNotEmpty()) && firstTokenTimeMs.compareAndSet(0L, now)) {
+                                    offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
                                 }
-                                offer(
-                                    LocalRuntimeEvent.Metrics(
-                                        LocalInferenceMetrics(
-                                            timeToFirstTokenMs = firstTokenTimeMs.get().takeIf { it > 0 }?.minus(startTimeMs) ?: duration,
-                                            totalDurationMs = duration,
-                                            totalChunks = chunkCount.get(),
-                                            totalCharacters = chars,
-                                            estimatedTokens = tokens,
-                                            tokensPerSecond = if (duration > 0) tokens * 1000.0 / duration else 0.0,
-                                            native = native,
-                                            metricSource = if (native != null) "native_segment" else "estimated_characters",
-                                            firstVisibleAnswerMs = firstVisibleTimeMs.get().takeIf { it > 0 }?.minus(startTimeMs),
-                                            decodeDurationMs = firstTokenTimeMs.get().takeIf { it > 0 }?.let { end - it },
-                                            segmentId = segmentId,
-                                            requestedMtp = conversationMtp
-                                        )
-                                    )
-                                )
-                                acknowledgeNativeTerminal(completion) { offer(LocalRuntimeEvent.Done) }
-                            } finally {
-                                completion.complete(Unit)
+                                if (thought.isNotEmpty()) offerText(thought, true)
+                                if (visible.isNotEmpty()) {
+                                    firstVisibleTimeMs.compareAndSet(0L, now)
+                                    chunkCount.incrementAndGet()
+                                    totalCharacters.addAndGet(visible.length)
+                                    offerText(visible, false)
+                                }
                             }
-                        }
 
-                        override fun onError(throwable: Throwable) {
-                            if (!finished.compareAndSet(false, true)) return
-                            acknowledgeNativeTerminal(completion) {
-                                buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))
+                            override fun onDone() {
+                                if (!finished.compareAndSet(false, true)) return
+                                nativeScope.launch {
+                                    try {
+                                        val end = SystemClock.elapsedRealtime()
+                                        val duration = end - startTimeMs
+                                        val chars = totalCharacters.get()
+                                        val tokens = (chars / 4).coerceAtLeast(chunkCount.get())
+                                        val native = if (loadedSpec?.nativeMetricsEnabled == true) {
+                                            runCatching {
+                                                val info = activeConversation.getBenchmarkInfo()
+                                                NativeInferenceMetrics(info.lastPrefillTokenCount, info.lastDecodeTokenCount, info.lastPrefillTokensPerSecond, info.lastDecodeTokensPerSecond).takeIf { it.hasValidTokenCounts }
+                                            }.getOrNull()
+                                        } else {
+                                            null
+                                        }
+                                        offer(
+                                            LocalRuntimeEvent.Metrics(
+                                                LocalInferenceMetrics(
+                                                    timeToFirstTokenMs = firstTokenTimeMs.get().takeIf { it > 0 }?.minus(startTimeMs) ?: duration,
+                                                    totalDurationMs = duration,
+                                                    totalChunks = chunkCount.get(),
+                                                    totalCharacters = chars,
+                                                    estimatedTokens = tokens,
+                                                    tokensPerSecond = if (duration > 0) tokens * 1000.0 / duration else 0.0,
+                                                    native = native,
+                                                    metricSource = if (native != null) "native_segment" else "estimated_characters",
+                                                    firstVisibleAnswerMs = firstVisibleTimeMs.get().takeIf { it > 0 }?.minus(startTimeMs),
+                                                    decodeDurationMs = firstTokenTimeMs.get().takeIf { it > 0 }?.let { end - it },
+                                                    segmentId = segmentId,
+                                                    requestedMtp = conversationMtp
+                                                )
+                                            )
+                                        )
+                                        acknowledgeNativeTerminal(completion) { offer(LocalRuntimeEvent.Done) }
+                                    } finally {
+                                        completion.complete(Unit)
+                                    }
+                                }
+                            }
+
+                            override fun onError(throwable: Throwable) {
+                                if (!finished.compareAndSet(false, true)) return
+                                acknowledgeNativeTerminal(completion) {
+                                    buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))
+                                }
                             }
                         }
+                    )
+                } catch (failure: Throwable) {
+                    if (!enteredNative && finished.compareAndSet(false, true)) {
+                        acknowledgeNativeTerminal(completion) { buffer.offer(LocalRuntimeEvent.Error("Local request cancelled before native start", failure)) }
+                    } else {
+                        // JNI may have started before throwing. Keep ownership until an actual
+                        // native terminal callback or the existing isolated-worker quarantine.
+                        buffer.offer(LocalRuntimeEvent.Error("Native start outcome is unknown; awaiting safe shutdown", failure))
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "NATIVE_START_OUTCOME_UNKNOWN · cause=${failure.javaClass.simpleName}", "E")
                     }
-                )
+                }
             }
             while (true) {
                 val event = buffer.take() ?: break
@@ -396,27 +423,51 @@ class LocalRuntimeImpl(
 
     override fun hasOpenConversation(): Boolean = conversation != null
 
-    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = engine != null && loadedSpec?.engineConfiguration() == spec.engineConfiguration()
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = !lifecycleFailed && engine != null && loadedSpec?.engineConfiguration() == spec.engineConfiguration()
 
     override suspend fun closeConversation() {
         awaitNativeCompletion()
-        withContext(Dispatchers.IO) {
-            runCatching { conversation?.close() }
+        withContext(nativeOwner) {
+            val closing = conversation
             conversation = null
+            try {
+                closing?.close()
+            } catch (failure: Throwable) {
+                cleanupFailed(failure)
+            }
         }
     }
 
     override suspend fun unloadEngine() {
         awaitNativeCompletion()
-        withContext(Dispatchers.IO) {
-            runCatching { conversation?.close() }
+        withContext(nativeOwner) {
+            val closing = conversation
             conversation = null
-            runCatching { engine?.close() }
+            try {
+                closing?.close()
+            } catch (failure: Throwable) {
+                cleanupFailed(failure)
+            }
+            val closingEngine = engine
             engine = null
+            try {
+                closingEngine?.close()
+            } catch (failure: Throwable) {
+                cleanupFailed(failure)
+            }
             loadedSpec = null
             capabilities = null
             loadedAccelerator = LocalAccelerators.CPU
         }
+    }
+
+    private fun cleanupFailed(failure: Throwable): Nothing {
+        lifecycleFailed = true
+        loadedSpec = null
+        capabilities = null
+        nativeIdentity?.let { runCatching { operationJournal.quarantine(it) } }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "NATIVE_CLEANUP_FAILED · cause=${failure.javaClass.simpleName} · reuseAllowed=false", "E")
+        throw NativeResourceCleanupException(failure)
     }
 
     private fun backendFor(accelerator: String, dispatchLibDir: String? = null, cpuThreads: Int? = null): Backend = when (LocalAccelerators.normalize(accelerator)) {

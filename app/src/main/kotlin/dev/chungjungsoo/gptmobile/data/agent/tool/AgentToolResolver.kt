@@ -49,7 +49,9 @@ data class ResolvedAgentTool(
     val realToolName: String,
     val modelToolName: String,
     val shareableReadOnly: Boolean = false,
-    val canReuseResult: (suspend () -> Boolean)? = null
+    val canReuseResult: (suspend () -> Boolean)? = null,
+    val dynamicTools: (() -> List<ResolvedAgentTool>)? = null,
+    val progressiveCatalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? = null
 )
 
 class AgentToolResolver @Inject constructor(
@@ -82,6 +84,25 @@ class AgentToolResolver @Inject constructor(
     private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository? = null,
     private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null
 ) {
+    suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
+        val features = settingRepository.getFeatureSettings()
+        val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
+        if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
+        toolConnectionRepository.listBindingsWithConnections(profileUid)
+            .filter { it.connection?.type == ToolConnectionType.MCP && pluginEnabledForBinding(features, profileUid, it) }
+            .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit).forEach { connection ->
+                // This coordinator path only reads or silently refreshes an already installed grant;
+                // missing/revoked OAuth raises a capability error and never opens an authorization UI.
+                if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
+                    try {
+                        discoverMcpTools(connection)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) { }
+                }
+            }
+    }
+
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
         val config = mcpConfig(connection)
         return try {
@@ -105,7 +126,8 @@ class AgentToolResolver @Inject constructor(
         userMessage: MessageV2? = null,
         delegate: (suspend (PlatformV2, String, Int) -> String)? = null,
         onConnectionError: (String) -> Unit = {},
-        examinationRunKey: String? = null
+        examinationRunKey: String? = null,
+        cachedCataloguesOnly: Boolean = false
     ): List<ResolvedAgentTool> {
         val platforms = settingRepository.fetchPlatformV2s()
         val platform = platforms.firstOrNull { it.uid == profileUid }
@@ -338,7 +360,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(mcpBindings.first().connection)
                         try {
-                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid) to null
+                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly) to null
                         } catch (error: CancellationException) {
                             throw error
                         } catch (_: Exception) {
@@ -453,7 +475,53 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        return finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, onConnectionError)
+        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, onConnectionError)
+        val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
+            bindings.filter { binding ->
+                binding.connection?.type == ToolConnectionType.MCP &&
+                    pluginEnabledForBinding(featureSettings, profileUid, binding) &&
+                    finalized.none { it.connectionUid == binding.binding.connectionUid && it.realToolName == binding.binding.toolName } &&
+                    chatToolConfig?.isToolEnabled(listOfNotNull(binding.binding.connectionUid, binding.binding.toolName, binding.binding.connectionUid?.let { "$it:${binding.binding.toolName}" })) != false
+            }
+        } else {
+            emptyList()
+        }
+        if (coldBindings.isEmpty()) return finalized
+        val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
+        val attemptedConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, userMessage?.content.orEmpty(), acquireCold = { query, names ->
+            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+            check(current == platform && current?.enabled == true) { "Selected profile changed; retry discovery." }
+            val live = settingRepository.getFeatureSettings()
+            check(live.remoteMcpConnections && !current.disableAllTools && !current.disableRemoteTools) { "Remote tools are disabled." }
+            val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
+            val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet()
+            val targets = coldBindings.filter { it in currentBindings && pluginEnabledForBinding(live, profileUid, it) }
+                .groupBy { it.binding.connectionUid }
+                .values.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
+                .sortedByDescending { group ->
+                    group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
+                        words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
+                }.take(4)
+            val loaded = targets.flatMap { group ->
+                val connection = requireNotNull(group.first().connection)
+                try {
+                    resolveMcpTools(connection, group, live, profileUid)
+                } finally {
+                    attemptedConnections.add(connection.connectionUid)
+                }
+            }
+            // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
+            check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
+            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, onConnectionError)
+            admitted.forEach { next ->
+                val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
+                check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
+                discovered[next.modelToolName] = next
+            }
+            admitted.map { it.tool.definition }
+        })
+        return finalized + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { discovered.values.toList() }, progressiveCatalog = directory)
     }
 
     /** Catalog normalization has its own method instead of inflating the resolution coroutine. */
@@ -911,10 +979,11 @@ class AgentToolResolver @Inject constructor(
         connection: ToolConnection,
         bindings: List<AgentToolBindingWithConnection>,
         features: AppFeatureSettings,
-        profileUid: String
+        profileUid: String,
+        cachedOnly: Boolean = false
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
-        val remoteTools = discoverMcpTools(connection)
+        val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid).orEmpty() else discoverMcpTools(connection)
         val janNafta = AmazonJanNaftaTool.recognizes(connection, remoteTools.map { it.name }.toSet())
         return remoteTools
             .filter { it.name in selectedNames }

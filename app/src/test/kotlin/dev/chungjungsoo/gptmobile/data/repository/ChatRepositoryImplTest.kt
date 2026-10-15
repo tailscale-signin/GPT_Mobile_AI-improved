@@ -99,6 +99,24 @@ class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
     @Test
+    fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val facts = mockk<dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository>(relaxed = true)
+        coEvery { facts.scopeForChat(any()) } returns dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
+        coEvery { facts.prepareTurn(any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        every { facts.state } returns kotlinx.coroutines.flow.MutableStateFlow(dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot())
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Hello"), finishReason = "stop")))))))
+        val states = kotlinx.coroutines.withTimeout(1000) {
+            createRepository(openAIAPI = api, agentToolResolver = resolver, factVault = facts).completeChat(listOf(MessageV2(content = "Hi", platformType = null)), emptyList(), customPlatform(), "readiness-direct").toList()
+        }
+        assertEquals(1, api.streamChatCompletionCalls)
+        assertTrue(states.none { it is ApiState.Error })
+        io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) }
+        io.mockk.coVerify(exactly = 0) { facts.prepareTurn(any(), any(), any()) }
+    }
+
+    @Test
     fun `helpers honor conversation options and approvals with distinct action identities`() = runBlocking {
         val config = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(maxToolCalls = 1).withToolDisabled("other")
         val resolver = mockk<AgentToolResolver>()
@@ -144,7 +162,7 @@ class ChatRepositoryImplTest {
             }
             ResolvedAgentTool(agent, null, null, if (name == "github__work") "github" else name, name)
         }
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns tools
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns tools
         val ordered = createRepository(agentToolResolver = resolver).resolveDelegatedTools(
             customPlatform(),
             "parent",
@@ -195,7 +213,7 @@ class ChatRepositoryImplTest {
         for ((index, error) in failures.withIndex()) {
             coEvery { facts.prepareTurn(any(), any(), any(), any(), any(), any(), any()) } throws error
             val states = repository.completeChat(
-                userMessages = listOf(MessageV2(id = index + 1, chatId = 1, content = "Hello", platformType = null)),
+                userMessages = listOf(MessageV2(id = index + 1, chatId = 1, content = "Recall my saved preferences", platformType = null)),
                 assistantMessages = emptyList(),
                 platform = customPlatform(),
                 runId = "memory-initializer-$index"
@@ -215,7 +233,7 @@ class ChatRepositoryImplTest {
         val facts = mockk<FactVaultRepository>(relaxed = true)
         coEvery { facts.prepareTurn(any(), any(), any(), any(), any(), any(), any()) } throws CancellationException("Stopped")
         createRepository(factVault = facts).completeChat(
-            userMessages = listOf(MessageV2(id = 1, chatId = 1, content = "Hello", platformType = null)),
+            userMessages = listOf(MessageV2(id = 1, chatId = 1, content = "Recall my saved preferences", platformType = null)),
             assistantMessages = emptyList(),
             platform = customPlatform(),
             runId = "memory-cancelled"
@@ -328,7 +346,7 @@ class ChatRepositoryImplTest {
             coEvery { recall.validate(any(), any()) } returns (mode != "revoked")
             val api = FakeGroqAPI(flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "The historical trial needs cautious interpretation."), finishReason = "stop")))), enforcePhysicalBoundary = true)
             val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, recallOverride = recall)
-                .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Compare the mobility trial", platformType = null)), emptyList(), platform, runId = "research-$mode").toList()
+                .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall the saved research and compare the mobility trial", platformType = null)), emptyList(), platform, runId = "research-$mode").toList()
             if (mode == "revoked") {
                 assertEquals(0, api.streamCalls)
                 assertTrue(states.any { it is ApiState.Error && it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" })
@@ -359,7 +377,7 @@ class ChatRepositoryImplTest {
         val api = FakeGroqAPI(emptyFlow())
         val cloud = createRepository(groqAPI = api, factVault = facts)
         val cloudStates = cloud.completeChat(
-            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "Help me with Kotlin", platformType = null)),
+            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "Recall my preferences and help me with Kotlin", platformType = null)),
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = false, model = "qwen/qwen3-32b").copy(systemPrompt = "Base instructions"),
             runId = "memory-cloud"
@@ -612,7 +630,7 @@ class ChatRepositoryImplTest {
             )
         }
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(
                 tool = mcpTool,
                 connectionUid = "search-server",
@@ -1026,7 +1044,7 @@ class ChatRepositoryImplTest {
         )
         var toolResolutions = 0
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } answers {
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } answers {
             toolResolutions++
             emptyList()
         }
@@ -1100,7 +1118,7 @@ class ChatRepositoryImplTest {
         )
         val reader = tool("read_url")
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(reader, tool("delegate_to_model"))
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(reader, tool("delegate_to_model"))
         val context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
         }
@@ -1194,7 +1212,7 @@ class ChatRepositoryImplTest {
             override suspend fun execute(callId: String, arguments: JsonObject) =
                 AgentToolResult(callId, ToolResultContent.Text("Should not execute"), true)
         }
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(inactive, "stale-connection", "Unavailable", "stale_search", "stale_search", canReuseResult = { false })
         )
         val api = FakeGroqAPI(

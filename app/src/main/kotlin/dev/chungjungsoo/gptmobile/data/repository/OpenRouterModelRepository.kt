@@ -30,6 +30,8 @@ class OpenRouterModelRepository @Inject constructor() {
         private set
     private var failedAt = Long.MIN_VALUE
 
+    fun peekModels(): List<OpenRouterModelItem>? = cachedModels
+
     suspend fun fetchModels(forceRefresh: Boolean = false): Result<List<OpenRouterModelItem>> = withContext(Dispatchers.IO) {
         mutex.withLock {
             val now = System.nanoTime() / 1_000_000

@@ -13,6 +13,7 @@ data class LocalAssistPolicy(
     val maxAttempts: Int = 8,
     val candidateRecords: Int = 12,
     val selectedRecords: Int = 5,
+    val preloadInForeground: Boolean = false,
     val preparation: AssistPreparation = AssistPreparation.PREPARE_AUTOMATICALLY,
     val loadTimeoutSeconds: Int = 60,
     val queueWaitSeconds: Int = 20,

@@ -74,3 +74,5 @@ internal fun String.unicodeChunks(limit: Int): Sequence<String> = sequence {
         start = end
     }
 }
+
+internal class NativeResourceCleanupException(cause: Throwable) : IllegalStateException("Native resource cleanup failed; the isolated worker must restart before reuse.", cause)

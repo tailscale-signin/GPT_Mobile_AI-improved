@@ -158,6 +158,7 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun mutateThemes(transform: (ThemeSetting) -> ThemeSetting): ThemeSetting = settingDataSource.mutateThemes(transform)
 
     override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val profiles = fetchPlatformV2s()
         return settingDataSource.mutateFeatureSettings { current ->
             transform(current.copy(localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles)))
@@ -193,6 +194,7 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun getFeatureSettings(): AppFeatureSettings = migrateAssistPermissions(settingDataSource.getFeatureSettings()).also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
 
     override suspend fun updateFeatureSettings(settings: AppFeatureSettings) {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         settingDataSource.updateFeatureSettings(settings)
         dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = settings.diagnosticsCollection
     }
@@ -342,6 +344,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updatePlatformV2(platform: PlatformV2) {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val previous = platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it) }
         val previousSecretRef = previous?.secretRef ?: platform.secretRef
         val securedPlatform = securePlatform(platform)
@@ -355,6 +358,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deletePlatformV2(platform: PlatformV2) {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val persisted = platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it) }
         val secretRef = persisted?.secretRef ?: platform.secretRef
         val providerConnectionUid = persisted?.providerConnectionUid ?: platform.providerConnectionUid
@@ -415,6 +419,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun updateConnection(connection: ProviderConnection, credential: String?): ProviderConnection {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val existing = checkNotNull(providerConnectionDao.getConnection(connection.uid)) { "Connection unavailable" }
         val base = connection.copy(
             secretRef = connection.secretRef ?: existing.secretRef,
@@ -427,6 +432,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean = connectionMutation.withLock {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val persisted = providerConnectionDao.getConnection(connection.uid) ?: return@withLock true
         providerConnectionDao.deleteWithProfiles(persisted)
         try {
@@ -487,6 +493,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun importConfigurationJson(json: String): Result<Int> = runCatching {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val backup = jsonSerializer.decodeFromString<ConfigBackupDto>(json)
 
         backup.theme?.let { themeDto ->

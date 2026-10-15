@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class AppFeatureSettings(
+    val readiness: dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings(),
     val newChatScores: Boolean = true,
     val newChatPrices: Boolean = true,
     val newChatPriceRefresh: Boolean = true,

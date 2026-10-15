@@ -5,7 +5,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class PreparationPhase { SOURCE_COLLECTION, MEMORY_RECALL, TOOL_DISCOVERY, READINESS, NORMALIZATION, CONTEXT_ASSEMBLY, SERIALIZATION }
+enum class PreparationPhase { SOURCE_COLLECTION, MEMORY_RECALL, TOOL_DISCOVERY, READINESS, BENCHMARK_ADMISSION, NORMALIZATION, CONTEXT_ASSEMBLY, SERIALIZATION }
 
 /** Monotonic app preparation timing is separate from provider time and contains no source content. */
 internal suspend fun <T> measurePreparation(

@@ -193,10 +193,10 @@ class LocalInferenceService : Service() {
                     else -> error("Unsupported local operation")
                 }
             } catch (cancelled: CancellationException) {
-                withContext(NonCancellable) { runCatching { runtime.closeConversation() }.onFailure { if (it is NativeCancellationTimeoutException) Process.killProcess(Process.myPid()) } }
+                withContext(NonCancellable) { runCatching { runtime.closeConversation() }.onFailure { if (it is NativeCancellationTimeoutException || it is NativeResourceCleanupException) Process.killProcess(Process.myPid()) } }
                 reply.send("CANCELLED", text = "Local request cancelled after native cleanup")
             } catch (error: Throwable) {
-                if (error is NativeCancellationTimeoutException) Process.killProcess(Process.myPid())
+                if (error is NativeCancellationTimeoutException || error is NativeResourceCleanupException) Process.killProcess(Process.myPid())
                 val errorCode = when (error) {
                     is LocalModelConfigurationException -> "MODEL_CONFIGURATION"
                     is LocalNpuPackageException -> "NPU_PACKAGE"

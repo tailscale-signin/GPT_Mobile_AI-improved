@@ -1470,25 +1470,7 @@ class ChatRepositoryImpl(
                 }
 
                 val preparationStarted = System.nanoTime()
-                val acceptedText = taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()
-                val requiredIntent = Regex("(?iu)\\b(search|research|browse|look up|remember|forget|recall|previous conversation|my saved|my memory|github|repository|calendar|email|airbnb|pubmed|scholar)\\b").containsMatchIn(acceptedText)
-                val preparationPlan = dev.chungjungsoo.gptmobile.data.readiness.SendPreparationPlanner.classify(
-                    acceptedText,
-                    hasAttachments = effectiveUserMessages.lastOrNull()?.attachments?.isNotEmpty() == true,
-                    hasHistory = effectiveUserMessages.size > 1 || assistantMessages.flatten().any { it.content.isNotBlank() },
-                    requiredWorkflow = platform.compatibleType == ClientType.LITERT_LM || requiredIntent || (chatToolConfig?.allowAllByDefault == false && chatToolConfig.enabledToolIds.isNotEmpty()) || admittedPolicy.enabled || chatToolConfig?.research?.researchToggle == true,
-                    recovery = taskRecovery != null,
-                    synthesis = runId.startsWith("combined-synthesis:")
-                )
-                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(
-                    runId,
-                    when (preparationPlan.kind) {
-                        dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PREPARATION_DIRECT
-                        dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.CONTEXTUAL -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PREPARATION_CONTEXTUAL
-                        dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PREPARATION_REQUIRED
-                    }
-                )
-                AppLogRecorder.record("Readiness", "PREPARATION_PLAN · run=$runId · kind=${preparationPlan.kind} · optionalBudgetMs=${preparationPlan.optionalBudgetMillis}")
+                val preparationPlan = planSendPreparation(effectiveUserMessages, assistantMessages, platform, chatToolConfig, taskRecovery?.originalRequest, taskRecovery != null, admittedPolicy.enabled, runId)
                 val unavailableConnections = mutableListOf<String>()
                 val synthesisRun = runId.startsWith("combined-synthesis:")
                 val sourceAcquisitionRequested = chatToolConfig?.research?.let { selection ->
@@ -1832,28 +1814,8 @@ class ChatRepositoryImpl(
                         live.assistEnabled() && live.effectiveAssistPolicy() == runFeatures.effectiveAssistPolicy() && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
                     }
                 )
-                val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
                 val delegationConfig = effectiveDelegationSettings()
-                val crawlStage = if (behavior.crawlersEnabled && !(localResearch && delegationConfig.deepResearch.enabled)) {
-                    dev.chungjungsoo.gptmobile.data.agent.tool.SearchCrawlStage(
-                        selectedCrawlers,
-                        behavior.maxCrawlPages
-                    )
-                } else {
-                    null
-                }
-                val searchStageTools = if (crawlStage != null) boundedTools.filterNot { it in selectedCrawlers } else boundedTools
-                val aggregatedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(
-                    searchStageTools,
-                    true,
-                    true,
-                    afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } },
-                    canExecute = acquisitionBudget::canExecute,
-                    remainingBytes = acquisitionBudget::remainingOutputBytes,
-                    policy = searchPolicy,
-                    ownerRoute = "$runId:${platform.uid}",
-                    configurationRevision = { settingRepository.getFeatureSettings().hashCode().toString() }
-                )
+                val aggregatedTools = prepareSearchStage(boundedTools, behavior, localResearch, delegationConfig, acquisitionBudget, searchPolicy, runId, platform.uid)
                 delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }
                 // The model calls the aggregate name, while local workers can call individual
                 // engines. Preserve both snapshots, preferring aggregate metadata on a name collision.
@@ -2244,6 +2206,71 @@ class ChatRepositoryImpl(
             userMessages
         }
         return RecoveryRequest(savedUserTurns, resumeDescriptor, taskRecovery, effectiveUserMessages)
+    }
+
+    private fun prepareSearchStage(
+        boundedTools: List<ResolvedAgentTool>,
+        behavior: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings,
+        localResearch: Boolean,
+        delegationConfig: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
+        acquisitionBudget: ToolExecutionBudget,
+        searchPolicy: dev.chungjungsoo.gptmobile.data.agent.tool.SearchMergePolicy,
+        runId: String,
+        profileUid: String
+    ): List<ResolvedAgentTool> {
+        val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
+        val crawlStage = if (behavior.crawlersEnabled && !(localResearch && delegationConfig.deepResearch.enabled)) {
+            dev.chungjungsoo.gptmobile.data.agent.tool.SearchCrawlStage(
+                selectedCrawlers,
+                behavior.maxCrawlPages
+            )
+        } else {
+            null
+        }
+        val searchStageTools = if (crawlStage != null) boundedTools.filterNot { it in selectedCrawlers } else boundedTools
+        return dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(
+            searchStageTools,
+            true,
+            true,
+            afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } },
+            canExecute = acquisitionBudget::canExecute,
+            remainingBytes = acquisitionBudget::remainingOutputBytes,
+            policy = searchPolicy,
+            ownerRoute = "$runId:$profileUid",
+            configurationRevision = { settingRepository.getFeatureSettings().hashCode().toString() }
+        )
+    }
+
+    private fun planSendPreparation(
+        effectiveUserMessages: List<MessageV2>,
+        assistantMessages: List<List<MessageV2>>,
+        platform: PlatformV2,
+        chatToolConfig: ChatMcpToolConfig?,
+        originalRequest: String?,
+        recovering: Boolean,
+        mandatoryDelegation: Boolean,
+        runId: String
+    ): dev.chungjungsoo.gptmobile.data.readiness.PreparationPlan {
+        val acceptedText = originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()
+        val requiredIntent = Regex("(?iu)\\b(search|research|browse|look up|remember|forget|recall|previous conversation|my saved|my memory|github|repository|calendar|email|airbnb|pubmed|scholar)\\b").containsMatchIn(acceptedText)
+        val preparationPlan = dev.chungjungsoo.gptmobile.data.readiness.SendPreparationPlanner.classify(
+            acceptedText,
+            hasAttachments = effectiveUserMessages.lastOrNull()?.attachments?.isNotEmpty() == true,
+            hasHistory = effectiveUserMessages.size > 1 || assistantMessages.flatten().any { it.content.isNotBlank() },
+            requiredWorkflow = platform.compatibleType == ClientType.LITERT_LM || requiredIntent || (chatToolConfig?.allowAllByDefault == false && chatToolConfig.enabledToolIds.isNotEmpty()) || mandatoryDelegation || chatToolConfig?.research?.researchToggle == true,
+            recovery = recovering,
+            synthesis = runId.startsWith("combined-synthesis:")
+        )
+        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(
+            runId,
+            when (preparationPlan.kind) {
+                dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PREPARATION_DIRECT
+                dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.CONTEXTUAL -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PREPARATION_CONTEXTUAL
+                dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PREPARATION_REQUIRED
+            }
+        )
+        AppLogRecorder.record("Readiness", "PREPARATION_PLAN · run=$runId · kind=${preparationPlan.kind} · optionalBudgetMs=${preparationPlan.optionalBudgetMillis}")
+        return preparationPlan
     }
 
     private data class AuthorizedResearchMemory(val text: String, val evidenceIds: List<String>, val validate: suspend () -> Boolean)

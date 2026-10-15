@@ -162,7 +162,7 @@ class ChatRepositoryImplTest {
             }
             ResolvedAgentTool(agent, null, null, if (name == "github__work") "github" else name, name)
         }
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns tools
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns tools
         val ordered = createRepository(agentToolResolver = resolver).resolveDelegatedTools(
             customPlatform(),
             "parent",
@@ -346,7 +346,7 @@ class ChatRepositoryImplTest {
             coEvery { recall.validate(any(), any()) } returns (mode != "revoked")
             val api = FakeGroqAPI(flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "The historical trial needs cautious interpretation."), finishReason = "stop")))), enforcePhysicalBoundary = true)
             val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, recallOverride = recall)
-                .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Compare the mobility trial", platformType = null)), emptyList(), platform, runId = "research-$mode").toList()
+                .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall the saved research and compare the mobility trial", platformType = null)), emptyList(), platform, runId = "research-$mode").toList()
             if (mode == "revoked") {
                 assertEquals(0, api.streamCalls)
                 assertTrue(states.any { it is ApiState.Error && it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" })
@@ -377,7 +377,7 @@ class ChatRepositoryImplTest {
         val api = FakeGroqAPI(emptyFlow())
         val cloud = createRepository(groqAPI = api, factVault = facts)
         val cloudStates = cloud.completeChat(
-            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "Help me with Kotlin", platformType = null)),
+            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "Recall my preferences and help me with Kotlin", platformType = null)),
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = false, model = "qwen/qwen3-32b").copy(systemPrompt = "Base instructions"),
             runId = "memory-cloud"
@@ -630,7 +630,7 @@ class ChatRepositoryImplTest {
             )
         }
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(
                 tool = mcpTool,
                 connectionUid = "search-server",
@@ -1044,7 +1044,7 @@ class ChatRepositoryImplTest {
         )
         var toolResolutions = 0
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } answers {
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } answers {
             toolResolutions++
             emptyList()
         }
@@ -1118,7 +1118,7 @@ class ChatRepositoryImplTest {
         )
         val reader = tool("read_url")
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(reader, tool("delegate_to_model"))
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(reader, tool("delegate_to_model"))
         val context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
         }
@@ -1212,7 +1212,7 @@ class ChatRepositoryImplTest {
             override suspend fun execute(callId: String, arguments: JsonObject) =
                 AgentToolResult(callId, ToolResultContent.Text("Should not execute"), true)
         }
-        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns listOf(
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(inactive, "stale-connection", "Unavailable", "stale_search", "stale_search", canReuseResult = { false })
         )
         val api = FakeGroqAPI(

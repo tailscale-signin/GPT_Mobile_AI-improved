@@ -150,7 +150,7 @@ internal class AssistCoordinator(
             return result.copy(assistMetadata = cached)
         }
         if (!attemptAvailable()) {
-            publishStatus(task.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE_EXHAUSTED"))
+            publishStatus(task.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE"))
             return result
         }
         if (!warmEligible()) {
@@ -173,7 +173,7 @@ internal class AssistCoordinator(
             offered = true
             val current = task.copy(taskId = UUID.randomUUID().toString(), taskType = kind, admission = AssistAdmission.ELIGIBLE, examinedSpanIds = spanIds)
             if (!attemptAvailable()) {
-                publishStatus(current.copy(execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE_EXHAUSTED", unprocessedSpanIds = spanIds, examinedSpanIds = emptyList()))
+                publishStatus(current.copy(execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE", unprocessedSpanIds = spanIds, examinedSpanIds = emptyList()))
                 return null
             }
             if (!allowed() || runtimeFingerprint() != fingerprint) {

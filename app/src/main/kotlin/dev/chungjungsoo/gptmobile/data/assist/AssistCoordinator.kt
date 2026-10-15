@@ -261,7 +261,7 @@ internal class AssistCoordinator(
         }
         if (policy.proposeQueries) {
             val prompt = "Propose up to three searches to answer the complete goal. Return only {\"queries\":[\"...\"]}. You cannot execute searches or grant permission.\nComplete goal: $goal"
-            if (dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt).toLong() + 1024 + 256 <= contextTokens()) {
+            if (AssistChunkPlanner.estimate(prompt) + 1024 + 768 <= contextTokens()) {
                 invoke("QUERY_PLAN", prompt)?.let { (reply, completed) ->
                     val parsed = runCatching { Json.parseToJsonElement(reply) as? JsonObject }.getOrNull()
                     val rows = parsed?.get("queries") as? JsonArray

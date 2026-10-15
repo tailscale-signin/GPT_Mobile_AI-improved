@@ -25,7 +25,7 @@ internal class NativeOperationJournal(
         check(directory.mkdirs() || directory.isDirectory)
         recoverInterrupted()
         val key = digest(tuple)
-        check(!blocked(key).exists()) { "This artifact/runtime/backend was interrupted inside native code. Choose another compatible backend or a qualified artifact/runtime update before retrying. App updates alone do not clear this restriction." }
+        check(!blocked(key).exists()) { "This artifact/runtime/backend was interrupted inside native code. In Local AI, open the profile menu and choose Verify load for this exact model/backend to perform a controlled isolated retry, or choose a compatible export/backend. Ordinary retries and app updates do not clear this restriction." }
         durableWrite(pending, key)
         durableWrite(metadata, listOf(System.currentTimeMillis(), processId(), stage.take(64), requestId.take(128), generation.take(128)).joinToString("\n"))
     }

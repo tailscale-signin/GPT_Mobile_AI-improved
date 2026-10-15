@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 
 /** Lifecycle owner calls leaves only; never constructs ChatRepository or AgentRunCoordinator. */
 @Singleton
@@ -64,7 +63,7 @@ class ChatReadinessCoordinator @Inject constructor(
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
-        scope.launch {
+        scope.launchReadinessObserver("hardware", onFailure = { hardwareAllowed.value = false }) {
             AppForegroundTracker.visibility.collectLatest { visible ->
                 if (!visible) {
                     hardwareAllowed.value = false
@@ -77,7 +76,7 @@ class ChatReadinessCoordinator @Inject constructor(
                 }
             }
         }
-        scope.launch {
+        scope.launchReadinessObserver("configuration") {
             StartupRecoveryGate.await()
             combine(settings.observeFeatureSettings(), settings.observePlatformV2s(), selected) { features, profiles, hints -> Triple(features, profiles, hints) }
                 .combine(combine(AppForegroundTracker.visibility, uiReady, ReadinessWorkloadSignals.active, InferenceAdmission.availability, ReadinessInvalidation.changes) { visible, ready, active, _, epoch -> Triple(visible && ready && active == 0, epoch, active) }.combine(hardwareAllowed) { available, hardware -> available.copy(first = available.first && hardware) }) { state, availability -> state to availability }
@@ -112,7 +111,7 @@ class ChatReadinessCoordinator @Inject constructor(
                     }
                 }
         }
-        scope.launch {
+        scope.launchReadinessObserver("invalidation") {
             ReadinessInvalidation.changes.collectLatest {
                 mcp.clearReadinessCache()
                 memory.clear()

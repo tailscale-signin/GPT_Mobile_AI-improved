@@ -65,7 +65,7 @@ internal class AndroidResearchWorkflow(
     private val modelCoordinator: dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator? = null,
     private val memoryAvailable: () -> Boolean = ::hasResearchMemoryHeadroom
 ) {
-    private val journal = journal?.scoped(researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString()), tools.all { it.connectionUid == null })
+    private val journal = journal?.scoped(researchHash(config.deepResearch.collectionPolicyKey() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString()), tools.all { it.connectionUid == null })
     private val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(config.deepResearch)
     private val options = plan.settings.copy(maxPages = plan.sourceGoal)
 
@@ -79,6 +79,7 @@ internal class AndroidResearchWorkflow(
 
     @Volatile private var exhausted = false
     private fun collecting(): Boolean = budget.ledger?.tick(monotonicMs()) != false
+    private fun acquiring(): Boolean = collecting() && budget.ledger?.discoveryAllowed() != false
     private var rawBytes = 0
 
     private val included = researchDomains(options.includeDomains)
@@ -123,7 +124,7 @@ internal class AndroidResearchWorkflow(
 
     private fun charge(phase: ResearchBudget.Phase): Boolean {
         val allowed = budget.tryCharge(phase, physicalRequest = options.schemaVersion < 2)
-        if (!allowed) exhausted = true
+        if (!allowed && phase != ResearchBudget.Phase.DISCOVERY) exhausted = true
         return allowed
     }
 
@@ -136,7 +137,7 @@ internal class AndroidResearchWorkflow(
         lastModelReply = null
         // A missing worker is not a physical model attempt and must not consume its budget.
         if (modelCoordinator?.hasCandidates == false) return null
-        val phase = if (stage == dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW) ResearchBudget.Phase.VERIFICATION else ResearchBudget.Phase.DISCOVERY
+        val phase = if (stage in setOf(dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW, dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT)) ResearchBudget.Phase.VERIFICATION else ResearchBudget.Phase.DISCOVERY
         if (!charge(phase)) return null
         return operation {
             val budgetContext = "Source goal: $sourceTarget. Use completed evidence and report missing coverage."
@@ -206,7 +207,7 @@ internal class AndroidResearchWorkflow(
     private suspend fun runLocked(task: String, callId: String): LocalResearchResult {
         featurePolicy = journal?.featurePolicy() ?: featurePolicy
         if (!plan.active) return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
-        val policy = researchHash(options.toString() + tools.joinToString { it.selectionId() })
+        val policy = researchHash(options.collectionPolicyKey() + tools.joinToString { it.selectionId() })
         val retained = journal?.load(task)?.withFreshEvidence(now())
         val saved = retained?.takeIf { normalizedTask(it.task).equals(normalizedTask(task), ignoreCase = true) }?.let {
             // A historical collection-complete flag is not proof of question coverage.
@@ -274,13 +275,14 @@ internal class AndroidResearchWorkflow(
                     nextQueries = state.frontierCursors.keys.toList()
                     state = state.copy(notes = state.notes + "Resumed this turn’s shared research corpus and retained budget.")
                 }
+                var reviewedThisRun = false
                 var round = state.round.coerceAtLeast(0)
                 while (saved?.complete != true) {
-                    if (exhausted || stopped() || !collecting()) break
+                    if (exhausted || stopped() || !acquiring()) break
                     state = state.copy(round = round)
                     checkpoint("Searching")
                     for (query in nextQueries.map(String::trim).filter { it.length in 3..500 }.distinct()) {
-                        if (exhausted || stopped() || !collecting()) break
+                        if (exhausted || stopped() || !acquiring()) break
                         val newlyDispatched = queries.add(query)
                         if (!newlyDispatched && query !in state.frontierCursors) continue
                         checkpoint()
@@ -291,10 +293,13 @@ internal class AndroidResearchWorkflow(
                     if (options.intensity == dev.chungjungsoo.gptmobile.data.model.ResearchIntensity.EXHAUSTIVE) expandAcademicCitations(callId)
                     checkpoint("Reading")
                     readPages(callId)
-                    if (options.reviewEvidence && !stopped()) review()
+                    if (options.reviewEvidence && !stopped()) {
+                        review()
+                        reviewedThisRun = true
+                    }
                     val read = collectionWorkCount()
                     val stagnant = evidenceGain.shouldStop(sources.filterValues { it.readable }.keys.toSet(), supportedClaimIdentities())
-                    if (stopped() || !collecting() || read >= sourceTarget) break
+                    if (stopped() || !acquiring() || read >= sourceTarget) break
                     if (stagnant) {
                         state = state.copy(notes = state.notes + "Stopped after two rounds added no new readable evidence or supported claims.")
                         break
@@ -315,6 +320,8 @@ internal class AndroidResearchWorkflow(
                     state = state.copy(round = round)
                     checkpoint()
                 }
+                // A resumed run at the discovery cutoff still consumes its reserved review window.
+                if (!reviewedThisRun && options.reviewEvidence && !stopped() && !exhausted && collecting()) review()
                 true
             }
             if (!collecting()) state = state.copy(notes = state.notes + "Collection stopped to preserve synthesis and review time; coverage may be incomplete.")
@@ -348,8 +355,6 @@ internal class AndroidResearchWorkflow(
             checkpoint(if (failure.message?.startsWith("Paused for device resources") == true) "Paused for device resources" else "Failed")
         }
         val assessment = coverage()
-        val findings = assessment.relevantClaims.joinToString("\n\n") { "[${it.sourceId}] ${it.text}\nPassage: ${it.quote}" }
-            .ifBlank { sources.values.filter { it.readable }.take(8).joinToString("\n\n") { "[${it.id}] Unreviewed passage: ${it.passage}" } }
         val notes = state.notes.filterNot { it.startsWith("Policy:") }.toMutableList()
         notes += "Question coverage: ${assessment.coveredQuestionIds.size}/${questions().size}; missing=${assessment.missingQuestionIds.joinToString()}. Passage support is separate from independent review."
         notes += "Planning: ${state.planningStatus}. Collection: ${collectionWorkCount()}/$sourceTarget."
@@ -361,9 +366,8 @@ internal class AndroidResearchWorkflow(
         val acceptedCount = collectionWorkCount()
         if (acceptedCount < sourceTarget) notes += "PARTIAL_COVERAGE: $acceptedCount/$sourceTarget readable sources. Discovery was exhausted, blocked or stopped within the recorded run limits."
         if (acceptedCount == 0) notes += "NO_READABLE_SOURCES: search results and abstracts are discovery leads only."
-        val rows = sources.values.map { DelegationSource(it.id, it.url, it.title, text = it.passage, pageRead = it.readable, excerpted = true, depth = it.depth, evidenceType = it.status) }
         return LocalResearchResult(
-            delegationHandoff(findings, rows, notes, config.handoffTokens),
+            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(state.copy(notes = notes), options.reportDetail, config.handoffTokens).let { it.instruction() + "\n" + it.json() },
             rawBytes,
             collectionWorkCount(),
             state.searches,
@@ -460,6 +464,7 @@ internal class AndroidResearchWorkflow(
             suspend fun accept(papers: List<JsonObject>): List<String> {
                 val admitted = sourceUpdates.withLock {
                     val discovered = papers.mapNotNull { paper ->
+                        if (dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.relevance(state.task, paper.text("title"), paper.text("abstract")) == 0) return@mapNotNull null
                         val identifiers = paper["identifiers"] as? JsonObject
                         val id = add(paper.text("canonicalUrl"), paper.text("title"), engines = paper.strings("sourceProviders"), doi = paper.text("doi"), pmid = identifiers?.text("pmid").orEmpty(), pmcid = identifiers?.text("pmcid").orEmpty()) ?: return@mapNotNull null
                         val key = sources.entries.first { it.value.id == id }.key
@@ -467,6 +472,7 @@ internal class AndroidResearchWorkflow(
                         if (!saved.readable && saved.status in setOf("Discovered", "Metadata only")) {
                             sources[key] = saved.copy(
                                 bibliographyJson = (JsonObject(paper - "abstract")).toString(),
+                                publishedAt = paper.text("publicationDate"),
                                 publicationYear = (paper["year"] as? JsonPrimitive)?.intOrNull,
                                 accessUrl = paper.text("openAccessUrl"), paperId = paper.text("paperId"),
                                 versionId = paper.text("versionId"), providerReceipts = paper.strings("providerReceipts"),
@@ -494,7 +500,7 @@ internal class AndroidResearchWorkflow(
             try {
                 var cursor = state.frontierCursors[query] ?: "1"
                 val visited = mutableSetOf<String>()
-                while (visited.add(cursor) && !stopped() && !exhausted && collecting()) {
+                while (visited.add(cursor) && !stopped() && !exhausted && acquiring()) {
                     val before = sourceUpdates.withLock { sources.size to collectionWorkCount() }
                     if (before.second >= sourceTarget) break
                     repeat(providerCalls) { if (!charge(ResearchBudget.Phase.DISCOVERY)) return@coroutineScope }
@@ -902,12 +908,12 @@ internal class AndroidResearchWorkflow(
             val sourceVersion = "${source.id}:${researchHash(source.versionId + source.passage)}"
             if (sourceVersion !in state.extractedSourceVersions) {
                 val extracted = model(
-                    "Extract at most 2 claims addressing the supplied research questions. Return JSON {\"claims\":[{\"text\":\"precise claim\",\"sourceId\":\"${source.id}\",\"questionId\":\"Q1\",\"quote\":\"exact supporting passage copied verbatim\"}]}. Quotes must be 20-1200 characters. Empty claims are valid when this source does not answer a question. Never use snippets or infer publication type.",
+                    "Extract at most 6 claims addressing the supplied research questions. Preserve study design, enrolled and analyzed participants, intervention and comparator, numeric results with units and uncertainty, adverse or null results and limitations as separate source-supported claims when available. Return JSON {\"claims\":[{\"text\":\"precise claim\",\"sourceId\":\"${source.id}\",\"questionId\":\"Q1\",\"quote\":\"exact supporting passage copied verbatim\"}]}. Quotes must be 20-1200 characters. Empty claims are valid when this source does not answer a question. Never use snippets or infer publication type.",
                     "Questions: " + JsonArray(questions().map { it.json() }) + "\n" + source.json(),
                     dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT
                 ) ?: continue
                 if (extracted["claims"] !is JsonArray) continue
-                val claims = validatedResearchClaims(extracted.rows("claims"), listOf(source)).take(2).map { it.copy(extractedBy = lastModelReply?.modelKey.orEmpty(), extractionInvocationId = lastModelReply?.invocationId.orEmpty()) }
+                val claims = validatedResearchClaims(extracted.rows("claims"), listOf(source)).take(6).map { it.copy(extractedBy = lastModelReply?.modelKey.orEmpty(), extractionInvocationId = lastModelReply?.invocationId.orEmpty()) }
                 state = state.copy(
                     claims = (state.claims + claims).distinctBy { Triple(it.sourceId, it.text, it.quote) },
                     extractedSourceVersions = state.extractedSourceVersions + sourceVersion

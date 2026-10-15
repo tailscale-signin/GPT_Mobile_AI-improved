@@ -154,7 +154,7 @@ class AndroidResearchWorkflowTest {
                                         put("paperId", "doi:10.1234/fixture$index")
                                         put("doi", "10.1234/fixture$index")
                                         put("canonicalUrl", "https://example.org/paper/$index")
-                                        put("title", "Research paper $index")
+                                        put("title", "Research device request limits $index")
                                     }
                                 }
                             )
@@ -267,7 +267,7 @@ class AndroidResearchWorkflowTest {
         val result = withTimeout(2500) { AndroidResearchWorkflow(config(), listOf(search(2), read), ::model, journal).run("Research", "run") }
         assertEquals(1, result.pagesRead)
         assertEquals("Stopped", journal.snapshot!!.phase)
-        assertTrue(result.handoff.contains("origin=UNKNOWN"))
+        assertTrue(result.handoff.contains("\"stopOrigin\":\"UNKNOWN\""))
         assertFalse(result.handoff.contains("Stopped by user"))
     }
 
@@ -432,7 +432,7 @@ class AndroidResearchWorkflowTest {
         assertEquals("Blocked", journal.snapshot!!.sources.single().status)
     }
 
-    @Test fun modelCannotExceedTwoReviewedClaimsPerSource() = runBlocking {
+    @Test fun modelCannotExceedSixReviewedClaimsPerSource() = runBlocking {
         val journal = Journal()
         var reviews = 0
         AndroidResearchWorkflow(config(), listOf(search(), reader()), { prompt, tokens ->
@@ -458,8 +458,8 @@ class AndroidResearchWorkflowTest {
                 else -> model(prompt, tokens)
             }
         }, journal).run("Research", "claims")
-        assertEquals(2, reviews)
-        assertEquals(2, journal.snapshot!!.claims.size)
+        assertEquals(6, reviews)
+        assertEquals(6, journal.snapshot!!.claims.size)
     }
 
     @Test fun parentCancellationPersistsCompletedSiblingPages() = runBlocking {
@@ -554,7 +554,7 @@ class AndroidResearchWorkflowTest {
         val paper = buildJsonObject {
             put("paperId", "doi:10.1000/stream")
             put("canonicalUrl", "https://example.org/stream")
-            put("title", "Streaming evidence")
+            put("title", "Documented device request limits")
         }
         val search = tool("deep_research_search_papers") { id, _ ->
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.AcademicDiscoveryObserver]!!.accept(listOf(paper))

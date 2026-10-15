@@ -16,7 +16,7 @@ class SendPreparationPlannerTest {
         listOf("yes", "do it", "continue", "retry", "\"hi\"", "Hi, search this", "bonjour", "hi\nremember this").forEach {
             assertEquals(it, PreparationKind.CONTEXTUAL, SendPreparationPlanner.classify(it).kind)
         }
-        assertEquals(PreparationKind.CONTEXTUAL, SendPreparationPlanner.classify("hi", hasHistory = true).kind)
+        assertEquals(PreparationKind.DIRECT, SendPreparationPlanner.classify("hi", hasHistory = true).kind)
     }
 
     @Test fun requiredWorkCannotBeBypassedByGreeting() {

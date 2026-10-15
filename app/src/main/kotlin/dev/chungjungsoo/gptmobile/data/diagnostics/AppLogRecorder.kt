@@ -269,7 +269,13 @@ object AppLogRecorder {
                 listOf(prefix + "coverage=no_records · reason=unknown")
             } else {
                 exits.map { exit ->
-                    prefix + "coverage=available · exitTime=${exit.timestamp} · reasonCode=${exit.reason} · statusCode=${exit.status} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}"
+                    prefix + "coverage=available · exitTime=${exit.timestamp} · reasonCode=${exit.reason} · statusCode=${exit.status} · cause=${if (exit.reason == android.app.ApplicationExitInfo.REASON_SIGNALED) {
+                        "UNKNOWN_CAUSE"
+                    } else if (exit.reason == android.app.ApplicationExitInfo.REASON_LOW_MEMORY) {
+                        "OS_LOW_MEMORY"
+                    } else {
+                        "OS_REASON_CODE"
+                    }} · importance=${exit.importance} · pssKb=${exit.pss} · rssKb=${exit.rss}"
                 }
             }
         } catch (_: Exception) {

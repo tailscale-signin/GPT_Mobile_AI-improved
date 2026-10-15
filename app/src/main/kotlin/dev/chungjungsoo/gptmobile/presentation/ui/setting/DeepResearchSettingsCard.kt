@@ -51,6 +51,11 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 )
                 if (limits.isNotEmpty()) Text("User-selected limits: ${limits.joinToString()}", style = MaterialTheme.typography.bodySmall)
                 if (value.migrationNotice.isNotBlank()) Text(value.migrationNotice, style = MaterialTheme.typography.bodySmall)
+                Text("Research report detail", style = MaterialTheme.typography.titleSmall)
+                dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.entries.forEach { detail ->
+                    FilterChip(selected = value.reportDetail == detail, onClick = { onChange(value.copy(reportDetail = detail)) }, enabled = enabled, label = { Text(detail.label) })
+                }
+                Text("Study examples, recent papers, comparisons and limitations. Length follows the available evidence.", style = MaterialTheme.typography.bodySmall)
                 ResearchToggle("Papers and studies", value.academicSources, enabled) { onChange(value.copy(academicSources = it)) }
                 ResearchToggle("Review evidence", value.reviewEvidence, enabled) { onChange(value.copy(reviewEvidence = it)) }
                 TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Less" else "Advanced") }
@@ -70,7 +75,7 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                     ResearchLimit("Parallel reads", value.concurrency, 1..6, enabled) { onChange(value.copy(concurrency = it)) }
                     Text("Performance", style = MaterialTheme.typography.titleSmall)
                     ResearchLimit("Per-page timeout (seconds)", value.pageTimeoutSeconds, 5..30, enabled) { onChange(value.copy(pageTimeoutSeconds = it)) }
-                    Text("No automatic request, download or whole-run time ceiling. Individual attempts, provider quotas and device resources remain bounded.", style = MaterialTheme.typography.bodySmall)
+                    Text("Shared safety budget: 2,400 requests, 512 MiB and one hour of active work. A quarter of request and time capacity is reserved for review and final delivery.", style = MaterialTheme.typography.bodySmall)
                     Text("Optional user limits · blank means no limit", style = MaterialTheme.typography.titleSmall)
                     ResearchUserLimit("Maximum HTTP requests", value.userLimits.maxRequests, enabled) { onChange(value.copy(userLimits = value.userLimits.copy(maxRequests = it))) }
                     ResearchUserLimit("Maximum downloaded bytes", value.userLimits.maxDownloadedBytes, enabled) { onChange(value.copy(userLimits = value.userLimits.copy(maxDownloadedBytes = it))) }

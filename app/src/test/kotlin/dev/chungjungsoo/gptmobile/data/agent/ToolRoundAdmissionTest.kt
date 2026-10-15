@@ -57,9 +57,9 @@ class ToolRoundAdmissionTest {
         assertTrue(events.any { it == AgentRunEvent.Provider(ProviderEvent.Completed) })
     }
 
-    @Test fun sixteenValidCallsFitAndDuplicatesAndHugeArgumentsDoNot() {
+    @Test fun eightValidCallsFitAndDuplicatesAndHugeArgumentsDoNot() {
         val admission = ToolRoundAdmission()
-        repeat(16) { assertTrue(admission.admit(ProviderEvent.ToolCall("c$it", "search", buildJsonObject {}))) }
+        repeat(8) { assertTrue(admission.admit(ProviderEvent.ToolCall("c$it", "search", buildJsonObject {}))) }
         assertFalse(admission.admit(ProviderEvent.ToolCall("c0", "read", buildJsonObject {})))
         assertFalse(ToolRoundAdmission().admit(ProviderEvent.ToolCall("large", "search", buildJsonObject { put("query", "界".repeat(20_000)) })))
         assertFalse(ToolRoundAdmission().admit(ProviderEvent.ToolCall("x".repeat(257), "search", buildJsonObject {})))

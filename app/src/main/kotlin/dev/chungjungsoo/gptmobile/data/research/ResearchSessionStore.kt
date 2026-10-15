@@ -100,6 +100,43 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val mutable = MutableStateFlow<Map<String, ResearchSession>>(emptyMap())
     val sessions = mutable.asStateFlow()
 
+    /** Expose only version-bound appraisal fields whose exact supporting quotes remain captured. */
+    suspend fun deliveryStudyFields(runId: String): Map<String, JsonObject> = withContext(Dispatchers.IO) {
+        val session = sessions.value[runId] ?: return@withContext emptyMap()
+        val database = featureDatabase ?: return@withContext emptyMap()
+        if (session.chatId in deletedChats) return@withContext emptyMap()
+        val dao = database.research()
+        val result = mutableMapOf<String, JsonObject>()
+        for (source in session.snapshot.sources.filter { it.readable }.take(64)) {
+            val aliases = listOfNotNull(source.doi.takeIf(String::isNotBlank)?.let { "doi:${SourceIdentity.normalizeDoi(it)}" }, "url:${source.canonicalUrl}")
+            val ids = aliases.mapNotNull { dao.aliasWork("${researchHash(session.authority)}|$it") }.distinct().ifEmpty { aliases.mapNotNull { dao.aliasWork("public|$it") }.distinct() }
+            if (ids.size != 1) continue
+            val version = dao.versions(ids.single()).singleOrNull { it.sourceVersion == source.versionId && (it.publicSource || it.authority == session.authority) && it.bodyChunksJson == kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()), source.bodyChunks) } ?: continue
+            val passages = dao.passages(version.versionId).filter { it.quote in source.passage && researchHash(it.quote) == it.textHash }.map { it.passageId }.toSet()
+            val fields = dao.fields(version.versionId).filter { field ->
+                val refs = runCatching { Json.decodeFromString<List<String>>(field.passageIdsJson) }.getOrDefault(emptyList())
+                refs.isNotEmpty() && refs.all { it in passages }
+            }
+            result[source.id] = buildJsonObject {
+                put(
+                    "fields",
+                    JsonArray(
+                        fields.map { field ->
+                            buildJsonObject {
+                                put("name", field.name)
+                                put("value", field.value)
+                                put("unit", field.unit)
+                                put("missingness", field.missingness.name)
+                                put("outcomeKey", field.outcomeKey)
+                            }
+                        }
+                    )
+                )
+            }
+        }
+        result
+    }
+
     fun stop(runId: String) {
         stopOrigins[runId] = "USER_STOP_RESEARCH_AND_SUMMARIZE"
         stops += runId
@@ -229,7 +266,13 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             ResearchBudget(1, ledger = ledger).also { turnBudgets[key] = System.currentTimeMillis() to it }
         }
-        override fun cancellationOrigin(): String = if (chatId in deletedChats) "CHAT_DELETED" else stopOrigins[runId] ?: "UNKNOWN"
+        override fun cancellationOrigin(): String = if (chatId in deletedChats) {
+            "CHAT_DELETED"
+        } else if (generation != currentGeneration(chatId, turnId, persistent)) {
+            "SUPERSEDED_GENERATION"
+        } else {
+            stopOrigins[runId] ?: "PARENT_CANCELLED"
+        }
         override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns || generation != currentGeneration(chatId, turnId, persistent)
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (chatId in deletedChats) return@withContext null

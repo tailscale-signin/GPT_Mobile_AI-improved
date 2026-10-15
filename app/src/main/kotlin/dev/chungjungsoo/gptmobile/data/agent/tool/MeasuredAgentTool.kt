@@ -14,13 +14,15 @@ class MeasuredAgentTool(
     private val delegate: AgentTool,
     private val nanoTime: () -> Long = System::nanoTime,
     private val onMeasured: (AgentToolResult) -> Unit = {}
-) : AgentTool, OwnedAgentTool {
+) : AgentTool,
+    OwnedAgentTool {
     override val definition = delegate.definition
     override val managesExecutionBudget = delegate.managesExecutionBudget
     override val executionOwner: AgentToolExecutionOwner =
         (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence]?.dispatched()
         val started = nanoTime()
         val result = try {
             delegate.execute(callId, arguments)

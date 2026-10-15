@@ -41,6 +41,15 @@ class ResponseRecoveryContextTest {
         assertFalse(sameRecoveryDestination(profile, profile.copy(model = "other")))
     }
 
+    @Test fun researchDeliveryUsesOnlyAuthorizedRetainedSnapshots() = runTest {
+        var allowed = true
+        val snapshot = dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot("retained research", sources = listOf(dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/paper", "Saved paper")))
+        val recovery = ResponseRecoveryContext(emptyList(), emptyList(), emptyList(), research = listOf(snapshot), authorization = { allowed })
+        assertEquals(snapshot, recovery.researchSnapshotForDelivery())
+        allowed = false
+        assertTrue(runCatching { recovery.researchSnapshotForDelivery() }.exceptionOrNull() is SavedEvidenceAccessDenied)
+    }
+
     private val run = AgentRun("old-run", 1, 1, 2, "old-profile", "LLAMA", "qwen", status = "FAILED")
 
     @Test

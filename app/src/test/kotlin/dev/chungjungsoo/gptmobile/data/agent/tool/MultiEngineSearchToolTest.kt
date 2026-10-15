@@ -601,6 +601,19 @@ class MultiEngineSearchToolTest {
         assertEquals(2, calls)
     }
 
+    @Test fun `valid empty searches reuse normalized query and stop empty cascades`() = runBlocking {
+        var calls = 0
+        val empty = engine("empty") { id, _ ->
+            calls++
+            AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("results", JsonArray(emptyList())) }), false)
+        }
+        val tool = MultiEngineSearchTool(listOf(empty))
+        tool.execute("one", buildJsonObject { put("query", "Hydrogen   inhalation") })
+        assertTrue(tool.execute("same", buildJsonObject { put("query", " hydrogen inhalation ") }).sharedResult)
+        for (index in 1..27) tool.execute("different$index", buildJsonObject { put("query", "distinct study $index") })
+        assertEquals(3, calls)
+    }
+
     private fun engine(
         name: String,
         realToolName: String = "web_search",

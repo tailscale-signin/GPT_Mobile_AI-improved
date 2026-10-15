@@ -34,8 +34,14 @@ data class DeepResearchSettings(
     val migrationNotice: String = "",
     val customSourceTarget: Int? = null,
     val userLimits: ResearchUserLimits = ResearchUserLimits(),
-    val disabledEngineIds: Set<String> = emptySet()
+    val disabledEngineIds: Set<String> = emptySet(),
+    val reportDetail: ResearchReportDetail = ResearchReportDetail.DETAILED
 ) {
+    /** Preserve the legacy acquisition identity; presentation changes cannot reset spent work or hide saved evidence.
+     * reportDetail intentionally remains the final constructor property for this compatibility representation.
+     */
+    fun collectionPolicyKey(): String = toString().substringBeforeLast(", reportDetail=") + ")"
+
     fun normalized() = copy(
         maxPages = if (schemaVersion == 3) {
             if (enabled && effort > 0) customSourceTarget ?: targetForEffort(effort) else 0

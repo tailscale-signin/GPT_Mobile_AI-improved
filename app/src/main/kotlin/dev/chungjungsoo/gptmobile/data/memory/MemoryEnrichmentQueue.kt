@@ -33,8 +33,9 @@ class MemoryEnrichmentQueue @Inject constructor(
             kotlinx.coroutines.flow.combine(
                 runtime.state,
                 WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment"),
-                dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability
-            ) { state, infos, _ -> state to infos }.collect { (state, infos) ->
+                dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.availability,
+                dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active
+            ) { state, infos, _, _ -> state to infos }.collect { (state, infos) ->
                 if (dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) {
                     infos.forEach { info ->
                         val outcome = info.outputData.getString("outcome") ?: info.progress.getString("outcome") ?: "PENDING"
@@ -45,7 +46,7 @@ class MemoryEnrichmentQueue @Inject constructor(
                     }
                     observedStates.keys.retainAll(infos.map { it.id.toString() }.toSet())
                 }
-                if (state.engineSpec != null && !runtime.isBusy) {
+                if (state.engineSpec != null && !runtime.isBusy && !runtime.hasOpenConversation() && !dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy && dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value == 0) {
                     try {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { resumeWaiting() }
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -71,6 +72,9 @@ class MemoryEnrichmentQueue @Inject constructor(
             val uniqueName = uniqueName(message.id, digest(message.content))
             val work = manager.getWorkInfosForUniqueWorkFlow(uniqueName).first()
             if (work.any { !it.state.isFinished }) continue
+            // A terminal inference failure waits for a compatible runtime change or explicit retry,
+            // not a WorkInfo completion event that would recreate the same 15-second loop.
+            if (work.any { it.state == androidx.work.WorkInfo.State.FAILED && it.outputData.getString("runtimeFingerprint") == runtimeFingerprint(runtime) }) continue
             // Terminal work plus loaded-model/idle signals close the wakeup race without polling or replacing active work.
             enqueueEligible(message)
         }
@@ -86,7 +90,7 @@ class MemoryEnrichmentQueue @Inject constructor(
             clearWaiting(context, message.id)
             return
         }
-        if (runtime.state.value.engineSpec == null || runtime.isBusy) {
+        if (runtime.state.value.engineSpec == null || runtime.isBusy || runtime.hasOpenConversation() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy || dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0) {
             markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to digest(message.content)))
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_DEFERRED · message=${message.id} · reason=${if (runtime.state.value.engineSpec == null) "WAITING_FOR_MODEL" else "WAITING_FOR_IDLE"} · workerScheduled=false")
             return
@@ -94,7 +98,7 @@ class MemoryEnrichmentQueue @Inject constructor(
         val hash = digest(message.content)
         if (completedStore(context).getString(message.id.toString(), null) == completionKey(message.chatId, hash)) return
         val request = OneTimeWorkRequestBuilder<MemoryEnrichmentWorker>()
-            .setInputData(workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to hash))
+            .setInputData(workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to hash, "runtimeFingerprint" to runtimeFingerprint(runtime)))
             .setInitialDelay(15, TimeUnit.SECONDS)
             .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
@@ -121,6 +125,7 @@ class MemoryEnrichmentQueue @Inject constructor(
 
     companion object {
         private const val ENRICHMENT_VERSION = 2
+        internal fun runtimeFingerprint(runtime: LocalRuntime): String = digest("${runtime.state.value.engineSpec}|${runtime.state.value.backend}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}")
         internal fun uniqueName(id: Int, hash: String) = "memory-v$ENRICHMENT_VERSION-$id-$hash"
         internal fun completionKey(chatId: Int, hash: String) = "$chatId:v$ENRICHMENT_VERSION:$hash"
         internal fun completedStore(context: Context) = context.getSharedPreferences("memory-enrichment-completed", Context.MODE_PRIVATE)

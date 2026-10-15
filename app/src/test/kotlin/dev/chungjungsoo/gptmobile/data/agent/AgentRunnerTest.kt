@@ -151,7 +151,7 @@ class AgentRunnerTest {
     @Test fun `repeat guard preserves calls admitted earlier in the same batch`() = runBlocking {
         var executed = 0
         var rounds = 0
-        val events = AgentRunner(AgentRunLimits(maxToolCalls = 50)).run(
+        val events = AgentRunner(AgentRunLimits(maxToolCalls = 50, maxToolCallsPerRound = 16)).run(
             session { _, _ ->
                 flow {
                     if (rounds++ < 2) repeat(16) { emit(toolCall("call-$rounds-$it", "search")) } else emit(ProviderEvent.TextDelta("Finished"))
@@ -728,7 +728,7 @@ class AgentRunnerTest {
             AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
         }
 
-        val events = AgentRunner(AgentRunLimits(maxToolCalls = 12)).run(session, listOf(tool)).toList()
+        val events = AgentRunner(AgentRunLimits(maxToolCalls = 12, maxToolCallsPerRound = 12)).run(session, listOf(tool)).toList()
 
         assertEquals(12, executions.get())
         assertEquals(listOf(1, 0), exposedToolCounts)

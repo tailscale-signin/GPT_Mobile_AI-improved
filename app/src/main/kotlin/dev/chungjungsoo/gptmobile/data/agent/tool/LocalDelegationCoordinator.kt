@@ -1662,7 +1662,7 @@ internal class LocalDelegationCoordinator(
         }
 
         if (config.deepResearch.enabled && reviewedResult.handoff.isNotBlank()) {
-            val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString())
+            val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(config.deepResearch.collectionPolicyKey() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString())
             val journal = researchJournal?.scoped(authority, tools.all { it.connectionUid == null })
             journal?.load()?.let { snapshot ->
                 val reviewer = reviewerTarget(config, userSelectedRecoveryProfile.get() ?: target)

@@ -71,6 +71,9 @@ class ResearchRunLedger(
             limits.maxRequests?.let { next.physical > it } == true -> "user_request_limit"
             limits.maxDownloadedBytes?.let { next.downloaded > it } == true -> "user_download_limit"
             limits.maxActiveMillis?.let { next.activeMillis > it } == true -> "user_time_limit"
+            next.physical > SAFETY_REQUESTS -> "safety_request_limit"
+            next.downloaded > SAFETY_BYTES -> "safety_download_limit"
+            next.activeMillis > SAFETY_MILLIS -> "safety_time_limit"
             else -> null
         }
         if (reason != null) {
@@ -112,7 +115,7 @@ class ResearchRunLedger(
 
     @Synchronized
     fun restore(saved: State) {
-        require(saved.limitReason == null || saved.limitReason in setOf("user_request_limit", "user_download_limit", "user_time_limit"))
+        require(saved.limitReason == null || saved.limitReason in setOf("user_request_limit", "user_download_limit", "user_time_limit", "safety_request_limit", "safety_download_limit", "safety_time_limit"))
         require(saved.version in 3..4 && saved.fingerprint == fingerprint && saved.limits == limits)
         require(listOf(saved.logical, saved.physical, saved.downloaded, saved.activeMillis).all { it >= 0 })
         require(limits.maxRequests?.let { saved.physical <= it } != false)
@@ -127,7 +130,15 @@ class ResearchRunLedger(
 
     @Synchronized fun snapshot() = state
 
-    private companion object {
+    @Synchronized fun discoveryAllowed(): Boolean = state.limitReason == null &&
+        state.physical < minOf(limits.maxRequests ?: SAFETY_REQUESTS, SAFETY_REQUESTS) * 3 / 4 &&
+        state.downloaded < minOf(limits.maxDownloadedBytes ?: SAFETY_BYTES, SAFETY_BYTES) * 3 / 4 &&
+        state.activeMillis < minOf(limits.maxActiveMillis ?: SAFETY_MILLIS, SAFETY_MILLIS) * 3 / 4
+
+    companion object {
+        const val SAFETY_REQUESTS = 2400L
+        const val SAFETY_BYTES = 512L * 1024 * 1024
+        const val SAFETY_MILLIS = 3_600_000L
         val DELEGATION_DIMENSIONS = setOf("research_operations", "worker_calls", "model_invocations", "http_attempts")
     }
 }

@@ -94,7 +94,7 @@ internal fun delegationPrompt(instruction: String, task: String, evidence: Strin
 
 /** Only observed source URLs are emitted; never trust model-generated citations or URLs. */
 internal fun delegationHandoff(summary: String, sources: List<DelegationSource>, limitations: List<String>, tokenBudget: Int): String {
-    val maxBytes = tokenBudget.coerceIn(128, 4096) * 3
+    val maxBytes = tokenBudget.coerceIn(128, 16384) * 3
     val known = sources.associateBy { it.id }
     val sourceRows = linkedMapOf<String, JsonObject>()
     val idPattern = Regex("\\bS(?:[a-f0-9]{16}|\\d+)\\b")

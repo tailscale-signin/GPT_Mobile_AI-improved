@@ -1142,7 +1142,7 @@ class ChatRepositoryImplTest {
                 retrievedAt = System.currentTimeMillis()
             )
         }
-        val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(config.deepResearch.toString() + reader.selectionId())
+        val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(config.deepResearch.collectionPolicyKey() + reader.selectionId())
         sessions.journal("acquisition", 1, false, "1:1", ownerScope = primary.uid).scoped(authority, true)
             .save(dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(task, sources = sources, targetSources = 12))
         fun chunk(text: String) = flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = text), finishReason = "stop"))))
@@ -1179,7 +1179,27 @@ class ChatRepositoryImplTest {
         }
         assertEquals(24, rounds.size)
         rounds.add(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "HTTP 403: access forbidden; specific cause unavailable", code = "403"))))
-        rounds.add(chunk("Final answer from saved synthetic evidence, with unavailable independent review."))
+        rounds.add(
+            kotlinx.coroutines.flow.flow {
+                val snapshot = sessions.sessions.value.values.maxBy { it.snapshot.updatedAt }.snapshot
+                val packet = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(snapshot, config.deepResearch.reportDetail)
+                val report = buildString {
+                    append("## Executive findings\n\nFinal answer from saved synthetic evidence. Partial coverage; independent review unavailable.\n\n")
+                    append("## Scientific background\n\nA verified background synthesis is unavailable.\n\n")
+                    append("## Leading studies\n\n$passage ")
+                    append(packet.studies.joinToString(" ") { "[${it.id}]" })
+                    append("\n\n## Latest papers\n\nUnread leads; results were not verified: ")
+                    append(packet.unread.joinToString(" ") { "[${it.id}]" })
+                    append("\n\n## Comparison of evidence\n\nA verified comparison is unavailable.\n\n")
+                    append("## Safety and limitations\n\nSafety is not established.\n\n")
+                    append("## Research gaps and outlook\n\nIndependent review remains unavailable.\n\n")
+                    append("## References\n\n")
+                    (packet.studies + packet.unread).forEach { append("[${it.id}] ${it.url}\n") }
+                }
+                assertTrue(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate(report, packet).accepted)
+                emit(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = report), finishReason = "stop"))))
+            }
+        )
         val api = RecordingOpenAIAPI(rounds)
         val repository = createRepository(openAIAPI = api, agentToolResolver = resolver, settingsOverride = settings, persistenceOverride = persistence, researchOverride = sessions, toolEventRecorder = ToolEventRecorder(RecordingToolEventDao().asDao(), proxy()))
         val original = MessageV2(id = 1, chatId = 1, content = task, platformType = null)
@@ -1198,7 +1218,8 @@ class ChatRepositoryImplTest {
         assertTrue(retried.toString(), retried.any { it is ApiState.Success && it.textChunk.contains("Final answer from saved") })
         assertEquals(26, api.streamChatCompletionCalls)
         assertTrue(api.requests.last().toString().contains("Panel finding"))
-        assertTrue(api.requests.last().toString().contains("REVIEW_UNAVAILABLE"))
+        assertTrue(api.requests.last().toString().contains("handoffReviewStatus"))
+        assertTrue(api.requests.last().toString().contains("UNAVAILABLE"))
         assertEquals(listOf("read_recovery_context"), api.requests.last().tools.orEmpty().map { it.function.name })
         assertEquals(24, api.requests.count { it.model == helper.model })
         assertEquals(0, repeatedReads)

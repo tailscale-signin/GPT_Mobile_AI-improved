@@ -323,7 +323,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             val url = when {
                 pmc.matches(Regex("PMC[0-9]+")) -> "https://www.ebi.ac.uk/europepmc/webservices/rest/$pmc/fullTextXML"
                 arxiv.isNotBlank() -> "https://arxiv.org/html/$arxiv"
-                else -> paper.openAccessUrl.orEmpty().ifBlank { if (targetedCrawl) paper.canonicalUrl else "" }
+                else -> academicHtmlAlternative(paper.openAccessUrl.orEmpty().ifBlank { if (targetedCrawl) paper.canonicalUrl else "" })
             }
             if (url.isBlank() && paper.abstract.isNotBlank()) {
                 val evidence = AcademicEvidence(paper.paperId, paper.versionId + ":abstract:" + researchHash(paper.abstract), paper.canonicalUrl, System.currentTimeMillis(), researchHash(paper.abstract), paper.abstract, "abstract_only", section = "Provider abstract", providerReceipts = paper.providerReceipts)

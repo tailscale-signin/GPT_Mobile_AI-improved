@@ -26,7 +26,7 @@ class ProgressiveToolCatalogTest {
 
     @Test fun catalogIsBoundedAndDiscoveryCannotGrantPermission() = runTest {
         val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task_1"))
-        assertEquals(24, catalog.selected(tools).size)
+        assertEquals(8, catalog.selected(tools).size)
         val result = catalog.execute("d", JsonObject(mapOf("query" to JsonPrimitive("task_80"))))
         assertFalse(result.isError)
         assertTrue(catalog.selected(tools).any { it.name == "task_80" })
@@ -35,21 +35,21 @@ class ProgressiveToolCatalogTest {
     }
 
     @Test fun catalogDoesNotReplaceSmallOrCollidingToolSets() {
-        assertNull(ProgressiveToolCatalog.create(tools.take(24), "task"))
+        assertNull(ProgressiveToolCatalog.create(tools.take(8), "task"))
         assertNull(ProgressiveToolCatalog.create(tools + AgentToolDefinition(ProgressiveToolCatalog.NAME, "Existing tool", JsonObject(emptyMap())), "task"))
     }
 
     @Test fun emptyDiscoveryDoesNotActivateTools() = runTest {
         val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task"))
         assertTrue(catalog.execute("d", JsonObject(emptyMap())).isError)
-        assertEquals(24, catalog.selected(tools).size)
+        assertEquals(8, catalog.selected(tools).size)
     }
 
     @Test fun repeatedSearchesProgressThroughUndiscoveredTools() = runTest {
         val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task"))
         val query = JsonObject(mapOf("query" to JsonPrimitive("task")))
         val seen = catalog.selected(tools).map { it.name }.toMutableSet()
-        repeat(6) { round ->
+        repeat(10) { round ->
             catalog.execute("discovery-$round", query)
             val advertised = catalog.selected(tools).map { it.name }.toSet()
             assertTrue(advertised.size <= ProgressiveToolCatalog.INITIAL_TOOLS)

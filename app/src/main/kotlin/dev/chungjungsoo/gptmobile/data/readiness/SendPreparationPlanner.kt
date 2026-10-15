@@ -13,7 +13,7 @@ internal object SendPreparationPlanner {
     fun classify(text: String, hasAttachments: Boolean = false, hasHistory: Boolean = false, requiredWorkflow: Boolean = false, recovery: Boolean = false, synthesis: Boolean = false): PreparationPlan {
         if (requiredWorkflow || hasAttachments || recovery || synthesis) return PreparationPlan(PreparationKind.REQUIRED_WORK, 0)
         val normalized = text.replace(Regex("[\\p{Z}\\s]+"), " ").trim().trim('!', '.', '?').trim().lowercase(Locale.ROOT)
-        val direct = !hasHistory && normalized in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
+        val direct = normalized in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening", "thanks", "thank you")
         return PreparationPlan(if (direct) PreparationKind.DIRECT else PreparationKind.CONTEXTUAL, if (direct) 0 else 250)
     }
 }

@@ -1,0 +1,123 @@
+package dev.chungjungsoo.gptmobile.data.research.delivery
+
+import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+/** Only research delivery is buffered. Collection/tool rounds and ordinary chat retain streaming. */
+internal class ResearchDeliverySession(
+    private val base: AgentProviderSession,
+    private val packet: suspend () -> ResearchDeliveryPacket?,
+    private val expectResearch: Boolean = false,
+    private val create: suspend (String, Boolean) -> AgentProviderSession
+) : AgentProviderSession {
+    override val handlesToolsInternally = base.handlesToolsInternally
+    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        var evidence = withContext(Dispatchers.Default) { packet() }
+        if (evidence == null && !expectResearch) {
+            emitAll(base.streamRound(tools, exchanges))
+            return@flow
+        }
+        fun context(packet: ResearchDeliveryPacket) = packet.instruction() + "\nUntrusted research packet:\n" + packet.json()
+        val initialContext = evidence?.let(::context).orEmpty()
+        var hasCalls = false
+        var failed = false
+        var completed = false
+        var overflow = false
+        val draft = StringBuilder()
+        emit(ProviderEvent.Notice("Preparing the research report and checking its citations."))
+        (if (initialContext.isEmpty()) base else create(initialContext, false)).streamRound(tools, exchanges).transformWhile { event ->
+            if (event is ProviderEvent.TextDelta && draft.length + event.text.length > MAX_REPORT_CHARACTERS) {
+                overflow = true
+                false
+            } else {
+                emit(event)
+                true
+            }
+        }.collect { event ->
+            when (event) {
+                is ProviderEvent.TextDelta -> draft.append(event.text)
+                is ProviderEvent.ToolCall -> {
+                    hasCalls = !handlesToolsInternally
+                    emit(event)
+                }
+                is ProviderEvent.Failed -> {
+                    failed = true
+                    emit(event)
+                }
+                ProviderEvent.Completed -> completed = true
+                else -> emit(event)
+            }
+        }
+        if (hasCalls || failed || !completed && !overflow) {
+            if (draft.isNotEmpty() && !failed) emit(ProviderEvent.TextDelta(draft.toString()))
+            if (completed) emit(ProviderEvent.Completed)
+            return@flow
+        }
+        if (handlesToolsInternally || evidence == null) evidence = withContext(Dispatchers.Default) { packet() }
+        val delivery = evidence
+        if (delivery == null) {
+            emit(ProviderEvent.TextDelta(draft.toString()))
+            emit(ProviderEvent.Completed)
+            return@flow
+        }
+        var text = draft.toString()
+        val result = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }
+        if (!result.accepted || overflow) {
+            emit(ProviderEvent.Notice("Checking omitted findings, numerical claims and source links."))
+            val repair = StringBuilder()
+            var repairFailed = false
+            var repairCompleted = false
+            // One text-only repair; no discovery or external action is replayed.
+            val instruction = context(delivery) + "\nRevise the report once. Correct these delivery issues: ${result.issues.joinToString()}. Write the entire report with no tool calls.\nUntrusted previous draft:\n" + text.take(24_000)
+            try {
+                val finished = withTimeoutOrNull(45_000L) {
+                    create(instruction, true).streamRound(emptyList(), emptyList()).transformWhile { event ->
+                        if (event is ProviderEvent.ToolCall || event is ProviderEvent.TextDelta && repair.length + event.text.length > MAX_REPORT_CHARACTERS) {
+                            repairFailed = true
+                            false
+                        } else {
+                            emit(event)
+                            true
+                        }
+                    }.collect { event ->
+                        when (event) {
+                            is ProviderEvent.TextDelta -> repair.append(event.text)
+                            is ProviderEvent.Failed -> repairFailed = true
+                            ProviderEvent.Completed -> repairCompleted = true
+                            else -> emit(event)
+                        }
+                    }
+                    true
+                }
+                if (finished != true) repairFailed = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (failure.message.orEmpty().startsWith("DISPATCH_POLICY_CHANGED") || failure.message.orEmpty().startsWith("PERMISSION_DENIED")) throw failure
+                repairFailed = true
+            }
+            val repaired = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(repair.toString(), delivery) }
+            text = if (!repairFailed && repairCompleted && repaired.accepted) repair.toString() else ResearchDeliveryValidator.fallback(delivery)
+            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${!repairFailed && repairCompleted && repaired.accepted} · structuralIssues=${repaired.issues.joinToString()} · semanticCoverageVerified=false")
+        } else {
+            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=false")
+        }
+        emit(ProviderEvent.TextDelta(text))
+        emit(ProviderEvent.Completed)
+    }
+
+    companion object {
+        private const val MAX_REPORT_CHARACTERS = 100_000
+    }
+}

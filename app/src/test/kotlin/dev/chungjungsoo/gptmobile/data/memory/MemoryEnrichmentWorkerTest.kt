@@ -11,7 +11,7 @@ class MemoryEnrichmentWorkerTest {
         assertEquals(0, enrichmentRetryLimit("SOURCE_CHANGED"))
         assertEquals(1, enrichmentRetryLimit("INVALID_OUTPUT"))
         assertEquals(3, enrichmentRetryLimit("RUNTIME_BUSY"))
-        assertEquals(3, enrichmentRetryLimit("INFERENCE_TIMEOUT"))
+        assertEquals(0, enrichmentRetryLimit("INFERENCE_TIMEOUT"))
     }
 
     @Test fun `empty observations are valid but arbitrary JSON is not enrichment`() {

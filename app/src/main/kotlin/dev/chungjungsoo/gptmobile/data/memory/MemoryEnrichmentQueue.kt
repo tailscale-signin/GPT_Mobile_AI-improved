@@ -60,6 +60,7 @@ class MemoryEnrichmentQueue @Inject constructor(
     }
 
     private suspend fun resumeWaiting() {
+        if (runtimeCoolingDown(context, runtime)) return
         val manager = WorkManager.getInstance(context)
         for ((key, value) in waitingStore(context).all) {
             val id = key.toIntOrNull() ?: continue
@@ -95,6 +96,10 @@ class MemoryEnrichmentQueue @Inject constructor(
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_DEFERRED · message=${message.id} · reason=${if (runtime.state.value.engineSpec == null) "WAITING_FOR_MODEL" else "WAITING_FOR_IDLE"} · workerScheduled=false")
             return
         }
+        if (runtimeCoolingDown(context, runtime)) {
+            markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to digest(message.content)))
+            return
+        }
         val hash = digest(message.content)
         if (completedStore(context).getString(message.id.toString(), null) == completionKey(message.chatId, hash)) return
         val request = OneTimeWorkRequestBuilder<MemoryEnrichmentWorker>()
@@ -125,6 +130,17 @@ class MemoryEnrichmentQueue @Inject constructor(
 
     companion object {
         private const val ENRICHMENT_VERSION = 2
+        internal fun runtimeCoolingDown(context: Context, runtime: LocalRuntime): Boolean {
+            val store = context.getSharedPreferences("memory-enrichment-cooldown", Context.MODE_PRIVATE)
+            return store.getString("runtime", null) == runtimeFingerprint(runtime) &&
+                System.currentTimeMillis() < store.getLong("until", 0L)
+        }
+        internal fun coolDownRuntime(context: Context, runtime: LocalRuntime) {
+            context.getSharedPreferences("memory-enrichment-cooldown", Context.MODE_PRIVATE).edit()
+                .putString("runtime", runtimeFingerprint(runtime))
+                .putLong("until", System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(5))
+                .apply()
+        }
         internal fun runtimeFingerprint(runtime: LocalRuntime): String = digest("${runtime.state.value.engineSpec}|${runtime.state.value.backend}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}")
         internal fun uniqueName(id: Int, hash: String) = "memory-v$ENRICHMENT_VERSION-$id-$hash"
         internal fun completionKey(chatId: Int, hash: String) = "$chatId:v$ENRICHMENT_VERSION:$hash"

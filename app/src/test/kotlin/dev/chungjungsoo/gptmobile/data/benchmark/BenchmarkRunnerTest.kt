@@ -27,6 +27,22 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BenchmarkRunnerTest {
+    @Test
+    fun `native failures stop full suites even when quality failures may continue`() = runTest {
+        for (reason in listOf("Native inference worker stopped", "GPU initialize: interrupted inside native code", "Unsupported backend", "MEMORY_ADMISSION_REJECTED")) {
+            var dispatched = 0
+            val samples = mutableListOf<BenchmarkSample>()
+            val suite = benchmarkSuite(BenchmarkMode.QUICK)
+            runBenchmarkSuite(suite, { _, test ->
+                dispatched++
+                BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.ERROR, error = reason)
+            }, { samples += it }, stopOnError = false)
+            assertEquals(1, dispatched)
+            assertEquals(suite.size, samples.size)
+            assertTrue(samples.drop(1).all { it.outcome == BenchmarkOutcome.SKIPPED })
+        }
+    }
+
     private val instruction = benchmarkSuite(BenchmarkMode.QUICK).first { it.id == "instruction" }
     private val toolTest = benchmarkSuite(BenchmarkMode.QUICK).first { it.id == "tool" }
 

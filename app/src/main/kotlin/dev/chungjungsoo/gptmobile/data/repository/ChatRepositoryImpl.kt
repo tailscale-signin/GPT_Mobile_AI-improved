@@ -329,7 +329,9 @@ class ChatRepositoryImpl(
             policy.copy(evidenceSelection = true, summarizeRetrievedText = false, proposeQueries = false, maxAttempts = 1),
             { settingRepository.getFeatureSettings().assistEnabled() && settingRepository.getFeatureSettings().effectiveAssistPolicy() == features.effectiveAssistPolicy() && settingRepository.getFeatureSettings().localAssistPolicy.preparation == features.localAssistPolicy.preparation && settingRepository.fetchPlatformV2s().any { it == target } },
             root,
-            { invocation }
+            { invocation },
+            contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
+            runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.runtimeFingerprint(localRuntime) }
         )
         val original = dev.chungjungsoo.gptmobile.data.assist.AssistTestFixture.tool()
         val result = coordinator.bind(original).execute(root, JsonObject(emptyMap()))

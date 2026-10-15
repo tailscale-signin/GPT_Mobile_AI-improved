@@ -44,12 +44,13 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                 return outcome("SKIPPED", "DISABLED_OR_TEMPORARY")
             }
             if (dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0 || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return finish("RUNTIME_BUSY")
+            if (MemoryEnrichmentQueue.runtimeCoolingDown(applicationContext, runtime)) return finish("RUNTIME_BUSY")
             // load() already synchronizes changed facts. Full index rebuild is a user action,
             // not per-turn maintenance (it clears the embedding engine and every cached vector).
             val writes = vault.enrichTurn(message) { input ->
                 reason = "RUNTIME_BUSY"
                 val result = runtime.tryRunExclusive {
-                    if (hasOpenConversation()) {
+                    if (MemoryEnrichmentQueue.runtimeCoolingDown(applicationContext, runtime) || dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0 || hasOpenConversation()) {
                         reason = "RUNTIME_BUSY"
                         return@tryRunExclusive null
                     }
@@ -120,6 +121,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                     null
                 }
             }
+            if (reason == "INFERENCE_TIMEOUT") MemoryEnrichmentQueue.coolDownRuntime(applicationContext, runtime)
             if (writes == 0) reason = "PROCESSED_NO_NEW_FACTS"
             if (writes != null && writes > 0) reason = "ENRICHED_WITH_WRITES"
             finish(reason)
@@ -193,7 +195,9 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
 
 /** Waiting for a model is persistent prerequisite work, handled before generation retry limits. */
 internal fun enrichmentRetryLimit(reason: String): Int = when (reason) {
-    "RUNTIME_BUSY", "INFERENCE_TIMEOUT", "RUNTIME_ERROR", "EXCEPTION" -> 3
+    "RUNTIME_BUSY", "RUNTIME_ERROR", "EXCEPTION" -> 3
+    // A timeout is a runtime prerequisite failure; do not run the whole backlog against it again.
+    "INFERENCE_TIMEOUT" -> 0
     "INVALID_OUTPUT" -> 1
     else -> 0
 }

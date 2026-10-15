@@ -344,7 +344,9 @@ internal fun benchmarkInfrastructureFailure(sample: BenchmarkSample): Boolean {
     return listOf(
         "unable to resolve host", "unknownhostexception", "no route to host", "connection refused",
         "sslhandshakeexception", "certificate verification failed", "http 401", "http 403", "invalid api key",
-        "input tensor not found", "engine_initialization", "missing_asset", "not downloaded", "http 429", "rate limit"
+        "input tensor not found", "engine_initialization", "missing_asset", "not downloaded", "http 429", "rate limit",
+        "native inference worker stopped", "interrupted inside native code", "quarantined",
+        "unsupported backend", "memory_admission_rejected", "failed to load the local inference engine"
     ).any { detail.contains(it, ignoreCase = true) }
 }
 

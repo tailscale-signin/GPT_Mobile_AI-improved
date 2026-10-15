@@ -1151,9 +1151,22 @@ class ChatRepositoryImpl(
         runId: String,
         chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = flow {
+        if (platform.compatibleType == ClientType.LITERT_LM) {
+            try {
+                val selection = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
+                localRuntime.preflightModel(selection.path, platform.accelerator)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AppLogRecorder.record("LocalModel", "LOCAL_PREFLIGHT_TERMINAL · stage=parent_readiness · status=REJECTED · exception=${failure.javaClass.simpleName} · profileUid=${platform.uid} · nativeDispatched=false", "W")
+                emit(ApiState.Error(failure.message ?: "Local model readiness check failed. Review Local AI before retrying."))
+                emit(ApiState.Done)
+                return@flow
+            }
+        }
         val fence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
         emitAll(preparedCompleteChat(userMessages, assistantMessages, platform, runId, chatToolConfig, fence))
-    }
+    }.flowOn(Dispatchers.Default)
 
     private fun preparedCompleteChat(
         userMessages: List<MessageV2>,
@@ -1169,10 +1182,6 @@ class ChatRepositoryImpl(
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { journal ->
                 val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
                 journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
-            }
-            if (platform.compatibleType == ClientType.LITERT_LM) {
-                val selection = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
-                localRuntime.preflightModel(selection.path, platform.accelerator)
             }
             val recovery = prepareRecoveryRequest(userMessages, assistantMessages, runId)
             if (recovery == null) {

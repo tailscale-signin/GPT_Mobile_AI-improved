@@ -55,7 +55,7 @@ internal class ResearchModelCoordinator(
     private val monotonicClock: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
     private data class CircuitKey(val profileUid: String, val modelKey: String, val stage: ResearchModelStage)
-    private data class FailureState(val count: Int, val retryAt: Long)
+    private data class FailureState(val count: Int, val retryAt: Long, val probe: Boolean = false)
     private val failures = java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
     val events: List<ResearchModelEvent> get() = synchronized(history) { history.toList() }
@@ -69,6 +69,15 @@ internal class ResearchModelCoordinator(
         onEvent(event)
     }
 
+    private fun enterCircuit(key: CircuitKey): Boolean {
+        while (true) {
+            val previous = failures[key] ?: return true
+            if (previous.count < 2) return true
+            if (previous.probe || monotonicClock() < previous.retryAt) return false
+            if (failures.replace(key, previous, previous.copy(probe = true))) return true
+        }
+    }
+
     val hasCandidates: Boolean get() = workers.isNotEmpty() || reviewer != null
 
     suspend fun generate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String = ""): ResearchModelReply? {
@@ -78,12 +87,10 @@ internal class ResearchModelCoordinator(
             if (!stillEnabled()) return null
             val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt))
             val circuit = CircuitKey(target.profileUid, target.modelKey, stage)
-            val previous = failures[circuit]
-            if (previous != null && previous.count >= 2 && monotonicClock() < previous.retryAt) {
+            if (!enterCircuit(circuit)) {
                 record(event.copy(outcome = "SKIPPED", reason = "MODEL_CIRCUIT_OPEN"))
                 continue
             }
-            if (previous != null && previous.count >= 2) failures.remove(circuit, previous)
             fun failed() {
                 failures.compute(circuit) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
             }
@@ -125,6 +132,11 @@ internal class ResearchModelCoordinator(
                         exceptionType = error.javaClass.simpleName.take(100)
                     )
                 )
+            } finally {
+                // A canceled or inadmissible half-open probe must not strand the stage indefinitely.
+                failures.computeIfPresent(circuit) { _, state ->
+                    if (state.probe) state.copy(probe = false, retryAt = monotonicClock() + 30_000L) else state
+                }
             }
         }
         return null

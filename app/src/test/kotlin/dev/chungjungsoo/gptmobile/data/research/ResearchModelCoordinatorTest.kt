@@ -176,4 +176,31 @@ class ResearchModelCoordinatorTest {
         assertNull(event.invocationId)
         assertFalse(event.toString().contains("PRIVATE_SOURCE_SENTINEL"))
     }
+
+    @Test fun onlyOneHalfOpenProbeRunsAfterCircuitCooldown() = runTest {
+        var now = 0L
+        var attempts = 0
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val coordinator = ResearchModelCoordinator(
+            listOf(
+                endpoint("worker") {
+                    attempts++
+                    if (attempts <= 2) error("provider failed")
+                    started.complete(Unit)
+                    release.await()
+                    plan
+                }
+            ),
+            monotonicClock = { now }
+        )
+        repeat(2) { assertNull(coordinator.generate(ResearchModelStage.PLAN, "task", 128)) }
+        now = 30_001
+        val probe = async { coordinator.generate(ResearchModelStage.PLAN, "task", 128) }
+        started.await()
+        assertNull(coordinator.generate(ResearchModelStage.PLAN, "another task", 128))
+        assertEquals(3, attempts)
+        release.complete(Unit)
+        assertNotNull(probe.await())
+    }
 }

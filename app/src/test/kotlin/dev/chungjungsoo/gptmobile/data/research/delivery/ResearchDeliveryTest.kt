@@ -31,6 +31,15 @@ class ResearchDeliveryTest {
         assertTrue(packet.instruction().contains("unread"))
     }
 
+    @Test fun reportDetailDoesNotResetCollectionAuthorityOrBudget() {
+        val original = dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings()
+        val key = original.collectionPolicyKey()
+        for (detail in ResearchReportDetail.entries) assertEquals(key, original.copy(reportDetail = detail).collectionPolicyKey())
+        assertTrue(key.endsWith("disabledEngineIds=[])"))
+        assertFalse(key == original.copy(userLimits = dev.chungjungsoo.gptmobile.data.model.ResearchUserLimits(maxRequests = 20)).collectionPolicyKey())
+        assertEquals(ResearchReportDetail.DETAILED, kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings>("{}").reportDetail)
+    }
+
     @Test fun combinedCorpusPreservesCapturedDateAndStopCause() {
         val snapshot = packet().snapshot.copy(updatedAt = 0, phase = "Partial coverage", cancellationOrigin = "USER_STOP_RESEARCH_AND_SUMMARIZE")
         val frozen = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freeze(snapshot).json().toString()

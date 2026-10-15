@@ -65,7 +65,7 @@ internal class AndroidResearchWorkflow(
     private val modelCoordinator: dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator? = null,
     private val memoryAvailable: () -> Boolean = ::hasResearchMemoryHeadroom
 ) {
-    private val journal = journal?.scoped(researchHash(config.deepResearch.toString() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString()), tools.all { it.connectionUid == null })
+    private val journal = journal?.scoped(researchHash(config.deepResearch.collectionPolicyKey() + tools.filterNot { it.realToolName == "read_recovery_context" }.map { it.selectionId() }.sorted().joinToString()), tools.all { it.connectionUid == null })
     private val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(config.deepResearch)
     private val options = plan.settings.copy(maxPages = plan.sourceGoal)
 
@@ -207,7 +207,7 @@ internal class AndroidResearchWorkflow(
     private suspend fun runLocked(task: String, callId: String): LocalResearchResult {
         featurePolicy = journal?.featurePolicy() ?: featurePolicy
         if (!plan.active) return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
-        val policy = researchHash(options.toString() + tools.joinToString { it.selectionId() })
+        val policy = researchHash(options.collectionPolicyKey() + tools.joinToString { it.selectionId() })
         val retained = journal?.load(task)?.withFreshEvidence(now())
         val saved = retained?.takeIf { normalizedTask(it.task).equals(normalizedTask(task), ignoreCase = true) }?.let {
             // A historical collection-complete flag is not proof of question coverage.

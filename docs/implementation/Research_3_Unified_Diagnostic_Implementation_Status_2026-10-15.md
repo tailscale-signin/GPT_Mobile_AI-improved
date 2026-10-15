@@ -3,7 +3,7 @@
 Date: 2026-10-15. Branch: `feat/unified-diagnostic-reliability-2026-10-14`.
 Base: `91b497f58824c7cdf4d624e46ce10532342d5cd3`.
 
-This implements the subsequent user request against the [October 14 design](Unified_Diagnostic_Reliability_Design_Implementation_2026-10-14.md). The design itself remains a historical specification. This record distinguishes changed code, protections already present on the base, and validation still required. No version bump, database migration, merge or release is included.
+This implements the subsequent user request against the [October 14 design](Unified_Diagnostic_Reliability_Design_Implementation_2026-10-14.md). The design itself remains a historical specification. This record distinguishes changed code, protections already present on the base, and validation still required. No version bump, database migration, merge or release is included. Report detail is excluded from the legacy collection-policy identity, so changing presentation cannot reset spent budgets or strand retained evidence.
 
 ## Research delivery
 
@@ -53,7 +53,7 @@ Synthetic tests cover readable/unread separation, recent failed-study retention,
 
 ## Verification record
 
-Local verification uses Kotlin 2.1.20 with production pure-Kotlin components and minimal stubs for unavailable Android/runtime dependencies. This is an isolated JVM check, **not** an Android build or complete application test. The final isolated run passed **68 tests**, covering allocation, planner/catalog selection, shared ledger/resume budgets, packet delivery/repair, continuation bounds and stream presentation. Android CI status is tracked on the draft PR.
+Local verification uses Kotlin 2.1.20 with production pure-Kotlin components and minimal stubs for unavailable Android/runtime dependencies. This is an isolated JVM check, **not** an Android build or complete application test. The final isolated run passed **69 tests**, covering allocation, planner/catalog selection, shared ledger/resume budgets, packet delivery/repair, continuation bounds and stream presentation. Android CI status is tracked on the draft PR.
 
 Completed preflights: resource validation (28 XML files), Room schema validation, Android regex compatibility, and 116 Python repository script tests. These script fixtures simulate device-validation outcomes; they are not device instrumentation results. Changed Kotlin files are formatted with ktlint 1.3.1.
 

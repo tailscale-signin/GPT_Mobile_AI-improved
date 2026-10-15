@@ -1308,7 +1308,7 @@ class ChatRepositoryImpl(
                         val events = savedEvents.filter { it.runId !in deniedRuns && (it.toolName to it.connectionUidSnapshot) in allowed }
                         researchSessions?.loadChat(latest.chatId)
                         val authorityTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(allowedTools, true, true).filterNot { it.realToolName in setOf("delegate_to_model", "read_recovery_context") }
-                        val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(policy.deepResearch.toString() + authorityTools.map { it.selectionId() }.sorted().joinToString())
+                        val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(policy.deepResearch.collectionPolicyKey() + authorityTools.map { it.selectionId() }.sorted().joinToString())
                         val scope = if (sharingEnabled && authorityTools.all { it.connectionUid == null }) authority else "$authority:${platform.uid}"
                         val root = dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
                         val retainedResearch = researchSessions?.sessions?.value?.values.orEmpty().filter {

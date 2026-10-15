@@ -19,6 +19,7 @@ class LocalOutputAllocationTest {
         assertThrows(IllegalArgumentException::class.java) { LocalOutputAllocation.reserve(1024, 768, 256, 8192) }
         assertThrows(IllegalArgumentException::class.java) { LocalOutputAllocation.reserve(8192, Long.MAX_VALUE, 256, 8192) }
         assertThrows(IllegalArgumentException::class.java) { LocalOutputAllocation.reserve(0, 1, 0, 1) }
+        assertThrows(IllegalArgumentException::class.java) { LocalOutputAllocation.reserve(1, Long.MAX_VALUE, Int.MAX_VALUE, 8192) }
     }
 
     @Test fun replayPreservesLargeUsableContextButDistrustsAdvertisedHugeLimits() {

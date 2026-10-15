@@ -331,11 +331,12 @@ class AgentRunner(
                 .filter { it.outputBudgetExhausted }
                 .maxByOrNull { it.toolResultBudgetUsedBytes ?: -1 }
             val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
+            val projectedReplayTokens = ToolExchangeCompactor.estimateTokens(projectedExchanges)
             replayTokens = ToolExchangeCompactor.estimateTokens(
                 ToolExchangeCompactor.compact(
                     exchanges = projectedExchanges,
                     maxReplayTokens = limits.maxReplayTokens,
-                    maxResultTokens = if (rawReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
+                    maxResultTokens = if (projectedReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
                 )
             ).toLong()
             val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&

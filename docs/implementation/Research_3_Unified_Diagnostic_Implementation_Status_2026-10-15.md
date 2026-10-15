@@ -59,6 +59,8 @@ Completed preflights: resource validation (28 XML files), Room schema validation
 
 The local Gradle invocation cannot download Gradle 9.8.0 (`Network is unreachable`); this environment has Java 17 and no Android SDK. Full JDK 21 Android unit/lint/build validation is requested through the repository PR workflow. No dependency-verification relaxation or SDK/version change is used to bypass that gate.
 
+The first complete Android unit run on `1174813` compiled the app and executed 3,003 tests: 3,001 passed, with two failures in fixtures using the old collection-policy identity and unlimited-budget assumption. Those fixtures were updated to check presentation-independent continuation, citation-valid final delivery, long counter persistence and the non-refundable safety stop. This run is not a passing gate; the final commit must pass the PR checks.
+
 ### Acceptance mapping
 
 | Tests | Verification status |

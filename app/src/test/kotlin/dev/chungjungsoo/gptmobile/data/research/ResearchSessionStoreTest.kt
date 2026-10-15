@@ -128,9 +128,13 @@ class ResearchSessionStoreTest {
     @Test fun longLedgerSurvivesRestartAndProfileSwitchWithoutRefund() {
         val plan = dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings().forEffort(100))
         val first = ResearchSessionStore(context).journal("a", 1, true, "long-turn").goalBudget(plan)
-        assertTrue(first.ledger!!.charge(physical = 3000, downloaded = 3L * 1024 * 1024 * 1024))
+        assertTrue(first.ledger!!.charge(logical = 3_000_000_000L, physical = 1200, downloaded = 256L * 1024 * 1024))
+        assertFalse(first.ledger.charge(physical = 2000))
         val restored = ResearchSessionStore(context).journal("b", 1, true, "long-turn").goalBudget(plan)
         assertEquals(first.ledger.snapshot(), restored.ledger!!.snapshot())
+        assertEquals(3_000_000_000L, restored.ledger.snapshot().logical)
+        assertEquals("safety_request_limit", restored.ledger.snapshot().limitReason)
+        assertFalse(restored.ledger.charge(physical = 1))
     }
 
     @Test fun privateAuthorityAndSharingOptOutIsolateCorpora() = runBlocking {

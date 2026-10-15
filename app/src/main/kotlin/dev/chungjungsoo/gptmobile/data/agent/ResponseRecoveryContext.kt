@@ -18,7 +18,7 @@ internal class ResponseRecoveryContext(
     runs: List<AgentRun>,
     messages: List<MessageV2>,
     private val events: List<ToolEvent>,
-    research: List<dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot> = emptyList(),
+    private val research: List<dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot> = emptyList(),
     private val rootWorkId: String? = null,
     private val blockedRootWorkId: String = rootWorkId ?: "saved-response",
     private val generationId: String = "",
@@ -28,6 +28,11 @@ internal class ResponseRecoveryContext(
     private val authorization: suspend () -> Boolean = { true }
 ) {
     suspend fun isAuthorized(): Boolean = authorization()
+
+    suspend fun researchSnapshotForDelivery(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? {
+        if (!isAuthorized()) throw SavedEvidenceAccessDenied()
+        return research.filter { it.sources.isNotEmpty() }.maxByOrNull { it.updatedAt }
+    }
 
     /** Operational denial is data. Callers must terminate before constructing a request. */
     suspend fun authorizedPrefix(maxCharacters: Int, pagingAvailable: Boolean = true): RecoveryPrefix =

@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
 import dev.chungjungsoo.gptmobile.data.research.ResearchClaim
 import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
 import dev.chungjungsoo.gptmobile.data.research.ResearchSource
+import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.time.Instant
 import java.time.ZoneOffset
@@ -40,6 +41,7 @@ data class ResearchDeliveryPacket(
         put("reviewedClaims", claims.count { it.verdict != "Unreviewed" && it.exactQuoteVerified })
         put("independentReviewClaims", claims.count { it.independentReview && it.exactQuoteVerified })
         put("semanticCoverageVerified", false)
+        put("handoffReviewStatus", snapshot.currentReviewRecord()?.status ?: "UNKNOWN_OR_STALE")
         put(
             "toolEvents",
             JsonArray(

@@ -2068,6 +2068,7 @@ class ChatRepositoryImpl(
                                 0
                             },
                             preparedAssistEvidence = preparedAssistEvidence,
+                            recoveredResearch = { recovery?.researchSnapshotForDelivery() },
                             validateSavedEvidence = {
                                 val allowed = recovery?.isAuthorized() != false && researchMemory.validate()
                                 if (!allowed) dispatchDenial.set(recovery?.blocked() ?: dev.chungjungsoo.gptmobile.data.agent.recoveryBlock(turnKey, runId, dev.chungjungsoo.gptmobile.data.agent.recoveryDestinationIdentity(platform), dispatchAuthority.revision, researchMemory.evidenceIds, assistantMessages.flatten(), taskRecovery?.action?.name ?: "CONTINUE_RUN"))
@@ -2379,6 +2380,7 @@ class ChatRepositoryImpl(
         followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
         previousAnswerWords: Int = 0,
         preparedAssistEvidence: Set<JsonObject> = emptySet(),
+        recoveredResearch: suspend () -> dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = { null },
         validateSavedEvidence: suspend () -> Boolean = { true }
     ): Flow<ApiState> = channelFlow {
         val dispatchAuthority = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
@@ -2456,11 +2458,12 @@ class ChatRepositoryImpl(
             }
             val base = deliveryRaw("", false)
             val raw = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliverySession(base, packet = {
-                val snapshot = researchSessions?.sessions?.value?.get(runId)?.takeIf { it.chatId == latestUser?.chatId }?.snapshot
+                val current = researchSessions?.sessions?.value?.get(runId)?.takeIf { it.chatId == latestUser?.chatId }
+                val snapshot = current?.snapshot ?: recoveredResearch()
                 snapshot?.takeIf { it.sources.isNotEmpty() }?.let {
                     val detail = delegationSettings.deepResearch.reportDetail
                     val available = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.tokens(limits.contextTokens, contextPlan.promptTokens, resolvedOutputCap ?: 4096, 4000)
-                    dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(it, detail, minOf(detail.packetTokens, available.coerceAtLeast(512)), researchSessions?.deliveryStudyFields(runId).orEmpty())
+                    dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(it, detail, minOf(detail.packetTokens, available.coerceAtLeast(512)), if (current != null) researchSessions?.deliveryStudyFields(runId).orEmpty() else emptyMap())
                 }
             }, expectResearch = chatToolConfig?.research?.researchToggle == true, create = ::deliveryRaw)
             val observed = object : AgentProviderSession by raw {

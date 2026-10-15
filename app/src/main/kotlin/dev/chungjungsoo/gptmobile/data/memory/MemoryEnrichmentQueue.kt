@@ -82,7 +82,15 @@ class MemoryEnrichmentQueue @Inject constructor(
     }
 
     fun enqueue(message: MessageV2) {
-        diagnosticsScope.launch(kotlinx.coroutines.Dispatchers.IO) { enqueueEligible(message) }
+        diagnosticsScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                enqueueEligible(message)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_ENQUEUE_FAILED · message=${message.id} · persistedWorkRetained=${waitingStore(context).contains(message.id.toString())}", "W")
+            }
+        }
     }
 
     private suspend fun enqueueEligible(message: MessageV2) {

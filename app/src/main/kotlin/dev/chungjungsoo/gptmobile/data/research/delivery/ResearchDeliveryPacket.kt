@@ -126,7 +126,11 @@ data class ResearchDeliveryPacket(
         }
 
         fun build(snapshot: ResearchSnapshot, detail: ResearchReportDetail = ResearchReportDetail.DETAILED, tokenBudget: Int = detail.packetTokens, studyFields: Map<String, JsonObject> = emptyMap()): ResearchDeliveryPacket {
-            val relevant = snapshot.sources.filter { it.isRetracted != true && relevance(snapshot.task, it.title, it.passage) > 0 }.distinctBy { it.equivalenceGroup.ifBlank { it.id } }
+            fun identity(source: ResearchSource) = source.equivalenceGroup.ifBlank { source.id }
+            val retracted = snapshot.sources.filter { it.isRetracted == true }.map(::identity).toSet()
+            val relevant = snapshot.sources.filter { identity(it) !in retracted && relevance(snapshot.task, it.title, it.passage) > 0 }
+                .sortedWith(compareByDescending<ResearchSource> { it.readable }.thenByDescending { it.retrievalQuality == "FULL_TEXT" }.thenByDescending { it.retrievedAt })
+                .distinctBy(::identity)
             val valid = snapshot.claims.filter { claim ->
                 relevant.any { it.id == claim.sourceId && it.readable && claim.quote.length >= 20 && claim.quote in it.passage } && claim.relevance != "Irrelevant"
             }
@@ -144,7 +148,7 @@ data class ResearchDeliveryPacket(
             val failedRecent = unreadCandidates.filter { it.status == "Failed" }.sortedByDescending(::publicationDate).take(3)
             val unread = (failedRecent + unreadCandidates).distinctBy { it.id }.take(if (detail == ResearchReportDetail.BRIEF) 4 else 8)
             val budget = tokenBudget.coerceIn(512, detail.packetTokens).toLong() * 3
-            fun accounted(packet: ResearchDeliveryPacket) = packet.copy(omitted = mapOf("irrelevantOrRetracted" to (snapshot.sources.size - relevant.size), "readableByBudget" to (candidates.size - packet.studies.size), "claimsByBudget" to (valid.size - packet.claims.size), "unreadLeads" to (unreadCandidates.size - packet.unread.size)))
+            fun accounted(packet: ResearchDeliveryPacket) = packet.copy(omitted = mapOf("irrelevantOrRetracted" to (snapshot.sources.size - relevant.size), "readableWithoutTaskSupport" to (relevant.count { it.readable } - candidates.size), "readableByBudget" to (candidates.size - packet.studies.size), "claimsByBudget" to (valid.size - packet.claims.size), "unreadLeads" to (unreadCandidates.size - packet.unread.size)))
             var packet = accounted(ResearchDeliveryPacket(snapshot, detail, emptyList(), emptyList(), emptyList(), emptyMap(), compactMetadata = budget < 6000))
             // At least one useful readable source gets priority over a large list of discovery leads.
             for (source in candidates) {

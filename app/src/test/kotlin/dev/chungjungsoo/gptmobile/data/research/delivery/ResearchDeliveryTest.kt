@@ -88,6 +88,15 @@ class ResearchDeliveryTest {
         assertTrue(result.issues.contains("PARTIAL_COVERAGE_NOT_DISCLOSED"))
     }
 
+    @Test fun readableVersionWinsOverEarlierMetadataAndRetractionCoversAliases() {
+        val lead = read.copy(id = "S3", status = "Discovered", passage = "", retrievalQuality = "METADATA")
+        val selected = ResearchDeliveryPacket.build(packet().snapshot.copy(sources = listOf(lead, read)))
+        assertEquals(listOf("S1"), selected.studies.map { it.id })
+        assertTrue(selected.unread.isEmpty())
+        val retracted = ResearchDeliveryPacket.build(packet().snapshot.copy(sources = listOf(lead.copy(isRetracted = true), read)))
+        assertTrue(retracted.studies.isEmpty())
+    }
+
     @Test fun importantUnreadLeadMustBeDisclosedInTheReport() {
         val result = ResearchDeliveryValidator.validate("Partial coverage. Unreviewed. [S1] https://example.org/study", packet())
         assertTrue(result.issues.contains("OMITTED_UNREAD_LEAD:S2"))

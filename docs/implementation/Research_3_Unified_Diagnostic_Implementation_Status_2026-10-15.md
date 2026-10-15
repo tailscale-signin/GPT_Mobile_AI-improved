@@ -53,7 +53,7 @@ Synthetic tests cover readable/unread separation, recent failed-study retention,
 
 ## Verification record
 
-Local verification uses Kotlin 2.1.20 with production pure-Kotlin components and minimal stubs for unavailable Android/runtime dependencies. This is an isolated JVM check, **not** an Android build or complete application test. The final isolated run passed **69 tests**, covering allocation, planner/catalog selection, shared ledger/resume budgets, packet delivery/repair, continuation bounds and stream presentation. Android CI status is tracked on the draft PR.
+Local verification uses Kotlin 2.1.20 with production pure-Kotlin components and minimal stubs for unavailable Android/runtime dependencies. This is an isolated JVM check, **not** an Android build or complete application test. The final isolated run passed **70 tests**, covering allocation, planner/catalog selection, shared ledger/resume budgets, packet delivery/repair, continuation bounds and stream presentation. Android CI status is tracked on the draft PR.
 
 Completed preflights: resource validation (28 XML files), Room schema validation, Android regex compatibility, and 116 Python repository script tests. These script fixtures simulate device-validation outcomes; they are not device instrumentation results. Changed Kotlin files are formatted with ktlint 1.3.1.
 

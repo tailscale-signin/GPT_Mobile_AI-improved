@@ -1491,13 +1491,18 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `explicit output larger than context fails before model dispatch`() = runBlocking {
-        val runtime = FakeLocalRuntime()
+    fun `explicit output larger than context is clamped before model dispatch`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
         val events = adapter(runtime).openSession(turns("hello"), localPlatform().copy(maxTokens = 8192))
             .streamRound(emptyList(), emptyList()).toList()
-        assertTrue(events.any { it is ProviderEvent.Failed && it.message.contains("context") })
-        assertTrue(runtime.sendMessageCalls.isEmpty())
-        assertTrue(runtime.createConversationCalls.isEmpty())
+        val configured = events.filterIsInstance<ProviderEvent.RequestConfigured>().single()
+        assertEquals(8192, configured.requestedOutputTokens)
+        assertTrue(configured.effectiveOutputTokens!! in 1 until runtime.loadEngineCalls.single().maxTokens)
+        assertEquals(configured.effectiveOutputTokens, runtime.createConversationCalls.single().maxOutputTokens)
+        assertEquals(listOf("hello"), runtime.sendMessageCalls)
+        assertEquals(ProviderEvent.Completed, events.last())
     }
 
     @Test

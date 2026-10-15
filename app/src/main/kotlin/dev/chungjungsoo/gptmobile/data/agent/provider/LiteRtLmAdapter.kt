@@ -259,7 +259,9 @@ class LiteRtLmAdapter(
                     }
                 }
                 outputLimit = plan.outputReserveTokens
-                send(ProviderEvent.RequestConfigured(platform.maxTokens, requestedOutputLimit, outputLimit))
+                if (constraints.maxOutputTokens != null || outputLimit != requestedOutputLimit) {
+                    send(ProviderEvent.RequestConfigured(platform.maxTokens, requestedOutputLimit, outputLimit))
+                }
                 if (usedCompactFallback) {
                     send(
                         ProviderEvent.Notice(

@@ -275,6 +275,7 @@ internal class AndroidResearchWorkflow(
                     nextQueries = state.frontierCursors.keys.toList()
                     state = state.copy(notes = state.notes + "Resumed this turn’s shared research corpus and retained budget.")
                 }
+                var reviewedThisRun = false
                 var round = state.round.coerceAtLeast(0)
                 while (saved?.complete != true) {
                     if (exhausted || stopped() || !acquiring()) break
@@ -292,7 +293,10 @@ internal class AndroidResearchWorkflow(
                     if (options.intensity == dev.chungjungsoo.gptmobile.data.model.ResearchIntensity.EXHAUSTIVE) expandAcademicCitations(callId)
                     checkpoint("Reading")
                     readPages(callId)
-                    if (options.reviewEvidence && !stopped()) review()
+                    if (options.reviewEvidence && !stopped()) {
+                        review()
+                        reviewedThisRun = true
+                    }
                     val read = collectionWorkCount()
                     val stagnant = evidenceGain.shouldStop(sources.filterValues { it.readable }.keys.toSet(), supportedClaimIdentities())
                     if (stopped() || !acquiring() || read >= sourceTarget) break
@@ -317,7 +321,7 @@ internal class AndroidResearchWorkflow(
                     checkpoint()
                 }
                 // A resumed run at the discovery cutoff still consumes its reserved review window.
-                if (options.reviewEvidence && !stopped() && !exhausted && collecting()) review()
+                if (!reviewedThisRun && options.reviewEvidence && !stopped() && !exhausted && collecting()) review()
                 true
             }
             if (!collecting()) state = state.copy(notes = state.notes + "Collection stopped to preserve synthesis and review time; coverage may be incomplete.")

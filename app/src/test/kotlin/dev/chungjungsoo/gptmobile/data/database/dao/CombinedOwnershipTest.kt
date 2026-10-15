@@ -20,6 +20,34 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class CombinedOwnershipTest {
+    @Test fun sourceChangesBeforeTheFreezeAreRejectedWithoutCreatingAnEditor() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
+        try {
+            val user = MessageV2(id = 2, chatId = 1, content = "History", platformType = null)
+            val primary = MessageV2(id = 3, chatId = 1, content = "Primary topic", platformType = "primary", linkedMessageId = 2, currentRunId = "primary-source")
+            val helper = MessageV2(id = 4, chatId = 1, content = "Helper topic plus late details", platformType = "helper", linkedMessageId = 2, currentRunId = "helper-source")
+            db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Combined"))
+            db.messageDao().addMessages(user, primary, helper)
+            db.agentRunDao().upsert(AgentRun("primary-source", 1, 2, 3, "primary", "provider", "model", "COMPLETED"))
+            db.agentRunDao().upsert(AgentRun("helper-source", 1, 2, 4, "helper", "provider", "model", "COMPLETED"))
+            val stale = primary.copy(
+                combinedSources = listOf(
+                    dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = primary.content),
+                    dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("helper", "Helper", content = "Helper topic")
+                )
+            )
+            val dao = db.agentPersistenceDao()
+            val rejected = runCatching { dao.persistAgentRetry(PersistAgentRetryRequest(user, stale, AgentRunDraft("combined-synthesis:stale", "primary", "provider", "model", synthesisKey = "stale"), freezeCombinedSources = true)) }
+            assertTrue(rejected.exceptionOrNull() is IllegalArgumentException)
+            assertEquals(null, dao.recoveryRun("combined-synthesis:stale"))
+            val settled = stale.copy(combinedSources = stale.combinedSources.map { if (it.platformUid == "helper") it.copy(content = helper.content) else it })
+            val accepted = dao.persistAgentRetry(PersistAgentRetryRequest(user, settled, AgentRunDraft("combined-synthesis:settled", "primary", "provider", "model", synthesisKey = "settled"), freezeCombinedSources = true))
+            assertEquals(helper.content, accepted.assistantMessage.combinedSources.last().content)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun explicitRecoveryCopiesOnlyVerifiedPrefixIntoTheNewOwnerAndKeepsFrozenInputs() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         try {
@@ -68,7 +96,12 @@ class CombinedOwnershipTest {
             assertEquals(first.run.runId, duplicate.run.runId)
             assertEquals("Committed chapter", duplicate.assistantMessage.content)
             assertEquals(1, db.agentRunDao().finishRunning(first.run.runId, "CANCELED", 2, null))
-            val second = dao.persistAgentRetry(PersistAgentRetryRequest(user, duplicate.assistantMessage, AgentRunDraft("combined-synthesis:b", "primary", "provider", "model", synthesisKey = "corpus-b")))
+            val automaticReplacement = runCatching {
+                dao.persistAgentRetry(PersistAgentRetryRequest(user, duplicate.assistantMessage, AgentRunDraft("combined-synthesis:late", "primary", "provider", "model", synthesisKey = "late-helper-117")))
+            }
+            assertTrue(automaticReplacement.exceptionOrNull() is IllegalArgumentException)
+            assertEquals(first.run.runId, dao.recoveryMessage(answer.id)?.currentRunId)
+            val second = dao.persistAgentRetry(PersistAgentRetryRequest(user, duplicate.assistantMessage, AgentRunDraft("combined-synthesis:b", "primary", "provider", "model", synthesisKey = "corpus-b"), replaceCombinedCorpus = true))
             assertEquals(2L, second.assistantMessage.ownershipFence)
             assertEquals(1, db.agentRunDao().markRunning(second.run.runId, 3))
             assertFalse(dao.checkpointRunningMessage(first.assistantMessage.copy(content = "Late writer")))

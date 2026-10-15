@@ -205,7 +205,7 @@ private fun CombinedProfileBubble(
                 Box(Modifier.size(9.dp).background(dotColor, CircleShape))
             }
             Text(
-                text = if (primary) stringResource(R.string.combined_primary_profile_label, name) else name,
+                text = listOfNotNull(colorIdentity?.let { "[${it.marker}]" }, if (primary) stringResource(R.string.combined_primary_profile_label, name) else name).joinToString(" "),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1

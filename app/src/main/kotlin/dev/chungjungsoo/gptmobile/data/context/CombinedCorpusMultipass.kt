@@ -27,7 +27,8 @@ data class CombinedCorpusMultipassPlan(
     val originalRequest: String,
     val frozenTurns: List<ConversationTurn>,
     val inspectionOutputTokens: Int,
-    val passes: List<CombinedCorpusInspectionPass>
+    val passes: List<CombinedCorpusInspectionPass>,
+    val comprehensive: Boolean = false
 ) {
     /** Final writing may only use accepted reports from every source pass. */
     fun finalTurns(reports: List<String>): List<ConversationTurn> {
@@ -47,6 +48,9 @@ data class CombinedCorpusMultipassPlan(
                 appendLine()
             }
             appendLine("Produce one complete final answer from the original request.")
+            if (comprehensive) {
+                appendLine("Combination policy: COMPREHENSIVE. Integrate every distinct relevant topic and complementary detail; a short original word goal must not remove topics. Group overlaps and remove redundant wording only.")
+            }
             appendLine("Preserve unique supported details, source references and contradictions.")
             appendLine("Do not claim that an inspection record is independent verification.")
             appendLine("If a detail is not represented in the inspected records, state the limitation.")
@@ -176,6 +180,6 @@ object CombinedCorpusMultipass {
                 offset = bestEnd
             }
         }
-        return CombinedCorpusMultipassPlan(originalTask, turns, output, passes)
+        return CombinedCorpusMultipassPlan(originalTask, turns, output, passes, comprehensive = dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(current.userMessage.content))
     }
 }

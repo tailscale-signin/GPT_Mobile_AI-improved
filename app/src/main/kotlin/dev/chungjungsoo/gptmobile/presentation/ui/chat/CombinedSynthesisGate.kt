@@ -18,7 +18,7 @@ internal class CombinedSynthesisGate(private val nowMillis: () -> Long = { Syste
     fun reserve(userId: Int, sources: List<CombinedModelResponse>): Boolean {
         if (userId <= 0) return false
         val previous = attempts[userId]
-        if (previous?.sources == sources) {
+        if (previous != null) {
             val retryAt = previous.retryAfterMillis ?: return false
             if (nowMillis() < retryAt) return false
         }

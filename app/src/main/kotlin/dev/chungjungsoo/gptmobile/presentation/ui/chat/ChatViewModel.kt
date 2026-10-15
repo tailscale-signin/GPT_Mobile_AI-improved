@@ -2229,7 +2229,7 @@ class ChatViewModel @Inject constructor(
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
         val selectedUids = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType }
         val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
-            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
+            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, comprehensive = featureSettings.value.combinedComprehensive)
             val lineage = dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(selectedUids, attributedSources)
             val inventory = dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventory.freeze(attributedSources)
             prompt to kotlinx.serialization.json.Json.encodeToString(
@@ -2263,7 +2263,8 @@ class ChatViewModel @Inject constructor(
             PersistAgentRetryRequest(
                 userMessage = userMessage,
                 assistantMessage = leadMessage.copy(combinedSources = attributedSources),
-                run = run
+                run = run,
+                freezeCombinedSources = true
             )
         )
         // The durable run now owns this answer slot. No automatic retry may

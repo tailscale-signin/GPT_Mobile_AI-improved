@@ -256,7 +256,9 @@ fun OpponentChatBubble(
     onShowNextRevision: () -> Unit = {},
     onContinueClick: (() -> Unit)? = null,
     onActionClick: ((String) -> Unit)? = null,
-    articleCards: @Composable (String) -> Unit = {}
+    articleCards: @Composable (String) -> Unit = {},
+    splitForPassageIndicators: Boolean = false,
+    passageIndicators: @Composable (String) -> Unit = {}
 ) {
     var activityExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     val bubbleColor = animateColorAsState(
@@ -422,7 +424,7 @@ fun OpponentChatBubble(
                     AssistantChronologicalContent(
                         outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0") },
                         animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
-                        proseColor = profileColorIdentity?.takeIf { debugMode }?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
+                        proseColor = profileColorIdentity?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
                         toolEvents = toolEvents,
                         fallbackText = text,
                         fallbackThoughts = visibleThoughts,
@@ -435,7 +437,9 @@ fun OpponentChatBubble(
                         isError = isError,
                         expanded = activityExpanded,
                         onExpandedChange = { activityExpanded = it },
-                        articleCards = articleCards
+                        articleCards = articleCards,
+                        splitForPassageIndicators = splitForPassageIndicators,
+                        passageIndicators = passageIndicators
                     )
                     if (showTerminalFallback) {
                         Text(

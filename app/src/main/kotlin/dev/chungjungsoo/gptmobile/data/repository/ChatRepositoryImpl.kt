@@ -2520,7 +2520,8 @@ class ChatRepositoryImpl(
                 latestUser?.content.orEmpty()
             }
         )
-        val remainingWordGoal = wordGoal?.let { (it - previousAnswerWords).coerceAtLeast(0) }
+        val comprehensiveEditorial = editorialPass && dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(latestUser?.content.orEmpty())
+        val remainingWordGoal = wordGoal?.takeUnless { comprehensiveEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
         val continuationLimit = if (editorialPass) {
             dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(latestUser?.content.orEmpty(), requestConstraints.outputLimit(platform.maxTokens), remainingWordGoal)
         } else {
@@ -2567,7 +2568,7 @@ class ChatRepositoryImpl(
                 }
             )
         } ?: openPrimarySession(contextPlan.turns)
-        val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
+        val continuedSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
             firstSession,
             maxContinuations = continuationLimit,
             targetWords = remainingWordGoal,
@@ -2583,7 +2584,7 @@ class ChatRepositoryImpl(
                 multipassFinalTurns.get() ?: contextPlan.turns,
                 (if (draft.isBlank()) "\n\nThe previous attempt wrote no visible answer. Write the complete answer from the original task, frozen evidence and full outline, starting with its first section. " else "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. ") +
                     "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
-                    (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
+                    (wordGoal?.takeUnless { comprehensiveEditorial }?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
                     "If evidence is missing, state the gap. Start with a paragraph break only when the previous paragraph is complete.",
                 checkpoint?.continuationContext(draft) ?: draft,
                 exchanges
@@ -2595,6 +2596,34 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
             }
             openPrimarySession(continuationPlan.turns, "output_limit_continuation", textOnly = true)
+        }
+        val initialSession = if (comprehensiveEditorial) {
+            val frozen = requireNotNull(frozenResume) { "Combined delivery requires the frozen input snapshot." }
+            dev.chungjungsoo.gptmobile.data.agent.CombinedDeliverySession(
+                continuedSession,
+                frozen.sources,
+                maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 } ?: 1_048_576,
+                committedPrefix = restoredDraft,
+                validateAccess = {
+                    dispatchAuthority.validate()
+                    if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                    factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                },
+                onCoverage = { result, repaired ->
+                    AppLogRecorder.record("Combined", "CONTENT_COVERAGE · runId=$runId · units=${result.total} · missing=${result.missing.size} · repaired=$repaired · semanticCoverageVerified=false")
+                }
+            ) { draft, missing ->
+                val repairTurns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
+                    multipassFinalTurns.get() ?: contextPlan.turns,
+                    dev.chungjungsoo.gptmobile.data.agent.combinedCoverageRepairInstruction(missing),
+                    draft,
+                    emptyList()
+                )
+                val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(repairTurns, requestPlatform.systemPrompt.orEmpty(), limits)
+                openPrimarySession(admitted.turns, "combined_coverage_repair", textOnly = true)
+            }
+        } else {
+            continuedSession
         }
         val session = if (followUps != null && latestUser != null) {
             dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(initialSession, followUps) { handoff, draft, exchanges ->

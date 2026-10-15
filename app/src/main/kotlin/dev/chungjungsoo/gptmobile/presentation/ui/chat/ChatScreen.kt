@@ -1189,7 +1189,7 @@ private fun ChatMessagePair(
                 if (hasCombinedTabs) {
                     CombinedProfileBubbles(
                         profiles = combinedProfiles,
-                        identities = if (debugMode) debugSettings.profileAttributionColors else emptyMap(),
+                        identities = debugSettings.profileAttributionColors,
                         primaryUid = assistantMessages.getOrNull(combinedSynthesisIndex)?.platformType,
                         selectedUid = selectedProfile?.uid,
                         combinedStatus = combinedStatus,
@@ -1227,7 +1227,7 @@ private fun ChatMessagePair(
                         }
                     }
                 }
-                if (hasCombinedTabs && debugMode && selectedProfile == null) {
+                if (hasCombinedTabs && selectedProfile == null) {
                     val synthesis = assistantMessages.getOrNull(combinedSynthesisIndex)
                     CombinedContributionInspector(
                         answer = assistantContent,
@@ -1259,7 +1259,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
-                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { debugMode && isSourceResponse },
+                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
                     debugMemorySources = debugMemorySources,
@@ -1271,6 +1271,12 @@ private fun ChatMessagePair(
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
                     conversationId = selectedAssistantMessage?.chatId,
+                    splitForPassageIndicators = hasCombinedTabs && selectedProfile == null,
+                    passageIndicators = { segment ->
+                        if (hasCombinedTabs && selectedProfile == null) {
+                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), debugSettings.profileAttributionColors, onCombinedProfileClick)
+                        }
+                    },
                     articleCards = { segment ->
                         if (debugSettings.researchFeature.articleCards) {
                             selectedAssistantMessage?.let { articleMessage ->

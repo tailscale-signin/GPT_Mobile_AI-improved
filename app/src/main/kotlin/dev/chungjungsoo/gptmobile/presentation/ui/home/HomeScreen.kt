@@ -241,6 +241,10 @@ fun HomeScreen(
 
     val dragPoint = Offset(draggedPointerX, draggedPointerY)
     val hoveredFolder = conversationFolders.firstOrNull { folderBounds[it.id]?.contains(dragPoint) == true }?.id
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.withFrameNanos { }
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.usableUi()
+    }
     LaunchedEffect(folderError) {
         folderError?.let {
             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()

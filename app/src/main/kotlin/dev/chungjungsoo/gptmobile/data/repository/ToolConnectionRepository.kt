@@ -42,6 +42,7 @@ class ToolConnectionRepository internal constructor(
         credential: ByteArray? = null,
         clearCredential: Boolean = false
     ) {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val protected = EndpointSecrets.protect(connection, secretVault)
         require(!(credential != null && clearCredential)) { "Credential replacement and clear are mutually exclusive." }
         val previous = toolConnectionDao.getConnection(connection.connectionUid)
@@ -61,6 +62,7 @@ class ToolConnectionRepository internal constructor(
     }
 
     suspend fun deleteConnection(connectionUid: String) {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val secretRef = toolConnectionDao.getConnection(connectionUid)?.secretRef
         toolConnectionDao.deleteConnectionByUid(connectionUid)
         secretRef?.let { secretVault.delete(it) }
@@ -111,6 +113,7 @@ class ToolConnectionRepository internal constructor(
     }
 
     suspend fun replaceMcpToolBindings(profileUid: String, selections: List<ToolBindingSelection>) {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         requireMcpSelections(selections)
         toolConnectionDao.replaceMcpBindings(
             profileUid = profileUid,

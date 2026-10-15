@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-enum class RunDiagnosticKind { PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, RUN_TERMINAL, CAPTURE_GAP }
+enum class RunDiagnosticKind { CACHE_OBSERVATION, INPUT_PERSISTED, DISPATCH_ELIGIBLE, PREPARATION_DIRECT, PREPARATION_CONTEXTUAL, PREPARATION_REQUIRED, HTTP_CALL_START, REQUEST_BODY_END, RESPONSE_HEADERS, FIRST_TEXT, FIRST_REASONING, FIRST_TOOL, FIRST_VISIBLE_TEXT, PROVIDER_COOLDOWN, PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, RUN_TERMINAL, CAPTURE_GAP }
 
 @Serializable
 enum class ProgressDeadlineCode { RUN_DEADLINE_EXCEEDED, GENERATION_STALLED, QUEUE_DEADLINE_EXCEEDED, LOAD_DEADLINE_EXCEEDED, MODEL_PROGRESS_TIMEOUT }
@@ -41,13 +41,14 @@ enum class RunDiagnosticRole {
 /** Deliberately has no prompt, URL, header, exception text, model label or arbitrary field map. */
 @Serializable
 data class RunDiagnosticEvent(
-    val schema: Int = 5,
+    val schema: Int = 6,
     val eventId: String,
     val processSession: String,
     val runId: String,
     val streamId: String,
     val sequence: Long,
     val capturedAtMillis: Long,
+    val monotonicNanos: Long? = null,
     val kind: RunDiagnosticKind,
     val role: RunDiagnosticRole,
     val invocationId: String? = null,
@@ -63,6 +64,9 @@ data class RunDiagnosticEvent(
     val successful: Boolean? = null,
     val measured: Boolean? = null,
     val phase: PreparationPhase? = null,
+    val cacheHits: Long? = null,
+    val cacheMisses: Long? = null,
+    val staleCacheReads: Long? = null,
     val physicalAttemptId: String? = null,
     val progressStage: dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage? = null,
     val progressDeadline: ProgressDeadlineCode? = null,
@@ -74,7 +78,7 @@ data class RunDiagnosticEvent(
 
 @Serializable
 data class RunJournalSnapshot(
-    val eventSchema: Int = 5,
+    val eventSchema: Int = 6,
     val captureLevel: String = "metadata",
     val events: List<RunDiagnosticEvent>,
     val highWatermarks: Map<String, Long>,
@@ -202,6 +206,9 @@ internal class RunDiagnosticJournal(
         successful: Boolean? = null,
         measured: Boolean? = null,
         phase: PreparationPhase? = null,
+        cacheHits: Long? = null,
+        cacheMisses: Long? = null,
+        staleCacheReads: Long? = null,
         physicalAttemptId: String? = null,
         progressStage: dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage? = null,
         progressDeadline: ProgressDeadlineCode? = null,
@@ -216,7 +223,7 @@ internal class RunDiagnosticJournal(
             dropped.incrementAndGet()
             return
         }
-        if (listOfNotNull(physicalAttempt, fence, inputTokens, outputTokens, safetyTokens, contextTokens, visibleBytes, reasoningBytes, elapsedMillis).any { it < 0 }) {
+        if (listOfNotNull(physicalAttempt, fence, inputTokens, outputTokens, safetyTokens, contextTokens, visibleBytes, reasoningBytes, elapsedMillis, cacheHits, cacheMisses, staleCacheReads).any { it < 0 }) {
             dropped.incrementAndGet()
             return
         }
@@ -237,7 +244,7 @@ internal class RunDiagnosticJournal(
             }
             val sequence = prior + 1L
             sequences[runId] = sequence
-            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId)
+            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), monotonicNanos = System.nanoTime(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, cacheHits = cacheHits, cacheMisses = cacheMisses, staleCacheReads = staleCacheReads, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId)
             val critical = kind in criticalKinds
             if (!critical && pending.size >= 480) {
                 dropped.incrementAndGet()

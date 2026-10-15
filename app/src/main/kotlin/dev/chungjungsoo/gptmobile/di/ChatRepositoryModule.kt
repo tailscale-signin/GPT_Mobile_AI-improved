@@ -84,7 +84,9 @@ object ChatRepositoryModule {
         openRouterSettingsRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository,
         delegationActivity: dev.chungjungsoo.gptmobile.data.delegation.DelegationActivityStore,
         openRouterModelRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository,
-        researchRecall: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider
+        researchRecall: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider,
+        localAssistPreparation: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPreparation,
+        memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -121,6 +123,8 @@ object ChatRepositoryModule {
         toolStatistics = toolStatistics,
         delegationActivity = delegationActivity,
         openRouterSettingsRepository = openRouterSettingsRepository,
-        researchRecall = researchRecall
+        researchRecall = researchRecall,
+        localAssistPreparation = localAssistPreparation,
+        memoryPreview = memoryPreview
     )
 }

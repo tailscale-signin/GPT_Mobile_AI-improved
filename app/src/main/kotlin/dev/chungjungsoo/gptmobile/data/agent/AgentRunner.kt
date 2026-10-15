@@ -55,7 +55,7 @@ data class AgentRunLimits(
 class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits()
 ) {
-    fun run(session: AgentProviderSession, tools: List<AgentTool>): Flow<AgentRunEvent> = flow {
+    fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
             emit(failed("Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
             return@flow
@@ -72,10 +72,10 @@ class AgentRunner(
 
         val finishedInTime = if (limits.runTimeoutMillis < Long.MAX_VALUE) {
             withTimeoutOrNull(limits.runTimeoutMillis) {
-                executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
+                executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, dynamicTools, selectDefinitions)
             }
         } else {
-            executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
+            executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, dynamicTools, selectDefinitions)
             true
         }
 
@@ -93,7 +93,9 @@ class AgentRunner(
         initialRounds: Int,
         initialToolCallCount: Int,
         initialToolMayHaveExecuted: Boolean,
-        initialRetriedWithoutTools: Boolean
+        initialRetriedWithoutTools: Boolean,
+        dynamicTools: () -> List<AgentTool>,
+        selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ) {
         var executableToolByName = initialExecutableToolByName
         var exposedDefinitions = initialExposedDefinitions
@@ -262,6 +264,28 @@ class AgentRunner(
             executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
             val executedResults = executeToolBatch(executableCalls, toolsForBatch)
+            if (!finalResponseRequested && !retriedWithoutTools) {
+                val additions = dynamicTools().filter { it.definition.name !in toolByName && it.definition.name !in executableToolByName && (consecutiveToolFailures[it.definition.name] ?: 0) < 2 && (toolCallsByName[it.definition.name] ?: 0) < MAX_SAME_TOOL_CALLS_PER_RUN }
+                if (additions.groupBy { it.definition.name }.any { it.value.size > 1 }) {
+                    emit(failed("Ambiguous discovered tool aliases; no discovered action dispatched."))
+                    return
+                }
+                val selectedSchemas = selectDefinitions((exposedDefinitions + additions.map { it.definition }).distinctBy { it.name })
+                val selectedNames = selectedSchemas.mapTo(HashSet()) { it.name }
+                var schemaTokens = selectedSchemas.filter { it.name in executableToolByName }.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
+                val initialSchemas = initialExposedDefinitions.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
+                val contextWithoutInitialSchemas = (limits.initialContextTokens.toLong() - initialSchemas).coerceAtLeast(0)
+                val schemaAllowance = minOf(ProgressiveToolCatalog.SCHEMA_TOKEN_ALLOWANCE.toLong(), (limits.contextTokens.toLong() - contextWithoutInitialSchemas - replayTokens - limits.finalResponseReserveTokens).coerceAtLeast(0))
+                val admitted = additions.filter { tool ->
+                    val cost = ProgressiveToolCatalog.schemaTokens(tool.definition)
+                    val fits = tool.definition.name in selectedNames && schemaTokens + cost <= schemaAllowance
+                    if (fits) schemaTokens += cost
+                    fits
+                }
+                if (admitted.size < additions.size) emit(AgentRunEvent.Notice("Some discovered tool schemas exceed the remaining context allowance. Existing conversation context was preserved.", persistent = false))
+                executableToolByName = executableToolByName + admitted.associateBy { it.definition.name }
+                exposedDefinitions = (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name }
+            }
             toolCallCount += executableCalls.size
 
             val newlyBlockedTools = updateFailureCircuits(executableCalls, executedResults, consecutiveToolFailures, blockedReadScopes, ::failureScope)

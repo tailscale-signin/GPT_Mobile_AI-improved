@@ -19,6 +19,24 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     val receipts = CopyOnWriteArrayList<RequestAdmissionReceipt>()
     val includedProducers = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    private val httpTrace = java.util.concurrent.atomic.AtomicReference<dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?>()
+    fun armHttp() {
+        val receipt = receipts.lastOrNull() ?: return
+        val owner = runId ?: return
+        val invocation = invocationId
+        val attempt = receipt.physicalAttemptId
+        val role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt.role)
+        httpTrace.set(
+            dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace { kind, elapsed ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, kind, role, invocationId = invocation, physicalAttemptId = attempt, elapsedMillis = elapsed)
+            }
+        )
+    }
+    fun takeHttpTrace(): dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace? = httpTrace.getAndSet(null)
+    fun transportWait(kind: dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind, elapsed: Long) {
+        runId?.let { owner -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, kind, invocationId = invocationId, elapsedMillis = elapsed.coerceAtLeast(0)) }
+    }
+
     fun progress(stage: dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage, elapsedMillis: Long, deadline: dev.chungjungsoo.gptmobile.data.diagnostics.ProgressDeadlineCode? = null) {
         runId?.let { owner ->
             val receipt = receipts.lastOrNull()

@@ -99,6 +99,24 @@ class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
     @Test
+    fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val facts = mockk<dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository>(relaxed = true)
+        coEvery { facts.scopeForChat(any()) } returns dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
+        coEvery { facts.prepareTurn(any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        every { facts.state } returns kotlinx.coroutines.flow.MutableStateFlow(dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot())
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Hello"), finishReason = "stop")))))))
+        val states = kotlinx.coroutines.withTimeout(1000) {
+            createRepository(openAIAPI = api, agentToolResolver = resolver, factVault = facts).completeChat(listOf(MessageV2(content = "Hi", platformType = null)), emptyList(), customPlatform(), "readiness-direct").toList()
+        }
+        assertEquals(1, api.streamChatCompletionCalls)
+        assertTrue(states.none { it is ApiState.Error })
+        io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) }
+        io.mockk.coVerify(exactly = 0) { facts.prepareTurn(any(), any(), any()) }
+    }
+
+    @Test
     fun `helpers honor conversation options and approvals with distinct action identities`() = runBlocking {
         val config = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(maxToolCalls = 1).withToolDisabled("other")
         val resolver = mockk<AgentToolResolver>()
@@ -195,7 +213,7 @@ class ChatRepositoryImplTest {
         for ((index, error) in failures.withIndex()) {
             coEvery { facts.prepareTurn(any(), any(), any(), any(), any(), any(), any()) } throws error
             val states = repository.completeChat(
-                userMessages = listOf(MessageV2(id = index + 1, chatId = 1, content = "Hello", platformType = null)),
+                userMessages = listOf(MessageV2(id = index + 1, chatId = 1, content = "Recall my saved preferences", platformType = null)),
                 assistantMessages = emptyList(),
                 platform = customPlatform(),
                 runId = "memory-initializer-$index"
@@ -215,7 +233,7 @@ class ChatRepositoryImplTest {
         val facts = mockk<FactVaultRepository>(relaxed = true)
         coEvery { facts.prepareTurn(any(), any(), any(), any(), any(), any(), any()) } throws CancellationException("Stopped")
         createRepository(factVault = facts).completeChat(
-            userMessages = listOf(MessageV2(id = 1, chatId = 1, content = "Hello", platformType = null)),
+            userMessages = listOf(MessageV2(id = 1, chatId = 1, content = "Recall my saved preferences", platformType = null)),
             assistantMessages = emptyList(),
             platform = customPlatform(),
             runId = "memory-cancelled"

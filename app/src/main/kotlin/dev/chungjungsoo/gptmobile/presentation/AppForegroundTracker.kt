@@ -7,16 +7,20 @@ import kotlin.math.max
 
 object AppForegroundTracker : Application.ActivityLifecycleCallbacks {
     private var startedActivities = 0
+    private val mutableVisibility = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val visibility: kotlinx.coroutines.flow.StateFlow<Boolean> get() = mutableVisibility
 
     val isBackgrounded: Boolean
         get() = startedActivities == 0
 
     override fun onActivityStarted(activity: Activity) {
         startedActivities += 1
+        mutableVisibility.value = true
     }
 
     override fun onActivityStopped(activity: Activity) {
         startedActivities = max(0, startedActivities - 1)
+        mutableVisibility.value = startedActivities > 0
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit

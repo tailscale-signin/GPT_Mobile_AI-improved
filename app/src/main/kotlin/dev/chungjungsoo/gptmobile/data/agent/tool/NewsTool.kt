@@ -29,15 +29,16 @@ internal class NewsTool(
     override val definition = AgentToolDefinition(
         "news",
         "News plugin: Google News search/top/topic/location with labeled Bing RSS fallback, Google Trends, and Hacker News. No API key for public feeds. " +
-            "Use source=all to combine Google News and Hacker News in one bounded call. Return dates and publishers; trends are interest signals, not verified news. Country/geo override the configured region. related_queries toggles available related context; RSS related-query metrics remain unavailable. Diagnostics distinguish empty feeds from outages and report cache age. Do not repeatedly search the same query.",
-        Json.parseToJsonElement("""{"type":"object","properties":{"action":{"type":"string","enum":["search","top","topic","location","trending","hacker"],"default":"search"},"query":{"type":"string","maxLength":250},"source":{"type":"string","enum":["all","google","hacker"],"default":"all"},"country":{"type":"string","pattern":"^[A-Za-z]{2}$"},"geo":{"type":"string","pattern":"^[A-Za-z]{2}$"},"related_queries":{"type":"boolean","default":true},"language":{"type":"string","pattern":"^[a-z]{2}(-[A-Z]{2})?$"},"type":{"type":"string","enum":["top","new","ask","show","jobs"]},"maxResults":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}""") as JsonObject
+            "Use source=all to combine Google News and Hacker News in one bounded call. Return dates and publishers; trends are interest signals, not verified news. location accepts a city/region name and supplies the location query; country/geo accept only two-letter country codes and override the configured region. related_queries toggles available related context; RSS related-query metrics remain unavailable. Diagnostics distinguish empty feeds from outages and report cache age. Do not repeatedly search the same query.",
+        Json.parseToJsonElement("""{"type":"object","properties":{"action":{"type":"string","enum":["search","top","topic","location","trending","hacker"],"default":"search"},"query":{"type":"string","maxLength":250},"location":{"type":"string","minLength":1,"maxLength":150},"source":{"type":"string","enum":["all","google","hacker"],"default":"all"},"country":{"type":"string","pattern":"^[A-Za-z]{2}$"},"geo":{"type":"string","pattern":"^[A-Za-z]{2}$"},"related_queries":{"type":"boolean","default":true},"language":{"type":"string","pattern":"^[a-z]{2}(-[A-Z]{2})?$"},"type":{"type":"string","enum":["top","new","ask","show","jobs"]},"maxResults":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}""") as JsonObject
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = try {
         check(allowed()) { "News plugin is disabled for this profile." }
-        val action = text(arguments, "action") ?: "search"
+        val location = text(arguments, "location")
+        val action = text(arguments, "action") ?: if (location != null && text(arguments, "query").isNullOrBlank()) "location" else "search"
         val source = text(arguments, "source") ?: "all"
-        val query = text(arguments, "query").orEmpty()
+        val query = newsLocationQuery(action, text(arguments, "query"), location)
         require(action in setOf("search", "top", "topic", "location", "trending", "hacker"))
         require(source in setOf("all", "google", "hacker") && query.length <= 250)
         require(action !in setOf("search", "location", "topic") || query.isNotBlank())

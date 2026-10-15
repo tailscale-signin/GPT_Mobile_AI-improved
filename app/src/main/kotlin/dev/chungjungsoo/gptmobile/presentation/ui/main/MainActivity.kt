@@ -83,6 +83,8 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                             navController.checkForExistingSettings()
                             navController.observeNotificationDeepLinks()
                             keepSplashOnScreen = false
+                            androidx.compose.runtime.withFrameNanos { }
+                            if (mainViewModel.event.replayCache.lastOrNull() == MainViewModel.SplashEvent.OpenHome) dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.usableUi()
                         }
                     }
                 }

@@ -69,6 +69,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
         }
         item {
             SettingsPanel(stringResource(R.string.assist_preparation)) {
+                AssistSwitch("Preload while app is open", "Prepares the explicitly selected approved helper while idle, including in Fast Response. Device protection still applies; remote messages never wait for loading.", policy.preloadInForeground) { enabled -> viewModel.updateAssist { it.copy(preloadInForeground = enabled) } }
                 Text(stringResource(R.string.assist_preparation_help), style = MaterialTheme.typography.bodySmall)
                 dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.entries.forEach { mode ->
                     FilterChip(policy.preparation == mode, { viewModel.updateAssist { it.copy(preparation = mode) } }, label = { Text(stringResource(if (mode == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) R.string.assist_warm_only else R.string.assist_auto_prepare)) })

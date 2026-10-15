@@ -41,7 +41,8 @@ internal fun LocalAssistDiagnosticsCard(tasks: List<AssistTaskState>, invocation
             "Overview" -> {
                 Text("${physical.size} recorded local invocations. ${tasks.count { it.delivery == dev.chungjungsoo.gptmobile.data.assist.AssistDelivery.VALIDATED }} validated task artifacts.")
                 Text("${physical.count { it.id in included }} local invocations have evidence confirmed in a serialized primary request.", style = MaterialTheme.typography.bodySmall)
-                Text("Generation, validation and request inclusion are separate. No invocation means usage is unrecorded.", style = MaterialTheme.typography.bodySmall)
+                Text("Generation, validation and request inclusion are separate. A completed wrapper does not prove local inference ran.", style = MaterialTheme.typography.bodySmall)
+                expected?.policySnapshot?.let { Text("Requested ${it.requested.preparation} · effective ${it.effective.preparation} · ${it.effective.maxAttempts} attempts · ${it.effective.taskTimeoutSeconds}s per task", style = MaterialTheme.typography.bodySmall) }
                 expected?.let { Text(it.reason.replace('_', ' '), style = MaterialTheme.typography.bodySmall) }
             }
             "Tasks" -> tasks.filterNot { it.taskId.startsWith("expected:") }.forEach {
@@ -52,6 +53,7 @@ internal fun LocalAssistDiagnosticsCard(tasks: List<AssistTaskState>, invocation
             }
             "Runtime" -> {
                 physical.forEach { Text("${it.model} · ${it.actualRuntime ?: "Runtime not reported"} · ${it.observedInputTokens ?: it.inputTokens.toLong()} input (${it.inputTokenSource}) / ${it.observedOutputTokens ?: it.outputTokens.toLong()} output (${it.outputTokenSource}) · ${it.durationMs} ms · ${it.status}", style = MaterialTheme.typography.bodySmall) }
+                tasks.lastOrNull { it.modelLoaded != null }?.let { Text("Model loaded: ${it.modelLoaded} · requested ${it.requestedAccelerator ?: "unrecorded"} · observed ${it.observedAccelerator ?: "unrecorded"} / ${it.observedBackend ?: "unrecorded"}", style = MaterialTheme.typography.bodySmall) }
                 if (physical.isEmpty()) Text("No observed backend or accelerator for this response.", style = MaterialTheme.typography.bodySmall)
             }
         }

@@ -53,6 +53,8 @@ internal class AssistCoordinator(
         }
     }
 
+    private fun attemptAvailable(): Boolean = if (turnId.isBlank()) attempts.get() < policy.validated().maxAttempts else AssistTurnBudget.available(turnId, policy.validated().maxAttempts)
+
     private fun reserveAttempt(): Boolean = if (turnId.isBlank()) {
         val limit = policy.validated().maxAttempts
         attempts.getAndUpdate { if (it < limit) it + 1 else it } < limit
@@ -77,10 +79,18 @@ internal class AssistCoordinator(
         )
         val subscription = AssistTaskState(taskId = subscriber.id, sharedWorkId = key, subscriberId = subscriber.id, sourceSnapshot = researchHash(source.toString()), runtimeFingerprint = fingerprint)
         publish(subscription.copy(execution = AssistExecution.QUEUED, reason = "SHARED_PRODUCER_SUBSCRIBED"))
+        var subscriberTimedOut = false
         val shared = try {
-            sharedWork.await(key, subscriber) { flight ->
-                reduceOnce(result, authority, flight::hasAuthorizedSubscriber, flight::publish, flight::notify)
+            val requested = policy.validated()
+            val allowance = (requested.queueWaitSeconds + requested.taskTimeoutSeconds + if (requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY) requested.loadTimeoutSeconds else 0) * 1000L
+            val outcome = kotlinx.coroutines.withTimeoutOrNull(allowance) {
+                // The shared producer owns native cleanup. Detaching this subscriber never joins it.
+                Unit to sharedWork.await(key, subscriber) { flight ->
+                    reduceOnce(result, authority, flight::hasAuthorizedSubscriber, flight::publish, flight::notify)
+                }
             }
+            subscriberTimedOut = outcome == null
+            outcome?.second
         } catch (cancelled: CancellationException) {
             withContext(kotlinx.coroutines.NonCancellable) {
                 runCatching { publish(subscription.copy(execution = AssistExecution.CANCELLED, reason = "SUBSCRIBER_CANCELLED")) }
@@ -89,9 +99,21 @@ internal class AssistCoordinator(
         }
         publish(
             subscription.copy(
-                execution = if (shared == null) AssistExecution.CANCELLED else AssistExecution.COMPLETED,
+                execution = if (shared == null) {
+                    AssistExecution.CANCELLED
+                } else if (shared.assistMetadata.isNotEmpty()) {
+                    AssistExecution.COMPLETED
+                } else {
+                    AssistExecution.SKIPPED
+                },
                 delivery = if (shared?.assistMetadata?.isNotEmpty() == true) AssistDelivery.VALIDATED else AssistDelivery.NONE,
-                reason = if (shared == null) "SUBSCRIBER_REVOKED" else "SHARED_PRODUCER_FINISHED"
+                reason = if (shared == null) {
+                    "SUBSCRIBER_REVOKED"
+                } else if (shared.assistMetadata.isNotEmpty()) {
+                    "SHARED_ARTIFACT_VALIDATED"
+                } else {
+                    "WRAPPER_FINISHED_WITHOUT_ASSIST_ARTIFACT"
+                }
             )
         )
         if (shared == null) return result
@@ -127,13 +149,20 @@ internal class AssistCoordinator(
             publishStatus(task.copy(admission = AssistAdmission.ELIGIBLE, execution = AssistExecution.COMPLETED, delivery = AssistDelivery.VALIDATED, reason = "SHARED_ARTIFACT_REUSED", reused = true))
             return result.copy(assistMetadata = cached)
         }
+        if (!attemptAvailable()) {
+            publishStatus(task.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE_EXHAUSTED"))
+            return result
+        }
         if (!warmEligible()) {
+            val observed = AssistReadinessResolver.state.value.takeIf { it.profileUid == policy.profileUid }
+            task = task.copy(modelLoaded = observed?.modelLoaded, requestedAccelerator = observed?.requestedAccelerator, observedAccelerator = observed?.observedAccelerator, observedBackend = observed?.observedBackend)
             publishStatus(task.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = AssistReadinessResolver.state.value.reason))
             return result
         }
         // Preparation can load or change an admitted engine. Pin identity AFTER it finishes.
         fingerprint = runtimeFingerprint()
-        task = task.copy(runtimeFingerprint = fingerprint)
+        val readiness = AssistReadinessResolver.state.value.takeIf { it.profileUid == policy.profileUid }
+        task = task.copy(runtimeFingerprint = fingerprint, modelLoaded = readiness?.modelLoaded, requestedAccelerator = readiness?.requestedAccelerator, observedAccelerator = readiness?.observedAccelerator, observedBackend = readiness?.observedBackend)
         key = if (turnId.isBlank()) null else researchHash("$turnId|$authority|$fingerprint|$policy|$goal|$snapshot")
         val accepted = mutableListOf<AssistHandoff>()
         val selectedRecords = mutableListOf<JsonElement>()
@@ -143,6 +172,10 @@ internal class AssistCoordinator(
         suspend fun invoke(kind: String, prompt: String, spanIds: List<String> = emptyList()): Pair<String, AssistTaskState>? {
             offered = true
             val current = task.copy(taskId = UUID.randomUUID().toString(), taskType = kind, admission = AssistAdmission.ELIGIBLE, examinedSpanIds = spanIds)
+            if (!attemptAvailable()) {
+                publishStatus(current.copy(execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE_EXHAUSTED", unprocessedSpanIds = spanIds, examinedSpanIds = emptyList()))
+                return null
+            }
             if (!allowed() || runtimeFingerprint() != fingerprint) {
                 publishStatus(current.copy(execution = AssistExecution.CANCELLED, reason = "PERMISSION_OR_RUNTIME_CHANGED"))
                 return null

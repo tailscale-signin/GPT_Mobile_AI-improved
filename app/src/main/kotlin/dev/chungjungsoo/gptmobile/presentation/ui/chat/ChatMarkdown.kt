@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -152,6 +153,7 @@ fun ChatMarkdown(
         }
     }
     val parsed = rendered.parsed
+    val firstDrawn = remember(outputTrace?.runId, outputTrace?.fence) { java.util.concurrent.atomic.AtomicBoolean() }
     val combinedMarkdown = rendered.markdown
     val memoryRanges = rendered.memoryRanges
     val inlineMathByPlaceholder = remember(parsed.inlineMath) {
@@ -476,7 +478,10 @@ fun ChatMarkdown(
                 components = components,
                 typography = chatMarkdownTypography(),
                 animations = animations,
-                modifier = modifier
+                modifier = modifier.drawWithContent {
+                    drawContent()
+                    if (outputTrace != null && combinedMarkdown.isNotBlank() && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
+                }
             )
         }
     }

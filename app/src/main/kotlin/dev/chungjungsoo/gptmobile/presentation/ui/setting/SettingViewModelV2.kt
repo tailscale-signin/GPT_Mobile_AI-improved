@@ -121,6 +121,10 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    fun updateReadiness(transform: (dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings) -> dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings) {
+        viewModelScope.launch { settingRepository.mutateFeatureSettings { it.copy(readiness = transform(it.readiness)) } }
+    }
+
     fun updateFeature(feature: AppFeature, enabled: Boolean) {
         viewModelScope.launch {
             settingRepository.mutateFeatureSettings { it.withFeature(feature, enabled) }

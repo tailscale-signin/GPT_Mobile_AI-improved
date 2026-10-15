@@ -225,6 +225,8 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var actualRuntime: String? = null
             var generatedBytes = 0L
             val visibleFingerprint = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputFingerprintAccumulator() }
+            var firstReasoningRecorded = false
+            var firstToolRecorded = false
             var visibleBytes = 0L
             var reasoningBytes = 0L
             var finishReason: String? = null
@@ -237,13 +239,24 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                     session.streamRound(tools, exchanges).flowOn(dispatch).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
-                                if (first == null) first = (System.nanoTime() - started) / 1_000_000
+                                if (first == null && event.text.isNotEmpty()) {
+                                    first = (System.nanoTime() - started) / 1_000_000
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_TEXT, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, elapsedMillis = first)
+                                }
                                 val size = event.text.toByteArray().size
                                 visibleFingerprint?.append(event.text)
                                 visibleBytes += size
                                 generatedBytes += size
                             }
+                            is ProviderEvent.ToolCall -> if (!firstToolRecorded) {
+                                firstToolRecorded = true
+                                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_TOOL, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, elapsedMillis = (System.nanoTime() - started) / 1_000_000)
+                            }
                             is ProviderEvent.ThinkingDelta -> {
+                                if (!firstReasoningRecorded && event.text.isNotEmpty()) {
+                                    firstReasoningRecorded = true
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_REASONING, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, elapsedMillis = (System.nanoTime() - started) / 1_000_000)
+                                }
                                 val size = event.text.toByteArray().size
                                 reasoningBytes += size
                                 generatedBytes += size

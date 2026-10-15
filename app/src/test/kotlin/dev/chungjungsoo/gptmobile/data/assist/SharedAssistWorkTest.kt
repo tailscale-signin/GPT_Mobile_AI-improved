@@ -96,4 +96,33 @@ class SharedAssistWorkTest {
         second.await()
         assertEquals(2, calls)
     }
+
+    @Test fun optionalSubscriberDeadlineDoesNotJoinNativeCleanup() = runTest {
+        val work = SharedAssistWork<String>()
+        val cleanup = CompletableDeferred<Unit>()
+        var released = false
+        val consumer = async {
+            kotlinx.coroutines.withTimeoutOrNull(10) {
+                work.await("deadline", subscriber()) {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            cleanup.await()
+                            released = true
+                        }
+                    }
+                }
+            }
+        }
+        runCurrent()
+        advanceTimeBy(11)
+        runCurrent()
+        assertTrue(consumer.isCompleted)
+        assertNull(consumer.await())
+        assertFalse(released)
+        cleanup.complete(Unit)
+        runCurrent()
+        assertTrue(released)
+    }
 }

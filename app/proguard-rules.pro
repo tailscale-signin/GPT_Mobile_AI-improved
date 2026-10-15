@@ -135,3 +135,8 @@
 
 # GenieX preview uses pinned JNI bindings with native method/class lookup.
 -keep class com.geniex.sdk.** { *; }
+
+# Keep the app-owned coroutine/native session boundary stable in minified builds.
+# JNI SDK classes are retained above; do not synthesize fields named after suspend functions.
+-keep class dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter { *; }
+-keep class dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter$* { *; }

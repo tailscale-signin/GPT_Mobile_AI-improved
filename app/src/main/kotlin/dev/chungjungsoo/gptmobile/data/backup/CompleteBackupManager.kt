@@ -363,6 +363,7 @@ class CompleteBackupManager @Inject constructor(
         recoveryKeyUri: Uri? = null,
         onProgress: (RestoreProgress) -> Unit
     ): BackupRestoreResult = operation { work ->
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         fun report(phase: RestorePhase, completedBytes: Long = 0L, totalBytes: Long = 0L) {
             onProgress(RestoreProgress(phase, completedBytes, totalBytes))
         }
@@ -1028,6 +1029,7 @@ class CompleteBackupManager @Inject constructor(
     private suspend fun operation(block: suspend (File) -> BackupRestoreResult): BackupRestoreResult = withContext(Dispatchers.IO) {
         mutex.withLock {
             val work = File(context.cacheDir, "complete-backup-${UUID.randomUUID()}")
+            val readinessLease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
             try {
                 recoverInterruptedRestore()
                 check(work.mkdirs()) { "Could not create temporary backup storage." }
@@ -1043,6 +1045,7 @@ class CompleteBackupManager @Inject constructor(
                 BackupRestoreResult(false, error.localizedMessage?.takeIf(String::isNotBlank) ?: "The backup could not be read or written.")
             } finally {
                 work.deleteRecursively()
+                readinessLease.close()
             }
         }
     }

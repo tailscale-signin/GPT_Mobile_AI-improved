@@ -193,6 +193,7 @@ class HomeViewModel @Inject constructor(
     init {
         settingRepository.observePlatformV2s().onEach { platforms ->
             val selected = _platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid }.toSet()
+            dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(selected.toList())
             _platformState.value = platforms
             _chatListState.update { it.copy(selectedPlatforms = platforms.map { profile -> profile.enabled && profile.uid in selected }) }
         }.launchIn(viewModelScope)
@@ -404,6 +405,7 @@ class HomeViewModel @Inject constructor(
                 }
             )
         }
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(_platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid })
     }
 
     fun updateSearchQuery(query: String) {
@@ -617,6 +619,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val platforms = settingRepository.fetchPlatformV2s()
             val selected = _platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid }.toSet()
+            dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(selected.toList())
             _platformState.value = platforms
             _chatListState.update { it.copy(selectedPlatforms = platforms.map { profile -> profile.enabled && profile.uid in selected }) }
         }

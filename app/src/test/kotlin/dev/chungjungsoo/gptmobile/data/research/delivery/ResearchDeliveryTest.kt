@@ -31,6 +31,14 @@ class ResearchDeliveryTest {
         assertTrue(packet.instruction().contains("unread"))
     }
 
+    @Test fun combinedCorpusPreservesCapturedDateAndStopCause() {
+        val snapshot = packet().snapshot.copy(updatedAt = 0, phase = "Partial coverage", cancellationOrigin = "USER_STOP_RESEARCH_AND_SUMMARIZE")
+        val frozen = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freeze(snapshot).json().toString()
+        assertTrue(frozen.contains("1970-01-01"))
+        assertTrue(frozen.contains("USER_STOP_RESEARCH_AND_SUMMARIZE"))
+        assertTrue(frozen.contains("Partial coverage"))
+    }
+
     @Test fun unrelatedAndRetractedSourcesCannotDisplaceTheLeadingStudy() {
         val sources = listOf(read, read.copy(id = "S3", url = "https://example.org/other", title = "Unemployment loyalty programs", passage = "Benefits and groundwater", equivalenceGroup = "other"), read.copy(id = "S4", isRetracted = true, equivalenceGroup = "retracted"))
         val selected = ResearchDeliveryPacket.build(ResearchSnapshot("Hydrogen inhalation", sources = sources))
@@ -71,13 +79,18 @@ class ResearchDeliveryTest {
         assertTrue(result.issues.contains("PARTIAL_COVERAGE_NOT_DISCLOSED"))
     }
 
+    @Test fun importantUnreadLeadMustBeDisclosedInTheReport() {
+        val result = ResearchDeliveryValidator.validate("Partial coverage. Unreviewed. [S1] https://example.org/study", packet())
+        assertTrue(result.issues.contains("OMITTED_UNREAD_LEAD:S2"))
+    }
+
     @Test fun referencesAloneDoNotProveLeadingStudyCoverage() {
         val result = ResearchDeliveryValidator.validate("Partial coverage. Independent review is not available.\n\n## References\n\n[S1] https://example.org/study", packet())
         assertTrue(result.issues.contains("OMITTED_LEADING_STUDY:S1"))
     }
 
     @Test fun validSourcedBriefPassesStructuralChecksWithoutClaimingSemanticVerification() {
-        val text = "Partial coverage. Independent review is not available.\n\nThe synthetic trial enrolled 20 participants and reported scores of 9 versus 14 points; follow-up was short and safety remains uncertain. [S1]\n\n## References\n\n[S1] https://example.org/study"
+        val text = "Partial coverage. Independent review is not available.\n\nThe synthetic trial enrolled 20 participants and reported scores of 9 versus 14 points; follow-up was short and safety remains uncertain. [S1]\n\nThe surgery paper is unread; retrieval failed. [S2]\n\n## References\n\n[S1] https://example.org/study\n\n[S2] https://example.org/surgery"
         val result = ResearchDeliveryValidator.validate(text, packet())
         assertEquals(emptyList<String>(), result.issues)
     }

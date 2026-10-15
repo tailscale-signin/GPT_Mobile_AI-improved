@@ -10,10 +10,15 @@ data class ResearchCorpus(
     val claims: List<ResearchClaim>,
     val toolEvents: List<ResearchToolEvent>,
     val task: String = "",
-    val complete: Boolean = false
+    val complete: Boolean = false,
+    val updatedAt: Long = 0,
+    val phase: String = "Partial coverage",
+    val cancellationOrigin: String = "",
+    val notes: List<String> = emptyList(),
+    val questions: List<ResearchQuestion> = emptyList()
 ) {
     fun json() = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(
-        ResearchSnapshot(task = task, sources = sources, claims = claims, toolEvents = toolEvents, complete = complete)
+        ResearchSnapshot(task = task, sources = sources, claims = claims, toolEvents = toolEvents, complete = complete, updatedAt = updatedAt, phase = phase, cancellationOrigin = cancellationOrigin, notes = notes, questionPlan = questions)
     ).json()
 
     /** Resolve only URLs explicitly present in a contribution; never guess from local S1 labels. */
@@ -48,7 +53,7 @@ data class ResearchCorpus(
                     ?.takeIf { it.verdict in setOf("Supported", "Contradicted", "Insufficient") }
                     ?: valid
             }
-            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList(), snapshot.task, snapshot.complete)
+            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList(), snapshot.task, snapshot.complete, snapshot.updatedAt, snapshot.phase, snapshot.cancellationOrigin, snapshot.notes.toList(), snapshot.questionPlan.toList())
         }
     }
 }

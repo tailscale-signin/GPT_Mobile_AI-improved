@@ -62,13 +62,20 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                         withTimeoutOrNull(8000) {
                             val source = input.take(6000)
                             suspend fun generate(prompt: String): String? {
+                                val capacity = loadedEngineSpec()?.maxTokens ?: return null
+                                val outputReserve = try {
+                                    dev.chungjungsoo.gptmobile.data.context.LocalOutputAllocation.reserve(capacity, (PROMPT.toByteArray().size.toLong() + prompt.toByteArray().size + 1) / 2 + 32, 256, 384)
+                                } catch (_: IllegalArgumentException) {
+                                    reason = "CONTEXT_EXHAUSTED"
+                                    return null
+                                }
                                 closeConversation()
                                 createConversation(
                                     LocalConversationConfig(
                                         sampler = LocalSamplerConfig(1, 1f, 0f),
                                         systemPrompt = PROMPT,
                                         initialMessages = emptyList(),
-                                        maxOutputTokens = 384,
+                                        maxOutputTokens = outputReserve,
                                         thinkingEnabled = false
                                     )
                                 )
@@ -94,7 +101,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                                 parsed = generate("Return only the exact JSON schema in the system instruction. Previous output was invalid. Copy quotes exactly from this original source; do not infer new facts.\nSource:\n$source")?.let { parse(it, source) }
                             }
                             reason = when {
-                                parsed == null && reason == "RUNTIME_ERROR" -> reason
+                                parsed == null && reason in setOf("RUNTIME_ERROR", "CONTEXT_EXHAUSTED") -> reason
                                 parsed == null -> "INVALID_OUTPUT"
                                 (parsed["observations"] as kotlinx.serialization.json.JsonArray).isEmpty() -> "NO_ELIGIBLE_FACTS"
                                 else -> "ENRICHED"
@@ -134,7 +141,8 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             setProgress(androidx.work.workDataOf("outcome" to if (reason == "RUNTIME_BUSY") "WAITING_FOR_IDLE" else "WAITING_FOR_MODEL", "reason" to reason))
             outcome(if (reason == "RUNTIME_BUSY") "WAITING_FOR_IDLE" else "WAITING_FOR_MODEL", reason)
         }
-        reason in setOf("NO_ELIGIBLE_FACTS", "PROCESSED_NO_NEW_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
+        reason == "PROCESSED_NO_NEW_FACTS" -> outcome("PROCESSED_NO_NEW_FACTS", reason)
+        reason in setOf("NO_ELIGIBLE_FACTS", "SOURCE_CHANGED") -> outcome("SKIPPED", reason)
         reason == "ENRICHED_WITH_WRITES" -> outcome("SUCCESS", reason)
         reason == "ENRICHED" -> outcome("SKIPPED", "SOURCE_OR_POLICY_CHANGED")
         nextInferenceFailure() <= enrichmentRetryLimit(reason) -> outcome("RETRY", reason)
@@ -161,10 +169,10 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason",
             if (status == "FAILED" || (status == "RETRY" && reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY"))) "W" else "I"
         )
-        if (status == "SUCCESS" || status == "SKIPPED" && reason in setOf("NO_ELIGIBLE_FACTS", "PROCESSED_NO_NEW_FACTS")) {
+        if (status in setOf("SUCCESS", "PROCESSED_NO_NEW_FACTS") || status == "SKIPPED" && reason in setOf("NO_ELIGIBLE_FACTS", "PROCESSED_NO_NEW_FACTS")) {
             MemoryEnrichmentQueue.markCompleted(applicationContext, inputData)
         }
-        val data = androidx.work.workDataOf("outcome" to status, "reason" to reason)
+        val data = androidx.work.workDataOf("outcome" to status, "reason" to reason, "runtimeFingerprint" to inputData.getString("runtimeFingerprint"))
         return when (status) {
             "RETRY" -> Result.retry()
             "FAILED" -> Result.failure(data)

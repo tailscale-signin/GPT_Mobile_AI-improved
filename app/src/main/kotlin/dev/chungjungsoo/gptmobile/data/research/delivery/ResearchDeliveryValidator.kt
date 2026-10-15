@@ -13,7 +13,8 @@ internal object ResearchDeliveryValidator {
     fun validate(text: String, packet: ResearchDeliveryPacket): Result {
         val issues = mutableListOf<String>()
         val allIds = citations.findAll(text).map { it.groupValues[1] }.toSet()
-        val ids = citations.findAll(text.split(Regex("(?im)^#{1,6}\\s+references\\s*$"), limit = 2).first()).map { it.groupValues[1] }.toSet()
+        val body = text.split(Regex("(?im)^#{1,6}\\s+references\\s*$"), limit = 2).first()
+        val ids = citations.findAll(body).map { it.groupValues[1] }.toSet()
         val known = (packet.studies + packet.unread).associateBy { it.id }
         if (text.isBlank()) issues += "EMPTY_REPORT"
         if (allIds.any { it !in known }) issues += "UNKNOWN_CITATION"
@@ -23,7 +24,8 @@ internal object ResearchDeliveryValidator {
             ResearchDeliveryPacket.SECTIONS.filterNot { text.contains(it, ignoreCase = true) }.forEach { issues += "MISSING_SECTION:$it" }
         }
         packet.studies.take(3).filter { it.id !in ids }.forEach { issues += "OMITTED_LEADING_STUDY:${it.id}" }
-        val paragraphs = text.split(Regex("\n\\s*\n"))
+        packet.unread.take(if (packet.detail == ResearchReportDetail.BRIEF) 1 else 3).filter { it.id !in ids }.forEach { issues += "OMITTED_UNREAD_LEAD:${it.id}" }
+        val paragraphs = body.split(Regex("\n\\s*\n"))
         for (paragraph in paragraphs) {
             val cited = citations.findAll(paragraph).map { it.groupValues[1] }.toSet()
             if (paragraph.lines().all { it.isBlank() || it.trimStart().startsWith('#') }) continue
@@ -32,7 +34,7 @@ internal object ResearchDeliveryValidator {
             val readable = cited.mapNotNull { id -> packet.studies.firstOrNull { it.id == id } }
             if (cited.any { id -> packet.unread.any { it.id == id } } && !Regex("(?i)unread|not read|metadata.only|retrieval failed").containsMatchIn(paragraph)) issues += "METADATA_PRESENTED_AS_READ"
             if (readable.isNotEmpty()) {
-                val support = readable.joinToString("\n") { it.passage + "\n" + ResearchDeliveryPacket.bibliography(it) + "\n" + packet.studyFields[it.id].orEmpty() }
+                val support = readable.joinToString("\n") { it.passage + "\n" + it.publishedAt + " " + it.publicationYear?.toString().orEmpty() + "\n" + ResearchDeliveryPacket.bibliography(it) + "\n" + packet.studyFields[it.id].orEmpty() }
                 val allowed = numbers.findAll(support).map { it.value.replace(",", "") }.toSet()
                 val withoutLinks = paragraph.replace(Regex("https?://[^\\s)]+|\\[S[0-9a-f]+\\]|10\\.\\d{4,9}/[^\\s]+"), "")
                 if (numbers.findAll(withoutLinks).any { it.value.replace(",", "") !in allowed }) issues += "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE"
@@ -41,7 +43,8 @@ internal object ResearchDeliveryValidator {
         val urls = Regex("https?://[^\\s)<>]+").findAll(text).map { it.value.trimEnd('.', ',', ';') }.toSet()
         val allowedUrls = known.values.flatMap { listOf(it.url, it.canonicalUrl, it.doi.takeIf(String::isNotBlank)?.let { doi -> "https://doi.org/$doi" }.orEmpty()) }.toSet()
         if (urls.any { it !in allowedUrls }) issues += "UNREGISTERED_REFERENCE_URL"
-        if (packet.studies.isNotEmpty() && packet.studies.none { it.url in urls || it.doi.isNotBlank() && "https://doi.org/${it.doi}" in urls }) issues += "DIRECT_REFERENCES_MISSING"
+        ids.mapNotNull(known::get).filter { source -> source.url !in urls && source.canonicalUrl !in urls && (source.doi.isBlank() || "https://doi.org/${source.doi}" !in urls) }.forEach { issues += "DIRECT_REFERENCE_MISSING:${it.id}" }
+
         return Result(issues.distinct(), ids)
     }
 

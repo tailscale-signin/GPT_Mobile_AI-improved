@@ -1284,15 +1284,6 @@ class ChatRepositoryImpl(
                     validateFreeRequest(platform, effectiveUserMessages, assistantMessages)
                     emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))
                 }
-                if (!platform.excludesMemory()) {
-                    try {
-                        kotlinx.coroutines.withTimeoutOrNull((250 - (System.nanoTime() - preparationStarted) / 1_000_000).coerceAtLeast(0)) { factVault?.load() }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        emit(ApiState.Notice("Memory is unavailable for this response.", persistent = true))
-                    }
-                }
                 val exclusions = workspace?.exclusions(effectiveUserMessages.lastOrNull()?.chatId ?: 0) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
                 var recoveryDenied: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null
                 suspend fun prepareRecoveryContext(allowedTools: List<ResolvedAgentTool>, policy: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, sharingEnabled: Boolean) = if (runId.startsWith("combined-synthesis:")) {
@@ -1484,6 +1475,19 @@ class ChatRepositoryImpl(
                 }
 
                 val preparationPlan = planSendPreparation(effectiveUserMessages, assistantMessages, platform, chatToolConfig, taskRecovery?.originalRequest, taskRecovery != null, admittedPolicy.enabled, runId)
+                if (!platform.excludesMemory() && preparationPlan.kind != dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT) {
+                    try {
+                        if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK) {
+                            factVault?.load()
+                        } else {
+                            kotlinx.coroutines.withTimeoutOrNull(preparationPlan.remainingMillis(preparationStarted)) { factVault?.load() }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        emit(ApiState.Notice("Memory is unavailable for this response.", persistent = true))
+                    }
+                }
                 val unavailableConnections = mutableListOf<String>()
                 val synthesisRun = runId.startsWith("combined-synthesis:")
                 val sourceAcquisitionRequested = chatToolConfig?.research?.let { selection ->

@@ -13,6 +13,21 @@ import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
     @Test
+    fun policyCaptureRetriesOnlyPreparationWhenRevisionSettles() = runTest {
+        val settings = mockk<SettingRepository>()
+        val profile = PlatformV2(uid = "ephemeral", name = "Benchmark")
+        coEvery { settings.fetchPlatformV2s() } returns emptyList()
+        var reads = 0
+        coEvery { settings.getFeatureSettings() } answers {
+            reads++
+            AppFeatureSettings(remoteMcpConnections = reads == 1)
+        }
+        val authority = ConfiguredDispatchAuthority.capture(settings, profile)
+        authority.validate()
+        assertTrue(reads >= 4)
+    }
+
+    @Test
     fun queuedProfileCredentialChangeAndDeletionBlockEveryNewPhysicalAttempt() = runTest {
         val settings = mockk<SettingRepository>()
         val profile = PlatformV2(id = 3, uid = "profile", name = "Primary", token = "old")

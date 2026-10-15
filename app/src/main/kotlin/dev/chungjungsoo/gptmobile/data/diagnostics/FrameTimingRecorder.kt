@@ -32,12 +32,14 @@ internal object FrameTimingRecorder {
         var dropped = 0
         var totalNs = 0L
         var maximumNs = 0L
+        val histogram = FrameDurationHistogram()
         var lastReportMs = SystemClock.elapsedRealtime()
         val frameBudgetNs = (1_000_000_000.0 / (activity.display?.refreshRate ?: 60f)).toLong()
         val listener = Window.OnFrameMetricsAvailableListener { _, metrics, lost ->
             if (!AppLogRecorder.enabled.value) return@OnFrameMetricsAvailableListener
             val duration = metrics.getMetric(FrameMetrics.TOTAL_DURATION).coerceAtLeast(0)
             frames++
+            histogram.add(duration)
             val deadline = metrics.getMetric(FrameMetrics.DEADLINE).takeIf { it > 0 } ?: frameBudgetNs
             if (duration > deadline) slow++
             dropped += lost
@@ -46,7 +48,8 @@ internal object FrameTimingRecorder {
             val nowMs = SystemClock.elapsedRealtime()
             if (frames >= 120 && nowMs - lastReportMs >= 5000) {
                 lastReportMs = nowMs
-                AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
+                AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
+                histogram.clear()
                 frames = 0
                 slow = 0
                 dropped = 0

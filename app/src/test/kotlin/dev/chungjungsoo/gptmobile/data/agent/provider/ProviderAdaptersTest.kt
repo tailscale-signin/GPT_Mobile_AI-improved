@@ -538,8 +538,24 @@ class ProviderAdaptersTest {
         session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
 
         assertEquals(1, preferenceReads)
+        assertEquals(4096, api.chatRequests.first().maxTokens)
         assertEquals(expectedHeaders + ("X-Gateway-Allow-Local-Tools" to "false"), api.configs.first().extraHeaders)
         assertEquals(expectedHeaders + ("X-Gateway-Job-ID" to "job-123"), api.configs.last().extraHeaders)
+    }
+
+    @Test
+    fun `primary allowance bounds but never raises the gateway intermediate budget`() = runBlocking {
+        val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+            override fun gatewayPerformanceHeaders(): Map<String, String> = mapOf("X-Gateway-Intermediate-Max-Tokens" to "1024")
+        }
+        for (cap in listOf(512, 4096)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
+                .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(maxOutputTokens = cap, requestRole = "primary"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(cap, api.chatRequests.single().maxTokens)
+            assertEquals(minOf(1024, cap).toString(), api.configs.single().extraHeaders["X-Gateway-Intermediate-Max-Tokens"])
+        }
     }
 
     @Test

@@ -14,6 +14,20 @@ import kotlinx.serialization.json.put
 /** Configuration is frozen before preparation and rechecked after queueing, before every attempt. */
 internal object ConfiguredDispatchAuthority {
     suspend fun capture(settings: SettingRepository, platform: PlatformV2, chatId: Int? = null): RequestAuthorizationGuard {
+        // These attempts only read configuration. Never re-run provider or tool actions.
+        repeat(3) { attempt ->
+            val guard = captureOnce(settings, platform, chatId)
+            try {
+                guard.validate()
+                return guard
+            } catch (stale: IllegalStateException) {
+                if (attempt == 2 || stale.message?.startsWith("DISPATCH_POLICY_CHANGED:") != true) throw stale
+            }
+        }
+        error("DISPATCH_POLICY_CHANGED: configuration kept changing; retry after settings settle.")
+    }
+
+    private suspend fun captureOnce(settings: SettingRepository, platform: PlatformV2, chatId: Int?): RequestAuthorizationGuard {
         val inherited = currentCoroutineContext()[RequestAuthorizationGuard]
         val matches = settings.fetchPlatformV2s().filter { it.uid == platform.uid }
         check(matches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }

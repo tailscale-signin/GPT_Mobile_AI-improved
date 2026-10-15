@@ -14,6 +14,30 @@ object ErrorTemplates {
     )
 
     fun getTemplateFor(error: ClassifiedError): UiErrorTemplate = when (error.category) {
+        ErrorCategory.INVALID_OUTPUT_CAP -> UiErrorTemplate(
+            title = "Output Limit Needs Adjustment",
+            description = error.userMessage,
+            actionButtonLabel = "Open Settings",
+            autoRetry = false
+        )
+        ErrorCategory.POLICY_STALE -> UiErrorTemplate(
+            title = "Request Settings Changed",
+            description = error.userMessage,
+            actionButtonLabel = "Retry",
+            autoRetry = false
+        )
+        ErrorCategory.MEMORY_STALE -> UiErrorTemplate(
+            title = "Memory Changed",
+            description = error.userMessage,
+            actionButtonLabel = "Retry",
+            autoRetry = false
+        )
+        ErrorCategory.PERMISSION_REQUIRED -> UiErrorTemplate(
+            title = "Source Permission Required",
+            description = error.userMessage,
+            actionButtonLabel = "Review Access",
+            autoRetry = false
+        )
         ErrorCategory.NETWORK_TIMEOUT -> UiErrorTemplate(
             title = "Request Timed Out",
             description = "The AI service took too long to respond. You can retry sending your request.",

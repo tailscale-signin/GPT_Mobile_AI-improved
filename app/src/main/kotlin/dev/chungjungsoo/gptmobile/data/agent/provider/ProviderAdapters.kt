@@ -751,7 +751,9 @@ class OpenAICompatibleAdapter @Inject constructor(
     ): ProviderRequestConfig {
         if (!isLlama) return config
         val headers = buildMap {
-            effectiveOutputTokens?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
+            val configuredIntermediate = config.extraHeaders["X-Gateway-Intermediate-Max-Tokens"]?.toIntOrNull()?.takeIf { it > 0 }
+            val intermediateCap = listOfNotNull(configuredIntermediate, effectiveOutputTokens).minOrNull()
+            intermediateCap?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
             if (constraints.requestRole != null || constraints.maxOutputTokens != null) {
                 put("X-Gateway-Delegated-Worker", "true")
                 put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools && constraints.requestRole != "reviewer").toString())

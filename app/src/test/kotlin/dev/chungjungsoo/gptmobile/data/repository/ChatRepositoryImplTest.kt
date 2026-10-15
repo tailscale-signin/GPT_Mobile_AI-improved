@@ -453,7 +453,7 @@ class ChatRepositoryImplTest {
         )
         assertEquals(1, groqAPI.streamCalls)
         assertEquals(0, openAIAPI.streamChatCompletionCalls)
-        assertEquals(null, groqAPI.lastRequest?.maxCompletionTokens)
+        assertEquals(4096, groqAPI.lastRequest?.maxCompletionTokens)
     }
 
     @Test

@@ -1745,14 +1745,14 @@ class ChatRepositoryImpl(
                     if (synthesisRun) {
                         dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, settings)
                     } else {
-                        planPrimaryContext(turns, prompt, tools, settings)
+                        planPrimaryContext(turns, prompt, tools, settings, platform.compatibleType != ClientType.LITERT_LM)
                     }
                 var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                 AppLogRecorder.record(
                     "Tools",
                     "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}"
                 )
-                if (contextPlan.tools.size < exposedTools.size) {
+                if (contextPlan.authorizedTools.size < exposedTools.size) {
                     AppLogRecorder.record(
                         "Tools",
                         "TOOL_CONTEXT_PRUNED · ${exposedTools.size - contextPlan.tools.size} enabled tools omitted only because the active context budget could not fit their schemas. Increase context capacity to expose the full catalog.",
@@ -2161,7 +2161,7 @@ class ChatRepositoryImpl(
     }
 
     private fun finalRequestTools(tools: List<ResolvedAgentTool>, plan: dev.chungjungsoo.gptmobile.data.context.ContextPlan, delegated: Boolean, coordinator: LocalDelegationCoordinator, task: String): List<ResolvedAgentTool> {
-        val selected = plan.tools.mapTo(HashSet()) { it.name }
+        val selected = plan.authorizedTools.mapTo(HashSet()) { it.name }
         return tools.filter { it.modelToolName in selected }.map { if (delegated) coordinator.processToolResults(it, task) else it }
     }
 
@@ -2180,7 +2180,7 @@ class ChatRepositoryImpl(
             resolved in connectedMemoryTools ||
             localResearch ||
             explicitResearch ||
-            contextPlan.tools.any {
+            contextPlan.authorizedTools.any {
                 it.name == resolved.modelToolName ||
                     (it.name == "web_search" && resolved.isWebSearchEngine()) ||
                     (it.name in setOf("amazon_search", "amazon_get_products") && it.name == resolved.realToolName)
@@ -2256,8 +2256,14 @@ class ChatRepositoryImpl(
         return AuthorizedResearchMemory(packet.text, packet.outcomes.map { "study:${it.outcomeId}:${it.versionId}" }) { researchRecall?.validate(packet, ::permitted) != false }
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
-        dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, prompt, tools.map { it.tool.definition }, limits)
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
+        val definitions = tools.map { it.tool.definition }
+        val catalog = if (limits.adaptiveToolCatalog && externalTools) dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(definitions, turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()) else null
+        val advertised = catalog?.selected(definitions + catalog.definition) ?: definitions
+        val plan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, prompt, advertised, limits)
+        // Discovery preserves the full authorized set only when its schema actually fits.
+        return if (catalog != null && plan.tools.any { it.name == catalog.definition.name }) plan.copy(authorizedTools = definitions) else plan
+    }
 
     private fun withoutExcludedAttachments(messages: List<MessageV2>, excluded: Collection<String>) =
         messages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in excluded }) }
@@ -2312,7 +2318,7 @@ class ChatRepositoryImpl(
             allowReasoning = !editorialPass,
             allowGatewayLocalTools = false
         )
-        if (editorialPass) AppLogRecorder.record("Combined", "OUTPUT_CAP_RESOLVED · runId=$runId · requested=${effectiveOutputCap ?: -1} · profile=${platform.maxTokens ?: -1} · provider=${dev.chungjungsoo.gptmobile.data.agent.provider.ProviderOutputLimits.effective(capKey, null) ?: -1} · effective=${resolvedOutputCap ?: -1}")
+        if (editorialPass) AppLogRecorder.record("Combined", "OUTPUT_CAP_RESOLVED · runId=$runId · requested=${effectiveOutputCap ?: -1} · profile=${platform.maxTokens ?: -1} · provider=${dev.chungjungsoo.gptmobile.data.agent.provider.ProviderOutputLimits.ceiling(capKey) ?: -1} · effective=${resolvedOutputCap ?: -1}")
         if (localResearch) {
             AppLogRecorder.record(
                 "Delegation",
@@ -2343,7 +2349,7 @@ class ChatRepositoryImpl(
                 AppLogRecorder.record("Debug", "Request snapshot unavailable · parentRunId=$runId · requestKind=$kind", "W")
             }
             val costs = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.breakdown(turns, requestPlatform.systemPrompt.orEmpty(), if (textOnly) emptyList() else contextPlan.tools)
-            AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
+            AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · phase=initial_advertisement · authorizedTools=${if (textOnly) 0 else contextPlan.authorizedTools.size} · advertisedSchema=see_WIRE_SCHEMA · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
             val raw = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, constraints)
 
@@ -2483,7 +2489,7 @@ class ChatRepositoryImpl(
         }
 
         val catalog = if (budgetSettings.adaptiveToolCatalog && !groundedSession.handlesToolsInternally) {
-            dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty())
+            dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty(), contextPlan.tools.mapTo(HashSet()) { it.name })
         } else {
             null
         }

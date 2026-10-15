@@ -79,7 +79,8 @@ class McpClientManager internal constructor(
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val modern: ModernMcpTransport? = null,
     private val trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
-    private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null
+    private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
+    private val retryJitterMs: () -> Long = { kotlin.random.Random.nextLong(0, 1001) }
 ) {
     @Inject
     constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust, statistics = statistics)
@@ -362,7 +363,7 @@ class McpClientManager internal constructor(
         _health.update { current ->
             val previous = current[connectionUid] ?: McpConnectionHealth()
             val failures = previous.consecutiveFailures + 1
-            val delay = retryDelayMs(failures)
+            val delay = retryDelayMs(failures) + retryJitterMs().coerceIn(0, 1000)
             val authenticationRequired = error.isMcpUnauthorized()
             updated = previous.copy(
                 state = when {

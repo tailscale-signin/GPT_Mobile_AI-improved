@@ -54,13 +54,30 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             null
         }
         val root = if (reasoning != null) dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.apply(original, reasoning) else original
-        val finalPayload = if (reasoning != null) root.toString() else payload
+        val controlledPayload = if (reasoning != null) root.toString() else payload
         val generation = root["generationConfig"] as? JsonObject
         val transmitted = listOfNotNull(root["max_completion_tokens"], root["max_output_tokens"], root["max_tokens"], generation?.get("maxOutputTokens"))
             .mapNotNull { (it as? JsonPrimitive)?.longOrNull?.takeIf { count -> count > 0 } }.minOrNull() ?: outputTokens?.takeIf { it > 0 }?.toLong()
         val permissionRevision = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
+        val allowance = dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(transmitted, snapshot.outputTokens, snapshot.contextTokens, RequestAdmission.estimate(controlledPayload))
+        val bounded = applyOutputAllowance(root, config.providerType, allowance.tokens)
+        var finalPayload = bounded.toString()
+        // Inserting the cap itself changes the serialized prompt estimate. Resolve against
+        // those exact bytes once more; lowering a positive integer cannot add bytes.
+        val finalAllowance = dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(allowance.tokens, snapshot.outputTokens, snapshot.contextTokens, RequestAdmission.estimate(finalPayload))
+        if (finalAllowance.tokens != allowance.tokens) finalPayload = applyOutputAllowance(bounded, config.providerType, finalAllowance.tokens).toString()
         val measured = RequestAdmission.estimate(finalPayload)
-        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, transmitted, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning)
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Admission",
+            "OUTPUT_ALLOWANCE · role=${config.requestRole} · tokens=${finalAllowance.tokens} · source=${allowance.source} · providerCeiling=${snapshot.outputTokens ?: "unknown"} · providerConfirmed=${snapshot.provenance == CapacityProvenance.VERIFIED_ROUTE}"
+        )
+        val toolSchema = bounded["tools"]?.toString().orEmpty()
+        val toolCount = (bounded["tools"] as? kotlinx.serialization.json.JsonArray)?.size ?: 0
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "ToolCatalog",
+            "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=$toolCount · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
+        )
+        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
             "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
@@ -70,4 +87,24 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))
         return wire
     }
+}
+
+internal fun applyOutputAllowance(root: JsonObject, provider: String?, tokens: Long): JsonObject {
+    require(tokens > 0)
+    val value = JsonPrimitive(tokens)
+    val existing = listOf("max_completion_tokens", "max_output_tokens", "max_tokens").filter(root::containsKey)
+    if (provider == "GOOGLE" || root.containsKey("generationConfig")) {
+        val config = root["generationConfig"] as? JsonObject ?: JsonObject(emptyMap())
+        return JsonObject(root + ("generationConfig" to JsonObject(config + ("maxOutputTokens" to value))))
+    }
+    val keys = existing.ifEmpty {
+        listOf(
+            when {
+                root.containsKey("input") -> "max_output_tokens"
+                provider == "OPENAI" -> "max_completion_tokens"
+                else -> "max_tokens"
+            }
+        )
+    }
+    return JsonObject(root + keys.associateWith { value })
 }

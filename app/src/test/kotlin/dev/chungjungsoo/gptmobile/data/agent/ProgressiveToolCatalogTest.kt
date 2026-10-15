@@ -12,6 +12,16 @@ import org.junit.Test
 class ProgressiveToolCatalogTest {
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
 
+    @Test fun plannedInitialSchemasDoNotRemoveDiscoverableAuthorization() = runTest {
+        val planned = requireNotNull(ProgressiveToolCatalog.create(tools, "task_1"))
+        val initial = planned.selected(tools).map { it.name }.take(3).toSet()
+        val runner = requireNotNull(ProgressiveToolCatalog.create(tools, "task_1", initial))
+        assertEquals(initial, runner.selected(tools).map { it.name }.toSet())
+        runner.execute("d", JsonObject(mapOf("query" to JsonPrimitive("task_80"))))
+        assertTrue(runner.selected(tools).any { it.name == "task_80" })
+        assertFalse(runner.selected(tools.dropLast(1)).any { it.name == "task_80" })
+    }
+
     @Test fun catalogIsBoundedAndDiscoveryCannotGrantPermission() = runTest {
         val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task_1"))
         assertEquals(24, catalog.selected(tools).size)

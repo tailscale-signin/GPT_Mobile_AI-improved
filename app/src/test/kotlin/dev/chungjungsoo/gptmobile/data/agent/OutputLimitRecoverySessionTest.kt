@@ -12,6 +12,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
+    @Test fun reasoningOnlyOrdinaryRequestDoesNotContinueAnAbsentAnswer() = runTest {
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.ThinkingDelta("reasoning"))
+                emit(ProviderEvent.Usage(outputTokens = 4096, finishReason = "length"))
+                emit(ProviderEvent.Failed("The response reached its output limit."))
+            },
+            continueEmptyOutput = false
+        ) { _, _ -> error("No visible answer to continue") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
     @Test fun textOnlyNativeRecoveryResumesVerifiedPrefixWithoutSendingAnInitialRequest() = runTest {
         val native = object : AgentProviderSession {
             override val handlesToolsInternally = true

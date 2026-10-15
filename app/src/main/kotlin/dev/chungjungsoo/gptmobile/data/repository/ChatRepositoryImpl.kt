@@ -2574,6 +2574,7 @@ class ChatRepositoryImpl(
             recoverTransientFailures = contextPlan.multipass == null,
             initialDraft = restoredDraft,
             allowInternalToolRecovery = editorialPass,
+            continueEmptyOutput = editorialPass,
             effectiveOutputCap = resolvedOutputCap,
             maxAnswerCharacters = budgetSettings.responseCharacterLimit,
             saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
@@ -2774,7 +2775,9 @@ class ChatRepositoryImpl(
                     is ProviderEvent.LocalMetrics -> Unit
                     is ProviderEvent.RequestConfigured -> Unit
                     is ProviderEvent.Usage -> {
-                        emit(ApiState.TokenUsage(providerEvent.inputTokens, providerEvent.outputTokens, providerEvent.totalTokens))
+                        if (providerEvent.inputTokens != null || providerEvent.outputTokens != null || providerEvent.totalTokens != null) {
+                            emit(ApiState.TokenUsage(providerEvent.inputTokens, providerEvent.outputTokens, providerEvent.totalTokens))
+                        }
                         providerEvent.inputTokens?.let {
                             accumulatedInputTokens = if (providerEvent.cumulative) maxOf(accumulatedInputTokens, it.toLong()) else accumulatedInputTokens + it
                             hasInputTokenUsage = true

@@ -13,6 +13,7 @@ internal class OutputLimitRecoverySession(
     private val recoverTransientFailures: Boolean = false,
     initialDraft: String = "",
     private val allowInternalToolRecovery: Boolean = false,
+    private val continueEmptyOutput: Boolean = true,
     private var effectiveOutputCap: Int? = null,
     private val maxAnswerCharacters: Int = 1_048_576,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
@@ -110,6 +111,11 @@ internal class OutputLimitRecoverySession(
             saveProgress(answer.toString(), continuations, effectiveOutputCap, "SEGMENT_COMMITTED")
             val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true ||
                 reportedFinishReason in setOf("length", "max_tokens", "MAX_TOKENS")
+            if (limitFailure && answer.isBlank() && !continueEmptyOutput) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "FAILED")
+                emit(failure ?: ProviderEvent.Failed("The model reached its output limit without a visible answer. Check reasoning and output settings before retrying."))
+                return@flow
+            }
             lowYieldLimitRounds = if (limitFailure && (reportedOutputTokens ?: 0) >= 1024 && novel.toByteArray(Charsets.UTF_8).size <= 256) lowYieldLimitRounds + 1 else 0
             if (lowYieldLimitRounds >= 2) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")

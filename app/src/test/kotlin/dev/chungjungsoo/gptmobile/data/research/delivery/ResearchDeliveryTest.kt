@@ -174,4 +174,22 @@ class ResearchDeliveryTest {
         assertTrue(text.contains("Partial coverage"))
         assertEquals(1, events.count { it == ProviderEvent.Completed })
     }
+    @Test fun revokedRepairNeverReleasesCachedEvidenceFallback() = runTest {
+        val invalid = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.TextDelta("Invalid draft"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val denied = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.Failed("SOURCE_PERMISSION_REVOKED: source disabled"))
+            }
+        }
+        val session = ResearchDeliverySession(invalid, { packet() }) { _, repair -> if (repair) denied else invalid }
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.Failed })
+        assertFalse(events.any { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
+    }
+
 }

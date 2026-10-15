@@ -2130,7 +2130,7 @@ class ChatRepositoryImpl(
         val rebuild = rebuildFence.canRebuild(error, attempt)
         if (rebuild) {
             AppLogRecorder.record("Admission", "POLICY_REBUILD · run=$runId · attempt=1 · physicalDispatches=0")
-            emit(ApiState.Notice("Settings changed during preparation. Updating the request."))
+            emit(ApiState.Notice("Settings or memory changed during preparation. Updating the request."))
         }
         rebuild
     }.catch { error ->
@@ -2527,6 +2527,11 @@ class ChatRepositoryImpl(
             require(platform.compatibleType == ClientType.LITERT_LM || plan.frozenTurns.none { it.assistantMessage?.containsLocalOnlyMemory() == true }) {
                 "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history."
             }
+            val inspectionCheckpoint = dev.chungjungsoo.gptmobile.data.context.CombinedInspectionCheckpoint(
+                workspace, plan, requestPlatform.systemPrompt.orEmpty(), limits,
+                "${platform.uid}:${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)}:${dispatchAuthority.revision}",
+                latestUser?.chatId ?: 0, runId
+            )
             dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassSession(
                 plan = plan,
                 system = requestPlatform.systemPrompt.orEmpty(),
@@ -2534,7 +2539,14 @@ class ChatRepositoryImpl(
                 open = { turns, kind, passCap ->
                     openPrimarySession(turns, kind, textOnly = true, passOutputTokens = passCap)
                 },
-                onFinalContext = { turns -> multipassFinalTurns.set(turns) }
+                onFinalContext = { turns -> multipassFinalTurns.set(turns) },
+                restoreInspection = inspectionCheckpoint::restore,
+                saveInspection = inspectionCheckpoint::save,
+                validateCheckpointAccess = {
+                    dispatchAuthority.validate()
+                    if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                    factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                }
             )
         } ?: openPrimarySession(contextPlan.turns)
         val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
@@ -3278,6 +3290,11 @@ class ChatRepositoryImpl(
         )
 
         return chatRoom
+    }
+
+    override suspend fun createEvidenceFreeRetry(sourceChatId: Int, question: String, profile: PlatformV2): ChatRoomV2 {
+        check(settingRepository.fetchPlatformV2s().any { it.uid == profile.uid && it.enabled }) { "The selected profile is no longer enabled." }
+        return agentPersistenceDao.createEvidenceFreeRetry(sourceChatId, question, profile.uid, profile.model, System.currentTimeMillis() / 1000)
     }
 
     override suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2 {

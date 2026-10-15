@@ -762,7 +762,7 @@ class FactVaultRepository @Inject constructor(
     suspend fun validateRecall(recall: FactRecall, chatId: Int, isLocal: Boolean) {
         if (recall.facts.isEmpty()) return
         val allowed = visibleFacts(chatId, isLocal, includeLocalOnly = true).associateBy { it.id }
-        require(recall.facts.all { old -> allowed[old.id]?.hasSameRecallContent(old) == true }) { "MEMORY_STALE: Memory changed before sending. Retry to prepare from current authorized memory, or disable recall for this profile and retry." }
+        require(recall.facts.all { old -> allowed[old.id]?.hasSameRecallContent(old) == true }) { "MEMORY_STALE: Memory changed before sending. Preparation must be rebuilt from current authorized memory." }
     }
 
     private suspend fun loadLocked() {

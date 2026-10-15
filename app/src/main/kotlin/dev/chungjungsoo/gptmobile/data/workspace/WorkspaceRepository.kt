@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.workspace
 
+import androidx.room.withTransaction
+
 import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
@@ -96,6 +98,79 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return
         require(payload.toString().length <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
         dao.save(WorkspaceRecord(id, "synthesis_checkpoint", "Combined writing progress", payload.toString(), chatId, runId))
+    }
+
+    /** Each encrypted chunk fits the vault limit. Publish metadata only after all chunks exist. */
+    suspend fun saveProtectedSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject) {
+        if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return
+        val bytes = payload.toString().encodeToByteArray()
+        require(bytes.size <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
+        val references = mutableListOf<String>()
+        var committed = false
+        try {
+            for (start in bytes.indices step 60_000) {
+                val reference = "workspace-memory-$chatId-${UUID.randomUUID()}"
+                references += reference
+                val chunk = bytes.copyOfRange(start, minOf(start + 60_000, bytes.size))
+                try { vault.put(reference, chunk) } finally { chunk.fill(0) }
+            }
+            val metadata = kotlinx.serialization.json.buildJsonObject {
+                put("protectedChunks", kotlinx.serialization.json.JsonArray(references.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                put("digest", kotlinx.serialization.json.JsonPrimitive(digest(payload.toString())))
+            }
+            val previous = dao.get(id)?.payload?.let { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
+            committed = database.withTransaction {
+                if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return@withTransaction false
+                dao.save(WorkspaceRecord(id, "synthesis_checkpoint", "Combined inspection progress", metadata.toString(), chatId, runId))
+                true
+            }
+            if (!committed) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    references.forEach { reference -> runCatching { vault.delete(reference) } }
+                }
+                return
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                (previous?.get("protectedChunks") as? kotlinx.serialization.json.JsonArray).orEmpty().forEach {
+                    (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { reference ->
+                        if (reference.startsWith("workspace-memory-$chatId-")) runCatching { vault.delete(reference) }
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            // Unpublished chunks are safe to remove; a published record must remain readable.
+            if (!committed) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                references.forEach { reference -> runCatching { vault.delete(reference) } }
+            }
+            throw error
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    suspend fun protectedSynthesisCheckpoint(id: String): kotlinx.serialization.json.JsonObject? {
+        val record = dao.get(id) ?: return null
+        val chatId = record.chatId ?: return null
+        if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return null
+        val metadata = Json.parseToJsonElement(record.payload) as? kotlinx.serialization.json.JsonObject ?: return null
+        val references = metadata["protectedChunks"] as? kotlinx.serialization.json.JsonArray ?: return null
+        if (references.size !in 1..25) return null
+        val output = java.io.ByteArrayOutputStream()
+        for (item in references) {
+            val reference = (item as? kotlinx.serialization.json.JsonPrimitive)?.content ?: return null
+            if (!reference.startsWith("workspace-memory-${record.chatId}-")) return null
+            val bytes = vault.read(reference) ?: return null
+            try {
+                if (output.size() + bytes.size > 1_500_000) return null
+                output.write(bytes)
+            } finally { bytes.fill(0) }
+        }
+        val bytes = output.toByteArray()
+        return try {
+            val text = bytes.decodeToString()
+            if ((metadata["digest"] as? kotlinx.serialization.json.JsonPrimitive)?.content != digest(text)) null
+            else Json.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject
+        } finally { bytes.fill(0) }
     }
 
     suspend fun readReceipt(entry: WorkspaceRecord): ContextReceipt {

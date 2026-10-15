@@ -197,6 +197,23 @@ interface AgentPersistenceDao {
         }
     }
 
+    /** Fresh user-authorized scope, without copying any saved response/evidence/attachments. */
+    @Transaction
+    suspend fun createEvidenceFreeRetry(sourceChatId: Int, question: String, profileUid: String, model: String, now: Long): ChatRoomV2 {
+        val source = requireNotNull(getChatRoom(sourceChatId)) { "The source conversation was deleted." }
+        require(question.isNotBlank() && profileUid.isNotBlank())
+        val draft = ChatRoomV2(
+            title = question.replace('\n', ' ').take(50),
+            enabledPlatform = listOf(profileUid), activePlatform = listOf(profileUid),
+            createdAt = now, updatedAt = now, isTemporary = source.isTemporary
+        )
+        val room = draft.copy(id = insertChatRoom(draft).toInt())
+        val user = insertMessage(MessageV2(chatId = room.id, content = question, platformType = null, createdAt = now)).toInt()
+        insertMessage(MessageV2(chatId = room.id, content = "", platformType = profileUid, linkedMessageId = user, createdAt = now))
+        upsertModels(listOf(ChatPlatformModelV2(room.id, profileUid, model, now)))
+        return room
+    }
+
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
         request.queuedPromptId?.let { id ->

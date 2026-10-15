@@ -92,4 +92,23 @@ class WorkspaceIntegrationTest {
         assertFalse(resolver.resolve(parent).accepts(boundary.key))
         assertFalse(resolver.resolve(right).accepts(boundary.key))
     }
+    @Test fun evidenceFreeRetryCreatesAnUnlinkedScopeAndPreservesTheOriginal() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val source = dao.insertChatRoom(ChatRoomV2(title = "Original", enabledPlatform = listOf("p", "q"), isTemporary = true)).toInt()
+        dao.insertMessage(MessageV2(chatId = source, content = "Original question", platformType = null))
+        dao.insertMessage(MessageV2(chatId = source, content = "Protected evidence", platformType = "p"))
+        val before = dao.getMessages(source)
+        val fresh = dao.createEvidenceFreeRetry(source, "Original question", "p", "chosen-model", 123)
+        assertTrue(fresh.id != source)
+        assertTrue(fresh.isTemporary)
+        assertEquals(null, fresh.parentChatId)
+        assertEquals(listOf("p"), fresh.enabledPlatform)
+        assertEquals(before, dao.getMessages(source))
+        val messages = dao.getMessages(fresh.id)
+        assertEquals(listOf("Original question", ""), messages.map { it.content })
+        assertEquals(messages.first().id, messages.last().linkedMessageId)
+        assertTrue(messages.all { it.attachments.isEmpty() && it.timeline.isEmpty() && it.currentRunId == null })
+        assertEquals("chosen-model", dao.getModels(fresh.id).single().model)
+    }
+
 }

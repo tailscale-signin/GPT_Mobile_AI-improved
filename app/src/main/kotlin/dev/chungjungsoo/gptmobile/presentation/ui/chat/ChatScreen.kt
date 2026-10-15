@@ -192,6 +192,7 @@ fun ChatScreen(
     chatViewModel: ChatViewModel = hiltViewModel(),
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
+    onReviewEvidenceAccess: () -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null
 ) {
@@ -287,6 +288,28 @@ fun ChatScreen(
         if (chatRoom.id > 0) {
             chatViewModel.markCurrentChatViewed()
         }
+    }
+    var dismissedRecovery by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
+    val recoveryTurn = groupedMessages.assistantMessages.lastIndex
+    val blockedResponse = groupedMessages.assistantMessages.lastOrNull()?.withIndex()?.firstOrNull { (_, message) ->
+        message.currentRunId != null && message.timeline.any { it.recoveryBlock?.generationId == message.currentRunId }
+    }
+    val recoveryBlock = blockedResponse?.value?.let { message -> message.timeline.lastOrNull { it.recoveryBlock?.generationId == message.currentRunId }?.recoveryBlock }
+    val recoveryKey = recoveryBlock?.let { "${it.generationId}:${it.fingerprint}" }
+    if (recoveryBlock != null && recoveryKey != dismissedRecovery && blockedResponse != null && loadingStates.none { it == ChatViewModel.LoadingState.Loading }) {
+        EvidenceRecoveryDialog(
+            recoveryBlock,
+            onDismiss = { dismissedRecovery = recoveryKey },
+            onReviewAccess = onReviewEvidenceAccess,
+            onRetry = {
+                dismissedRecovery = recoveryKey
+                chatViewModel.retryChat(recoveryTurn, blockedResponse.index)
+            },
+            onWithoutEvidence = {
+                dismissedRecovery = recoveryKey
+                chatViewModel.retryWithoutSavedEvidence(recoveryTurn, blockedResponse.index)
+            }
+        )
     }
     val disabledPlatformUids by chatViewModel.disabledPlatformUids.collectAsStateWithLifecycle()
     val nextMessageProfileUid by chatViewModel.nextMessageProfileUid.collectAsStateWithLifecycle()

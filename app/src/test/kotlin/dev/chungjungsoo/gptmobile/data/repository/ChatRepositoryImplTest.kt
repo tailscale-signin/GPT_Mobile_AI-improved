@@ -99,6 +99,47 @@ class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
     @Test
+    fun comprehensiveCombinedUsesFrozenSourcesAndPublishesOnlyTheRepairedAnswer() = runBlocking {
+        val sources = listOf(
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = "Haiti became independent in 1804 after a successful revolution."),
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("helper", "Helper", content = "Australian soldiers confronted migrating emus in 1932.")
+        )
+        val original = MessageV2(id = 2, chatId = 1, platformType = null, content = "Choose an interesting historical event in 100 words.")
+        val platform = customPlatform().copy(disableAllTools = true, disableLocalTools = true)
+        val prompt = dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(original.content, sources)
+        val snapshot = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+            userMessage = original, history = emptyList(), replies = emptyList(), sources = sources,
+            prompt = prompt, profileUid = platform.uid, model = platform.model,
+            systemPrompt = platform.systemPrompt.orEmpty(), configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)
+        )
+        val runId = "combined-synthesis:repository-coverage"
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        coEvery { persistence.recoveryRun(runId) } returns dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+            runId,
+            1,
+            2,
+            3,
+            platform.uid,
+            platform.compatibleType.name,
+            platform.model,
+            synthesisSnapshot = kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot.serializer(), snapshot)
+        )
+        val complete = sources.joinToString("\n\n") { it.content }
+        fun chunk(text: String) = flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = text), finishReason = "stop"))))
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(chunk(sources.first().content), chunk(complete))))
+        val states = createRepository(openAIAPI = api, persistenceOverride = persistence).completeChat(
+            listOf(original.copy(content = prompt)),
+            emptyList(),
+            platform,
+            runId
+        ).toList()
+        assertEquals(states.toString(), 2, api.streamChatCompletionCalls)
+        assertEquals(complete, states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+        assertTrue(states.toString(), states.none { it is ApiState.Error })
+        assertTrue(states.any { it is ApiState.Notice && it.message.contains("Repairing omitted material") })
+    }
+
+    @Test
     fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()
         coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }

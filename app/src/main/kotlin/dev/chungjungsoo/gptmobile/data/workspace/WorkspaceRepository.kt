@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.workspace
 
 import androidx.room.withTransaction
-
 import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
@@ -112,7 +111,11 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                 val reference = "workspace-memory-$chatId-${UUID.randomUUID()}"
                 references += reference
                 val chunk = bytes.copyOfRange(start, minOf(start + 60_000, bytes.size))
-                try { vault.put(reference, chunk) } finally { chunk.fill(0) }
+                try {
+                    vault.put(reference, chunk)
+                } finally {
+                    chunk.fill(0)
+                }
             }
             val metadata = kotlinx.serialization.json.buildJsonObject {
                 put("protectedChunks", kotlinx.serialization.json.JsonArray(references.map { kotlinx.serialization.json.JsonPrimitive(it) }))
@@ -139,8 +142,10 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             }
         } catch (error: Exception) {
             // Unpublished chunks are safe to remove; a published record must remain readable.
-            if (!committed) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                references.forEach { reference -> runCatching { vault.delete(reference) } }
+            if (!committed) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    references.forEach { reference -> runCatching { vault.delete(reference) } }
+                }
             }
             throw error
         } finally {
@@ -163,14 +168,21 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             try {
                 if (output.size() + bytes.size > 1_500_000) return null
                 output.write(bytes)
-            } finally { bytes.fill(0) }
+            } finally {
+                bytes.fill(0)
+            }
         }
         val bytes = output.toByteArray()
         return try {
             val text = bytes.decodeToString()
-            if ((metadata["digest"] as? kotlinx.serialization.json.JsonPrimitive)?.content != digest(text)) null
-            else Json.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject
-        } finally { bytes.fill(0) }
+            if ((metadata["digest"] as? kotlinx.serialization.json.JsonPrimitive)?.content != digest(text)) {
+                null
+            } else {
+                Json.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject
+            }
+        } finally {
+            bytes.fill(0)
+        }
     }
 
     suspend fun readReceipt(entry: WorkspaceRecord): ContextReceipt {

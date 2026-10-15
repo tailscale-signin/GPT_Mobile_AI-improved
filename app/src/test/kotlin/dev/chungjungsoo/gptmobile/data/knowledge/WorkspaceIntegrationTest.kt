@@ -92,6 +92,7 @@ class WorkspaceIntegrationTest {
         assertFalse(resolver.resolve(parent).accepts(boundary.key))
         assertFalse(resolver.resolve(right).accepts(boundary.key))
     }
+
     @Test fun evidenceFreeRetryCreatesAnUnlinkedScopeAndPreservesTheOriginal() = runBlocking {
         val dao = database.agentPersistenceDao()
         val source = dao.insertChatRoom(ChatRoomV2(title = "Original", enabledPlatform = listOf("p", "q"), isTemporary = true)).toInt()
@@ -110,5 +111,4 @@ class WorkspaceIntegrationTest {
         assertTrue(messages.all { it.attachments.isEmpty() && it.timeline.isEmpty() && it.currentRunId == null })
         assertEquals("chosen-model", dao.getModels(fresh.id).single().model)
     }
-
 }

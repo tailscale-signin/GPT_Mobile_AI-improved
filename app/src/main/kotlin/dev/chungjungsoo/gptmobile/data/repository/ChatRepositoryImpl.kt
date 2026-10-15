@@ -741,7 +741,7 @@ class ChatRepositoryImpl(
                         false
                     } else {
                         resolved.connectionUid?.let { uid ->
-                            toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                            toolApprovals?.authorizeOrThrow(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
                         } ?: true
                     }
                 }
@@ -879,7 +879,7 @@ class ChatRepositoryImpl(
                 openAICompatibleAdapter.openSession(turns, bounded, constraints)
             ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded, constraints)
             ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded, constraints)
-            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, childTools, constraints)
+            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, childTools, constraints, progressSettings = settingRepository.getFeatureSettings().profileProgressDeadlines[bounded.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings())
         }.withDeviceLocation(
             clientType = bounded.compatibleType,
             userPrompt = task,
@@ -1169,6 +1169,10 @@ class ChatRepositoryImpl(
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { journal ->
                 val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
                 journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
+            }
+            if (platform.compatibleType == ClientType.LITERT_LM) {
+                val selection = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
+                localRuntime.preflightModel(selection.path, platform.accelerator)
             }
             val recovery = prepareRecoveryRequest(userMessages, assistantMessages, runId)
             if (recovery == null) {
@@ -2217,7 +2221,7 @@ class ChatRepositoryImpl(
                     false
                 } else {
                     resolved.connectionUid?.let { uid ->
-                        toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                        toolApprovals?.authorizeOrThrow(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
                     } ?: true
                 }
             }
@@ -2454,7 +2458,8 @@ class ChatRepositoryImpl(
                         deliveryPlatform,
                         if (textOnly) emptyList() else effectiveTools.map { it.tool },
                         deliveryConstraints,
-                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
+                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true),
+                        progressSettings = progressSettings
                     )
                 }
             }
@@ -2528,9 +2533,13 @@ class ChatRepositoryImpl(
                 "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history."
             }
             val inspectionCheckpoint = dev.chungjungsoo.gptmobile.data.context.CombinedInspectionCheckpoint(
-                workspace, plan, requestPlatform.systemPrompt.orEmpty(), limits,
+                workspace,
+                plan,
+                requestPlatform.systemPrompt.orEmpty(),
+                limits,
                 "${platform.uid}:${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)}:${dispatchAuthority.revision}",
-                latestUser?.chatId ?: 0, runId
+                latestUser?.chatId ?: 0,
+                runId
             )
             dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassSession(
                 plan = plan,

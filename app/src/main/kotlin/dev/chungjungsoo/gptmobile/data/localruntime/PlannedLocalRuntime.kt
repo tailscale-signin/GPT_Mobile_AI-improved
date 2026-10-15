@@ -92,6 +92,7 @@ class PlannedLocalRuntime(
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         if (isEngineLoaded(spec)) return
+        delegate.preflightModel(spec.modelPath, spec.accelerator)
         val artifact = artifactIdentity(spec)
         val current = settings.getFeatureSettings()
         val tuning = current.localEngineTuning()

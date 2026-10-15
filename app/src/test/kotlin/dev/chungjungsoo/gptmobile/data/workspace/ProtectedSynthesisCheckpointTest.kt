@@ -32,14 +32,18 @@ class ProtectedSynthesisCheckpointTest {
             secrets[secretRef] = secret.copyOf()
         }
         override suspend fun read(secretRef: String) = secrets[secretRef]?.copyOf()
-        override suspend fun delete(secretRef: String) { secrets.remove(secretRef) }
+        override suspend fun delete(secretRef: String) {
+            secrets.remove(secretRef)
+        }
     }
 
     @Before fun setup() {
         database = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
     }
 
-    @After fun close() { database.close() }
+    @After fun close() {
+        database.close()
+    }
 
     @Test fun largeUnicodeReportSurvivesReopenWithoutPlaintextInMetadata() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Checkpoint")).toInt()

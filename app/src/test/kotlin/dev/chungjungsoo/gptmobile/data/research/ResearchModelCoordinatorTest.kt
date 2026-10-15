@@ -130,4 +130,50 @@ class ResearchModelCoordinatorTest {
         assertFalse(snapshot.json().toString().contains("PRIVATE_SOURCE_SENTINEL"))
         assertTrue(restored.modelEvents.single().inputTokensEstimate > 0)
     }
+
+    @Test fun failedPlanningDoesNotOpenTheExtractionOrReviewCircuit() = runTest {
+        val endpoint = ResearchModelEndpoint("worker", "model", "same-model", false, { true }) { stage, _, _ ->
+            if (stage == ResearchModelStage.PLAN) error("planner schema failed")
+            ResearchModelReply(if (stage == ResearchModelStage.EXTRACT) """{"claims":[]}""" else """{"verdict":"Insufficient","relevance":"Relevant","questionId":"Q1"}""", "same-model")
+        }
+        val coordinator = ResearchModelCoordinator(listOf(endpoint))
+        repeat(2) { assertNull(coordinator.generate(ResearchModelStage.PLAN, "task", 128)) }
+        assertNull(coordinator.generate(ResearchModelStage.PLAN, "task", 128))
+        assertNotNull(coordinator.generate(ResearchModelStage.EXTRACT, "source", 128))
+        assertNotNull(coordinator.generate(ResearchModelStage.REVIEW, "claim", 128))
+        assertEquals(listOf("PLAN"), coordinator.events.filter { it.reason == "MODEL_CIRCUIT_OPEN" }.map { it.stage })
+    }
+
+    @Test fun failedStageCanRecoverAfterBoundedCooldown() = runTest {
+        var now = 0L
+        var healthy = false
+        var attempts = 0
+        val coordinator = ResearchModelCoordinator(
+            listOf(
+                endpoint("worker") {
+                    attempts++
+                    if (!healthy) error("provider unavailable")
+                    plan
+                }
+            ),
+            monotonicClock = { now }
+        )
+        repeat(3) { assertNull(coordinator.generate(ResearchModelStage.PLAN, "task", 128)) }
+        assertEquals(2, attempts)
+        now = 30_001
+        healthy = true
+        assertNotNull(coordinator.generate(ResearchModelStage.PLAN, "task", 128))
+        assertEquals(3, attempts)
+    }
+
+    @Test fun failureBeforeInvocationRecordsSanitizedOrigin() = runTest {
+        val coordinator = ResearchModelCoordinator(listOf(endpoint("worker", available = { throw IllegalArgumentException("PRIVATE_SOURCE_SENTINEL") }) { plan }))
+        assertNull(coordinator.generate(ResearchModelStage.PLAN, "task", 128))
+        val event = coordinator.events.single()
+        assertEquals("READINESS", event.failurePhase)
+        assertEquals("ARGUMENT_VALIDATION", event.failureCategory)
+        assertEquals("IllegalArgumentException", event.exceptionType)
+        assertNull(event.invocationId)
+        assertFalse(event.toString().contains("PRIVATE_SOURCE_SENTINEL"))
+    }
 }

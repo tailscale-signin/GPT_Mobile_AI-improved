@@ -26,8 +26,10 @@ internal class CombinedInspectionCheckpoint(
         fun field(name: String) = (saved[name] as? JsonPrimitive)?.content
         val report = field("report") ?: return null
         return report.takeIf {
-            it.isNotBlank() && it.length <= 65_536 &&
-                field("identity") == identity && field("sourceId") == pass.source.sourceId &&
+            it.isNotBlank() &&
+                it.length <= 65_536 &&
+                field("identity") == identity &&
+                field("sourceId") == pass.source.sourceId &&
                 field("sourceHash") == WorkspaceRepository.digest(pass.source.text) &&
                 field("reportHash") == WorkspaceRepository.digest(it)
         }
@@ -36,7 +38,9 @@ internal class CombinedInspectionCheckpoint(
     suspend fun save(pass: CombinedCorpusInspectionPass, report: String) {
         require(report.isNotBlank() && report.length <= 65_536)
         workspace?.saveProtectedSynthesisCheckpoint(
-            key(pass), chatId, runId,
+            key(pass),
+            chatId,
+            runId,
             buildJsonObject {
                 put("identity", identity)
                 put("sourceId", pass.source.sourceId)

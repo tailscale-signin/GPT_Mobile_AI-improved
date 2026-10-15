@@ -204,8 +204,11 @@ interface AgentPersistenceDao {
         require(question.isNotBlank() && profileUid.isNotBlank())
         val draft = ChatRoomV2(
             title = question.replace('\n', ' ').take(50),
-            enabledPlatform = listOf(profileUid), activePlatform = listOf(profileUid),
-            createdAt = now, updatedAt = now, isTemporary = source.isTemporary
+            enabledPlatform = listOf(profileUid),
+            activePlatform = listOf(profileUid),
+            createdAt = now,
+            updatedAt = now,
+            isTemporary = source.isTemporary
         )
         val room = draft.copy(id = insertChatRoom(draft).toInt())
         val user = insertMessage(MessageV2(chatId = room.id, content = question, platformType = null, createdAt = now)).toInt()

@@ -61,4 +61,19 @@ class LocalReadinessRegistryTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test fun `native interruption blocks the route before inspection and survives process restart`() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("native-route-fixture").toFile()
+        try {
+            LocalReadinessRegistry(directory).rememberNativeInterruption("artifact-runtime-cpu")
+            val restarted = LocalReadinessRegistry(directory)
+            assertTrue(runCatching { restarted.assertNativeAllowed("artifact-runtime-cpu") }.exceptionOrNull() is LocalNativeQuarantinedException)
+            restarted.assertNativeAllowed("artifact-runtime-gpu")
+            restarted.assertNativeAllowed("new-artifact-runtime-cpu")
+            restarted.reset("artifact-runtime-cpu")
+            restarted.assertNativeAllowed("artifact-runtime-cpu")
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }

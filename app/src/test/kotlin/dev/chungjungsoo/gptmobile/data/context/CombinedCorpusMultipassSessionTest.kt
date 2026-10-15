@@ -108,21 +108,27 @@ class CombinedCorpusMultipassSessionTest {
         assertEquals(1, physicalCalls)
         assertTrue((events.last() as ProviderEvent.Failed).message.contains("COMBINED_MULTIPASS_INCOMPLETE"))
     }
+
     @Test fun restartedSessionReusesOnlyCompletedPasses() = runTest {
         val plan = CombinedCorpusMultipass.plan(frozen, "", settings)
         val completed = mutableMapOf<Int, String>()
         var failSecond = true
         val inspected = mutableListOf<Int>()
         fun session() = CombinedCorpusMultipassSession(
-            plan, "", settings,
+            plan,
+            "",
+            settings,
             open = { turns, kind, _ ->
                 val ordinal = plan.passes.firstOrNull { it.turn == turns.single() }?.ordinal ?: 0
                 object : AgentProviderSession {
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
                         if (kind != "combined_corpus_inspection") return flowOf(ProviderEvent.TextDelta("FINAL"), ProviderEvent.Completed)
                         inspected += ordinal
-                        return if (ordinal == 2 && failSecond) flowOf(ProviderEvent.Failed("transport unavailable"))
-                        else flowOf(ProviderEvent.TextDelta("Completed report $ordinal"), ProviderEvent.Completed)
+                        return if (ordinal == 2 && failSecond) {
+                            flowOf(ProviderEvent.Failed("transport unavailable"))
+                        } else {
+                            flowOf(ProviderEvent.TextDelta("Completed report $ordinal"), ProviderEvent.Completed)
+                        }
                     }
                 }
             },
@@ -144,10 +150,15 @@ class CombinedCorpusMultipassSessionTest {
         val plan = CombinedCorpusMultipass.plan(frozen, "", settings)
         var loaded = false
         val session = CombinedCorpusMultipassSession(
-            plan, "", settings,
+            plan,
+            "",
+            settings,
             open = { _, _, _ -> error("No dispatch after revocation") },
             onFinalContext = {},
-            restoreInspection = { loaded = true; "Previously completed evidence" },
+            restoreInspection = {
+                loaded = true
+                "Previously completed evidence"
+            },
             validateCheckpointAccess = { throw IllegalStateException("DISPATCH_POLICY_CHANGED: revoked") }
         )
         try {
@@ -158,5 +169,4 @@ class CombinedCorpusMultipassSessionTest {
         }
         assertFalse(loaded)
     }
-
 }

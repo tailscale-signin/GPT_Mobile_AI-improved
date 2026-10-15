@@ -37,6 +37,8 @@ class LocalEngineHolder(
     @Volatile
     private var lastAccessedElapsedRealtimeMs: Long = 0L
 
+    override suspend fun preflightModel(modelPath: String, accelerator: String?) = delegate.preflightModel(modelPath, accelerator)
+
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = withGenerationLock { delegate.inspectModel(modelPath) }
 
     override val deviceRamGb: Long

@@ -174,6 +174,7 @@ class ResearchDeliveryTest {
         assertTrue(text.contains("Partial coverage"))
         assertEquals(1, events.count { it == ProviderEvent.Completed })
     }
+
     @Test fun revokedRepairNeverReleasesCachedEvidenceFallback() = runTest {
         val invalid = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
@@ -191,5 +192,4 @@ class ResearchDeliveryTest {
         assertTrue(events.any { it is ProviderEvent.Failed })
         assertFalse(events.any { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
     }
-
 }

@@ -47,6 +47,45 @@ import org.junit.Test
 
 class LiteRtLmAdapterTest {
     @Test
+    fun `known native quarantine rejects before metadata inspection or engine queue`() = runBlocking {
+        val fake = FakeLocalRuntime()
+        var inspected = false
+        val blocked = object : LocalRuntime by fake {
+            override suspend fun preflightModel(modelPath: String, accelerator: String?) {
+                assertEquals("gpu", accelerator)
+                throw dev.chungjungsoo.gptmobile.data.localruntime.LocalNativeQuarantinedException()
+            }
+            override suspend fun inspectModel(modelPath: String): dev.chungjungsoo.gptmobile.data.localruntime.LocalModelCapabilities? {
+                inspected = true
+                error("Must not inspect a blocked route")
+            }
+        }
+        val events = adapter(blocked).openSession(turns("hello"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("Verify load"))
+        assertFalse(inspected)
+        assertTrue(fake.loadEngineCalls.isEmpty())
+        assertTrue(fake.createConversationCalls.isEmpty())
+    }
+
+    @Test
+    fun `native session progress deadline cancels a stalled metadata operation`() = runBlocking {
+        val fake = FakeLocalRuntime()
+        val stalled = object : LocalRuntime by fake {
+            override suspend fun inspectModel(modelPath: String): dev.chungjungsoo.gptmobile.data.localruntime.LocalModelCapabilities? = kotlinx.coroutines.awaitCancellation()
+        }
+        val events = withTimeout(5000) {
+            adapter(stalled).openSession(
+                turns("hello"),
+                localPlatform(),
+                progressSettings = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(firstProgressMillis = 25, adaptiveFirstProgress = false)
+            ).streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals("MODEL_PROGRESS_TIMEOUT", events.filterIsInstance<ProviderEvent.Failed>().single().progressDeadline?.deadline)
+        assertTrue(fake.loadEngineCalls.isEmpty())
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
     fun `revoked request cannot inspect load or generate on the native runtime`() = runBlocking {
         val runtime = FakeLocalRuntime()
         val adapter = adapter(runtime)

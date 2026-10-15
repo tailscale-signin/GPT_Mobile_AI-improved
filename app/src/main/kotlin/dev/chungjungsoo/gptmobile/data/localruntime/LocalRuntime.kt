@@ -194,6 +194,9 @@ interface LocalRuntime {
     fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
         DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), deviceRamGb >= 10L)
 
+    /** Read-only failure admission before native metadata inspection, queueing or preparation. */
+    suspend fun preflightModel(modelPath: String, accelerator: String?) = Unit
+
     suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = null
 
     /** Only an explicit user-requested isolated verification may clear an exact quarantine tuple. */

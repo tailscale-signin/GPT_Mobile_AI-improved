@@ -211,13 +211,21 @@ class MultiEngineSearchTool(
                 return failure(id, "timeout", "Engine timed out; sibling results remain available.")
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
-                return failure(id, "failed", "Engine unavailable.")
+            } catch (error: Exception) {
+                val health = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
+                val outcome = when (health) {
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.AUTHENTICATION_FAILED -> "authentication_failed"
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_FAILED -> "dns_failed"
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECT_TIMEOUT -> "timeout"
+                    else -> "failed"
+                }
+                return failure(id, outcome, "Engine unavailable ($health); sibling results and retained evidence remain available.")
             }
             val text = resultText(result)
             val outcome = when {
                 result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "budget_exhausted"
-                result.isError && text.contains("permission", true) -> "denied"
+                result.isError && result.errorCode in setOf("DUPLICATE_ACTION", "DUPLICATE_INVOCATION") -> "duplicate"
+                result.isError && (result.errorCode == "AUTH_REQUIRED" || text.contains("permission", true)) -> "denied"
                 result.isError && text.startsWith("Repeated valid empty searches") -> "empty_budget"
                 result.isError && Regex("(?i)cooling down").containsMatchIn(text) -> "cooldown"
                 result.isError && Regex("(?i)invalid|exceeds.*limit").containsMatchIn(text) -> "invalid_request"

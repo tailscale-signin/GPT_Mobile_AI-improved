@@ -51,9 +51,10 @@ object ResilientStreamingClient {
                 val rateLimited = http?.response?.status?.value == 429 || e.message.orEmpty().contains("429") || e.message.orEmpty().contains("rate limit", true)
                 val typed = generateSequence(e) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<ProviderHttpFailure>().firstOrNull()
                 val retryAfter = typed?.retryAfterMs ?: http?.response?.headers?.get("Retry-After")?.let { ProviderRetryPolicy.retryAfterMillis(it, System.currentTimeMillis()) }
-                val sleepDuration = if (rateLimited) maxOf(retryAfter ?: 0, 5_000L * currentAttempt, (currentDelay + jitter).coerceAtLeast(0)) else min(config.maxDelayMs, (currentDelay + jitter).coerceAtLeast(100L))
+                val sleepDuration = if (rateLimited) maxOf(retryAfter ?: 0, 5_000L * currentAttempt, (currentDelay + jitter).coerceAtLeast(0)) else maxOf(retryAfter ?: 0L, min(config.maxDelayMs, (currentDelay + jitter).coerceAtLeast(100L)))
 
                 onRetry?.invoke(currentAttempt, sleepDuration, e)
+                kotlinx.coroutines.currentCoroutineContext()[ProviderWaitContext]?.notifyRemaining?.invoke(sleepDuration)
                 delay(sleepDuration)
 
                 currentDelay = (currentDelay * config.backoffFactor).toLong().coerceAtMost(config.maxDelayMs)

@@ -214,4 +214,40 @@ class OutputLimitRecoverySessionTest {
     private fun session(events: suspend kotlinx.coroutines.flow.FlowCollector<ProviderEvent>.() -> Unit) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow(events)
     }
+
+    @Test fun repeatedOutputLimitsWithNegligibleVisibleProgressStopBeforeAThirdRequest() = runTest {
+        var continued = 0
+        fun expensive(text: String) = session {
+            emit(ProviderEvent.TextDelta(text))
+            emit(ProviderEvent.Usage(outputTokens = 4096, finishReason = "length"))
+            emit(ProviderEvent.Completed)
+        }
+        val wrapper = OutputLimitRecoverySession(expensive("Initial visible fragment."), maxContinuations = 12) { _, _ ->
+            continued++
+            expensive("A second small fragment.")
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, continued)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("OUTPUT_CONTINUATION_NO_VISIBLE_PROGRESS"))
+        assertTrue(events.none { it == ProviderEvent.Completed })
+        assertEquals("Initial visible fragment.A second small fragment.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(8192, events.filterIsInstance<ProviderEvent.Usage>().sumOf { it.outputTokens ?: 0 })
+    }
+
+    @Test fun finishAndRetryMetadataSurviveCumulativeUsageReduction() = runTest {
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.Usage(outputTokens = 12, retryDurationMs = 5000, retryAttempts = 1, actualRuntime = "fixture", reasoningTokens = 9))
+                emit(ProviderEvent.Usage(outputTokens = 24, finishReason = "stop"))
+                emit(ProviderEvent.Completed)
+            }
+        ) { _, _ -> error("No continuation") }
+        val usage = wrapper.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Usage>().single()
+        assertEquals(24, usage.outputTokens)
+        assertEquals("stop", usage.finishReason)
+        assertEquals(5000L, usage.retryDurationMs)
+        assertEquals(1, usage.retryAttempts)
+        assertEquals("fixture", usage.actualRuntime)
+        assertEquals(9, usage.reasoningTokens)
+    }
 }

@@ -128,7 +128,10 @@ internal class ResearchDeliverySession(
 
     companion object {
         private fun isAuthorizationFailure(message: String): Boolean = listOf(
-            "DISPATCH_POLICY_CHANGED", "PERMISSION_DENIED", "SOURCE_PERMISSION_REVOKED", "MEMORY_STALE"
+            "DISPATCH_POLICY_CHANGED",
+            "PERMISSION_DENIED",
+            "SOURCE_PERMISSION_REVOKED",
+            "MEMORY_STALE"
         ).any { message.contains(it, ignoreCase = true) }
         private const val MAX_REPORT_CHARACTERS = 100_000
     }

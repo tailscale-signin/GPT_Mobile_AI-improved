@@ -50,4 +50,4 @@ The Google Scholar registry accurately exposes browser-assisted discovery and ci
 
 Android/Kotlin compilation, Kotlin test execution, lint and device tests were **not run successfully**. The local Gradle bootstrap cannot download `gradle-9.8.0-bin.zip` (`Network is unreachable`); the environment has Java 17 and no configured Android SDK. CI must compile and run the new Kotlin/Robolectric suites before any merge.
 
-Publishing the branch was rejected by automatic approval review, which requested explicit authorization to push to `tailscale-signin/GPT_Mobile_AI-improved`. No alternate publishing mechanism was attempted. A push and draft PR are pending that authorization; no green-CI claim is made.
+The initial push was rejected pending explicit authorization. The user subsequently instructed “Push”. The branch was published through the connected GitHub app after shell Git reported missing credentials; draft PR #690 is open. Follow-up build-121 fixes and validation are tracked in [Diagnostic_Root_Cause_Remediation_2026-10-15.md](Diagnostic_Root_Cause_Remediation_2026-10-15.md). No green-CI or complete acceptance claim is made.

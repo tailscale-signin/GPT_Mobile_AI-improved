@@ -201,4 +201,45 @@ class CombinedDeliverySessionTest {
         assertFalse(comprehensiveCombinedEnvelope("{}"))
         assertTrue(comprehensiveCombinedEnvelope("{\"combination_policy\":\"COMPREHENSIVE\"}"))
     }
+
+    @Test fun claimAuditKeepsRepairingWhileUniqueCoverageMakesProgress() = runTest {
+        val rows = listOf(
+            CombinedModelResponse("a", "A", content = "Athens built naval ships from the proceeds of silver mines."),
+            CombinedModelResponse("b", "B", content = "Tang merchants carried ceramics across the Silk Road."),
+            CombinedModelResponse("c", "C", content = "Egyptian scribes measured annual grain taxes."),
+            CombinedModelResponse("d", "D", content = "Roman engineers constructed aqueducts for distant towns.")
+        )
+        var rounds = 0
+        val initial = rows[0].content
+        val wrapper = CombinedDeliverySession(session(initial), rows, 100_000, validateAccess = {}) { draft, missing ->
+            rounds++
+            assertTrue(missing.isNotEmpty())
+            assertTrue(draft.startsWith(initial))
+            session(rows.take(rounds + 1).joinToString("\n\n") { it.content })
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(3, rounds)
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(rows.joinToString("\n\n") { it.content }, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun shrinkingMissingCountCannotJustifyDroppingPreviouslyCoveredClaim() = runTest {
+        val rows = listOf(
+            CombinedModelResponse("a", "A", content = "Athens built naval ships from silver mines."),
+            CombinedModelResponse("b", "B", content = "Tang merchants traded silk with Persian caravans."),
+            CombinedModelResponse("c", "C", content = "Egyptian scribes recorded yearly grain taxes."),
+            CombinedModelResponse("d", "D", content = "Roman engineers supplied distant towns with aqueducts.")
+        )
+        var rounds = 0
+        val wrapper = CombinedDeliverySession(session(rows[0].content), rows, 100_000, validateAccess = {}) { _, _ ->
+            rounds++
+            if (rounds == 1) session(rows.take(2).joinToString("\n\n") { it.content })
+            else session(rows.drop(1).joinToString("\n\n") { it.content })
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, rounds)
+        assertEquals(rows.take(2).joinToString("\n\n") { it.content }, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.last() is ProviderEvent.Failed)
+    }
+
 }

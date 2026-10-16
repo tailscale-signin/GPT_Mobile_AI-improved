@@ -22,7 +22,6 @@ class ProfileAttributionPaletteTest {
         assertEquals(after.size, after.values.map { it.hue }.toSet().size)
     }
 
-
     @Test
     fun `the first eight contributors have visibly separated font colours on dark and light themes`() {
         for (surface in listOf(Color.White, Color.Black, Color(0xFF141218), Color(0xFFFEF7FF))) {
@@ -41,7 +40,6 @@ class ProfileAttributionPaletteTest {
             }
         }
     }
-
 
     @Test
     fun `late created profiles are separated when selected and stable when selection order changes`() {

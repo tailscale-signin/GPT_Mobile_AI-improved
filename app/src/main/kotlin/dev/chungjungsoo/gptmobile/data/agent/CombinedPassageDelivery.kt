@@ -55,7 +55,8 @@ internal class CombinedPassageDecoder(
 ) {
     private val pending = StringBuilder()
     private val output = StringBuilder()
-    private val seen = mutableListOf<String>()
+    private val seen = mutableListOf<Pair<String, CombinedClaimMatcher.Fingerprint>>()
+    private val seenByTerm = mutableMapOf<String, MutableSet<Int>>()
     val passages = mutableListOf<CombinedPassageRecord>()
     val decisions = mutableListOf<CombinedClaimReview>()
     val issues = linkedSetOf<String>()
@@ -130,15 +131,6 @@ internal class CombinedPassageDecoder(
                 issues += "INTERNAL_RECOVERY_MARKER_REJECTED"
                 continue
             }
-            val duplicate = seen.any { existing ->
-                CombinedContentCoverage.normalized(existing) == CombinedContentCoverage.normalized(body) ||
-                    CombinedClaimMatcher.match(existing, body) >= CombinedClaimMatcher.Match.PARAPHRASE &&
-                    CombinedClaimMatcher.match(body, existing) >= CombinedClaimMatcher.Match.PARAPHRASE
-            }
-            if (duplicate) {
-                duplicatesRemoved++
-                continue
-            }
             val separator = if (output.isEmpty()) "" else "\n\n"
             val requested = strings("profiles")
             val profiles = requested.mapNotNull { id -> id.removePrefix("C").toIntOrNull()?.let { sources.getOrNull(it - 1)?.platformUid } }.toSet()
@@ -151,9 +143,25 @@ internal class CombinedPassageDecoder(
             val retainedClaims = claims.filter { it in claimIds }.toSet()
             val claimProfiles = retainedClaims.mapNotNull { id -> id.substringBefore('.').removePrefix("C").toIntOrNull()?.let { sources.getOrNull(it - 1)?.platformUid } }.toSet()
             val owners = profiles.intersect(claimProfiles)
-            if (profiles.isNotEmpty() && owners.isEmpty()) issues += "MISSING_CONTRIBUTION_LINK"
+            if (owners != profiles) issues += "MISSING_CONTRIBUTION_LINK"
+            val normalizedBody = CombinedContentCoverage.normalized(body)
+            val fingerprint = CombinedClaimMatcher.fingerprint(body)
+            val candidates = fingerprint.terms.flatMapTo(linkedSetOf()) { seenByTerm[it].orEmpty() }
+            val duplicate = candidates.firstOrNull { index ->
+                val (normalized, existing) = seen[index]
+                normalized == normalizedBody ||
+                    CombinedClaimMatcher.match(existing, fingerprint) >= CombinedClaimMatcher.Match.PARAPHRASE &&
+                    CombinedClaimMatcher.match(fingerprint, existing) >= CombinedClaimMatcher.Match.PARAPHRASE
+            }
+            if (duplicate != null) {
+                val previous = passages[duplicate]
+                passages[duplicate] = previous.copy(profileUids = previous.profileUids + owners, sourceIds = previous.sourceIds + validSources, claimIds = previous.claimIds + retainedClaims)
+                if ((validSources - previous.sourceIds).isNotEmpty()) issues += "MERGED_CITATION_AVAILABLE_IN_METADATA"
+                duplicatesRemoved++
+                continue
+            }
             // Citations are app-resolved URLs, never model-authored source links.
-            val citations = validSources.sorted().joinToString(" ") { id -> "[$id](${sourceIds.getValue(id).url})" }
+            val citations = validSources.sorted().joinToString(" ") { id -> "[${evidence.records.indexOfFirst { it.id == id } + 1}](${sourceIds.getValue(id).url})" }
             val bodyUrls = Regex("https?://[^\\s<>\\[\\]{}]+", RegexOption.IGNORE_CASE).findAll(body).map { it.value.trimEnd('.', ',', ';', ':', ')') }.toSet()
             if (bodyUrls.any { url -> evidence.records.none { it.url == url } }) issues += "UNRESOLVED_CITATION_URL"
             val rendered = body + if (citations.isBlank()) "" else "\n\n$citations"
@@ -184,7 +192,9 @@ internal class CombinedPassageDecoder(
                 }
             )
             if (citations.isNotBlank()) output.append("\n\n$citations")
-            seen += body
+            val index = seen.size
+            seen += normalizedBody to fingerprint
+            fingerprint.terms.forEach { seenByTerm.getOrPut(it) { linkedSetOf() }.add(index) }
             deltas += separator + rendered
         }
         require(pending.length.toLong() + output.length <= maxCharacters.toLong() + 65_536) { "COMBINED_RECORD_LIMIT" }

@@ -37,7 +37,9 @@ internal fun ChatProfileDock(
     combined: Boolean,
     combinedGenerating: Boolean,
     onSelect: (String?) -> Unit,
-    onPause: (String) -> Unit
+    onPause: (String) -> Unit,
+    failedUids: Set<String> = emptySet(),
+    combinedFailed: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -66,8 +68,20 @@ internal fun ChatProfileDock(
                     "Ready"
                 }
                 Surface(
-                    color = if (active) colors.primaryContainer else colors.secondaryContainer,
-                    contentColor = if (active) colors.onPrimaryContainer else colors.onSecondaryContainer,
+                    color = if (failed) {
+                        colors.errorContainer
+                    } else if (active) {
+                        colors.primaryContainer
+                    } else {
+                        colors.secondaryContainer
+                    },
+                    contentColor = if (failed) {
+                        colors.onErrorContainer
+                    } else if (active) {
+                        colors.onPrimaryContainer
+                    } else {
+                        colors.onSecondaryContainer
+                    },
                     shape = RoundedCornerShape(18.dp),
                     border = BorderStroke(if (active) 2.dp else 1.dp, if (active) colors.primary else colors.secondary.copy(alpha = 0.4f)),
                     modifier = Modifier

@@ -128,7 +128,11 @@ internal fun AssistantChronologicalContent(
                         }
                         // Resolve cards from the complete source-bearing text before display cleanup.
                         val citationText = parsed.response
-                        val response = remember(parsed.response) { answerWithoutSourceLists(parsed.response) }
+                        val response = remember(parsed.response, combinedWording != null) {
+                            // Combined citations belong to explicit passage provenance, not the
+                            // separate profile/source footer. Keep their clickable URLs intact.
+                            if (combinedWording != null) parsed.response else answerWithoutSourceLists(parsed.response)
+                        }
                         if (response.isNotBlank()) {
                             if (isError) {
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -112,6 +113,14 @@ class CombinedDeliverySessionTest {
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
         assertEquals(same, events.answer())
         assertEquals(1, events.quality().duplicatePassagesRemoved)
+    }
+
+    @Test fun duplicateMergeRetainsBothProfilesWithoutRepeatingTheAnswer() = runTest {
+        val same = sources.first().content
+        val wrapper = CombinedDeliverySession(session(passage(same) + passage(same, listOf("C2"), listOf("C2.1"))), sources, 10000, validateAccess = {}, structured = true) { _, _ -> error("No repair") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(same, events.answer())
+        assertEquals(setOf("alpha", "beta"), events.quality().passages.single().profileUids)
     }
 
     @Test fun latestNewsWithoutReadableDatedArticleDoesNotDispatchWriterOrInventHeadlines() = runTest {

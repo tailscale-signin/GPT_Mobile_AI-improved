@@ -895,8 +895,9 @@ fun ChatScreen(
                             pausedUids = disabledPlatformUids,
                             generatingUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.GENERATING }.mapTo(hashSetOf()) { it.uid } else chatViewModel.enabledPlatformsInChat.filterIndexed { index, _ -> dockTurn == lastMessageIndex && loadingStates.getOrNull(index) == ChatViewModel.LoadingState.Loading }.toSet(),
                             combined = combined,
-                            combinedGenerating = combined && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.GENERATING,
+                            combinedGenerating = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.GENERATING,
                             onSelect = { uid ->
+                                listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
                                 isHoldingEntryCenter = false
                                 isFollowingBottom = false
                                 isModelTabPositionLocked = true
@@ -908,7 +909,9 @@ fun ChatScreen(
                                     if (index >= 0) chatViewModel.updateChatPlatformIndex(dockTurn, index)
                                 }
                             },
-                            onPause = chatViewModel::togglePlatformDisabled
+                            onPause = chatViewModel::togglePlatformDisabled,
+                            failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) }.mapNotNull { it.platformType }.toSet(),
+                            combinedFailed = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.FAILED
                         )
                     }
                 }

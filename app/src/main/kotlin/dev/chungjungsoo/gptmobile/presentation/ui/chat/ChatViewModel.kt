@@ -2248,7 +2248,8 @@ class ChatViewModel @Inject constructor(
             ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)
         val turnRuns = _agentRunsById.value.values.filter { it.chatId == userMessage.chatId && it.userMessageId == userMessage.id && !it.runId.startsWith(COMBINED_RUN_PREFIX) }
         val turnRunIds = turnRuns.mapTo(hashSetOf()) { it.runId }
-        val turnEvents = _toolEventsByRun.value.filterKeys { it in turnRunIds }.values.flatten()
+        // Read the committed event rows rather than racing the UI's asynchronous tool-event snapshot.
+        val turnEvents = chatRepository.observeToolEvents(userMessage.chatId).first().filter { it.runId in turnRunIds }
         val evidenceLedger = withContext(Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(sharedEvidence, turnEvents, turnRuns.associate { it.runId to it.profileUid })
         }

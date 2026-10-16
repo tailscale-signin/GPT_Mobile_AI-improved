@@ -51,6 +51,7 @@ data class CombinedAnswerPolicy(
             } else if (count < it - maxOf(2, it / 10)) {
                 add("WORD_TARGET_UNDERSHOT:$count/$it")
             }
+            Unit
         }
         if (answer.contains(COMBINED_RECOVERY_MARKER)) add("INTERNAL_RECOVERY_MARKER")
         val sentences = CombinedContentCoverage.sentences(answer).map(CombinedContentCoverage::normalized).filter { it.length > 30 }

@@ -69,6 +69,15 @@ data class CombinedEvidenceLedger(
                             }
                             value.values.filter { it is JsonObject || it is JsonArray }.forEach { walk(it, depth + 1) }
                         }
+                        is JsonPrimitive -> {
+                            val body = value.contentOrNull.orEmpty()
+                            val nested = runCatching { Json.parseToJsonElement(body) }.getOrNull()
+                            if (nested is JsonObject || nested is JsonArray) {
+                                walk(nested, depth + 1)
+                            } else if (reader && requestedUrl.isNotBlank() && body.length >= 80) {
+                                add(requestedUrl, "", "", body, true, event)
+                            }
+                        }
                         else -> Unit
                     }
                 }

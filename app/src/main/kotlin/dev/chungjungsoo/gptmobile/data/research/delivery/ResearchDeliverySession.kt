@@ -37,11 +37,12 @@ internal class ResearchDeliverySession(
         var overflow = false
         val draft = StringBuilder()
         emit(ProviderEvent.Notice("Preparing the research report and checking its citations."))
-        // A complete captured corpus is ready for writing: it must not reopen tool execution.
-        // Incomplete acquisition still retains its authorized tool rounds.
+        // A complete corpus must not reopen external acquisition. The explicitly
+        // authorized saved-evidence reader remains available for paging retained work.
         val writeOnly = evidence?.snapshot?.complete == true
-        val draftSession = if (initialContext.isEmpty()) base else create(initialContext, writeOnly)
-        draftSession.streamRound(if (writeOnly) emptyList() else tools, if (writeOnly) emptyList() else exchanges).transformWhile { event ->
+        val draftTools = if (writeOnly) tools.filter { it.name == "read_recovery_context" } else tools
+        val draftSession = if (initialContext.isEmpty()) base else create(initialContext, writeOnly && draftTools.isEmpty())
+        draftSession.streamRound(draftTools, if (writeOnly) emptyList() else exchanges).transformWhile { event ->
             if (event is ProviderEvent.TextDelta && draft.length + event.text.length > MAX_REPORT_CHARACTERS) {
                 overflow = true
                 false

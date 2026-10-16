@@ -4,8 +4,8 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
-import android.os.SystemClock
 import android.os.StrictMode
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.hilt.work.HiltWorkerFactory

@@ -245,6 +245,26 @@ class ResearchDeliveryTest {
         assertFalse(output.contains("captured passage"))
     }
 
+    @Test fun completeResearchPreservesOnlyTheLocalSavedEvidenceReader() = runTest {
+        val complete = packet().copy(snapshot = packet().snapshot.copy(complete = true))
+        val advertised = mutableListOf<String>()
+        val writer = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                advertised += tools.map { it.name }
+                emit(ProviderEvent.TextDelta("Unsupported draft"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val session = ResearchDeliverySession(writer, { complete }) { _, _ -> writer }
+        val tools = listOf(
+            AgentToolDefinition("read_recovery_context", "Read saved work", kotlinx.serialization.json.JsonObject(emptyMap())),
+            AgentToolDefinition("read_url", "Read network URL", kotlinx.serialization.json.JsonObject(emptyMap())),
+            AgentToolDefinition("discover_available_tools", "Find external tools", kotlinx.serialization.json.JsonObject(emptyMap()))
+        )
+        session.streamRound(tools, emptyList()).toList()
+        assertEquals(listOf("read_recovery_context"), advertised)
+    }
+
     @Test fun revokedRepairNeverReleasesCachedEvidenceFallback() = runTest {
         val invalid = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {

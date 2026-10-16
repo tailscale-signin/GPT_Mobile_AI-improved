@@ -761,7 +761,6 @@ class ChatViewModel @Inject constructor(
 
     private val conversationDelegationMutex = Mutex()
 
-
     fun setConversationResearch(value: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) {
         _chatToolConfig.update { it.copy(research = value.normalized()) }
         val id = _chatRoom.value.id
@@ -910,58 +909,58 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val connections = withContext(Dispatchers.IO) { toolConnectionRepository.getAllConnections() }
-            _academicGateways.value = connections.filter { it.alias == "deep_research" }.associate { it.connectionUid to it.name }
-            val profiles = settingRepository.fetchPlatformV2s().filter { it.uid in _activePlatformUids.value && !it.disableAllTools }
-            val features = settingRepository.getFeatureSettings()
-            val bindings = profiles.flatMap { toolConnectionRepository.listBindingsByProfile(it.uid) }
-            val remoteProfiles = profiles.filterNot { it.disableRemoteTools }.mapTo(mutableSetOf()) { it.uid }
-            val localProfiles = profiles.filterNot { it.disableLocalTools }.mapTo(mutableSetOf()) { it.uid }
-            val boundConnectionIds = bindings.filter { it.profileUid in remoteProfiles }.mapNotNull { it.connectionUid }.toSet()
-            val locationEnabled = features.deviceLocationTool &&
-                bindings.any {
-                    it.profileUid in localProfiles && it.toolName == dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool.DEVICE_LOCATION
+                _academicGateways.value = connections.filter { it.alias == "deep_research" }.associate { it.connectionUid to it.name }
+                val profiles = settingRepository.fetchPlatformV2s().filter { it.uid in _activePlatformUids.value && !it.disableAllTools }
+                val features = settingRepository.getFeatureSettings()
+                val bindings = profiles.flatMap { toolConnectionRepository.listBindingsByProfile(it.uid) }
+                val remoteProfiles = profiles.filterNot { it.disableRemoteTools }.mapTo(mutableSetOf()) { it.uid }
+                val localProfiles = profiles.filterNot { it.disableLocalTools }.mapTo(mutableSetOf()) { it.uid }
+                val boundConnectionIds = bindings.filter { it.profileUid in remoteProfiles }.mapNotNull { it.connectionUid }.toSet()
+                val locationEnabled = features.deviceLocationTool &&
+                    bindings.any {
+                        it.profileUid in localProfiles && it.toolName == dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool.DEVICE_LOCATION
+                    }
+                val available = ChatToolUtils.buildAvailableChatTools(
+                    connections.filter {
+                        (it.connectionUid in boundConnectionIds || (it.type in setOf(ToolConnectionType.GITHUB, ToolConnectionType.AMAZON_SERPAPI) && remoteProfiles.isNotEmpty())) && it.type != ToolConnectionType.MCP
+                    }
+                ) + if (features.remoteMcpConnections) {
+                    bindings.filter { it.profileUid in remoteProfiles }
+                        .mapNotNull { binding ->
+                            val connection = connections.firstOrNull { it.connectionUid == binding.connectionUid && it.type == ToolConnectionType.MCP }
+                                ?: return@mapNotNull null
+                            AvailableChatTool("${connection.connectionUid}:${binding.toolName}", "${connection.name} · ${binding.toolName}", connection.alias, "MCP")
+                        }.distinctBy { it.id }
+                } else {
+                    emptyList()
                 }
-            val available = ChatToolUtils.buildAvailableChatTools(
-                connections.filter {
-                    (it.connectionUid in boundConnectionIds || (it.type in setOf(ToolConnectionType.GITHUB, ToolConnectionType.AMAZON_SERPAPI) && remoteProfiles.isNotEmpty())) && it.type != ToolConnectionType.MCP
-                }
-            ) + if (features.remoteMcpConnections) {
-                bindings.filter { it.profileUid in remoteProfiles }
-                    .mapNotNull { binding ->
-                        val connection = connections.firstOrNull { it.connectionUid == binding.connectionUid && it.type == ToolConnectionType.MCP }
-                            ?: return@mapNotNull null
-                        AvailableChatTool("${connection.connectionUid}:${binding.toolName}", "${connection.name} · ${binding.toolName}", connection.alias, "MCP")
-                    }.distinctBy { it.id }
-            } else {
-                emptyList()
-            }
-            val builtIn = listOf(
-                AvailableChatTool("web_search", "Web search", "All enabled web search engines", "Multi-engine", remoteProfiles.isNotEmpty()),
-                AvailableChatTool("device_location", "Device location", "Phone GPS location", "Built-in", locationEnabled)
-            )
-            _availableChatTools.value = available + builtIn
+                val builtIn = listOf(
+                    AvailableChatTool("web_search", "Web search", "All enabled web search engines", "Multi-engine", remoteProfiles.isNotEmpty()),
+                    AvailableChatTool("device_location", "Device location", "Phone GPS location", "Built-in", locationEnabled)
+                )
+                _availableChatTools.value = available + builtIn
 
-            // Free profiles may use every tool, but a new profile must explicitly
-            // acknowledge external MCP data sharing once per tool before it is active.
-            val freeProfiles = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE }
-            if (freeProfiles.isNotEmpty()) {
-                val lockedMcpIds = available
-                    .filter { tool ->
-                        tool.source == "MCP" &&
-                            freeProfiles.any { profile ->
-                                !freeModelToolConsentStore.isGranted(profile.uid, tool.id)
-                            }
-                    }
-                    .mapTo(mutableSetOf()) { it.id }
-                if (lockedMcpIds.isNotEmpty()) {
-                    _chatToolConfig.update { config ->
-                        config.copy(
-                            disabledToolIds = config.disabledToolIds + lockedMcpIds,
-                            enabledToolIds = config.enabledToolIds - lockedMcpIds
-                        )
+                // Free profiles may use every tool, but a new profile must explicitly
+                // acknowledge external MCP data sharing once per tool before it is active.
+                val freeProfiles = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE }
+                if (freeProfiles.isNotEmpty()) {
+                    val lockedMcpIds = available
+                        .filter { tool ->
+                            tool.source == "MCP" &&
+                                freeProfiles.any { profile ->
+                                    !freeModelToolConsentStore.isGranted(profile.uid, tool.id)
+                                }
+                        }
+                        .mapTo(mutableSetOf()) { it.id }
+                    if (lockedMcpIds.isNotEmpty()) {
+                        _chatToolConfig.update { config ->
+                            config.copy(
+                                disabledToolIds = config.disabledToolIds + lockedMcpIds,
+                                enabledToolIds = config.enabledToolIds - lockedMcpIds
+                            )
+                        }
                     }
                 }
-            }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

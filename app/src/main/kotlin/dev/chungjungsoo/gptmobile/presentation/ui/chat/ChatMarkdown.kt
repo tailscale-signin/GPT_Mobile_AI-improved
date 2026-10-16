@@ -242,7 +242,7 @@ fun ChatMarkdown(
             val streamVisibleText = streamVisibleMarkdownTokenText(child.type, text)
 
             val memorySpans = memoryRanges.filter { it.first < child.endOffset && it.last >= child.startOffset }
-            val profileSpans = rendered.profileSpans.filter { it.start < child.endOffset && it.end > child.startOffset }
+            val profileSpans = rendered.profileIndex.overlapping(child.startOffset, child.endOffset)
             if (!hasSentenceHighlight && streamVisibleText != null && (proseColor != null || profileSpans.isNotEmpty())) {
                 appendTextWithInlineMath(this, streamVisibleText, inlineMathByPlaceholder) { from, to, outputStart ->
                     val startOffset = child.startOffset + from

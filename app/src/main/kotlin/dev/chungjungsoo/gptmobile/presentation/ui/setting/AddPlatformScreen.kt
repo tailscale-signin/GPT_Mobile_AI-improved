@@ -644,7 +644,7 @@ private fun suggestedModels(clientType: ClientType): List<String> = when (client
     ClientType.OPENAI -> ModelConstants.openaiModels.toList()
     ClientType.ANTHROPIC -> ModelConstants.anthropicModels.toList()
     ClientType.GOOGLE -> ModelConstants.googleModels.toList()
-    ClientType.NVIDIA -> listOf(ModelConstants.NVIDIA_DEFAULT_MODEL)
+    ClientType.NVIDIA -> dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities.suggestedModelIds
     ClientType.GROQ -> ModelConstants.groqModels.toList()
     ClientType.OLLAMA -> ModelConstants.ollamaModels.toList()
     ClientType.LLAMA -> ModelConstants.llamaModels.toList()

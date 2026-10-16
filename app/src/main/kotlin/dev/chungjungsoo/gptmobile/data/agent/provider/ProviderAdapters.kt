@@ -53,6 +53,7 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities
 import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaRequestPolicy
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
@@ -195,6 +196,15 @@ class OpenAICompatibleAdapter @Inject constructor(
     }
 
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
+        if (platform.compatibleType == ClientType.NVIDIA &&
+            NvidiaModelCapabilities.forModel(platform.model).supportsImages == false &&
+            turns.any { turn ->
+                (turn.userMessage.attachments + turn.assistantMessage?.attachments.orEmpty())
+                    .any { attachment -> attachment.mimeType.startsWith("image/", ignoreCase = true) }
+            }
+        ) {
+            throw IllegalArgumentException("The selected NVIDIA model supports text only. Remove image attachments or choose a verified vision model.")
+        }
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)

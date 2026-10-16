@@ -103,6 +103,30 @@ class CombinedResponseStateTest {
         assertEquals("AI 1", combinedProfileLabel("🚀 ★ ---", "AI 1"))
     }
 
+
+    @Test
+    fun `previously saved combined footer hides source labels without losing facts`() {
+        val saved = "Original synthesis.\\n\\n## Additional source details\\n\\n" +
+            "The passages below were not fully integrated by the synthesis model. " +
+            "They are retained from individual AI profiles, not independently verified facts.\\n\\n" +
+            "**From Gemini, Claude:**\\n\\nUnique fact about Tang China.\\n\\n" +
+            "**From Perplexity:**\\n\\nAnother distinct event."
+        val visible = combinedVisibleAnswer(saved.replace("\\\\n", "\\n"))
+        assertEquals(
+            "Original synthesis.\\n\\n## Further details\\n\\n" +
+                "Unique fact about Tang China.\\n\\nAnother distinct event.",
+            visible
+        )
+        assertFalse(visible.contains("From Gemini"))
+        assertFalse(visible.contains("From Perplexity"))
+    }
+
+    @Test
+    fun `combined response text without a legacy footer is unchanged`() {
+        val alreadyClean = "A source-independent finding from Tang China.\\n\\n## Further details\\n\\nImportant example."
+        assertEquals(alreadyClean, combinedVisibleAnswer(alreadyClean))
+    }
+
     private fun profiles(
         responses: List<MessageV2>,
         participating: Set<String> = setOf("lead", "other"),

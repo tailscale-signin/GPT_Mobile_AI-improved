@@ -17,6 +17,12 @@ import io.ktor.http.contentType
 import javax.inject.Inject
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 
 data class NvidiaProbeResult(
     val status: Int,
@@ -40,10 +46,18 @@ class NvidiaInferenceProbe @Inject constructor(private val network: NetworkClien
             reasoningRequested = false,
             reasoningAllowed = false
         )
+        // The hosted NIM endpoints accept the simplest OpenAI text-message wire shape.
+        // Keep the shared DTO/policy for all other fields, but serialize text as a string.
+        val root = NetworkClient.openAIJson.parseToJsonElement(NetworkClient.openAIJson.encodeToString(request)).jsonObject
+        val message = buildJsonObject {
+            put("role", "user")
+            put("content", "Reply with OK.")
+        }
+        val wire = JsonObject(root + ("messages" to buildJsonArray { add(message) })).toString()
         val response = network().post(config.buildEndpoint("chat/completions")) {
             bearerAuth(apiKey)
             contentType(ContentType.Application.Json)
-            setBody(NetworkClient.openAIJson.encodeToString(request))
+            setBody(wire)
         }
         val body = response.bodyAsText()
         val parsed = if (response.status.value == 200) {

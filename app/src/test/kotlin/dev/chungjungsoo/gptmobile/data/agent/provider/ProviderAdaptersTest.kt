@@ -559,6 +559,26 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `NVIDIA request controls are transmitted across compatible adapter roles`() = runBlocking {
+        for ((model, reasoningEnabled, allowed, expectedEffort) in listOf(
+            listOf("openai/gpt-oss-20b", true, true, "medium"),
+            listOf("openai/gpt-oss-20b", true, false, "low")
+        )) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.NVIDIA).copy(model = model as String, reasoning = reasoningEnabled as Boolean), RequestConstraints(allowReasoning = allowed as Boolean, requestRole = "reviewer"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(expectedEffort, api.chatRequests.single().reasoningEffort)
+            assertEquals("NVIDIA", api.configs.single().providerType)
+        }
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.NVIDIA).copy(model = "nvidia/nemotron-3-super-120b-a12b", reasoning = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("false", api.chatRequests.single().chatTemplateKwargs?.get("enable_thinking").toString())
+    }
+
+    @Test
     fun `gateway preferences stay scoped to llama profiles`() = runBlocking {
         val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
             override fun gatewayPerformanceHeaders(): Map<String, String> = error("Unexpected gateway settings read")

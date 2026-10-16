@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.NewChatType
@@ -179,7 +178,9 @@ class NewChatViewModel @Inject constructor(
                     selected.forEach { uid ->
                         val profile = available.first { it.uid == uid }
                         val reason = researchStartBlockReason(
-                            selection, liveSettings, uid,
+                            selection,
+                            liveSettings,
+                            uid,
                             !profile.disableAllTools && !profile.disableRemoteTools
                         )
                         require(reason == null) { profile.name + ": " + reason }
@@ -202,9 +203,15 @@ class NewChatViewModel @Inject constructor(
                     "multi_chat_workspace/$rootId"
                 } else {
                     val primary = primaryUid.value.takeIf { it in selected } ?: selected.first()
+                    val title = when (choice) {
+                        NewChatType.RESEARCH -> "Research Chat"
+                        NewChatType.COMBINED -> "Combined Chat"
+                        else -> "New Chat"
+                    }
                     created += chats.createDraftChat(
-                        selected, mode,
-                        if (choice == NewChatType.RESEARCH) "Research Chat" else if (choice == NewChatType.COMBINED) "Combined Chat" else "New Chat",
+                        selected,
+                        mode,
+                        title,
                         primary
                     )
                     val chatId = created.single().id

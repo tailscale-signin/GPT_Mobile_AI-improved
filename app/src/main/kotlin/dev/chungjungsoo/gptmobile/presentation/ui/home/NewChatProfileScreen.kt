@@ -3,16 +3,16 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -29,8 +29,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,22 +43,29 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.NewChatType
-import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
-import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
+import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
+import dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
-import dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery
 
 private enum class ProfileFilter(val title: String) {
-    ALL("All"), FAVORITES("Favorites"), LOCAL("Local"), REMOTE("Remote"), RESEARCH("Research-ready")
+    ALL("All"),
+    FAVORITES("Favorites"),
+    LOCAL("Local"),
+    REMOTE("Remote"),
+    RESEARCH("Research-ready")
 }
 private enum class ProfileSort(val title: String) {
-    FAVORITES("Favorites first"), NAME("Name A–Z"), PROVIDER("Provider"), MODEL("Model")
+    FAVORITES("Favorites first"),
+    NAME("Name A–Z"),
+    PROVIDER("Provider"),
+    MODEL("Model")
 }
 
 private fun isLocalOrSelfHosted(profile: PlatformV2): Boolean =
@@ -116,11 +123,14 @@ internal fun NewChatProfileScreen(
                 ProfileFilter.LOCAL -> isLocalOrSelfHosted(profile)
                 ProfileFilter.REMOTE -> !isLocalOrSelfHosted(profile)
                 ProfileFilter.RESEARCH -> researchStartBlockReason(
-                    researchPolicy, features, profile.uid,
+                    researchPolicy,
+                    features,
+                    profile.uid,
                     !profile.disableAllTools && !profile.disableRemoteTools
                 ) == null
             }
-            matchingType && profileMatchesQuery(profile, query) &&
+            matchingType &&
+                profileMatchesQuery(profile, query) &&
                 (labelKey == null || parseProfileLabels(profile.labels).any { it.key == labelKey })
         }
     }
@@ -128,6 +138,11 @@ internal fun NewChatProfileScreen(
     val combined = kind.executionMode(currentSelection.size) == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED
     val canStart = kind.isCountValid(currentSelection.size) && !creating && (kind != NewChatType.RESEARCH || blockers.isEmpty())
     val selectedNames = currentSelection.mapNotNull { uid -> profiles.firstOrNull { it.uid == uid }?.name }
+    val selectedModeLabel = when {
+        combined -> "Combined"
+        kind == NewChatType.MULTI_CHAT -> "Independent"
+        else -> "Single"
+    }
     val hiddenCount = currentSelection.count { uid -> visible.none { it.uid == uid } }
     val details = detailsUid?.let { uid -> insights[uid]?.takeIf { it.profile.uid == uid } }
     LaunchedEffect(insightViewModel) { insightViewModel.refreshWhileVisible() }
@@ -213,7 +228,13 @@ internal fun NewChatProfileScreen(
                             }
                             DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
                                 ProfileSort.entries.forEach { option ->
-                                    DropdownMenuItem(text = { Text(option.title) }, onClick = { sortName = option.name; sortOpen = false })
+                                    DropdownMenuItem(
+                                        text = { Text(option.title) },
+                                        onClick = {
+                                            sortName = option.name
+                                            sortOpen = false
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -224,7 +245,7 @@ internal fun NewChatProfileScreen(
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 3.dp) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(currentSelection.size.toString() + " selected · " + if (combined) "Combined" else if (kind == NewChatType.MULTI_CHAT) "Independent" else "Single", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(currentSelection.size.toString() + " selected · " + selectedModeLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     if (selectedNames.isNotEmpty()) {
                         Text(selectedNames.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                     }
@@ -237,7 +258,13 @@ internal fun NewChatProfileScreen(
                             DropdownMenu(expanded = primaryOpen, onDismissRequest = { primaryOpen = false }) {
                                 currentSelection.forEach { uid ->
                                     val name = profiles.firstOrNull { it.uid == uid }?.name ?: uid
-                                    DropdownMenuItem(text = { Text(name) }, onClick = { viewModel.setPrimary(uid); primaryOpen = false })
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = {
+                                            viewModel.setPrimary(uid)
+                                            primaryOpen = false
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -273,7 +300,11 @@ internal fun NewChatProfileScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(if (profiles.isEmpty()) "No AI profiles are configured." else "No profiles match these filters.")
-                        TextButton(onClick = { filterName = ProfileFilter.ALL.name; labelKey = null; query = "" }) { Text("Clear filters") }
+                        TextButton(onClick = {
+                            filterName = ProfileFilter.ALL.name
+                            labelKey = null
+                            query = ""
+                        }) { Text("Clear filters") }
                         TextButton(onClick = onManageProfiles) { Text("Manage AI Profiles") }
                     }
                 }

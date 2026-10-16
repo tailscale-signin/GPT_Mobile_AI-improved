@@ -16,6 +16,9 @@ enum class NewChatType(val title: String, val explanation: String) {
     }
 
     fun executionMode(count: Int): String =
-        if ((this == COMBINED || this == RESEARCH) && count >= 2) ConversationMode.COMBINED
-        else ConversationMode.STANDARD
+        if ((this == COMBINED || this == RESEARCH) && count >= 2) {
+            ConversationMode.COMBINED
+        } else {
+            ConversationMode.STANDARD
+        }
 }

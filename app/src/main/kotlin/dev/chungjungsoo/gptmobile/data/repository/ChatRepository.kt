@@ -101,6 +101,7 @@ interface ChatRepository {
     suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean = false)
     suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2
     suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2): String?
+
     /** Persist a configured empty conversation before its first request. */
     suspend fun createDraftChat(profileUids: List<String>, conversationMode: String, title: String, primaryProfileUid: String? = null): ChatRoomV2
     suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2

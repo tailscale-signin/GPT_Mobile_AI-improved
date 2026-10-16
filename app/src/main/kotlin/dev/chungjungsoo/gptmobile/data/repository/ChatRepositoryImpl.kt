@@ -3372,6 +3372,27 @@ class ChatRepositoryImpl(
         return withContext(authority) { titleSummarizer?.summarize(userMessage, assistantMessage, platform) }
     }
 
+    override suspend fun createDraftChat(
+        profileUids: List<String>,
+        conversationMode: String,
+        title: String,
+        primaryProfileUid: String?
+    ): ChatRoomV2 {
+        val selected = profileUids.filter(String::isNotBlank).distinct()
+        require(selected.isNotEmpty()) { "Choose at least one AI profile." }
+        val configured = settingRepository.fetchPlatformV2s().filter { it.enabled }.map { it.uid }.toSet()
+        require(selected.all { it in configured }) { "One or more selected profiles are no longer enabled." }
+        val mode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.normalize(conversationMode)
+        val room = ChatRoomV2(
+            title = title.trim().ifBlank { "New Chat" }.take(50),
+            enabledPlatform = selected,
+            activePlatform = selected,
+            conversationMode = mode,
+            combinedPrimaryUid = primaryProfileUid?.takeIf { it in selected && mode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED }
+        )
+        return room.copy(id = chatRoomV2Dao.addChatRoom(room).toInt())
+    }
+
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {
         if (chatRoom.id == 0) {
             val chatId = chatRoomV2Dao.addChatRoom(chatRoom)

@@ -89,6 +89,11 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     try {
         takeWhile { chunk ->
             when (chunk) {
+                is ApiState.CombinedQuality -> {
+                    buffer.updateCombinedQuality(chunk.report)
+                    buffer.publishIfDue(onUpdate)
+                }
+
                 is ApiState.AssistStatus -> {
                     buffer.updateAssist(chunk.status)
                     buffer.publishNow(onUpdate)
@@ -320,6 +325,14 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         timeline.add(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = "${deadline.deadline}: stage ${deadline.stage}; last progress ${deadline.lastProgressAgeMillis} ms ago; cleanup ${deadline.cleanup}.", progressDeadline = deadline))
         timelineVersion += 1
+    }
+
+    fun updateCombinedQuality(report: dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport) {
+        flushTimelineText()
+        val index = timeline.indexOfFirst { it.combinedQuality != null }
+        val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report)
+        if (index < 0) timeline += item else timeline[index] = item
+        timelineVersion++
     }
 
     fun appendNotice(message: String) {

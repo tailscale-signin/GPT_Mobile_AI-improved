@@ -68,6 +68,18 @@ class AppPerformanceBenchmark {
         check(device.wait(Until.hasObject(By.res("benchmark_chat")), 10000))
     }
 
+    @Test fun fiveProfileCombinedStreaming() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { pressHome() }) {
+        startActivityAndWait(fixture(true).putExtra("screen", "combined"))
+        check(device.wait(Until.hasObject(By.res("benchmark_combined_streams")), 10000))
+        device.findObject(By.res("benchmark_input")).click()
+        device.findObject(By.res("benchmark_input")).text = "Next shared question"
+        device.pressBack()
+        val list = device.findObject(By.res("benchmark_combined_streams"))
+        list.setGestureMargin(device.displayWidth / 5)
+        list.fling(Direction.DOWN)
+        Thread.sleep(4500)
+    }
+
     @Test fun streamedResponse() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { pressHome() }) {
         startActivityAndWait(fixture(true))
         // Deliberate device benchmark sampling interval, never an application delay.

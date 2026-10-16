@@ -25,10 +25,12 @@ data class MarkdownProvenancePresentation(
     val profileColors: Map<String, Color>
 )
 
-/** Wording colours are separate from qualified semantic provenance. Shared wording stays neutral. */
+/** Contribution display colours are distinct from verified factual or exclusive semantic provenance. */
 data class CombinedWordingPresentation(
     val sources: List<CombinedModelResponse>,
-    val profileColors: Map<String, Color>
+    val profileColors: Map<String, Color>,
+    val passages: List<dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord> = emptyList(),
+    val fullAnswer: String = ""
 )
 
 data class MappedProfileSpan(val start: Int, val end: Int, val profileUid: String)
@@ -38,7 +40,7 @@ data class MarkdownSourceMap(
     val markdownDigest: String,
     val runs: List<MarkdownSourceRun>
 ) {
-    fun wordingSpans(original: String, markdown: String, sources: List<CombinedModelResponse>): List<MappedProfileSpan> {
+    fun wordingSpans(original: String, markdown: String, sources: List<CombinedModelResponse>, passages: List<dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord> = emptyList(), fullAnswer: String = original): List<MappedProfileSpan> {
         if (answerDigest != researchHash(original) || markdownDigest != researchHash(markdown)) return emptyList()
         if (runs.any {
                 it.sourceStart < 0 ||
@@ -51,8 +53,20 @@ data class MarkdownSourceMap(
         ) {
             return emptyList()
         }
-        return combinedWordingSpans(original, sources).flatMap { span ->
-            val uid = span.profileUids.singleOrNull() ?: return@flatMap emptyList()
+        val offset = fullAnswer.indexOf(original)
+        val allowed = sources.mapTo(hashSetOf()) { it.platformUid }
+        val explicit = if (offset >= 0 && fullAnswer.indexOf(original, offset + 1) < 0) {
+            passages.filter { it.matches(fullAnswer) && it.profileUids.all(allowed::contains) }.mapNotNull { passage ->
+                val start = maxOf(0, passage.start - offset)
+                val end = minOf(original.length, passage.end - offset)
+                if (end > start) dev.chungjungsoo.gptmobile.data.agent.CombinedWordingSpan(start, end, passage.profileUids) else null
+            }
+        } else {
+            emptyList()
+        }
+        val spans = explicit.ifEmpty { combinedWordingSpans(original, sources) }
+        return spans.flatMap { span ->
+            val uid = span.profileUids.sorted().firstOrNull() ?: return@flatMap emptyList()
             runs.mapNotNull { run ->
                 val start = maxOf(span.start, run.sourceStart)
                 val end = minOf(span.end, run.sourceEnd)

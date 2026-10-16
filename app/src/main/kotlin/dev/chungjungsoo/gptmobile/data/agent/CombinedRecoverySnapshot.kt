@@ -19,19 +19,19 @@ internal object CombinedRecoverySnapshot {
         val raw = requireNotNull(run.synthesisSnapshot) { "This legacy answer has no frozen synthesis input." }
         require(researchHash(raw) == run.synthesisKey) { "The frozen synthesis input failed its integrity check." }
         val snapshot = json.decodeFromString<CombinedInputSnapshot>(raw)
-        require(snapshot.version in 1..3 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
+        require(snapshot.version in 1..4 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
         require(primaryUid == snapshot.profileUid && platform.enabled && platform.uid == snapshot.profileUid && platform.model == snapshot.model && benchmarkConfigKey(platform) == snapshot.configKey) { "Restore the pinned primary and its saved configuration before resuming." }
         require(snapshot.sources.none { it.localOnly } || platform.compatibleType == ClientType.LITERT_LM) { "Local-only contributions require the original local primary." }
         snapshot.claimInventory?.let {
             require(it == CombinedClaimInventory.freeze(snapshot.sources)) { "The saved source inventory failed its integrity check." }
         }
-        val prefix = if (run.status == "COMPLETED") {
+        val prefix = if (run.status == "COMPLETED" || snapshot.deliveryProtocol == "PASSAGES_V2") {
             ""
         } else {
             AnswerSegmentChain.text(segments, run.runId, run.ownershipFence).also {
                 require(it == message.content) { "The saved answer and committed segments disagree; the answer was not replaced." }
             }
         }
-        return snapshot.copy(version = 3, resumeFromRunId = run.runId, committedPrefix = prefix)
+        return snapshot.copy(version = maxOf(snapshot.version, 3), resumeFromRunId = run.runId, committedPrefix = prefix)
     }
 }

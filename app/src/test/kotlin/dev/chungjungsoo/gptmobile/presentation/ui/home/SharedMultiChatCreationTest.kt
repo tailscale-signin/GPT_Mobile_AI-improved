@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -19,12 +20,18 @@ import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 @OptIn(ExperimentalCoroutinesApi::class)
 class SharedMultiChatCreationTest {
     @Test
     fun multiChatCreatesOneRoomContainingEverySelectedProfile() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
         try {
             val profiles = listOf(PlatformV2(uid = "a", name = "Alpha"), PlatformV2(uid = "b", name = "Beta"))
             val created = mutableListOf<ChatRoomV2>()
@@ -55,6 +62,7 @@ class SharedMultiChatCreationTest {
                 settings,
                 chats
             )
+            store.put("new-chat", viewModel)
             var route = ""
             viewModel.start { route = it }
             runCurrent()
@@ -67,6 +75,8 @@ class SharedMultiChatCreationTest {
             runCurrent()
             assertEquals(1, created.size)
         } finally {
+            store.clear()
+            runCurrent()
             Dispatchers.resetMain()
         }
     }

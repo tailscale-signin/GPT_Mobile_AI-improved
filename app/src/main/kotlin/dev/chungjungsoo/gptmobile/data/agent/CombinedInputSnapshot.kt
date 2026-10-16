@@ -20,5 +20,8 @@ data class CombinedInputSnapshot(
     val lineage: ContributionLineage? = null,
     val claimInventory: CombinedClaimInventory? = null,
     val resumeFromRunId: String? = null,
-    val committedPrefix: String = ""
+    val committedPrefix: String = "",
+    val deliveryProtocol: String = "LEGACY_TEXT",
+    val evidence: CombinedEvidenceLedger = CombinedEvidenceLedger(),
+    val turnContext: CombinedTurnContext? = null
 )

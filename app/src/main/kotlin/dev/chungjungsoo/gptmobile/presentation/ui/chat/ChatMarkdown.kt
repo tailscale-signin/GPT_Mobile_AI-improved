@@ -165,25 +165,30 @@ fun ChatMarkdown(
             !request.streaming || latestRequest.value.streaming
         }.collectLatest { request ->
             val prepared = withContext(Dispatchers.Default) {
-                val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
-                val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)
-                // Computing a many-model wording inventory for each streaming chunk
-                // is wasteful. Apply all profile colours on final completion.
-                val wantsWording = request.wording != null && !request.streaming
-                val mapped = if (request.provenance != null || wantsWording) {
-                    buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
-                } else {
-                    null
+                android.os.Trace.beginSection("Combined.Markdown.prepare")
+                try {
+                    val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
+                    val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)
+                    // Explicit immutable paragraph records are cheap to map during streaming;
+                    // lexical legacy matching stays deferred until the final render.
+                    val wantsWording = request.wording != null && (!request.streaming || request.wording.passages.isNotEmpty())
+                    val mapped = if (request.provenance != null || wantsWording) {
+                        buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
+                    } else {
+                        null
+                    }
+                    val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
+                    val profileSpans = if (request.provenance != null && mapped != null) {
+                        mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
+                    } else if (wantsWording && mapped != null) {
+                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer.ifBlank { request.content })
+                    } else {
+                        emptyList()
+                    }
+                    PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))
+                } finally {
+                    android.os.Trace.endSection()
                 }
-                val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
-                val profileSpans = if (request.provenance != null && mapped != null) {
-                    mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
-                } else if (wantsWording && mapped != null) {
-                    mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources)
-                } else {
-                    emptyList()
-                }
-                PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))
             }
             rendered = prepared
             val now = android.os.SystemClock.elapsedRealtime()

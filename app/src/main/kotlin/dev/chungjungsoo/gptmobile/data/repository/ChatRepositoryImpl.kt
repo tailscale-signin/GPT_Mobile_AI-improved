@@ -1717,7 +1717,7 @@ class ChatRepositoryImpl(
                         ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
                     val responseFeatures = settingRepository.getFeatureSettings()
                     val quickRepliesEnabled = responseFeatures.smartSuggestions
-                    val subjectInstruction = if (responseFeatures.automaticConversationTitles && effectiveUserMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
+                    val subjectInstruction = if (!synthesisRun && responseFeatures.automaticConversationTitles && effectiveUserMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
                     fun baseSystemPrompt(): String {
                         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
                         val progressInstruction = if (resolvedTools.isNotEmpty()) {
@@ -1744,11 +1744,14 @@ class ChatRepositoryImpl(
                         } else {
                             ""
                         }
-                        return liveToolSystemPrompt(
+                        val turnContextInstruction = effectiveUserMessages.lastOrNull()?.let {
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(it.createdAt).instruction()
+                        }.orEmpty()
+                        return turnContextInstruction + liveToolSystemPrompt(
                             platform.systemPrompt,
                             exposedTools.map { it.modelToolName },
                             compact = localResearch || limits.contextTokens < 4096
-                        ) + subjectInstruction + (if (quickRepliesEnabled) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
+                        ) + subjectInstruction + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
                             if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
                     }
                     val memorySettings = factVault?.state?.value
@@ -2558,13 +2561,14 @@ class ChatRepositoryImpl(
             }
         )
         val comprehensiveEditorial = editorialPass && dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(latestUser?.content.orEmpty())
-        val remainingWordGoal = wordGoal?.takeUnless { comprehensiveEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
+        val structuredEditorial = editorialPass && dev.chungjungsoo.gptmobile.data.agent.passageCombinedEnvelope(latestUser?.content.orEmpty())
+        val remainingWordGoal = wordGoal?.takeUnless { structuredEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
         val continuationLimit = if (editorialPass) {
             dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(latestUser?.content.orEmpty(), requestConstraints.outputLimit(platform.maxTokens), remainingWordGoal)
         } else {
             dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
         }
-        val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY
+        val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY && !structuredEditorial
         val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
         val frozenResume = if (editorialPass) {
             agentPersistenceDao.recoveryRun(runId)?.synthesisSnapshot?.let {
@@ -2621,7 +2625,7 @@ class ChatRepositoryImpl(
                 multipassFinalTurns.get() ?: contextPlan.turns,
                 (if (draft.isBlank()) "\n\nThe previous attempt wrote no visible answer. Write the complete answer from the original task, frozen evidence and full outline, starting with its first section. " else "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. ") +
                     "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
-                    (wordGoal?.takeUnless { comprehensiveEditorial }?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
+                    (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
                     "If evidence is missing, state the gap. Start with a paragraph break only when the previous paragraph is complete.",
                 checkpoint?.continuationContext(draft) ?: draft,
                 exchanges
@@ -2641,6 +2645,10 @@ class ChatRepositoryImpl(
                 frozen.sources,
                 maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 } ?: 1_048_576,
                 committedPrefix = restoredDraft,
+                originalRequest = frozen.userMessage.content,
+                evidence = frozen.evidence,
+                turnContext = frozen.turnContext,
+                structured = frozen.deliveryProtocol == "PASSAGES_V2" && restoredDraft.isEmpty(),
                 validateAccess = {
                     dispatchAuthority.validate()
                     if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
@@ -2652,7 +2660,7 @@ class ChatRepositoryImpl(
             ) { draft, missing ->
                 val repairTurns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                     multipassFinalTurns.get() ?: contextPlan.turns,
-                    dev.chungjungsoo.gptmobile.data.agent.combinedCoverageRepairInstruction(missing),
+                    dev.chungjungsoo.gptmobile.data.agent.combinedCoverageRepairInstruction(missing) + "\nOriginal user request: " + frozen.userMessage.content + "\nCorrect these instruction violations: " + dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(frozen.userMessage.content).violations(draft).joinToString() + "\nUse the same " + frozen.deliveryProtocol + " output protocol as the original envelope.",
                     draft,
                     emptyList()
                 )
@@ -2669,7 +2677,7 @@ class ChatRepositoryImpl(
                 ) { partial, _ ->
                     val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                         admitted.turns,
-                        "Continue the revised Combined answer from its exact stopping point. Preserve the existing revised text and finish all remaining claims. Do not restart, repeat content, shorten to a word goal, or execute tools.",
+                        "Continue the revised Combined answer from its exact stopping point. Preserve the existing revised text and finish all remaining claims. Do not restart, repeat content, exceed the user's requested word limit or scope, or execute tools. Continue the same delivery protocol.",
                         partial,
                         emptyList()
                     )
@@ -2850,6 +2858,7 @@ class ChatRepositoryImpl(
                         }
                     }
 
+                    is ProviderEvent.CombinedQuality -> emit(ApiState.CombinedQuality(providerEvent.report))
                     is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline))
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))
                     is ProviderEvent.PhaseChanged -> {

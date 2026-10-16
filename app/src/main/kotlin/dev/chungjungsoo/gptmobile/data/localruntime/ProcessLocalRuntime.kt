@@ -9,8 +9,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Message
-import android.os.SystemClock
 import android.os.Messenger
+import android.os.SystemClock
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.RuntimeWire
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.RuntimeWireTransport

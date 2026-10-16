@@ -2,10 +2,10 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.agent.COMBINED_RECOVERY_MARKER
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage

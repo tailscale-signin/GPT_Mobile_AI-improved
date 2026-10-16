@@ -69,4 +69,17 @@ class CombinedClaimMatchingTest {
         assertEquals(revised.dropLast(1), revised.substring(spans.single().start, spans.single().end))
         assertTrue(combinedWordingSpans("There is no single definitive answer.", shared).isEmpty())
     }
+
+    @Test fun canadaCoastlineMeasurementsAreComparedAfterNormalizingThousands() {
+        val first = "Canada has the world's longest coastline, about 243,042 kilometers, stretching along three oceans."
+        val sameNumber = "Canada has the world's longest coastline about 243042 kilometers stretching along three oceans."
+        val second = "Canada has the longest coastline in the world, measuring about 202,080 kilometers along several oceans."
+        assertEquals(setOf("243042"), CombinedClaimMatcher.fingerprint(first).numbers)
+        assertEquals(setOf("243042"), CombinedClaimMatcher.fingerprint(sameNumber).numbers)
+        assertTrue(CombinedClaimMatcher.match(first, sameNumber) != CombinedClaimMatcher.Match.NONE)
+        assertEquals(CombinedClaimMatcher.Match.NONE, CombinedClaimMatcher.match(first, second))
+        val scan = CombinedConflictDetector.scan(listOf(source("a", first), source("b", second)))
+        assertTrue(scan.candidates.any { it.kind == "NUMERIC" })
+    }
+
 }

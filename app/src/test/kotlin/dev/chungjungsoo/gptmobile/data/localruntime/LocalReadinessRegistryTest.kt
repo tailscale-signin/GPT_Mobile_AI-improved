@@ -62,6 +62,21 @@ class LocalReadinessRegistryTest {
         }
     }
 
+    @Test fun `one tensor mismatch blocks subsequent tuning variations at the same route`() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("incompatible-route-fixture").toFile()
+        try {
+            LocalReadinessRegistry(directory).rememberIncompatibleRoute("artifact-runtime-gpu")
+            val restarted = LocalReadinessRegistry(directory)
+            assertTrue(runCatching { restarted.assertNativeAllowed("artifact-runtime-gpu") }.exceptionOrNull() is LocalArtifactIncompatibleException)
+            restarted.assertNativeAllowed("artifact-runtime-cpu")
+            restarted.assertNativeAllowed("replacement-runtime-gpu")
+            restarted.reset("artifact-runtime-gpu")
+            restarted.assertNativeAllowed("artifact-runtime-gpu")
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun `native interruption blocks the route before inspection and survives process restart`() = runBlocking {
         val directory = java.nio.file.Files.createTempDirectory("native-route-fixture").toFile()
         try {

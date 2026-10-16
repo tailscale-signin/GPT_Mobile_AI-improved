@@ -15,6 +15,24 @@ object ProfileAttributionPalette {
         22.5f, 202.5f, 112.5f, 292.5f, 67.5f, 247.5f, 157.5f, 337.5f
     )
 
+    /**
+     * Assign colours to the actual Combined contributors, not to their global
+     * profile-creation indices. A user's selected profiles may have markers
+     * in the hundreds; every visible source must still receive a separated hue.
+     * Original identities remain persisted unchanged.
+     */
+    fun forSelection(
+        profileUids: List<String>,
+        persisted: Map<String, ProfileColorIdentity>
+    ): Map<String, ProfileColorIdentity> {
+        val ordered = profileUids.distinct().sortedWith(
+            compareBy<String>({ persisted[it]?.marker ?: Int.MAX_VALUE }, { it })
+        )
+        return ordered.mapIndexed { index, uid ->
+            uid to (persisted[uid] ?: ProfileColorIdentity(hue = 0, marker = index + 1)).copy(marker = index + 1)
+        }.toMap()
+    }
+
     fun foreground(identity: ProfileColorIdentity, surface: Color): Color {
         val hue = separatedHues.getOrNull(identity.marker - 1)
             ?: ((identity.hue % 360 + 360) % 360).toFloat()

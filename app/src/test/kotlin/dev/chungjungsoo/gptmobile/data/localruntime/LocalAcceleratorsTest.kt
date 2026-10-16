@@ -187,6 +187,22 @@ class LocalAcceleratorsTest {
         assertEquals(null, sm8750.unavailableReason)
     }
 
+
+    @Test
+    fun hostedGemma4E2bPublishesPinnedSm8750Export() {
+        val gemma = hostedEntry("gemma-4-e2b-it")
+        val npu = LocalAccelerators.choices(
+            gemma.supportedAccelerators, gemma.socToModelFiles, "SM8750"
+        ).single { it.accelerator == LocalAccelerators.NPU }
+        assertTrue(npu.enabled)
+        val variant = gemma.socToModelFiles.getValue("SM8750")
+        assertEquals("gemma-4-E2B-it_qualcomm_sm8750.litertlm", variant.modelFile)
+        assertEquals(3016294400L, variant.sizeInBytes)
+        assertEquals(4096, variant.contextSize)
+        assertEquals("41dd675fbe735b6029012b5576a5716bac614fd8156de0128db4c9dff3cebd4e", variant.sha256)
+        assertFalse(LocalAccelerators.isNpuEligible(gemma.supportedAccelerators, gemma.socToModelFiles, "SM8650"))
+    }
+
     @Test
     fun `hosted Gemma-3n still reports model has no NPU build`() {
         val gemma3n = hostedEntry("gemma-3n-e2b-it")

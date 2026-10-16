@@ -190,8 +190,11 @@ class NewChatViewModel @Inject constructor(
                 val nextRoute = if (choice == NewChatType.MULTI_CHAT) {
                     selected.forEach { uid ->
                         val profile = available.first { it.uid == uid }
-                        val title = if (created.isEmpty()) "Multi-chat · " + selected.size + " AIs" else profile.name
-                        created += chats.createDraftChat(listOf(uid), mode, title)
+                        val isRoot = created.isEmpty()
+                        val title = if (isRoot) "Multi-chat · " + selected.size + " AIs" else profile.name
+                        val room = chats.createDraftChat(listOf(uid), mode, title)
+                        created += room
+                        if (isRoot) chats.updateChatTitle(room, title, isCustomized = true)
                     }
                     val rootId = created.first().id
                     settings.mutateFeatureSettings {
@@ -236,6 +239,18 @@ class NewChatViewModel @Inject constructor(
                 throw cancelled
             } catch (failure: Exception) {
                 if (created.isNotEmpty()) {
+                    val ids = created.mapTo(mutableSetOf()) { it.id }
+                    try {
+                        settings.mutateFeatureSettings { current ->
+                            current.copy(
+                                multiChatWorkspaces = current.multiChatWorkspaces.filterKeys { it !in ids },
+                                researchChatIds = current.researchChatIds - ids,
+                                conversationResearch = current.conversationResearch.filterKeys { it !in ids }
+                            )
+                        }
+                    } catch (_: Exception) {
+                        // A failed settings rollback must not overwrite the creation error.
+                    }
                     try {
                         chats.deleteChatsV2(created)
                     } catch (_: Exception) {

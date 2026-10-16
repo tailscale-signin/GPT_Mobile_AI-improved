@@ -45,6 +45,19 @@ class CombinedSynthesisPromptTest {
         }
     }
 
+    @Test fun conflictCandidatesAreLabeledAsUnverifiedNotWinningModelVotes() {
+        val sources = listOf(
+            CombinedModelResponse("one", "One", content = "The council approved 12 houses in 1930."),
+            CombinedModelResponse("two", "Two", content = "The council approved 14 houses in 1930.")
+        )
+        val prompt = Json.parseToJsonElement(combinedSynthesisPrompt("Explain the outcome", sources)).jsonObject
+        assertEquals("COMPREHENSIVE", prompt.getValue("combination_policy").jsonPrimitive.content)
+        val conflicts = prompt.getValue("potential_conflicts").jsonArray
+        assertEquals(1, conflicts.size)
+        assertEquals("NUMERIC", conflicts.single().jsonObject.getValue("kind").jsonPrimitive.content)
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("UNVERIFIED lexical candidates"))
+    }
+
     @Test fun excludesTransportErrorsFromUsablePartialContributions() {
         val prompt = combinedSynthesisPrompt("History", listOf(CombinedModelResponse("a", "A", content = "Useful history.\n\n[Response stopped: Connection lost]")))
         assertFalse(prompt.contains("Connection lost"))

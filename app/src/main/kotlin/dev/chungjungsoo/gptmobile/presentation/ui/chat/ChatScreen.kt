@@ -1099,9 +1099,13 @@ private fun ChatMessagePair(
         emptyList()
     }
     val combinedIdentities = remember(combinedProfiles, debugSettings.profileAttributionColors) {
-        if (!combinedMode) emptyMap() else ProfileAttributionPalette.forSelection(
-            combinedProfiles.map { it.uid }, debugSettings.profileAttributionColors
-        )
+        if (!combinedMode) {
+            emptyMap()
+        } else {
+            ProfileAttributionPalette.forSelection(
+                combinedProfiles.map { it.uid }, debugSettings.profileAttributionColors
+            )
+        }
     }
     val attributionSurface = MaterialTheme.colorScheme.surface
     val attributionColors = remember(combinedIdentities, attributionSurface) {

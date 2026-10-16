@@ -83,6 +83,22 @@ internal class CombinedDeliverySession(
                 }
             }
         }
+        if (!checked.accepted) {
+            // Never silently select the "best" model. If a bounded editorial retry
+            // still omits passages, preserve missing source wording transparently.
+            val appended = withContext(Dispatchers.Default) {
+                appendMissingCombinedPassages(text, checked.missing, sources, maxCharacters)
+            }
+            if (appended != null && appended.startsWith(committedPrefix)) {
+                val next = withContext(Dispatchers.Default) { coverage.check(appended) }
+                onCoverage(next, true)
+                if (next.accepted) {
+                    text = appended
+                    checked = next
+                    emit(ProviderEvent.Notice("Combined synthesis retained missing source passages in an unverified source section."))
+                }
+            }
+        }
         validateAccess()
         if (text.isNotBlank()) emit(ProviderEvent.TextDelta(text))
         if (checked.accepted && text.startsWith(committedPrefix)) {

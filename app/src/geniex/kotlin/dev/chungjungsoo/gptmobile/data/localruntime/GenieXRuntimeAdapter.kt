@@ -107,17 +107,22 @@ internal class GenieXRuntimeAdapter(private val context: Context) : LocalRuntime
         vision = spec.isVisionEnabled
         guard.before(spec)
         try {
-            var initializationError: String? = null
+            // GenieX initialization can complete through an asynchronous callback.
+            // Do not construct a native handle until the SDK explicitly reports success.
+            val initialized = kotlinx.coroutines.CompletableDeferred<String?>()
             GenieXSdk.getInstance().init(
                 context,
                 object : GenieXSdk.InitCallback {
-                    override fun onSuccess() = Unit
+                    override fun onSuccess() {
+                        initialized.complete(null)
+                    }
                     override fun onFailure(reason: String) {
-                        initializationError = reason
+                        initialized.complete(reason)
                     }
                 }
             )
-            check(initializationError == null) { initializationError.orEmpty() }
+            val initializationError = kotlinx.coroutines.withTimeout(30_000L) { initialized.await() }
+            check(initializationError == null) { "GenieX initialization failed: $initializationError" }
             val modelConfig = ModelConfig(
                 nCtx = if (qairt) 0 else spec.maxTokens,
                 nGpuLayers = if (qairt || spec.accelerator.equals("cpu", true)) 0 else -1,

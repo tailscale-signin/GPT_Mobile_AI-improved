@@ -18,7 +18,7 @@ internal object RuntimeCapabilityRegistry {
     fun requireRuntime(runtime: ArtifactRuntime) {
         when (runtime) {
             ArtifactRuntime.LLAMA_CPP -> check(ggufPackaged) { "This app build does not include a compatible GGUF runtime" }
-            ArtifactRuntime.GENIEX_LLAMA_CPP -> check(BuildConfig.GENIEX_ENABLED || ggufPackaged) { "This app build does not include a compatible GGUF runtime" }
+            ArtifactRuntime.GENIEX_LLAMA_CPP -> check(BuildConfig.GENIEX_ENABLED) { "This is a GenieX artifact. Install the separate GenieX preview APK to use the GenieX SDK; the standard app's llama.cpp runtime is not GenieX." }
             ArtifactRuntime.GENIEX_QAIRT -> check(BuildConfig.GENIEX_ENABLED) { "QAIRT bundles require the separate GenieX preview build" }
             else -> error("Unsupported artifact runtime")
         }

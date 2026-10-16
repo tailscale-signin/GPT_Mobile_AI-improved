@@ -63,16 +63,15 @@ class CombinedDeliverySessionTest {
         assertTrue(events.none { it is ProviderEvent.Failed })
     }
 
-    @Test fun repeatedSingleTopicNeverBecomesCompletedResearchOrCombinedDelivery() = runTest {
-        var repairs = 0
-        val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ ->
-            repairs++
-            session(winner)
-        }
+    @Test fun unproductiveRepairRetainsAllFrozenSourcesInLabelledAppendix() = runTest {
+        val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ -> session(winner) }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(1, repairs)
-        assertTrue(events.none { it == ProviderEvent.Completed })
-        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.startsWith("COMBINED_COVERAGE_INCOMPLETE"))
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(answer.startsWith(winner))
+        assertTrue(answer.contains("## Additional source details"))
+        assertTrue(CombinedContentCoverage(sources).check(answer).accepted)
+        assertTrue(events.any { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
     }
 
     @Test fun revocationDuringRepairDoesNotPublishRetainedContent() = runTest {
@@ -95,15 +94,17 @@ class CombinedDeliverySessionTest {
         assertTrue(runCatching { wrapper.streamRound(emptyList(), emptyList()).collect { throw stop } }.exceptionOrNull() === stop)
     }
 
-    @Test fun repairPreparationFailureRetainsAnHonestIncompleteAnswer() = runTest {
+    @Test fun failedRepairCanStillPreserveCompleteSourceCoverage() = runTest {
         val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ -> error("Context cannot fit repair") }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(winner, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
-        assertTrue(events.none { it == ProviderEvent.Completed })
-        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(answer.startsWith(winner))
+        assertTrue(CombinedContentCoverage(sources).check(answer).accepted)
+        assertTrue(events.any { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
     }
 
-    @Test fun repairStreamFailureRetainsOriginalDraftAndDoesNotPublishPartialRepair() = runTest {
+    @Test fun failedRepairStreamNeverPublishesItsBrokenDraft() = runTest {
         val broken = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
                 emit(ProviderEvent.TextDelta("Incomplete replacement"))
@@ -112,9 +113,11 @@ class CombinedDeliverySessionTest {
         }
         val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ -> broken }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(winner, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
-        assertTrue(events.none { it == ProviderEvent.Completed })
-        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(answer.startsWith(winner))
+        assertFalse(answer.contains("Incomplete replacement"))
+        assertTrue(CombinedContentCoverage(sources).check(answer).accepted)
+        assertTrue(events.any { it == ProviderEvent.Completed })
     }
 
     @Test fun initialStreamFailureDeliversBufferedTextWithFailure() = runTest {
@@ -152,11 +155,22 @@ class CombinedDeliverySessionTest {
         assertTrue(failure === consumerFailure || failure?.cause === consumerFailure)
     }
 
-    @Test fun repairCannotRewriteAnAlreadyCommittedPrefix() = runTest {
-        val wrapper = CombinedDeliverySession(session("Committed prefix." + winner), sources, 100_000, committedPrefix = "Committed prefix.", validateAccess = {}) { _, _ -> session(complete) }
+    @Test fun fallbackCannotRewriteAnAlreadyCommittedPrefix() = runTest {
+        val prefix = "Committed prefix."
+        val wrapper = CombinedDeliverySession(session(prefix + winner), sources, 100_000, committedPrefix = prefix, validateAccess = {}) { _, _ -> session(complete) }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(answer.startsWith(prefix + winner))
+        assertTrue(CombinedContentCoverage(sources).check(answer).accepted)
+        assertTrue(events.any { it == ProviderEvent.Completed })
+    }
+
+    @Test fun impossibleCharacterAllowanceNeverSilentlyMarksIncompleteAsComplete() = runTest {
+        val wrapper = CombinedDeliverySession(session(winner), sources, winner.length + 8, validateAccess = {}) { _, _ -> session(winner) }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(winner, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
         assertTrue(events.none { it == ProviderEvent.Completed })
-        assertEquals("Committed prefix." + winner, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.startsWith("COMBINED_COVERAGE_INCOMPLETE"))
     }
 
     @Test fun cultureExportMustNotDropTangChinaWhenSelectingAnAthensAnswer() {
@@ -178,7 +192,7 @@ class CombinedDeliverySessionTest {
         assertEquals(1, coverage.units.size)
     }
 
-    @Test fun partialRepairKeepsRecoveredTopicsButNeverClaimsFullCoverage() = runTest {
+    @Test fun partialEditorialRepairRetainsItsImprovementAndAppendsRemainingTopic() = runTest {
         val rows = listOf(
             CombinedModelResponse("athens", "Athens", content = "Athens used wealth from silver mines to fund public works and naval power."),
             CombinedModelResponse("tang", "Tang", content = "Tang China welcomed Persian merchants and Japanese monks along the Silk Road."),
@@ -188,9 +202,12 @@ class CombinedDeliverySessionTest {
         val improved = draft + "\n\n" + rows[1].content
         val wrapper = CombinedDeliverySession(session(draft), rows, 100_000, validateAccess = {}) { _, _ -> session(improved) }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        assertEquals(improved, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
-        assertTrue(events.none { it == ProviderEvent.Completed })
-        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("1 of 3"))
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(answer.startsWith(improved))
+        assertTrue(answer.contains(rows[2].content))
+        assertTrue(CombinedContentCoverage(rows).check(answer).accepted)
+        assertTrue(events.any { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
     }
 
     @Test fun sharedTextNamesEverySubmitterAndParaphrasesStayNeutral() {

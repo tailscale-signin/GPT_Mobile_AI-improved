@@ -11,10 +11,11 @@ internal class PreparationReplayFence : AbstractCoroutineContextElement(Key) {
     fun dispatched() {
         attempted.set(true)
     }
-    fun canRebuild(error: Throwable, attempt: Long): Boolean = attempt == 0L &&
-        !attempted.get() &&
+    fun canRebuild(error: Throwable, attempt: Long): Boolean = !attempted.get() &&
         (
-            (error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) ||
-                (error is IllegalArgumentException && error.message?.startsWith("MEMORY_STALE:") == true)
+            // Re-capture the *entire* policy and evidence snapshot, never replay provider
+            // or tool calls. Multiple rapid settings changes may need up to three rebuilds.
+            (attempt < 3L && error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) ||
+                (attempt == 0L && error is IllegalArgumentException && error.message?.startsWith("MEMORY_STALE:") == true)
             )
 }

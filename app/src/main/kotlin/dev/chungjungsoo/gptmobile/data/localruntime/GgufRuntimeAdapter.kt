@@ -35,7 +35,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         val file = File(modelPath)
         val manifest = ArtifactManifestStore.read(file)
         manifest.validate(requireNotNull(file.parentFile))
-        check(manifest.runtime in setOf(ArtifactRuntime.LLAMA_CPP, ArtifactRuntime.GENIEX_LLAMA_CPP)) { "This app build cannot execute QAIRT preview bundles" }
+        check(manifest.runtime == ArtifactRuntime.LLAMA_CPP) { "GenieX artifacts require the separate GenieX preview APK; this is the standard CPU llama.cpp runtime." }
         check(!manifest.vision && manifest.projectorFile == null) { "This GGUF runtime supports self-contained text models only" }
         check("cpu" in manifest.supportedBackends) { "This artifact does not permit the packaged CPU backend" }
         LocalModelCapabilities(minOf(manifest.contextTokens, 32768), true, setOf("cpu"), false, false, false, false)

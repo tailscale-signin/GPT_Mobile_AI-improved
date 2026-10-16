@@ -31,12 +31,13 @@ class NvidiaModelRepository @Inject constructor() {
             if (!forceRefresh && cached != null && now - cached.fetchedAt in 0..600_000L) {
                 return@withLock cached.models
             }
-            val models = catalog.load(PlatformV2(
+            val profile = PlatformV2(
                 name = "NVIDIA",
                 compatibleType = ClientType.NVIDIA,
                 apiUrl = endpoint,
                 token = apiKey
-            ))
+            )
+            val models = catalog.load(profile)
             if (cache.size >= 16) cache.remove(cache.keys.first())
             cache[digest] = Cached(now, models)
             models

@@ -110,7 +110,10 @@ fun NvidiaModelPickerDialog(
         confirmButton = {
             TextButton(
                 enabled = selection.isNotBlank(),
-                onClick = { onModelSelected(selection.trim()); onDismiss() }
+                onClick = {
+                    onModelSelected(selection.trim())
+                    onDismiss()
+                }
             ) { Text("Use model") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }

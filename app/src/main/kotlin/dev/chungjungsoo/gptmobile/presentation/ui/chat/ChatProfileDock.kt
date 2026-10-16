@@ -59,11 +59,14 @@ internal fun ChatProfileDock(
                 val active = selectedUid == uid
                 val paused = uid != null && uid in pausedUids
                 val running = if (uid == null) combinedGenerating else uid in generatingUids
+                val failed = if (uid == null) combinedFailed else uid in failedUids
                 val label = if (uid == null) "Combined" else names[uid] ?: "AI"
                 val status = if (paused) {
                     "Paused"
                 } else if (running) {
                     "Responding"
+                } else if (failed) {
+                    "Needs attention"
                 } else {
                     "Ready"
                 }

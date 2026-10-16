@@ -63,12 +63,14 @@ class CombinedDeliverySessionTest {
         assertTrue(events.none { it is ProviderEvent.Failed })
     }
 
-    @Test fun unproductiveRepairRetainsAllFrozenSourcesInLabelledAppendix() = runTest {
+    @Test fun unproductiveRepairRetainsAllFrozenSourcesWithoutProfileLabels() = runTest {
         val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ -> session(winner) }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
         val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(answer.startsWith(winner))
-        assertTrue(answer.contains("## Additional source details"))
+        assertTrue(answer.contains("## Further details"))
+        assertFalse(answer.contains("**From "))
+        assertFalse(answer.contains("individual AI profiles"))
         assertTrue(CombinedContentCoverage(sources).check(answer).accepted)
         assertTrue(events.any { it == ProviderEvent.Completed })
         assertTrue(events.none { it is ProviderEvent.Failed })

@@ -16,9 +16,10 @@ class ComposerActivityTest {
         assertEquals(ComposerActivity.IDLE, ReadinessHints.composerActivity.value)
         ReadinessHints.clearComposer()
     }
+
     @Test fun selectedProfilesAreStableDeduplicatedAndBounded() {
-        ReadinessHints.selectProfiles(listOf("next","first","next","second","third","fourth"))
-        assertEquals(listOf("next","first","second","third"), ReadinessHints.profiles.value)
+        ReadinessHints.selectProfiles(listOf("next", "first", "next", "second", "third", "fourth"))
+        assertEquals(listOf("next", "first", "second", "third"), ReadinessHints.profiles.value)
         ReadinessHints.selectProfiles(emptyList())
     }
 }

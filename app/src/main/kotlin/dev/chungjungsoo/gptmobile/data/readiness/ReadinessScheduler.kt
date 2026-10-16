@@ -42,5 +42,8 @@ class ReadinessScheduler @Inject constructor(@dev.chungjungsoo.gptmobile.di.Read
             job.start()
         }
     }
-    fun cancelSpeculation() { jobs.values.toList().forEach { it.cancel() } }
+
+    fun cancelSpeculation() {
+        jobs.values.toList().forEach { it.cancel() }
+    }
 }

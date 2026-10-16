@@ -401,9 +401,11 @@ class ChatViewModel @Inject constructor(
                 nextMessageProfileUid
             ) { room, profiles, nextUid -> Triple(room, profiles, nextUid) }.collectLatest { (room, profiles, nextUid) ->
                 val available = profiles.filter { it.uid in room.activePlatform && it.enabled }.map { it.uid }
-                if (!leavingConversation) dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(
-                    (listOfNotNull(nextUid).filter { it in available } + available).distinct()
-                )
+                if (!leavingConversation) {
+                    dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(
+                        (listOfNotNull(nextUid).filter { it in available } + available).distinct()
+                    )
+                }
                 memoryPreview?.clear()
             }
         }

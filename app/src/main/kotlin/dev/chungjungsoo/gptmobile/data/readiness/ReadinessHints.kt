@@ -9,7 +9,11 @@ enum class ComposerActivity { IDLE, FOCUSED, TYPING }
 object ReadinessHints {
     private val network = MutableStateFlow(0L)
     val networkEpoch = network.asStateFlow()
-    @Synchronized fun networkChanged() { network.value++ }
+
+    @Synchronized
+    fun networkChanged() {
+        network.value++
+    }
 
     private val ready = MutableStateFlow(false)
     private val selected = MutableStateFlow<List<String>>(emptyList())
@@ -20,22 +24,33 @@ object ReadinessHints {
     val profiles = selected.asStateFlow()
     val composerActivity = activity.asStateFlow()
 
-    fun usableUi() { ready.value = true }
-    fun selectProfiles(ids: List<String>) { selected.value = ids.distinct().take(4) }
+    fun usableUi() {
+        ready.value = true
+    }
 
-    @Synchronized fun composerFocusChanged(value: Boolean) {
+    fun selectProfiles(ids: List<String>) {
+        selected.value = ids.distinct().take(4)
+    }
+
+    @Synchronized
+    fun composerFocusChanged(value: Boolean) {
         focused = value
         publishActivity()
     }
-    @Synchronized fun composerDraftChanged(nonEmpty: Boolean) {
+
+    @Synchronized
+    fun composerDraftChanged(nonEmpty: Boolean) {
         hasDraft = nonEmpty
         publishActivity()
     }
-    @Synchronized fun clearComposer() {
+
+    @Synchronized
+    fun clearComposer() {
         focused = false
         hasDraft = false
         publishActivity()
     }
+
     private fun publishActivity() {
         activity.value = when {
             !focused -> ComposerActivity.IDLE

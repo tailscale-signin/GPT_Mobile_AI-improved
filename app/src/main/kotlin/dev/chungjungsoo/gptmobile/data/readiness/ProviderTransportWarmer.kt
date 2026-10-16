@@ -32,7 +32,9 @@ class ProviderTransportWarmer @Inject constructor(private val client: NetworkCli
             if (last == null || now - last !in 0..60_000L) {
                 admitted.set(true)
                 now
-            } else last
+            } else {
+                last
+            }
         }
         if (!admitted.get()) return
         if (attempts.size > 64) attempts.keys.filter { it != key }.take(32).forEach { attempts.remove(it) }
@@ -62,11 +64,20 @@ internal fun providerWarmOrigin(endpoint: String): String? {
     val uri = runCatching { URI(endpoint.trim()) }.getOrNull() ?: return null
     if (!uri.scheme.equals("https", ignoreCase = true) || uri.rawUserInfo != null) return null
     val host = uri.host?.lowercase(Locale.ROOT) ?: return null
-    if (host.length > 253 || !host.contains('.') || host.contains(':') ||
+    if (
+        host.length > 253 ||
+        !host.contains('.') ||
+        host.contains(':') ||
         !host.matches(Regex("[a-z0-9.-]+")) ||
-        host == "localhost" || host.endsWith(".local") || host.endsWith(".internal") ||
-        host.endsWith(".test") || host.endsWith(".invalid") ||
-        host.all { it.isDigit() || it == '.' }) return null
+        host == "localhost" ||
+        host.endsWith(".local") ||
+        host.endsWith(".internal") ||
+        host.endsWith(".test") ||
+        host.endsWith(".invalid") ||
+        host.all { it.isDigit() || it == '.' }
+    ) {
+        return null
+    }
     val port = uri.port
     if (port != -1 && port !in 1..65_535) return null
     val suffix = if (port == -1 || port == 443) "" else ":$port"

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaEndpoints
 
 data class ProviderRequestConfig(
     val apiUrl: String,
@@ -27,7 +28,7 @@ data class ProviderRequestConfig(
      */
     fun buildEndpoint(subPath: String): String {
         if (freeProvider != null && subPath.trim('/') == "chat/completions") return freeProvider.chatCompletionsUrl
-        val sanitizedBase = apiUrl.trim().trimEnd('/')
+        val sanitizedBase = if (providerType == "NVIDIA") NvidiaEndpoints.normalize(apiUrl) else apiUrl.trim().trimEnd('/')
         val sanitizedSubPath = subPath.trim().trimStart('/')
         return if (sanitizedSubPath.isEmpty()) sanitizedBase else "$sanitizedBase/$sanitizedSubPath"
     }

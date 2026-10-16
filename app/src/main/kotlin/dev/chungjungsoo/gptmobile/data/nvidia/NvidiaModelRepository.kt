@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.nvidia
 
-import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelCatalog
@@ -21,7 +20,7 @@ class NvidiaModelRepository @Inject constructor() {
 
     suspend fun load(apiUrl: String, apiKey: String, forceRefresh: Boolean = false): List<ProfileModelOption> {
         require(apiKey.isNotBlank()) { "Add an NVIDIA API key to browse live models." }
-        val endpoint = apiUrl.trim().ifBlank { ModelConstants.NVIDIA_API_URL }.trimEnd('/')
+        val endpoint = NvidiaEndpoints.normalize(apiUrl)
         val digest = MessageDigest.getInstance("SHA-256")
             .digest((endpoint + "\u0000" + apiKey).toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }

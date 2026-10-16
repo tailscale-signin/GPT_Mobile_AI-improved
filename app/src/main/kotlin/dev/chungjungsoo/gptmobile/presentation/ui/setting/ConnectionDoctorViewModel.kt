@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaEndpoints
 import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaInferenceProbe
 import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -134,7 +135,8 @@ class ConnectionDoctorViewModel @Inject constructor(
             val rawCredential = profile.token?.takeIf(String::isNotBlank)
                 ?: profile.providerConnectionUid?.let { settings.getProviderCredentials(it) }
             val catalogKey = ApiCredentialRotator.parseKeys(rawCredential).firstOrNull()
-            val modelsUrl = if (profile.compatibleType == ClientType.OLLAMA && !base.endsWith("/v1")) "$base/api/tags" else "$base/models"
+            val resolvedBase = if (profile.compatibleType == ClientType.NVIDIA) NvidiaEndpoints.normalize(base) else base
+            val modelsUrl = if (profile.compatibleType == ClientType.OLLAMA && !base.endsWith("/v1")) "$base/api/tags" else "$resolvedBase/models"
             val discovery = try {
                 withTimeoutOrNull(5000L) {
                     val response = network().get(modelsUrl) { catalogKey?.let { bearerAuth(it) } }

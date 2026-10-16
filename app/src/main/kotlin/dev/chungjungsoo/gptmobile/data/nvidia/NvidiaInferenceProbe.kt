@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.nvidia
 
-import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role
 import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
@@ -35,7 +34,7 @@ data class NvidiaProbeResult(
 class NvidiaInferenceProbe @Inject constructor(private val network: NetworkClient) {
     suspend fun check(apiUrl: String, apiKey: String, model: String): NvidiaProbeResult = withTimeout(60_000L) {
         require(apiKey.isNotBlank() && model.isNotBlank()) { "NVIDIA inference requires a model and API key." }
-        val config = ProviderRequestConfig(apiUrl.ifBlank { ModelConstants.NVIDIA_API_URL }, apiKey, providerType = "NVIDIA")
+        val config = ProviderRequestConfig(NvidiaEndpoints.normalize(apiUrl), apiKey, providerType = "NVIDIA")
         val request = NvidiaRequestPolicy.prepare(
             ChatCompletionRequest(
                 model = model,

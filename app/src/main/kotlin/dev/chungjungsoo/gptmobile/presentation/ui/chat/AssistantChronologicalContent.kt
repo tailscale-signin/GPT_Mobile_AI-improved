@@ -134,7 +134,7 @@ internal fun AssistantChronologicalContent(
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (isLoading) {
-                                    ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                    ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {
                                     if (!splitForPassageIndicators && !debugSettings.researchFeature.articleCards) {
                                         // Standard and Combined replies without citation cards use

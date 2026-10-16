@@ -131,6 +131,7 @@ fun ChatMarkdown(
     highlightSentence: String? = null,
     highlightProgress: Float = 0f,
     streaming: Boolean = false,
+    animateStreaming: Boolean = true,
     proseColor: Color? = null,
     provenance: MarkdownProvenancePresentation? = null,
     wording: CombinedWordingPresentation? = null,
@@ -206,10 +207,10 @@ fun ChatMarkdown(
     // One timestamp per arriving chunk, rather than one boxed Long per character.
     val arrivalSegments = remember(contentIdentity) { mutableStateListOf<Pair<Int, Long>>() }
     var arrivalLength by remember(contentIdentity) { mutableIntStateOf(0) }
-    var hasStreamed by remember(contentIdentity) { mutableStateOf(streaming) }
+    var hasStreamed by remember(contentIdentity) { mutableStateOf(streaming && animateStreaming) }
     var fadeClock by remember(contentIdentity) { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
-    LaunchedEffect(combinedMarkdown.length, streaming) {
-        if (streaming) hasStreamed = true
+    LaunchedEffect(combinedMarkdown.length, streaming, animateStreaming) {
+        if (streaming && animateStreaming) hasStreamed = true
         val now = android.os.SystemClock.uptimeMillis()
         if (combinedMarkdown.length < arrivalLength) {
             arrivalSegments.clear()

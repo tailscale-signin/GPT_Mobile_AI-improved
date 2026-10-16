@@ -81,5 +81,4 @@ class CombinedClaimMatchingTest {
         val scan = CombinedConflictDetector.scan(listOf(source("a", first), source("b", second)))
         assertTrue(scan.candidates.any { it.kind == "NUMERIC" })
     }
-
 }

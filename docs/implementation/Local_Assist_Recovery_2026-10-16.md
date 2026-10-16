@@ -23,3 +23,11 @@ The complete Android test/lint/APK workflows run on PR #690. Local Kotlin lint a
 A phone-to-PC connection refusal cannot be repaired by changing the phone's app code alone. Verify the configured server address, listener and network access; the app must report failure and use only approved fallback routes. No port, credential, backend or model is silently changed by this patch.
 
 Run Verify load against the exact artifact/backend, then load/generate/cancel/reload on supported hardware. Exercise slow helpers, permission revocation, native interruption, small contexts, planner/search failure, a 24-document extraction job and evidence inclusion. Measure real tap-to-dispatch/first-token latency and UI stalls on release-equivalent builds. Existing formal acceptance cases remain unchanged until this evidence exists; semantic research verification and broader audit gaps remain tracked separately.
+
+## PR integration audit follow-up
+
+The new `local_assist_plan` was bound after initial context admission, so `finalRequestTools` removed it from the provider's catalogue. The bound tool now goes through the same context planner before dispatch. Local-tool opt-out, unsupported providers, synthesis, writer-only recovery and delegated preparation continue to exclude it. A repository regression checks the outgoing provider tool definition with Local Tools enabled and disabled.
+
+Combined delivery now converts upstream stream exceptions into an explicit failed delivery while preserving the buffered original draft. Failed repair text cannot overwrite that draft. Cancellation, downstream collector failures and live access checks remain authoritative.
+
+Validation: 61 isolated recovery/Combined JVM tests, 23 isolated Assist/admission tests, 116 Python script tests, Kotlin lint for changed files, Android regex and Room schema checks passed. Two new Combined stream tests failed before the fix and pass after it. The repository integration test requires Android CI; isolated JVM harnesses do not replace that gate or physical-device qualification.

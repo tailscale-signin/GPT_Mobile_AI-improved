@@ -1839,7 +1839,7 @@ class ChatRepositoryImpl(
                         candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
                         enabled = runFeatures.assistEnabled(),
                         supportsPrimaryRuntime = platform.compatibleType != ClientType.LITERT_LM,
-                        allowPerTurnTool = !platform.disableAllTools && !platform.disableLocalTools && chatToolConfig?.allToolsDisabled != true && !synthesisRun,
+                        allowPerTurnTool = supportsTools && !platform.disableAllTools && !platform.disableLocalTools && chatToolConfig?.allToolsDisabled != true && !synthesisRun && !resumeWriterOnly && taskRecovery?.primaryOnly != true && !localResearch && !reviewedPreparationUnavailable,
                         admitPerTurnTool = { planningTool -> toolBudget.bind(planningTool) },
                         workflowOwnsAssistance = explicitResearch && !localResearch && runFeatures.effectiveAssistPolicy().researchPreparation,
                         policy = runFeatures.effectiveAssistPolicy(),
@@ -1877,6 +1877,12 @@ class ChatRepositoryImpl(
                             live.assistEnabled() && live.effectiveAssistPolicy() == runFeatures.effectiveAssistPolicy() && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
                         }
                     )
+                    // The helper tool is created after initial catalogue admission. Admit its schema
+                    // through the same context planner or finalRequestTools will silently remove it.
+                    boundedTools.firstOrNull { it.modelToolName == "local_assist_plan" && it.connectionUid == null }?.let { planning ->
+                        exposedTools = exposedTools + planning
+                        contextPlan = planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                    }
                     val delegationConfig = effectiveDelegationSettings()
                     val aggregatedTools = prepareSearchStage(boundedTools, behavior, localResearch, delegationConfig, acquisitionBudget, searchPolicy, runId, platform.uid)
                     delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }

@@ -99,6 +99,35 @@ class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
     @Test
+    fun optedInAssistPlannerReachesSerializedToolCatalogueAndRespectsToolDisable() = runBlocking {
+        val helper = PlatformV2(uid = "assist-helper", name = "Helper", compatibleType = ClientType.LITERT_LM, model = "fixture")
+        for (toolsDisabled in listOf(false, true)) {
+            val primary = customPlatform().copy(disableLocalTools = toolsDisabled)
+            val settings = mockk<SettingRepository>(relaxed = true)
+            coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
+            coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+                localAssist = true,
+                localAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(
+                    profileUid = helper.uid,
+                    perTurnQueryPlanning = true,
+                    permissionVersion = 1,
+                    profilePermissions = mapOf(helper.uid to dev.chungjungsoo.gptmobile.data.assist.AssistProcessingPermission.ALLOWED)
+                )
+            )
+            val api = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Hello"), finishReason = "stop")))))))
+            val states = createRepository(openAIAPI = api, settingsOverride = settings).completeChat(
+                listOf(MessageV2(content = "Hi", platformType = null)),
+                emptyList(),
+                primary,
+                "assist-catalogue-$toolsDisabled"
+            ).toList()
+            assertTrue(states.toString(), states.none { it is ApiState.Error })
+            assertEquals(1, api.requests.size)
+            assertEquals(!toolsDisabled, api.requests.single().tools.orEmpty().any { it.function.name == "local_assist_plan" })
+        }
+    }
+
+    @Test
     fun comprehensiveCombinedUsesFrozenSourcesAndPublishesOnlyTheRepairedAnswer() = runBlocking {
         val sources = listOf(
             dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = "Haiti became independent in 1804 after a successful revolution."),

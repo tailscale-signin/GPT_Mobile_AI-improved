@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -25,7 +27,11 @@ internal class CombinedDeliverySession(
         suspend fun collect(candidate: AgentProviderSession): Pair<String, ProviderEvent?> {
             val text = StringBuilder()
             var terminal: ProviderEvent? = null
-            candidate.streamRound(emptyList(), emptyList()).collect { event ->
+            flow { emitAll(candidate.streamRound(emptyList(), emptyList())) }.catch { error ->
+                if (error is CancellationException) throw error
+                // Catch provider failures upstream only; collector failures must remain transparent.
+                emit(ProviderEvent.Failed("Combined synthesis stream failed. Buffered text and original contributions are retained."))
+            }.collect { event ->
                 when (event) {
                     is ProviderEvent.TextDelta -> {
                         check(text.length.toLong() + event.text.length <= maxCharacters) { "Combined answer exceeds the configured delivery allowance." }

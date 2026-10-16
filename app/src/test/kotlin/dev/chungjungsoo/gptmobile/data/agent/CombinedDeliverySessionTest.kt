@@ -103,6 +103,52 @@ class CombinedDeliverySessionTest {
         assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
     }
 
+    @Test fun repairStreamFailureRetainsOriginalDraftAndDoesNotPublishPartialRepair() = runTest {
+        val broken = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                emit(ProviderEvent.TextDelta("Incomplete replacement"))
+                throw java.io.IOException("Stream disconnected")
+            }
+        }
+        val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ -> broken }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(winner, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+    }
+
+    @Test fun initialStreamFailureDeliversBufferedTextWithFailure() = runTest {
+        val broken = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                emit(ProviderEvent.TextDelta(winner))
+                throw java.io.IOException("Stream disconnected")
+            }
+        }
+        val wrapper = CombinedDeliverySession(broken, sources, 100_000, validateAccess = {}) { _, _ -> error("Must not repair failed acquisition") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(winner, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+    }
+
+    @Test fun downstreamFailureDuringRepairRemainsTransparent() = runTest {
+        val consumerFailure = IllegalStateException("consumer stopped")
+        val repair = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                emit(ProviderEvent.Notice("repair progress"))
+                emit(ProviderEvent.TextDelta(complete))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ -> repair }
+        val failure = runCatching {
+            wrapper.streamRound(emptyList(), emptyList()).collect {
+                if (it is ProviderEvent.Notice && it.message == "repair progress") throw consumerFailure
+            }
+        }.exceptionOrNull()
+        assertTrue(failure === consumerFailure)
+    }
+
     @Test fun repairCannotRewriteAnAlreadyCommittedPrefix() = runTest {
         val wrapper = CombinedDeliverySession(session("Committed prefix." + winner), sources, 100_000, committedPrefix = "Committed prefix.", validateAccess = {}) { _, _ -> session(complete) }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()

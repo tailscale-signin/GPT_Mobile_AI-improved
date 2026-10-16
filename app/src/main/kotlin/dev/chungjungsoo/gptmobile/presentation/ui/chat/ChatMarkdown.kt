@@ -159,7 +159,11 @@ fun ChatMarkdown(
         merge(
             requests.filter { it.streaming }.sample(MARKDOWN_PREPARATION_SAMPLE_MS),
             requests.filter { !it.streaming }
-        ).collectLatest { request ->
+        ).filter { request ->
+            // A sampled live delta must not supersede the final answer arriving
+            // from the unsampled branch in the same composition identity.
+            !request.streaming || latestRequest.value.streaming
+        }.collectLatest { request ->
                 val prepared = withContext(Dispatchers.Default) {
                     val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
                     val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)

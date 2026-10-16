@@ -1085,6 +1085,12 @@ private fun ChatMessagePair(
     onActionClick: (String) -> Unit = {}
 ) {
     val combinedSynthesisIndex = assistantMessages.indexOfFirst { it.isCombinedSynthesis() }
+    val attributionSurface = MaterialTheme.colorScheme.surface
+    val attributionColors = remember(debugSettings.profileAttributionColors, attributionSurface, combinedMode) {
+        if (!combinedMode) emptyMap() else debugSettings.profileAttributionColors.mapValues { (_, identity) ->
+            ProfileAttributionPalette.foreground(identity, attributionSurface)
+        }
+    }
     val participatingUids = activePlatformUids - disabledPlatformUids
     val combinedProfiles = if (combinedMode) {
         combinedResponseProfiles(
@@ -1288,12 +1294,11 @@ private fun ChatMessagePair(
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
                     conversationId = selectedAssistantMessage?.chatId,
+                    showSourceBar = !isCombinedConversation,
                     combinedWording = if (hasCombinedTabs && selectedProfile == null) {
                         CombinedWordingPresentation(
                             assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(),
-                            debugSettings.profileAttributionColors.mapValues { (_, identity) ->
-                                ProfileAttributionPalette.foreground(identity, MaterialTheme.colorScheme.surface)
-                            }
+                            attributionColors
                         )
                     } else {
                         null

@@ -36,6 +36,7 @@ internal object CombinedConflictDetector {
         if (claims.size > 1500) return CombinedConflictScan(emptyList(), 0, false)
         val conflicts = mutableListOf<CombinedConflictCandidate>()
         var scanned = 0L
+        var overflow = false
         claims.forEachIndexed { index, first ->
             for (other in index + 1 until claims.size) {
                 val second = claims[other]
@@ -45,10 +46,12 @@ internal object CombinedConflictDetector {
                     if (conflicts.size < 256) {
                         val kind = if (first.fingerprint.negative != second.fingerprint.negative) "POLARITY" else "NUMERIC"
                         conflicts += CombinedConflictCandidate(first.uid, second.uid, first.text, second.text, kind)
+                    } else {
+                        overflow = true
                     }
                 }
             }
         }
-        return CombinedConflictScan(conflicts, scanned, true)
+        return CombinedConflictScan(conflicts, scanned, !overflow)
     }
 }

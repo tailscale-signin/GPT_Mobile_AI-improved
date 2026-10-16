@@ -712,7 +712,16 @@ fun PlatformSettingScreen(
                     if (!isLocalPlatform && !isFreePlatform) {
                         APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
                         APIKeyDialog(dialogState, platformData.token, settingViewModel)
-                        if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
+                        if (platformData.compatibleType == ClientType.NVIDIA && dialogState.isApiModelDialogOpen) {
+                            NvidiaModelPickerDialog(
+                                apiUrl = platformData.apiUrl,
+                                apiKey = platformData.token.orEmpty(),
+                                connectionUid = platformData.providerConnectionUid,
+                                currentModel = platformData.model,
+                                onDismiss = settingViewModel::closeApiModelDialog,
+                                onModelSelected = settingViewModel::updateApiModel
+                            )
+                        } else if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
                             OpenRouterModelPickerDialog(
                                 currentModel = platformData.model,
                                 connectionUid = platformData.providerConnectionUid,

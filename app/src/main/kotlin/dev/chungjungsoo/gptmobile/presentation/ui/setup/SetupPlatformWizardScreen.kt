@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.NvidiaModelPickerDialog
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.AdvancedOptions
@@ -168,9 +169,14 @@ fun SetupPlatformWizardScreen(
                                 onNavigateToLocalModels = onNavigateToLocalModels
                             )
                         } else {
+                            val currentApiUrl by setupViewModel.apiUrl.collectAsStateWithLifecycle()
+                            val currentApiKey by setupViewModel.apiKey.collectAsStateWithLifecycle()
                             ModelStep(
                                 model = currentModel,
-                                onModelChange = setupViewModel::updateModel
+                                onModelChange = setupViewModel::updateModel,
+                                clientType = selectedClientType,
+                                apiUrl = currentApiUrl,
+                                apiKey = currentApiKey
                             )
                         }
                     }
@@ -547,8 +553,12 @@ private fun LocalModelStep(
 private fun ModelStep(
     model: String,
     onModelChange: (String) -> Unit,
+    clientType: ClientType?,
+    apiUrl: String,
+    apiKey: String,
     modifier: Modifier = Modifier
 ) {
+    var showNvidiaPicker by rememberSaveable { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -586,11 +596,27 @@ private fun ModelStep(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        if (clientType == ClientType.NVIDIA) {
+            androidx.compose.material3.TextButton(onClick = { showNvidiaPicker = true }) {
+                Text("Browse NVIDIA models")
+            }
+        }
+
         // Examples
         Text(
             text = stringResource(R.string.model_examples),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    if (showNvidiaPicker && clientType == ClientType.NVIDIA) {
+        NvidiaModelPickerDialog(
+            apiUrl = apiUrl,
+            apiKey = apiKey,
+            connectionUid = null,
+            currentModel = model,
+            onDismiss = { showNvidiaPicker = false },
+            onModelSelected = onModelChange
         )
     }
 }

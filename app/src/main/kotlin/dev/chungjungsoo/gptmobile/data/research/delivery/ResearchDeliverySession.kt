@@ -132,7 +132,7 @@ internal class ResearchDeliverySession(
             val sectionedAccepted = sectioned != null
             text = when {
                 repairedAccepted -> repair.toString()
-                sectionedAccepted -> sectioned
+                sectioned != null -> sectioned
                 else -> ResearchDeliveryValidator.fallback(delivery)
             }
             if (!repairedAccepted && !sectionedAccepted) {

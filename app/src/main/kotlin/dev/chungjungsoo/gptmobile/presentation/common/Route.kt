@@ -22,6 +22,10 @@ object Route {
     const val OLLAMA_API_ADDRESS = "ollama_api_address"
 
     const val CHAT_LIST = "chat_list"
+    const val NEW_CHAT_FLOW = "new_chat_flow"
+    const val NEW_CHAT_TYPE = "new_chat/type"
+    const val NEW_CHAT_PROFILES = "new_chat/profiles"
+    const val MULTI_CHAT_WORKSPACE = "multi_chat_workspace/{rootChatId}"
     const val CHAT_ROOM = "chat_room/{chatRoomId}?enabled={enabledPlatforms}&mode={conversationMode}&targetMessageId={targetMessageId}&regenerate={regenerate}&incomingShare={incomingShare}"
 
     const val SETTING_ROUTE = "setting_route"

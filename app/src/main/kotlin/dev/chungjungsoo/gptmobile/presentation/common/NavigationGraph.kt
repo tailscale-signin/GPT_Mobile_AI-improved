@@ -38,6 +38,10 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.home.MultiChatWorkspaceScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatProfileScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatTypeScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpMarketplaceScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.migrate.MigrateScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AboutScreen
@@ -151,6 +155,7 @@ private fun AppNavHost(
         popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 160)) }
     ) {
         homeScreenNavigation(navController)
+        newChatNavigation(navController)
         migrationScreenNavigation(navController)
         startScreenNavigation(navController)
         setupNavigation(navController)
@@ -282,11 +287,51 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
                         "&mode=${chatRoom.conversationMode}$targetSuffix"
                 )
             },
-            navigateToNewChat = { enabledPlatforms, conversationMode ->
-                navController.navigate(
-                    "chat_room/0?enabled=${enabledPlatforms.joinToString(",")}&mode=$conversationMode"
-                )
-            }
+            navigateToNewChat = { navController.navigate(Route.NEW_CHAT_FLOW) },
+            navigateToWorkspace = { id -> navController.navigate("multi_chat_workspace/$id") }
+        )
+    }
+}
+
+fun NavGraphBuilder.newChatNavigation(navController: NavHostController) {
+    navigation(startDestination = Route.NEW_CHAT_TYPE, route = Route.NEW_CHAT_FLOW) {
+        composable(Route.NEW_CHAT_TYPE) { entry ->
+            val parentEntry = remember(entry) { navController.getBackStackEntry(Route.NEW_CHAT_FLOW) }
+            val model: NewChatViewModel = hiltViewModel(parentEntry)
+            NewChatTypeScreen(
+                onBack = { navController.navigateUp() },
+                onChoose = { selected ->
+                    model.chooseType(selected)
+                    navController.navigate(Route.NEW_CHAT_PROFILES)
+                }
+            )
+        }
+        composable(Route.NEW_CHAT_PROFILES) { entry ->
+            val parentEntry = remember(entry) { navController.getBackStackEntry(Route.NEW_CHAT_FLOW) }
+            val model: NewChatViewModel = hiltViewModel(parentEntry)
+            NewChatProfileScreen(
+                viewModel = model,
+                onBack = { navController.navigateUp() },
+                onCreated = { route ->
+                    navController.navigate(route) {
+                        popUpTo(Route.NEW_CHAT_FLOW) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onManageProfiles = { navController.navigate(Route.AI_PLATFORMS) },
+                onManageTools = { navController.navigate(Route.TOOL_CONNECTIONS) }
+            )
+        }
+    }
+    composable(
+        route = Route.MULTI_CHAT_WORKSPACE,
+        arguments = listOf(navArgument("rootChatId") { type = NavType.IntType })
+    ) {
+        MultiChatWorkspaceScreen(
+            onBack = { navController.navigateUp() },
+            onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") },
+            onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+            onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
         )
     }
 }

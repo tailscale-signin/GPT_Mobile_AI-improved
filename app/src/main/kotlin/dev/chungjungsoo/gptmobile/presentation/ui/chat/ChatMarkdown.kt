@@ -34,8 +34,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithContent
@@ -164,39 +164,39 @@ fun ChatMarkdown(
             // from the unsampled branch in the same composition identity.
             !request.streaming || latestRequest.value.streaming
         }.collectLatest { request ->
-                val prepared = withContext(Dispatchers.Default) {
-                    val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
-                    val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)
-                    // Computing a many-model wording inventory for each streaming chunk
-                    // is wasteful. Apply all profile colours on final completion.
-                    val wantsWording = request.wording != null && !request.streaming
-                    val mapped = if (request.provenance != null || wantsWording) {
-                        buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
-                    } else {
-                        null
-                    }
-                    val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
-                    val profileSpans = if (request.provenance != null && mapped != null) {
-                        mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
-                    } else if (wantsWording && mapped != null) {
-                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources)
-                    } else {
-                        emptyList()
-                    }
-                    PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))
+            val prepared = withContext(Dispatchers.Default) {
+                val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
+                val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)
+                // Computing a many-model wording inventory for each streaming chunk
+                // is wasteful. Apply all profile colours on final completion.
+                val wantsWording = request.wording != null && !request.streaming
+                val mapped = if (request.provenance != null || wantsWording) {
+                    buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
+                } else {
+                    null
                 }
-                rendered = prepared
-                val now = android.os.SystemClock.elapsedRealtime()
-                val traceJournal = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }
-                val trace = request.outputTrace
-                if (trace != null && traceJournal != null && (!request.streaming || now - lastTraceAt >= 250)) {
-                    lastTraceAt = now
-                    withContext(Dispatchers.Default) {
-                        traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_INPUT, request.content, fence = trace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = trace.partId)
-                        traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_TRANSFORM, prepared.markdown, fence = trace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.MATH_PLACEHOLDER_MARKDOWN_UTF8, partId = trace.partId)
-                    }
+                val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
+                val profileSpans = if (request.provenance != null && mapped != null) {
+                    mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
+                } else if (wantsWording && mapped != null) {
+                    mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources)
+                } else {
+                    emptyList()
+                }
+                PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))
+            }
+            rendered = prepared
+            val now = android.os.SystemClock.elapsedRealtime()
+            val traceJournal = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }
+            val trace = request.outputTrace
+            if (trace != null && traceJournal != null && (!request.streaming || now - lastTraceAt >= 250)) {
+                lastTraceAt = now
+                withContext(Dispatchers.Default) {
+                    traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_INPUT, request.content, fence = trace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.DISPLAY_FILTERED_MARKDOWN_UTF8, partId = trace.partId)
+                    traceJournal.traceOutput(trace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.RENDER_TRANSFORM, prepared.markdown, fence = trace.fence, representation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.MATH_PLACEHOLDER_MARKDOWN_UTF8, partId = trace.partId)
                 }
             }
+        }
     }
     val parsed = rendered.parsed
     val firstDrawn = remember(outputTrace?.runId, outputTrace?.fence) { java.util.concurrent.atomic.AtomicBoolean() }

@@ -27,13 +27,19 @@ internal class LocalReadinessRegistry(private val directory: File? = null) {
     private val nativeLock = Mutex()
 
     private val nativeBlocked = ConcurrentHashMap.newKeySet<String>()
+    private val incompatibleRoutes = ConcurrentHashMap.newKeySet<String>()
 
     /** Parent-process read: never touches native pointers or clears a worker's protective journal. */
     suspend fun assertNativeAllowed(key: String) = nativeLock.withLock {
         val durable = directory?.let { File(it, dev.chungjungsoo.gptmobile.data.research.researchHash(key)) }
-        if (key in nativeBlocked || withContext(Dispatchers.IO) { durable?.isFile == true && durable.readText().startsWith("NATIVE\n") }) {
+        val recorded = withContext(Dispatchers.IO) { durable?.takeIf(File::isFile)?.readText()?.lineSequence()?.firstOrNull() }
+        if (key in nativeBlocked || recorded == "NATIVE") {
             nativeBlocked += key
             throw LocalNativeQuarantinedException()
+        }
+        if (key in incompatibleRoutes || recorded == "INCOMPATIBLE") {
+            incompatibleRoutes += key
+            throw LocalArtifactIncompatibleException()
         }
     }
 
@@ -46,6 +52,23 @@ internal class LocalReadinessRegistry(private val directory: File? = null) {
                 val temporary = File(root, "$digest.tmp")
                 temporary.outputStream().use { output ->
                     output.write("NATIVE\n$digest".toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+                Files.move(temporary.toPath(), File(root, digest).toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+    }
+
+    /** Reject repeated incompatible exports across CPU/GPU tuning and context tweaks. */
+    suspend fun rememberIncompatibleRoute(key: String) = nativeLock.withLock {
+        incompatibleRoutes += key
+        withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+            directory?.let { root ->
+                check(root.mkdirs() || root.isDirectory)
+                val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(key)
+                val temporary = File(root, "$digest.tmp")
+                temporary.outputStream().use { output ->
+                    output.write("INCOMPATIBLE\\n$digest".replace("\\\\n", "\\n").toByteArray(Charsets.UTF_8))
                     output.fd.sync()
                 }
                 Files.move(temporary.toPath(), File(root, digest).toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
@@ -90,6 +113,7 @@ internal class LocalReadinessRegistry(private val directory: File? = null) {
             }
             blocked.remove(key)
             nativeBlocked.remove(key)
+            incompatibleRoutes.remove(key)
         }
     }
 

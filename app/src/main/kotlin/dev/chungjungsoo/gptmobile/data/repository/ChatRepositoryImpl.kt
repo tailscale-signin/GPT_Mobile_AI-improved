@@ -2657,7 +2657,25 @@ class ChatRepositoryImpl(
                     emptyList()
                 )
                 val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(repairTurns, requestPlatform.systemPrompt.orEmpty(), limits)
-                openPrimarySession(admitted.turns, "combined_coverage_repair", textOnly = true)
+                // Repairs are full answers too: provider output limits must continue from
+                // the revised draft, without replaying tools or reverting to the old draft.
+                dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
+                    openPrimarySession(admitted.turns, "combined_coverage_repair", textOnly = true),
+                    maxContinuations = continuationLimit,
+                    allowInternalToolRecovery = true,
+                    continueEmptyOutput = true,
+                    effectiveOutputCap = resolvedOutputCap,
+                    maxAnswerCharacters = budgetSettings.responseCharacterLimit
+                ) { partial, _ ->
+                    val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
+                        admitted.turns,
+                        "Continue the revised Combined answer from its exact stopping point. Preserve the existing revised text and finish all remaining claims. Do not restart, repeat content, shorten to a word goal, or execute tools.",
+                        partial,
+                        emptyList()
+                    )
+                    val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(turns, requestPlatform.systemPrompt.orEmpty(), limits)
+                    openPrimarySession(continuation.turns, "combined_coverage_repair_continuation", textOnly = true)
+                }
             }
         } else {
             continuedSession

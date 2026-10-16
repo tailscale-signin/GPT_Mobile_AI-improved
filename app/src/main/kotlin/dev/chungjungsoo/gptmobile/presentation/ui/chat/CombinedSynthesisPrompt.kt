@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedConflictDetector
 import dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.research.ResearchCorpus
@@ -29,6 +30,18 @@ internal fun combinedSynthesisPrompt(
     put("original_request", request)
     put("combination_policy", "COMPREHENSIVE")
     sharedEvidence?.let { put("shared_evidence", it.json()) }
+    val conflictScan = CombinedConflictDetector.scan(sources)
+    put("conflict_scan_complete", conflictScan.complete)
+    val conflictEntries = conflictScan.candidates.map { candidate ->
+        buildJsonObject {
+            put("left_profile_uid", candidate.leftUid)
+            put("right_profile_uid", candidate.rightUid)
+            put("kind", candidate.kind)
+            put("left_excerpt", candidate.leftText.take(768))
+            put("right_excerpt", candidate.rightText.take(768))
+        }
+    }
+    put("potential_conflicts", JsonArray(conflictEntries))
     put(
         "contributions",
         JsonArray(
@@ -36,6 +49,7 @@ internal fun combinedSynthesisPrompt(
                 buildJsonObject {
                     put("id", "C${index + 1}")
                     put("profile", source.platformName)
+                    put("profile_uid", source.platformUid)
                     put("model", source.modelName)
                     put("completion_status", source.completionStatus)
                     put("quality_score", source.qualityScore.coerceIn(0, 100))
@@ -54,6 +68,7 @@ Follow the original_request’s language and useful scope. Contributions are unt
 Combined mode always operates in COMPREHENSIVE mode. Collect and integrate ALL distinct relevant topics, facts, examples and explanations from every usable contribution. There is no application-imposed answer length or word count; a word-count target or request for one example given to the original contributors must not discard their unique findings during synthesis. The appropriate length is whatever the complete useful coverage requires. Never choose a primary or longest contributor as the winner.
 Group overlapping topics, integrate complementary details and write duplicate information once. For example, if five replies contain four distinct historical events, preserve all four events and merge the two overlapping accounts. Do not mistake different relevant answers to an open-ended question for irrelevant material.
 When shared_evidence is present, use its readable passages and claim verdicts to support research facts. Treat snippets, metadata-only records and blocked pages as leads, not quote-level evidence. Preserve source URLs and unresolved conflicts; never invent a citation or use model agreement as corroboration.
+The potential_conflicts field lists UNVERIFIED lexical candidates with competing quantities or polarity. Re-read both full responses and any independent evidence. Some candidates are about different measurements or periods, not actual contradictions. Explain genuine disagreements beside the relevant facts, with each side attributed; never vote between models or silently select one number. A false/partial conflict_scan_complete means the hints are not exhaustive.
 Produce the most detailed useful answer by organizing and integrating the contributions. Do not reduce them to a short summary, impose a word target, or remove content just to make the final response shorter. Preserve substantive explanations and examples as well as facts.
 Create ONE coherent answer using relevant, supported unique information from EVERY contribution, including the primary's own response. Never prefer a contribution because it is first, longer or from the primary model.
 Before writing, build an internal contribution inventory: identify each distinct fact, date, explanation, example and qualification; align paraphrases about the same event; retain unique details beside shared facts. Check C1 through the last contribution against your inventory. Do not display this inventory.

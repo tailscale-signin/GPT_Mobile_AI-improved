@@ -1089,6 +1089,6 @@
     <string name="bubble_context">Context</string>
     <string name="backup_expand_category">Expand category</string>
     <string name="backup_collapse_category">Collapse category</string>
-    <string name="combined_text_match_hint">Text colours and source badges identify matching wording in the original contributions. Shared and rewritten wording stays neutral; colours do not verify facts.</string>
-    <string name="combined_text_match_passage">Text match: “%1$s”</string>
+    <string name="combined_text_match_hint">Claim colours show strong source alignment rather than verified facts. Shared or uncertain passages remain neutral. Open the original contributions to review evidence.</string>
+    <string name="combined_text_match_passage">Claim alignment: “%1$s”</string>
 </resources>

@@ -165,7 +165,7 @@ class ChatRepositoryImplTest {
         assertEquals(states.toString(), 2, api.streamChatCompletionCalls)
         assertEquals(complete, states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
         assertTrue(states.toString(), states.none { it is ApiState.Error })
-        assertTrue(states.any { it is ApiState.Notice && it.message.contains("Repairing omitted material") })
+        assertTrue(states.any { it is ApiState.Notice && it.message.contains("unresolved claims") })
     }
 
     @Test

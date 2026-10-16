@@ -1085,12 +1085,6 @@ private fun ChatMessagePair(
     onActionClick: (String) -> Unit = {}
 ) {
     val combinedSynthesisIndex = assistantMessages.indexOfFirst { it.isCombinedSynthesis() }
-    val attributionSurface = MaterialTheme.colorScheme.surface
-    val attributionColors = remember(debugSettings.profileAttributionColors, attributionSurface, combinedMode) {
-        if (!combinedMode) emptyMap() else debugSettings.profileAttributionColors.mapValues { (_, identity) ->
-            ProfileAttributionPalette.foreground(identity, attributionSurface)
-        }
-    }
     val participatingUids = activePlatformUids - disabledPlatformUids
     val combinedProfiles = if (combinedMode) {
         combinedResponseProfiles(
@@ -1103,6 +1097,17 @@ private fun ChatMessagePair(
         )
     } else {
         emptyList()
+    }
+    val combinedIdentities = remember(combinedProfiles, debugSettings.profileAttributionColors) {
+        if (!combinedMode) emptyMap() else ProfileAttributionPalette.forSelection(
+            combinedProfiles.map { it.uid }, debugSettings.profileAttributionColors
+        )
+    }
+    val attributionSurface = MaterialTheme.colorScheme.surface
+    val attributionColors = remember(combinedIdentities, attributionSurface) {
+        combinedIdentities.mapValues { (_, identity) ->
+            ProfileAttributionPalette.foreground(identity, attributionSurface)
+        }
     }
     val hasCombinedTabs = combinedMode && (combinedSynthesisIndex >= 0 || combinedProfiles.size > 1)
     val selectedProfile = combinedProfiles.firstOrNull { it.uid == selectedCombinedProfileUid }.takeIf { hasCombinedTabs }
@@ -1212,7 +1217,7 @@ private fun ChatMessagePair(
                 if (hasCombinedTabs) {
                     CombinedProfileBubbles(
                         profiles = combinedProfiles,
-                        identities = debugSettings.profileAttributionColors,
+                        identities = combinedIdentities,
                         primaryUid = assistantMessages.getOrNull(combinedSynthesisIndex)?.platformType,
                         selectedUid = selectedProfile?.uid,
                         combinedStatus = combinedStatus,
@@ -1256,7 +1261,7 @@ private fun ChatMessagePair(
                         answer = assistantContent,
                         sources = synthesis?.combinedSources.orEmpty(),
                         selectedProfileUids = combinedProfiles.map { it.uid },
-                        identities = debugSettings.profileAttributionColors,
+                        identities = combinedIdentities,
                         primaryUid = synthesis?.platformType,
                         onOpenContribution = onCombinedProfileClick
                     )
@@ -1282,7 +1287,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
-                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { isSourceResponse },
+                    profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
                     debugMemorySources = debugMemorySources,
@@ -1306,7 +1311,7 @@ private fun ChatMessagePair(
                     splitForPassageIndicators = showCombinedTextMatches,
                     passageIndicators = { segment ->
                         if (showCombinedTextMatches) {
-                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), debugSettings.profileAttributionColors, onCombinedProfileClick)
+                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), combinedIdentities, onCombinedProfileClick)
                         }
                     },
                     articleCards = { segment ->

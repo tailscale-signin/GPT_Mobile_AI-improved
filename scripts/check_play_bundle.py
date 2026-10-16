@@ -42,14 +42,16 @@ def check_gradle_config(path: Path) -> None:
 
 
 def check_library(name: str, content: bytes, abi: str) -> bool:
+    if len(content) < 20 or content[:4] != b"\x7fELF":
+        raise ValueError(f"{name}: not a valid ELF binary")
+    machine = struct.unpack_from("<H", content, 18)[0]
+    # Qualcomm Hexagon DSP skeletons can be ELF32. Skip only these specifically
+    # named DSP payloads before asserting the Android host ELF64 format.
+    if abi == "arm64-v8a" and machine != EXPECTED_ABIS[abi] and re.fullmatch(r"libQnnHtpV\d+Skel\.so", Path(name).name):
+        return False
     if len(content) < 64 or content[:6] != b"\x7fELF\x02\x01":
         raise ValueError(f"{name}: expected little-endian ELF64")
-    machine = struct.unpack_from("<H", content, 18)[0]
     if machine != EXPECTED_ABIS[abi]:
-        # Qualcomm DSP Skel executables are not Android host ELF images.
-        # The documented host libraries and all remaining libraries must match ABI.
-        if abi == "arm64-v8a" and re.fullmatch(r"libQnnHtpV\d+Skel\.so", Path(name).name):
-            return False
         raise ValueError(f"{name}: unexpected host machine {machine}, expected {EXPECTED_ABIS[abi]}")
     header_offset = struct.unpack_from("<Q", content, 32)[0]
     header_size, count = struct.unpack_from("<HH", content, 54)

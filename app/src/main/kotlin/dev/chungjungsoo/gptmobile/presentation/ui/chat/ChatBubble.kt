@@ -258,6 +258,7 @@ fun OpponentChatBubble(
     onActionClick: ((String) -> Unit)? = null,
     articleCards: @Composable (String) -> Unit = {},
     combinedWording: CombinedWordingPresentation? = null,
+    showSourceBar: Boolean = true,
     splitForPassageIndicators: Boolean = false,
     passageIndicators: @Composable (String) -> Unit = {}
 ) {
@@ -270,8 +271,10 @@ fun OpponentChatBubble(
     val noticeMessages = remember(runNotices, timeline, isLoading) {
         visibleChatRunNotices(runNotices, timelineNoticeMessages(timeline), isLoading)
     }
-    val visibleThoughts = remember(showReasoning, thoughts, text) {
-        if (showReasoning) thoughts.ifBlank { ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
+    val visibleThoughts = remember(showReasoning, thoughts, text, isLoading) {
+        // Do not rescan the entire growing answer on the UI thread for each streaming token.
+        // Native reasoning deltas remain visible; legacy inline thinking is parsed on completion.
+        if (showReasoning) thoughts.ifBlank { if (isLoading) "" else ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
     }
     val processToolEvents = toolEvents
     val contentTimeline = remember(timeline, showReasoning) {
@@ -726,7 +729,7 @@ fun OpponentChatBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
-                if (!isLoading) {
+                if (!isLoading && showSourceBar) {
                     ChatResponseSources(
                         answer = text,
                         events = sourceToolEvents,

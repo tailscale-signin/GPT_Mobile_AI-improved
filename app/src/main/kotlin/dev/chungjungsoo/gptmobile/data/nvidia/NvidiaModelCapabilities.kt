@@ -6,7 +6,7 @@ package dev.chungjungsoo.gptmobile.data.nvidia
  */
 enum class NvidiaReasoningControl { EFFORT, TEMPLATE, UNKNOWN }
 
-data class NvidiaModelCapabilities(
+data class NvidiaModelFeatures(
     val modelId: String,
     val reasoningControl: NvidiaReasoningControl = NvidiaReasoningControl.UNKNOWN,
     val supportsTools: Boolean? = null,
@@ -23,16 +23,16 @@ object NvidiaModelCapabilities {
         "nvidia/nemotron-3-ultra-550b-a55b"
     )
 
-    fun forModel(modelId: String): NvidiaModelCapabilities {
+    fun forModel(modelId: String): NvidiaModelFeatures {
         val id = modelId.trim().lowercase()
         return when (id) {
             "openai/gpt-oss-20b", "openai/gpt-oss-120b" ->
-                NvidiaModelCapabilities(modelId, NvidiaReasoningControl.EFFORT, supportsTools = true, supportsImages = false)
+                NvidiaModelFeatures(modelId, NvidiaReasoningControl.EFFORT, supportsTools = true, supportsImages = false)
             "nvidia/nemotron-3-nano-30b-a3b",
             "nvidia/nemotron-3-super-120b-a12b",
             "nvidia/nemotron-3-ultra-550b-a55b" ->
-                NvidiaModelCapabilities(modelId, NvidiaReasoningControl.TEMPLATE, supportsTools = true, supportsImages = false)
-            else -> NvidiaModelCapabilities(modelId)
+                NvidiaModelFeatures(modelId, NvidiaReasoningControl.TEMPLATE, supportsTools = true, supportsImages = false)
+            else -> NvidiaModelFeatures(modelId)
         }
     }
 }

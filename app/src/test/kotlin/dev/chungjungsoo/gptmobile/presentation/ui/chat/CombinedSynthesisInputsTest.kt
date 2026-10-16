@@ -33,11 +33,11 @@ class CombinedSynthesisInputsTest {
         assertNull(inputs(messages, mapOf("lead" to run("lead"))))
     }
 
-    @Test fun completedSynthesisDoesNotRepeatUntilAHelperChanges() {
+    @Test fun completedSynthesisDoesNotRepeatWhenAHelperChanges() {
         val sources = listOf(CombinedModelResponse("lead", "AI", content = "Primary"), CombinedModelResponse("helper", "AI", content = "Old helper"))
         val lead = message("lead", "Combined").copy(currentRunId = "combined-synthesis:1", combinedSources = sources)
         assertNull(inputs(listOf(lead, message("helper", "Old helper"))))
-        assertEquals(listOf("Primary", "New helper"), inputs(listOf(lead, message("helper", "New helper")))?.map { it.content })
+        assertNull(inputs(listOf(lead, message("helper", "New helper"))))
     }
 
     @Test fun failedOrCanceledSynthesisNeverAutomaticallyLoopsOnUnchangedSources() {
@@ -46,7 +46,7 @@ class CombinedSynthesisInputsTest {
         listOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED).forEach { status ->
             val runs = mapOf("combined-synthesis:1" to run("combined-synthesis:1", status), "helper" to run("helper"))
             assertNull(inputs(listOf(lead, message("helper", "Helper")), runs))
-            assertEquals(listOf("Primary", "Changed helper"), inputs(listOf(lead, message("helper", "Changed helper")), runs)?.map { it.content })
+            assertNull(inputs(listOf(lead, message("helper", "Changed helper")), runs))
         }
     }
 

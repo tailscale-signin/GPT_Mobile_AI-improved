@@ -31,6 +31,8 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 class OpenAIResponsesEventAssembler {
     private val toolGuard = ToolStreamGuard()
@@ -84,8 +86,14 @@ class OpenAIResponsesEventAssembler {
         }
 
         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent -> buildList {
-            event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens)) }
-            add(ProviderEvent.Failed("The response was incomplete. Saved output and tool results will be used to continue on the next request."))
+            event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }
+            val reason = (event.response.incompleteDetails?.get("reason") as? JsonPrimitive)?.content
+            if (reason == "max_output_tokens") {
+                add(ProviderEvent.Usage(finishReason = "max_tokens"))
+                add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results are retained for bounded continuation."))
+            } else {
+                add(ProviderEvent.Failed("The response was incomplete. Saved output and tool results will be used to continue on the next request."))
+            }
         }
 
         is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed"))
@@ -93,7 +101,7 @@ class OpenAIResponsesEventAssembler {
         is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message))
 
         is ResponseCompletedEvent -> buildList {
-            event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens)) }
+            event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }
             add(ProviderEvent.Completed)
         }
 
@@ -290,7 +298,7 @@ object GeminiEventMapper {
         val events = mutableListOf<ProviderEvent>()
         response.usageMetadata?.let { usage ->
             val output = if (usage.candidateTokens != null || usage.thoughtTokens != null) (usage.candidateTokens ?: 0) + (usage.thoughtTokens ?: 0) else null
-            events += ProviderEvent.Usage(usage.promptTokens, output, usage.totalTokens)
+            events += ProviderEvent.Usage(usage.promptTokens, output, usage.totalTokens, reasoningTokens = usage.thoughtTokens?.takeIf { it >= 0 })
         }
         val admission = ToolRoundAdmission()
         response.candidates.orEmpty().asSequence().flatMap { it.content?.parts.orEmpty().asSequence() }.forEach { part ->

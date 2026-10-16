@@ -20,6 +20,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun deterministicReasoningFailureStopsBeforeIdenticalRetries() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, localRetryLimit = 5, fallbackToAnotherProfile = false) },
+            { listOf(target) },
+            { _, _, _ ->
+                calls++
+                error("REASONING_OFF_UNSUPPORTED: choose Auto")
+            }
+        )
+        assertNull(coordinator.executeTask(target, "Extract the supplied source", 512))
+        assertEquals(1, calls)
+    }
+
     @Test fun `full task that exceeds available input is rejected before dispatch`() = runTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(

@@ -12,9 +12,38 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AssistCoordinatorTest {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun optionalWaitDetachesSlowProducerAndKeepsOriginalEvidence() = kotlinx.coroutines.test.runTest {
+        val states = mutableListOf<AssistTaskState>()
+        var generated = 0
+        val assist = AssistCoordinator(
+            "goal",
+            { true },
+            {
+                generated++
+                kotlinx.coroutines.delay(39_000)
+                "[0]"
+            },
+            {},
+            policy = LocalAssistPolicy(taskTimeoutSeconds = 60, optionalWaitSeconds = 1),
+            turnId = java.util.UUID.randomUUID().toString(),
+            status = { states += it }
+        )
+        val result = assist.bind(tool()).execute("slow", JsonObject(emptyMap()))
+        assertEquals(1, generated)
+        assertTrue(testScheduler.currentTime in 1L..1000L)
+        assertEquals(ToolResultContent.Json(payload), result.content)
+        assertTrue(result.assistMetadata.isEmpty())
+        assertEquals(AssistExecution.TIMED_OUT, states.last().execution)
+        assertEquals("OPTIONAL_WAIT_DEADLINE", states.last().reason)
+        testScheduler.advanceUntilIdle()
+    }
+
     private val records = JsonArray(
         (0..8).map { id ->
             buildJsonObject {

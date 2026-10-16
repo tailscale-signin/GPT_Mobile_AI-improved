@@ -290,7 +290,8 @@
     "implementation_commits": [],
     "evidence": [],
     "remaining_work": [
-      "Recovery retains evidence and user response allowance and distinguishes empty first draft; classified recovery/coverage repair remains."
+      "Recovery retains evidence and user response allowance and distinguishes empty first draft; classified recovery/coverage repair remains.",
+      "Feature audit remediation adds one pre-dispatch MEMORY_STALE preparation rebuild and an explicit saved-evidence recovery dialog/fresh-conversation path. Android/UI regression execution remains pending; see ../Feature_Audit_Remediation_2026-10-15.md."
     ]
   },
   {
@@ -703,7 +704,7 @@
     ],
     "remaining_work": [
       "Finite text-only input that cannot fit a single Combined request now plans exact UTF-16 corpus spans and executes bounded, text-only inspections with the pinned primary before a separately admitted final write. Each stage rechecks destination/saved-evidence permission and distinguishes completed reports from failed, empty or length-stopped work. New tests are committed; their CI results are pending.",
-      "Durable per-pass checkpoints and restart reconciliation, source-level semantic quality/section repair, attachment/multimodal multipass, all native and provider-route acceptance, 3,000-word output/combined tests and device qualification remain. This is not V30 completion."
+      "Encrypted completed-pass checkpoints and same-plan restart reuse are implemented in the feature-audit branch, with regression execution pending. Full restart qualification, source-level semantic quality/section repair, attachment/multimodal multipass, all native and provider-route acceptance, 3,000-word output/combined tests and device qualification remain. This is not V30 completion."
     ]
   },
   {

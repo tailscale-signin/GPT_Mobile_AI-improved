@@ -15,6 +15,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class CombinedSynthesisPromptTest {
+    @Test fun comprehensivePolicyIsExplicitAndRequestLengthRemainsAnOption() {
+        val sources = listOf(CombinedModelResponse("p", "P", content = "Full contribution"))
+        assertEquals("COMPREHENSIVE", Json.parseToJsonElement(combinedSynthesisPrompt("100 words", sources)).jsonObject.getValue("combination_policy").jsonPrimitive.content)
+        assertEquals("REQUEST_LENGTH", Json.parseToJsonElement(combinedSynthesisPrompt("100 words", sources, comprehensive = false)).jsonObject.getValue("combination_policy").jsonPrimitive.content)
+    }
+
     @Test fun everyOriginalSurvivesJsonFramingIncludingLongEndingsAndConflictingDates() {
         val request = "Write 3,000 words of French history"
         val sources = listOf(

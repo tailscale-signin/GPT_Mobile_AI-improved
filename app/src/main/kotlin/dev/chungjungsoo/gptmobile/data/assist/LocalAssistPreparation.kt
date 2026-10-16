@@ -28,7 +28,10 @@ class LocalAssistPreparation @Inject constructor(
     private val assistPreparationFailures = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     suspend fun eligible(target: PlatformV2, policy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy): Boolean {
-        fun status(state: dev.chungjungsoo.gptmobile.data.assist.AssistReadiness, reason: String) = dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(state, reason, target.uid, modelLoaded = state == AssistReadiness.READY, requestedAccelerator = target.accelerator, observedAccelerator = localRuntime.state.value.engineSpec?.accelerator, observedBackend = localRuntime.state.value.backend?.displayName)
+        fun status(state: dev.chungjungsoo.gptmobile.data.assist.AssistReadiness, reason: String): Boolean {
+            AppLogRecorder.record("LocalAssist", "READINESS · state=$state · requestedBackend=${dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)} · modelLoaded=${state == AssistReadiness.READY}")
+            return dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(state, reason, target.uid, modelLoaded = state == AssistReadiness.READY, requestedAccelerator = target.accelerator, observedAccelerator = localRuntime.state.value.engineSpec?.accelerator, observedBackend = localRuntime.state.value.backend?.displayName)
+        }
         val unavailable = dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.SKIPPED
         recoveryRetryAtMillis = null
         assistAdmission.evaluate(localRuntime.getHardwareState(), dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission.availableMemory(context), 128L * 1024 * 1024, settingRepository.getFeatureSettings().localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, optional = true)?.let {
@@ -37,15 +40,26 @@ class LocalAssistPreparation @Inject constructor(
         }
         val selection = runCatching { localModelRepository.resolveLocalModelSelection(target.model, target.accelerator) }.getOrNull()
             ?: return status(unavailable, "Local Assist unavailable: selected model is not installed")
+        // Check persistent quarantine before touching the artifact or joining native ownership.
+        try {
+            localRuntime.preflightModel(selection.path, target.accelerator)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return status(unavailable, "Local Assist runtime is not ready; Verify load for this exact artifact and backend before retrying")
+        }
         val readable = withContext(Dispatchers.IO) { java.io.File(selection.path).let { it.isFile && it.canRead() && it.length() > 0 } }
         if (!readable) return status(unavailable, "Local Assist unavailable: selected artifact is missing or unreadable")
         val observed = localRuntime.state.value
         if (observed.lifecycle in setOf("CANCELLING", "SHUTDOWN")) return status(unavailable, "Local Assist waiting for acknowledged runtime cancellation")
         val record = localRuntime.admittedEngineSpec()
         if (record != null) {
-            if (record.modelPath != selection.path || record.accelerator != dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator) || !localRuntime.isEngineLoaded(record)) return status(unavailable, "Local Assist skipped: another runtime configuration is loaded")
-            if (observed.lifecycle == "FAILED" || observed.engineSpec == null || observed.backend == null) return status(unavailable, "Local Assist unavailable: loaded session health or execution backend is unverified")
-            return status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready: requested ${record.accelerator}; observed ${observed.engineSpec.accelerator} (${observed.backend.displayName}); context ${observed.engineSpec.maxTokens}")
+            val matches = record.modelPath == selection.path && record.accelerator == dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator) && localRuntime.isEngineLoaded(record)
+            if (matches) {
+                if (observed.lifecycle == "FAILED" || observed.engineSpec == null || observed.backend == null) return status(unavailable, "Local Assist unavailable: loaded session health or execution backend is unverified")
+                return status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready: requested ${record.accelerator}; observed ${observed.engineSpec.accelerator} (${observed.backend.displayName}); context ${observed.engineSpec.maxTokens}")
+            }
+            if (!canReplaceAssistEngine(policy.preparation, localRuntime.isBusy, localRuntime.hasOpenConversation())) return status(unavailable, "Local Assist skipped: another runtime configuration is active or warm-only policy forbids replacement")
         }
         if (policy.preparation == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) return status(unavailable, "Local Assist skipped: warm-only policy; model is not loaded")
         val preparationKey = "${target.uid}|${selection.path}|${target.accelerator}|$policy|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}"
@@ -54,6 +68,9 @@ class LocalAssistPreparation @Inject constructor(
         val prepared = try {
             kotlinx.coroutines.withTimeoutOrNull(policy.validated().loadTimeoutSeconds * 1000L) {
                 localRuntime.runExclusive {
+                    // A chat may have acquired the previously idle engine while we waited.
+                    if (hasOpenConversation()) return@runExclusive false
+                    preflightModel(selection.path, target.accelerator)
                     val metadata = requireNotNull(inspectModel(selection.path)) { "Artifact capabilities are unavailable" }
                     val backend = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)
                     check(backend in metadata.backends) { "Selected backend is unsupported or unverified for this artifact" }
@@ -62,7 +79,9 @@ class LocalAssistPreparation @Inject constructor(
                     val effectiveContext = if (metadata.dynamicContext == false) capacity else minOf(capacity, requestedContext)
                     val spec = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selection.path, backend, effectiveContext, workload = "assist", expectedOutputTokens = minOf(1024, (effectiveContext / 4).coerceAtLeast(64)))
                     metadata.validate(spec)
+                    AppLogRecorder.record("LocalAssist", "MODEL_LOAD_ATTEMPT · requestedBackend=$backend · contextTokens=$effectiveContext")
                     loadEngine(spec)
+                    AppLogRecorder.record("LocalAssist", "MODEL_LOAD_RESULT · success=true · observedBackend=${state.value.engineSpec?.accelerator ?: "UNOBSERVED"} · contextTokens=${state.value.engineSpec?.maxTokens ?: 0}")
                     true
                 }
             } == true

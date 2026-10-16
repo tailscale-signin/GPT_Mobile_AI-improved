@@ -61,4 +61,43 @@ class LocalReadinessRegistryTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test fun `native interruption blocks the route before inspection and survives process restart`() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("native-route-fixture").toFile()
+        try {
+            LocalReadinessRegistry(directory).rememberNativeInterruption("artifact-runtime-cpu")
+            val restarted = LocalReadinessRegistry(directory)
+            assertTrue(runCatching { restarted.assertNativeAllowed("artifact-runtime-cpu") }.exceptionOrNull() is LocalNativeQuarantinedException)
+            restarted.assertNativeAllowed("artifact-runtime-gpu")
+            restarted.assertNativeAllowed("new-artifact-runtime-cpu")
+            restarted.reset("artifact-runtime-cpu")
+            restarted.assertNativeAllowed("artifact-runtime-cpu")
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun `quarantined route rejects without waiting for another native load`() = runBlocking {
+        val registry = LocalReadinessRegistry()
+        registry.rememberNativeInterruption("blocked-cpu")
+        val loading = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val healthy = async {
+            registry.qualify("healthy-gpu") {
+                loading.complete(Unit)
+                release.await()
+                "ready"
+            }
+        }
+        loading.await()
+        try {
+            val failure = kotlinx.coroutines.withTimeout(1000) {
+                runCatching { registry.assertNativeAllowed("blocked-cpu") }.exceptionOrNull()
+            }
+            assertTrue(failure is LocalNativeQuarantinedException)
+        } finally {
+            release.complete(Unit)
+        }
+        assertEquals("ready", healthy.await())
+    }
 }

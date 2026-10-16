@@ -13,6 +13,7 @@ internal class OutputLimitRecoverySession(
     private val recoverTransientFailures: Boolean = false,
     initialDraft: String = "",
     private val allowInternalToolRecovery: Boolean = false,
+    private val continueEmptyOutput: Boolean = true,
     private var effectiveOutputCap: Int? = null,
     private val maxAnswerCharacters: Int = 1_048_576,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
@@ -20,6 +21,7 @@ internal class OutputLimitRecoverySession(
 ) : AgentProviderSession {
     private var continuations = 0
     private var transientRetries = 0
+    private var lowYieldLimitRounds = 0
     private val answer = StringBuilder(initialDraft)
     private val retainedCharacterLimit = maxAnswerCharacters.takeIf { it > 0 } ?: Int.MAX_VALUE
 
@@ -46,6 +48,8 @@ internal class OutputLimitRecoverySession(
             val continuing = continuations > 0 || transientRetries > 0
             var failure: ProviderEvent.Failed? = null
             var completed = false
+            var reportedOutputTokens: Int? = null
+            var reportedFinishReason: String? = null
             val pendingCalls = mutableListOf<ProviderEvent.ToolCall>()
             val admission = ToolRoundAdmission()
             val segment = StringBuilder()
@@ -65,6 +69,11 @@ internal class OutputLimitRecoverySession(
                             }
                             is ProviderEvent.RequestConfigured -> {
                                 effectiveOutputCap = event.effectiveOutputTokens ?: effectiveOutputCap
+                                emit(event)
+                            }
+                            is ProviderEvent.Usage -> {
+                                reportedOutputTokens = event.outputTokens ?: reportedOutputTokens
+                                reportedFinishReason = event.finishReason ?: reportedFinishReason
                                 emit(event)
                             }
                             is ProviderEvent.Failed -> failure = event
@@ -100,7 +109,19 @@ internal class OutputLimitRecoverySession(
             if (continuing && novel.isNotEmpty()) emit(ProviderEvent.TextDelta(novel))
             answer.append(novel)
             saveProgress(answer.toString(), continuations, effectiveOutputCap, "SEGMENT_COMMITTED")
-            val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true
+            val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true ||
+                reportedFinishReason in setOf("length", "max_tokens", "MAX_TOKENS")
+            if (limitFailure && answer.isBlank() && !continueEmptyOutput) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "FAILED")
+                emit(failure ?: ProviderEvent.Failed("The model reached its output limit without a visible answer. Check reasoning and output settings before retrying."))
+                return@flow
+            }
+            lowYieldLimitRounds = if (limitFailure && (reportedOutputTokens ?: 0) >= 1024 && novel.toByteArray(Charsets.UTF_8).size <= 256) lowYieldLimitRounds + 1 else 0
+            if (lowYieldLimitRounds >= 2) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
+                emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_VISIBLE_PROGRESS: Two output-limited requests produced negligible visible output. The partial answer and evidence are saved. Check the profile's reasoning and output settings before explicitly retrying."))
+                return@flow
+            }
             val transientFailure = failure != null &&
                 !limitFailure &&
                 recoverTransientFailures &&
@@ -177,20 +198,31 @@ private fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> = 
     var input: Int? = null
     var output: Int? = null
     var total: Int? = null
+    var reasoning: Int? = null
     var speed: Double? = null
+    var metadata: ProviderEvent.Usage? = null
     fun add(previous: Int?, value: Int, cumulative: Boolean): Int =
         if (cumulative) maxOf(previous ?: 0, value) else ((previous ?: 0).toLong() + value).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     collect { event ->
         if (event is ProviderEvent.Usage) {
+            val previous = metadata
+            metadata = event.copy(
+                finishReason = event.finishReason ?: previous?.finishReason,
+                retryDurationMs = event.retryDurationMs ?: previous?.retryDurationMs,
+                retryAttempts = event.retryAttempts ?: previous?.retryAttempts,
+                actualRuntime = event.actualRuntime ?: previous?.actualRuntime,
+                effectiveSettingsConfirmed = event.effectiveSettingsConfirmed || previous?.effectiveSettingsConfirmed == true
+            )
             event.inputTokens?.let { input = add(input, it, event.cumulative) }
             event.outputTokens?.let { output = add(output, it, event.cumulative) }
             event.totalTokens?.let { total = add(total, it, event.cumulative) }
+            event.reasoningTokens?.let { reasoning = add(reasoning, it, event.cumulative) }
             event.decodeTokensPerSecond?.let { speed = it }
         } else {
             emit(event)
         }
     }
-    if (input != null || output != null || total != null || speed != null) {
-        emit(ProviderEvent.Usage(input, output, total, cumulative = false, decodeTokensPerSecond = speed))
+    metadata?.let { last ->
+        emit(last.copy(inputTokens = input, outputTokens = output, totalTokens = total, cumulative = false, decodeTokensPerSecond = speed, reasoningTokens = reasoning))
     }
 }

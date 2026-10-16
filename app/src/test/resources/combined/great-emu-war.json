@@ -1,0 +1,59 @@
+{
+  "note": "Sanitized model-generated historical text from the supplied export. These are behavioral fixtures, not verified historical evidence. Account identifiers, models, timestamps, request traces, credentials and personal metadata are omitted.",
+  "request": "Select an interesting part in a country's history and talk about it for a hundred words.",
+  "before": [
+    {
+      "platformUid": "profile-1",
+      "platformName": "Profile 1",
+      "content": "<!-- chat_subject: Haitian Revolution -->\nThe Haitian Revolution (1791–1804) stands as the only successful slave revolt in history, transforming a French sugar colony into the world's first Black republic. Led by Toussaint Louverture and later Jean-Jacques Dessalines, enslaved Africans and free people of color defeated Napoleon's armies, despite facing brutal reprisals. The revolution shattered colonial assumptions, proving that liberty and equality could be claimed by the enslaved. It forced France to sell Louisiana to the US, reshaping North America. Haiti's independence, however, came at a cost: crippling indemnities and international isolation that still echo today. This audacious bid for freedom remains a beacon of resistance."
+    },
+    {
+      "platformUid": "profile-2",
+      "platformName": "Profile 2",
+      "content": "<!-- chat_subject: Golden Age of Piracy -->\n\nThe Golden Age of Piracy (roughly 1650–1730) transformed the Caribbean into a lawless frontier. As European powers warred over trade routes, privateers like Henry Morgan raided Spanish treasure fleets, while figures such as Blackbeard and Anne Bonny terrorized merchant ships. Nassau in the Bahamas became a pirate republic, briefly defying colonial authority. Britain's response was brutal: Admiral Woods Rogers hunted pirates down, and public executions in Port Royal served as grim warnings. The era ended as nations tightened naval patrols and issued"
+    },
+    {
+      "platformUid": "profile-3",
+      "platformName": "Profile 3",
+      "content": "<!-- chat_subject: Meiji Restoration Japan -->\n\nOne fascinating historical episode is Japan's Meiji Restoration (1868), when the country transformed from an isolated feudal society into a modern industrial power in just a few decades. After centuries of Tokugawa shogunate rule and self-imposed isolation, Japan abolished the samurai class, adopted Western technology, built railways, modernized its military, and established a constitutional government—all while preserving its cultural identity. This rapid modernization allowed Japan to avoid colonization by Western powers, unlike much of Asia, and positioned it to defeat Russia in 1905, stunning the world. It's a striking example of deliberate, swift national reinvention."
+    },
+    {
+      "platformUid": "profile-4",
+      "platformName": "Profile 4",
+      "content": "<!-- chat_subject: The Great Emu War -->\nIn late 1932, Australia found itself engaged in the peculiar Great Emu War. Facing severe crop destruction across Western Australia caused by twenty thousand migrating emus, the government dispatched soldiers armed with heavy Lewis machine guns to cull the birds. However, the military drastically underestimated their feathered adversaries. The emus proved remarkably elusive, scattering into small, agile groups that outmaneuvered guns and evaded ambushes. After weeks of tactical frustration and thousands of expended rounds, the military withdrew in defeat. The emus successfully retained control of the outback, cementing one of the most delightfully bizarre military misadventures in modern human history."
+    },
+    {
+      "platformUid": "profile-5",
+      "platformName": "Profile 5",
+      "content": "<!-- chat_subject: Meiji Restoration Japan -->\n\nThe Meiji Restoration (1868) transformed Japan from a feudal shogunate into a modern imperial power in mere decades. After centuries of isolation under the Tokugawa shogunate, Commodore Perry's 1853 arrival forced open Japanese ports. Young samurai from Satsuma and Chōshū domains, rallying around the teenage Emperor Meiji, overthrew the shogun in a brief civil war. The new government abolished the class system, created a conscript army, built railways and factories, and adopted Western legal and educational models—while selectively preserving Japanese identity. By 1905, Japan defeated Russia, stunning the world as Asia's first modern industrial power. The Restoration's speed and synthesis of tradition with innovation remain a unique case study in non-Western modernization."
+    }
+  ],
+  "sources": [
+    {
+      "platformUid": "profile-1",
+      "platformName": "Profile 1",
+      "content": "<!-- chat_subject: Haitian Revolution -->\nThe Haitian Revolution (1791–1804) stands as the only successful slave revolt in history, transforming a French sugar colony into the world's first Black republic. Led by Toussaint Louverture and later Jean-Jacques Dessalines, enslaved Africans and free people of color defeated Napoleon's armies, despite facing brutal reprisals. The revolution shattered colonial assumptions, proving that liberty and equality could be claimed by the enslaved. It forced France to sell Louisiana to the US, reshaping North America. Haiti's independence, however, came at a cost: crippling indemnities and international isolation that still echo today. This audacious bid for freedom remains a beacon of resistance."
+    },
+    {
+      "platformUid": "profile-2",
+      "platformName": "Profile 2",
+      "content": "<!-- chat_subject: Golden Age of Piracy -->\n\nThe Golden Age of Piracy (roughly 1650–1730) transformed the Caribbean into a lawless frontier. As European powers warred over trade routes, privateers like Henry Morgan raided Spanish treasure fleets, while figures such as Blackbeard and Anne Bonny terrorized merchant ships. Nassau in the Bahamas became a pirate republic, briefly defying colonial authority. Britain's response was brutal: Admiral Woods Rogers hunted pirates down, and public executions in Port Royal served as grim warnings. The era ended as nations tightened naval patrols and issued pardons. Yet it left an enduring cultural legacy — the romantic image of pirates still shapes our imagination today."
+    },
+    {
+      "platformUid": "profile-3",
+      "platformName": "Profile 3",
+      "content": "<!-- chat_subject: Meiji Restoration Japan -->\n\nOne fascinating historical episode is Japan's Meiji Restoration (1868), when the country transformed from an isolated feudal society into a modern industrial power in just a few decades. After centuries of Tokugawa shogunate rule and self-imposed isolation, Japan abolished the samurai class, adopted Western technology, built railways, modernized its military, and established a constitutional government—all while preserving its cultural identity. This rapid modernization allowed Japan to avoid colonization by Western powers, unlike much of Asia, and positioned it to defeat Russia in 1905, stunning the world. It's a striking example of deliberate, swift national reinvention."
+    },
+    {
+      "platformUid": "profile-4",
+      "platformName": "Profile 4",
+      "content": "<!-- chat_subject: The Great Emu War -->\nIn late 1932, Australia found itself engaged in the peculiar Great Emu War. Facing severe crop destruction across Western Australia caused by twenty thousand migrating emus, the government dispatched soldiers armed with heavy Lewis machine guns to cull the birds. However, the military drastically underestimated their feathered adversaries. The emus proved remarkably elusive, scattering into small, agile groups that outmaneuvered guns and evaded ambushes. After weeks of tactical frustration and thousands of expended rounds, the military withdrew in defeat. The emus successfully retained control of the outback, cementing one of the most delightfully bizarre military misadventures in modern human history."
+    },
+    {
+      "platformUid": "profile-5",
+      "platformName": "Profile 5",
+      "content": "<!-- chat_subject: Meiji Restoration Japan -->\n\nThe Meiji Restoration (1868) transformed Japan from a feudal shogunate into a modern imperial power in mere decades. After centuries of isolation under the Tokugawa shogunate, Commodore Perry's 1853 arrival forced open Japanese ports. Young samurai from Satsuma and Chōshū domains, rallying around the teenage Emperor Meiji, overthrew the shogun in a brief civil war. The new government abolished the class system, created a conscript army, built railways and factories, and adopted Western legal and educational models—while selectively preserving Japanese identity. By 1905, Japan defeated Russia, stunning the world as Asia's first modern industrial power. The Restoration's speed and synthesis of tradition with innovation remain a unique case study in non-Western modernization."
+    }
+  ],
+  "selectedAnswer": "<!-- chat_subject: Haitian Revolution -->\n\nThe Haitian Revolution (1791–1804) stands as the only successful slave revolt in history, transforming a French sugar colony into the world's first Black republic. Led by Toussaint Louverture and later Jean-Jacques Dessalines, enslaved Africans and free people of color defeated Napoleon's armies despite brutal reprisals. The revolution shattered colonial assumptions, proving liberty and equality could be claimed by the enslaved. It forced France to sell Louisiana to the US, reshaping North America. Haiti's independence, however, came at a cost: crippling indemnities and international isolation that still echo today. This audacious bid for freedom remains a beacon of resistance."
+}

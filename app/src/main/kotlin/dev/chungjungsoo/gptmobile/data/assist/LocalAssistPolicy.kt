@@ -20,7 +20,10 @@ data class LocalAssistPolicy(
     val researchPreparation: Boolean = true,
     val contextTokens: Int = 4096,
     val permissionVersion: Int = 0,
-    val profilePermissions: Map<String, AssistProcessingPermission> = emptyMap()
+    val profilePermissions: Map<String, AssistProcessingPermission> = emptyMap(),
+    // Independent from worker preparation/generation deadlines. Ordinary remote tools may continue.
+    val optionalWaitSeconds: Int = 2,
+    val perTurnQueryPlanning: Boolean = false
 ) {
-    fun validated() = copy(queueWaitSeconds = queueWaitSeconds.coerceIn(1, 60), contextTokens = contextTokens.coerceIn(1024, 16384), loadTimeoutSeconds = loadTimeoutSeconds.coerceIn(10, 120), taskTimeoutSeconds = taskTimeoutSeconds.coerceIn(2, 30), maxAttempts = maxAttempts.coerceIn(1, 8), candidateRecords = candidateRecords.coerceIn(5, 24), selectedRecords = selectedRecords.coerceIn(1, 5))
+    fun validated() = copy(optionalWaitSeconds = optionalWaitSeconds.coerceIn(1, 60), queueWaitSeconds = queueWaitSeconds.coerceIn(1, 60), contextTokens = contextTokens.coerceIn(1024, 16384), loadTimeoutSeconds = loadTimeoutSeconds.coerceIn(10, 120), taskTimeoutSeconds = taskTimeoutSeconds.coerceIn(2, 90), maxAttempts = maxAttempts.coerceIn(1, 8), candidateRecords = candidateRecords.coerceIn(5, 24), selectedRecords = selectedRecords.coerceIn(1, 5))
 }

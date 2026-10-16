@@ -37,6 +37,7 @@ internal object ResearchDeliveryValidator {
                 val support = readable.joinToString("\n") { it.passage + "\n" + it.publishedAt + " " + it.publicationYear?.toString().orEmpty() + "\n" + ResearchDeliveryPacket.bibliography(it) + "\n" + packet.studyFields[it.id].orEmpty() }
                 val allowed = numbers.findAll(support).map { it.value.replace(",", "") }.toSet()
                 val withoutLinks = paragraph.replace(Regex("https?://[^\\s)]+|\\[S[0-9a-f]+\\]|10\\.\\d{4,9}/[^\\s]+"), "")
+                issues += ResearchNumericalGrounding.issues(withoutLinks, readable.map { it.passage })
                 if (numbers.findAll(withoutLinks).any { it.value.replace(",", "") !in allowed }) issues += "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE"
             }
         }

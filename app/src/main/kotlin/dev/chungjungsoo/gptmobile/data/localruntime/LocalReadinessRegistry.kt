@@ -15,10 +15,43 @@ class LocalArtifactIncompatibleException(cause: Throwable? = null) :
         cause
     )
 
-/** Only deterministic artifact errors are retained. Resource pressure and cancellation stay retryable. */
+class LocalNativeQuarantinedException :
+    IllegalStateException(
+        "NATIVE_ARTIFACT_QUARANTINED: This artifact/runtime/backend was interrupted inside native code. In Local AI choose Verify load for this model/backend, or explicitly select a compatible backend/model. No native work was dispatched."
+    )
+
+/** Only deterministic errors and explicit native interruption denials are retained. */
 internal class LocalReadinessRegistry(private val directory: File? = null) {
     private val blocked = ConcurrentHashMap.newKeySet<String>()
     private val lock = Mutex()
+    private val nativeLock = Mutex()
+
+    private val nativeBlocked = ConcurrentHashMap.newKeySet<String>()
+
+    /** Parent-process read: never touches native pointers or clears a worker's protective journal. */
+    suspend fun assertNativeAllowed(key: String) = nativeLock.withLock {
+        val durable = directory?.let { File(it, dev.chungjungsoo.gptmobile.data.research.researchHash(key)) }
+        if (key in nativeBlocked || withContext(Dispatchers.IO) { durable?.isFile == true && durable.readText().startsWith("NATIVE\n") }) {
+            nativeBlocked += key
+            throw LocalNativeQuarantinedException()
+        }
+    }
+
+    suspend fun rememberNativeInterruption(key: String) = nativeLock.withLock {
+        nativeBlocked += key
+        withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+            directory?.let { root ->
+                check(root.mkdirs() || root.isDirectory)
+                val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(key)
+                val temporary = File(root, "$digest.tmp")
+                temporary.outputStream().use { output ->
+                    output.write("NATIVE\n$digest".toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+                Files.move(temporary.toPath(), File(root, digest).toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+    }
 
     suspend fun <T> qualify(key: String, load: suspend () -> T): T = lock.withLock {
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(key)
@@ -49,12 +82,15 @@ internal class LocalReadinessRegistry(private val directory: File? = null) {
 
     /** Called only after the exact user-requested verification reset was acknowledged. */
     suspend fun reset(key: String) = lock.withLock {
-        withContext(Dispatchers.IO) {
-            directory?.let { File(it, dev.chungjungsoo.gptmobile.data.research.researchHash(key)) }?.let {
-                check(!it.exists() || it.delete()) { "Cannot reset this artifact's verification state" }
+        nativeLock.withLock {
+            withContext(Dispatchers.IO) {
+                directory?.let { File(it, dev.chungjungsoo.gptmobile.data.research.researchHash(key)) }?.let {
+                    check(!it.exists() || it.delete()) { "Cannot reset this artifact's verification state" }
+                }
             }
+            blocked.remove(key)
+            nativeBlocked.remove(key)
         }
-        blocked.remove(key)
     }
 
     companion object {

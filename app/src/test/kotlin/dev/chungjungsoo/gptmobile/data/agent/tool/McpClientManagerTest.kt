@@ -260,6 +260,22 @@ class McpClientManagerTest {
     }
 
     @Test
+    fun `post only server GET 405 does not invalidate a working MCP session`() = runBlocking {
+        McpFixtureServer(postOnly = true).use { server ->
+            val client = testClient()
+            val manager = McpClientManager(client)
+            val config = McpConnectionConfig("post-only", server.url, allowCleartext = true)
+            assertEquals(listOf("echo"), manager.listTools(config).map { it.name })
+            val result = manager.callTool(config, "echo", buildJsonObject { put("text", "healthy") })
+            assertEquals("healthy", (result.content.single() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text)
+            assertEquals(McpConnectionHealthState.CONNECTED, manager.health.value[config.connectionUid]?.state)
+            assertEquals(1, server.methods.count { it == "initialize" })
+            manager.closeAll()
+            client.close()
+        }
+    }
+
+    @Test
     fun `rejects cleartext endpoint until user allowed it`() = runBlocking {
         val client = testClient()
         val manager = McpClientManager(client)
@@ -356,7 +372,8 @@ class McpClientManagerTest {
     internal class McpFixtureServer(
         private val paginateTools: Boolean = false,
         acceptedAuthorization: String? = null,
-        private val toolsResponse: String? = null
+        private val toolsResponse: String? = null,
+        private val postOnly: Boolean = false
     ) : AutoCloseable {
         @Volatile
         var acceptedAuthorization: String? = acceptedAuthorization
@@ -374,6 +391,10 @@ class McpClientManagerTest {
 
         private fun handle(exchange: HttpExchange) {
             try {
+                if (postOnly && exchange.requestMethod == "GET") {
+                    exchange.sendResponseHeaders(405, -1)
+                    return
+                }
                 val authorization = exchange.requestHeaders.getFirst("Authorization")
                 authorization?.let(authorizationHeaders::add)
                 exchange.requestHeaders.getFirst("Mcp-Session-Id")?.let(sessionHeaders::add)

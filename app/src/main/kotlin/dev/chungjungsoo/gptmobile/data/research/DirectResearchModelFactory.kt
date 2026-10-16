@@ -97,7 +97,7 @@ internal object DirectResearchModelFactory {
             reviewer = reviewer?.let(::endpoint),
             stillEnabled = stillEnabled,
             onEvent = { event ->
-                AppLogRecorder.record("Research", "MODEL_STAGE · stage=${event.stage} · profile=${event.profileUid} · local=${event.local} · status=${event.outcome} · durationMs=${event.durationMs} · invocation=${event.invocationId ?: "none"} · reason=${event.reason}")
+                AppLogRecorder.record("Research", "MODEL_STAGE · stage=${event.stage} · profile=${event.profileUid} · local=${event.local} · status=${event.outcome} · durationMs=${event.durationMs} · invocation=${event.invocationId ?: "none"} · reason=${event.reason} · failurePhase=${event.failurePhase.ifBlank { "none" }} · failureCategory=${event.failureCategory.ifBlank { "none" }} · exceptionType=${event.exceptionType.ifBlank { "none" }}")
                 if (event.local) {
                     onAssistStatus(
                         AssistTaskState(
@@ -112,7 +112,8 @@ internal object DirectResearchModelFactory {
                                 "SKIPPED" -> AssistExecution.SKIPPED
                                 else -> AssistExecution.FAILED
                             },
-                            delivery = if (event.outcome == "SUCCESS") AssistDelivery.VALIDATED else AssistDelivery.NONE,
+                            // Structured stage validation happens after the raw model reply.
+                            delivery = if (event.outcome == "SUCCESS") AssistDelivery.PRODUCED else AssistDelivery.NONE,
                             reason = event.reason.ifBlank { "RESEARCH_${event.stage}" }, taskType = "RESEARCH_${event.stage}",
                             producerInvocationId = event.invocationId, policySnapshot = features.resolveAssistPolicy()
                         )

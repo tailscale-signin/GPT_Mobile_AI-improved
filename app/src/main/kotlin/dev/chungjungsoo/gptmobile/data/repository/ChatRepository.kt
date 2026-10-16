@@ -102,6 +102,7 @@ interface ChatRepository {
     suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2
     suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2): String?
     suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2
+    suspend fun createEvidenceFreeRetry(sourceChatId: Int, question: String, profile: PlatformV2): ChatRoomV2 = error("Fresh evidence recovery is unavailable")
     suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2
     suspend fun branchChat(chatRoom: ChatRoomV2, editedUser: MessageV2): ChatRoomV2 = error("Conversation branching is unavailable")
     suspend fun updateTemporary(chatRoom: ChatRoomV2, enabled: Boolean): ChatRoomV2 = chatRoom

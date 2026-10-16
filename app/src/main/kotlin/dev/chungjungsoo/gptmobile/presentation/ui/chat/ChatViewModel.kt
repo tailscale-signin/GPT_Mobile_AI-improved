@@ -1024,6 +1024,30 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Explicit fresh scope: never copy the blocked answer, receipts, attachments, or recovery root. */
+    fun retryWithoutSavedEvidence(turnIndex: Int, platformIndex: Int) {
+        if (branching || _loadingStates.value.any { it == LoadingState.Loading }) return
+        val uid = enabledPlatformsInChat.getOrNull(platformIndex) ?: return
+        val profile = _platformsInApp.value.firstOrNull { it.uid == uid && it.enabled } ?: return
+        if (turnIndex !in _groupedMessages.value.userMessages.indices) return
+        val users = _groupedMessages.value.userMessages.take(turnIndex + 1)
+        val original = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(users)?.originalRequest ?: users.lastOrNull()?.content ?: return
+        if (original.isBlank()) return
+        branching = true
+        viewModelScope.launch {
+            try {
+                val saved = chatRepository.createEvidenceFreeRetry(_chatRoom.value.id, original, resolvePlatformModel(profile))
+                _branchNavigation.value = saved.id
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not create a fresh conversation. The original response is retained."
+            } finally {
+                branching = false
+            }
+        }
+    }
+
     fun retryChat(turnIndex: Int, platformIndex: Int) {
         if (_loadingStates.value.getOrNull(platformIndex) == LoadingState.Loading) return
         if (enabledPlatformsInChat.getOrNull(platformIndex) in _disabledPlatformUids.value) return
@@ -2214,7 +2238,7 @@ class ChatViewModel @Inject constructor(
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
         val selectedUids = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType }
         val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
-            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
+            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, comprehensive = featureSettings.value.combinedComprehensive)
             val lineage = dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(selectedUids, attributedSources)
             val inventory = dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventory.freeze(attributedSources)
             prompt to kotlinx.serialization.json.Json.encodeToString(
@@ -2248,7 +2272,8 @@ class ChatViewModel @Inject constructor(
             PersistAgentRetryRequest(
                 userMessage = userMessage,
                 assistantMessage = leadMessage.copy(combinedSources = attributedSources),
-                run = run
+                run = run,
+                freezeCombinedSources = true
             )
         )
         // The durable run now owns this answer slot. No automatic retry may

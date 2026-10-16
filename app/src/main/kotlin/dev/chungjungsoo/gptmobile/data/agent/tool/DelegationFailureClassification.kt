@@ -13,3 +13,15 @@ internal fun isProviderOutputLimitFailure(message: String): Boolean {
         "finish reason length"
     ).any(normalized::contains)
 }
+
+/** These pre-dispatch failures cannot improve by resending identical configuration. */
+internal fun isDeterministicDelegateConfigurationFailure(message: String): Boolean = listOf(
+    "REASONING_OFF_UNSUPPORTED",
+    "REASONING_ON_UNSUPPORTED",
+    "MODEL_CONFIGURATION",
+    "LOCAL_CONTEXT_EXHAUSTED",
+    "LOCAL_CONTEXT_UNVERIFIED",
+    "NATIVE_SESSION_QUARANTINED",
+    "NATIVE_ARTIFACT_QUARANTINED",
+    "interrupted inside native code"
+).any { message.contains(it, ignoreCase = true) }

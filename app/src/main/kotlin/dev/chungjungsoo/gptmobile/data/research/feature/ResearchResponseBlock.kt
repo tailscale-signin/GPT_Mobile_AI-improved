@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.research.feature
 internal data class ResearchResponseBlock(val text: String, val citationText: String = "")
 
 /** Insert cards after a cited paragraph while retaining whole fenced blocks and source text. */
-internal fun researchResponseBlocks(text: String): List<ResearchResponseBlock> {
+internal fun researchResponseBlocks(text: String, splitParagraphs: Boolean = false): List<ResearchResponseBlock> {
     if (text.length > 1_000_000) return listOf(ResearchResponseBlock(text))
     val blocks = mutableListOf<ResearchResponseBlock>()
     val pending = StringBuilder()
@@ -29,7 +29,7 @@ internal fun researchResponseBlocks(text: String): List<ResearchResponseBlock> {
         }
         if (pending.isNotEmpty()) pending.append('\n')
         pending.append(line)
-        if (line.isBlank() && fence == null && articleCitationOccurrences(pending.toString()).isNotEmpty()) flush()
+        if (line.isBlank() && fence == null && (splitParagraphs || articleCitationOccurrences(pending.toString()).isNotEmpty())) flush()
     }
     flush()
     return blocks

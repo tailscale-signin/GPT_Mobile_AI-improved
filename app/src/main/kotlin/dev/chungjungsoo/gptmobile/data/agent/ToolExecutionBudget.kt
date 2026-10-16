@@ -91,10 +91,15 @@ class ToolExecutionBudget(
                     )
                 }
             }
-            if (!authorize(callId, arguments)) return { bounded(ToolResultEnvelope.error(callId, "AUTH_REQUIRED", "Tool permission was denied or this action was already dispatched.")) }
+            val authorized = try {
+                authorize(callId, arguments)
+            } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
+                return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
+            }
+            if (!authorized) return { bounded(ToolResultEnvelope.error(callId, "AUTH_REQUIRED", "Tool permission was denied or revoked. Review this tool's grants before retrying.")) }
             val dispatched = java.util.concurrent.atomic.AtomicBoolean()
             return execution@{
-                if (!dispatched.compareAndSet(false, true)) return@execution withBudgetState(failure("This prepared tool call was already dispatched."))
+                if (!dispatched.compareAndSet(false, true)) return@execution withBudgetState(ToolResultEnvelope.error(callId, "DUPLICATE_INVOCATION", "This prepared tool call was already dispatched. No action was repeated."))
                 var success = false
                 var statisticsId: String? = null
                 var startedNanos = 0L
@@ -172,7 +177,7 @@ class ToolExecutionBudget(
                 } catch (cancellation: CancellationException) {
                     if (!dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) unknownOutcomes += signature
                     val cancellationContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
-                    val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "UNKNOWN"
+                    val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "PARENT_CANCELLED"
                     reason = "CANCELED_$origin"
                     executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.CANCELED
                     AppLogRecorder.record(

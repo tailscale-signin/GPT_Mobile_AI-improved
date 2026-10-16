@@ -12,7 +12,7 @@ import kotlinx.serialization.json.JsonPrimitive
 enum class SearchEvidenceOutcome { SUCCESS, EMPTY_VALID, PARTIAL, AUTH_REQUIRED, RATE_LIMITED, UNAVAILABLE, PARSE_FAILED, CANCELLED }
 
 internal fun evidenceOutcome(legacy: String, hasSources: Boolean, partial: Boolean): SearchEvidenceOutcome = when {
-    legacy == "authentication_failed" -> SearchEvidenceOutcome.AUTH_REQUIRED
+    legacy in setOf("authentication_failed", "denied") -> SearchEvidenceOutcome.AUTH_REQUIRED
     legacy == "rate_limited" -> SearchEvidenceOutcome.RATE_LIMITED
     legacy == "cancelled" -> SearchEvidenceOutcome.CANCELLED
     hasSources -> if (partial || legacy != "success") SearchEvidenceOutcome.PARTIAL else SearchEvidenceOutcome.SUCCESS

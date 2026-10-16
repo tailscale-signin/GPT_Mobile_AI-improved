@@ -494,10 +494,11 @@ class AgentRunner(
         var hasRoundTotalUsage = false
         var roundDecodeSpeed: Double? = null
         var roundFinishReason: String? = null
+        var roundReasoningTokens: Long? = null
         var roundSettingsConfirmed = false
 
         suspend fun emitRoundUsage() {
-            if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed) return
+            if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed && roundReasoningTokens == null) return
             emit(
                 AgentRunEvent.Provider(
                     ProviderEvent.Usage(
@@ -507,7 +508,8 @@ class AgentRunner(
                         cumulative = false,
                         decodeTokensPerSecond = roundDecodeSpeed,
                         finishReason = roundFinishReason,
-                        effectiveSettingsConfirmed = roundSettingsConfirmed
+                        effectiveSettingsConfirmed = roundSettingsConfirmed,
+                        reasoningTokens = roundReasoningTokens?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
                     )
                 )
             )
@@ -586,6 +588,9 @@ class AgentRunner(
                 is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
 
                 is ProviderEvent.Usage -> {
+                    event.reasoningTokens?.let { tokens ->
+                        roundReasoningTokens = if (event.cumulative) maxOf(roundReasoningTokens ?: 0L, tokens.toLong()) else (roundReasoningTokens ?: 0L) + tokens
+                    }
                     event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
                     event.finishReason?.let { roundFinishReason = it }
                     roundSettingsConfirmed = roundSettingsConfirmed || event.effectiveSettingsConfirmed

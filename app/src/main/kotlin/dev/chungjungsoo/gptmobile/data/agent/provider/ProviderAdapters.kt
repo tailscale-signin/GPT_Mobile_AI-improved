@@ -72,6 +72,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 class OpenAIResponsesAdapter @Inject constructor(
@@ -371,7 +372,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             }
                             .collect { chunk ->
                                 (chunk.usage ?: chunk.groqMetadata?.usage)?.let { usage ->
-                                    emit(ProviderEvent.Usage(usage.promptTokens, usage.completionTokens, usage.totalTokens))
+                                    emit(ProviderEvent.Usage(usage.promptTokens, usage.completionTokens, usage.totalTokens, reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }))
                                 }
                                 chunk.error?.let { error ->
                                     roundFailed = true
@@ -507,7 +508,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                                             inputTokens = usage.promptTokens,
                                                             outputTokens = usage.completionTokens,
                                                             totalTokens = usage.totalTokens,
-                                                            decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond
+                                                            decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond,
+                                                            reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
                                                         )
                                                     )
                                                 }
@@ -650,7 +652,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             inputTokens = usage.promptTokens,
                                             outputTokens = usage.completionTokens,
                                             totalTokens = usage.totalTokens,
-                                            decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond
+                                            decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond,
+                                            reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
                                         )
                                     )
                                 }

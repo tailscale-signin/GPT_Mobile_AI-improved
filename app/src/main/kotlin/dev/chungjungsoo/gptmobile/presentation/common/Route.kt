@@ -26,6 +26,7 @@ object Route {
 
     const val SETTING_ROUTE = "setting_route"
     const val SETTINGS = "settings"
+    const val ACTIVITY = "activity"
     const val AI_PLATFORMS = "ai_platforms"
     const val ADD_PLATFORM = "add_platform"
     const val LOCAL_MODELS = "local_models"

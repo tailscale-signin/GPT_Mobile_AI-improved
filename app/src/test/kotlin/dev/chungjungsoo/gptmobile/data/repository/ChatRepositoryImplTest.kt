@@ -99,6 +99,76 @@ class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
     @Test
+    fun optedInAssistPlannerReachesSerializedToolCatalogueAndRespectsToolDisable() = runBlocking {
+        val helper = PlatformV2(uid = "assist-helper", name = "Helper", compatibleType = ClientType.LITERT_LM, model = "fixture")
+        for (toolsDisabled in listOf(false, true)) {
+            val primary = customPlatform().copy(disableLocalTools = toolsDisabled)
+            val settings = mockk<SettingRepository>(relaxed = true)
+            coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
+            coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+                localAssist = true,
+                localAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(
+                    profileUid = helper.uid,
+                    perTurnQueryPlanning = true,
+                    permissionVersion = 1,
+                    profilePermissions = mapOf(helper.uid to dev.chungjungsoo.gptmobile.data.assist.AssistProcessingPermission.ALLOWED)
+                )
+            )
+            val api = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Hello"), finishReason = "stop")))))))
+            val states = createRepository(openAIAPI = api, settingsOverride = settings).completeChat(
+                listOf(MessageV2(content = "Hi", platformType = null)),
+                emptyList(),
+                primary,
+                "assist-catalogue-$toolsDisabled"
+            ).toList()
+            assertTrue(states.toString(), states.none { it is ApiState.Error })
+            assertEquals(1, api.requests.size)
+            assertEquals(!toolsDisabled, api.requests.single().tools.orEmpty().any { it.function.name == "local_assist_plan" })
+        }
+    }
+
+    @Test
+    fun comprehensiveCombinedUsesFrozenSourcesAndPublishesOnlyTheRepairedAnswer() = runBlocking {
+        val sources = listOf(
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = "Haiti became independent in 1804 after a successful revolution."),
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("helper", "Helper", content = "Australian soldiers confronted migrating emus in 1932.")
+        )
+        val original = MessageV2(id = 2, chatId = 1, platformType = null, content = "Choose an interesting historical event in 100 words.")
+        val platform = customPlatform().copy(disableAllTools = true, disableLocalTools = true)
+        val prompt = dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(original.content, sources)
+        val snapshot = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+            userMessage = original, history = emptyList(), replies = emptyList(), sources = sources,
+            prompt = prompt, profileUid = platform.uid, model = platform.model,
+            systemPrompt = platform.systemPrompt.orEmpty(), configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)
+        )
+        val runId = "combined-synthesis:repository-coverage"
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        coEvery { persistence.recoveryRun(runId) } returns dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+            runId,
+            1,
+            2,
+            3,
+            platform.uid,
+            platform.compatibleType.name,
+            platform.model,
+            synthesisSnapshot = kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot.serializer(), snapshot)
+        )
+        val complete = sources.joinToString("\n\n") { it.content }
+        fun chunk(text: String) = flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = text), finishReason = "stop"))))
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(chunk(sources.first().content), chunk(complete))))
+        val states = createRepository(openAIAPI = api, persistenceOverride = persistence).completeChat(
+            listOf(original.copy(content = prompt)),
+            emptyList(),
+            platform,
+            runId
+        ).toList()
+        assertEquals(states.toString(), 2, api.streamChatCompletionCalls)
+        assertEquals(complete, states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+        assertTrue(states.toString(), states.none { it is ApiState.Error })
+        assertTrue(states.any { it is ApiState.Notice && it.message.contains("Repairing omitted material") })
+    }
+
+    @Test
     fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()
         coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
@@ -133,13 +203,13 @@ class ChatRepositoryImplTest {
         )
         val approvals = mockk<dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager>(relaxed = true)
         val ids = mutableListOf<String>()
-        coEvery { approvals.authorize("work", "parent", capture(ids), "github", any(), any()) } returns false
+        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any()) } throws dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("AUTH_REQUIRED", "Permission is required")
         val repository = createRepository(agentToolResolver = resolver, toolApprovals = approvals)
         assertTrue(repository.resolveDelegatedTools(customPlatform(), "parent", config.copy(allToolsDisabled = true)).isEmpty())
         val denied = repository.resolveDelegatedTools(customPlatform(), "parent", config).single().execute("same-call", JsonObject(emptyMap()))
         assertTrue(denied.isError)
         assertEquals(0, executions)
-        coEvery { approvals.authorize("work", "parent", capture(ids), "github", any(), any()) } returns true
+        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any()) } returns true
         repeat(2) {
             val bound = repository.resolveDelegatedTools(customPlatform(), "parent", config).single()
             val result = bound.execute("same-call", JsonObject(emptyMap()))

@@ -79,23 +79,25 @@ fun SetupNavGraph(
     onLaunchOAuth: (String) -> Unit = {}
 ) {
     val currentEntry by navController.currentBackStackEntryAsState()
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f)) {
-            val navHost: @Composable () -> Unit = {
-                AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+    dev.chungjungsoo.gptmobile.presentation.navigation.AppNavigationShell(navController, currentEntry?.destination?.route) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
+                val navHost: @Composable () -> Unit = {
+                    AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+                }
+                if (isSettingsDestination(currentEntry?.destination?.route)) {
+                    SettingsTypographyScope(content = navHost)
+                } else {
+                    navHost()
+                }
             }
-            if (isSettingsDestination(currentEntry?.destination?.route)) {
-                SettingsTypographyScope(content = navHost)
-            } else {
-                navHost()
-            }
+            BenchmarkExecutionBanner(
+                Modifier.navigationBarsPadding(),
+                onOpen = {
+                    if (currentEntry?.destination?.route != Route.PROFILE_BENCHMARKS) navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", ""))
+                }
+            )
         }
-        BenchmarkExecutionBanner(
-            Modifier.navigationBarsPadding(),
-            onOpen = {
-                if (currentEntry?.destination?.route != Route.PROFILE_BENCHMARKS) navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", ""))
-            }
-        )
     }
 }
 
@@ -310,6 +312,7 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
         val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
         dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(it.arguments?.getInt("chatRoomId") ?: 0, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
             ChatScreen(
+                onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 chatViewModel = conversation,
                 onBackAction = { navController.navigateUp() },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
@@ -325,6 +328,15 @@ fun NavGraphBuilder.settingNavigation(
     onLaunchOAuth: (String) -> Unit = {}
 ) {
     navigation(startDestination = Route.SETTINGS, route = Route.SETTING_ROUTE) {
+        composable(Route.ACTIVITY) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.ActivityScreen(
+                onBack = { navController.navigateUp() },
+                onRuns = { navController.navigate("workspaces?tab=Tasks") },
+                onUsage = { navController.navigate(Route.USAGE_STATISTICS) },
+                onBenchmarks = { navController.navigate("profile_benchmarks") },
+                onDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) }
+            )
+        }
         composable(Route.SETTINGS) {
             val parentEntry = remember(it) {
                 navController.getBackStackEntry(Route.SETTING_ROUTE)
@@ -347,7 +359,7 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigateToWorkspaces = { navController.navigate("workspaces") },
                 githubWorkspaceEnabled = githubConnection != null,
                 onNavigateToFactVault = { navController.navigate(Route.FACT_VAULT) },
-                onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
+                onNavigateToDebugDiagnostics = { navController.navigate(Route.ACTIVITY) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) },
                 onNavigateToAppearance = { navController.navigate(Route.APPEARANCE) },
                 onSearchDestination = { destination, focus ->

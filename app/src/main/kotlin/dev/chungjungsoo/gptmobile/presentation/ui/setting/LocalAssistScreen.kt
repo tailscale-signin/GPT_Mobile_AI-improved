@@ -70,6 +70,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
         item {
             SettingsPanel(stringResource(R.string.assist_preparation)) {
                 AssistSwitch("Preload while app is open", "Prepares the explicitly selected approved helper while idle, including in Fast Response. Device protection still applies; remote messages never wait for loading.", policy.preloadInForeground) { enabled -> viewModel.updateAssist { it.copy(preloadInForeground = enabled) } }
+                Text("Ordinary remote turns use an already prepared helper. Enable foreground preloading to prepare it while idle; cold loads do not hold up remote tools.", style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.assist_preparation_help), style = MaterialTheme.typography.bodySmall)
                 dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.entries.forEach { mode ->
                     FilterChip(policy.preparation == mode, { viewModel.updateAssist { it.copy(preparation = mode) } }, label = { Text(stringResource(if (mode == dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY) R.string.assist_warm_only else R.string.assist_auto_prepare)) })
@@ -82,6 +83,7 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
         }
         item {
             SettingsPanel(stringResource(R.string.local_assist_screen_5)) {
+                AssistSwitch("Per-turn query planning", "Offers an optional local_assist_plan tool for the current request, including turns without retrieved evidence. Returns query proposals only; the primary decides whether an authorized search is needed.", policy.perTurnQueryPlanning) { enabled -> viewModel.updateAssist { it.copy(perTurnQueryPlanning = enabled) } }
                 AssistSwitch("Research preparation", "Locally plans queries, extracts source-linked claims and reviews passages. Uses the same queue and attempt allowance. The selected primary can continue when assistance is unavailable; independent review requires a distinct approved model.", policy.researchPreparation) { enabled -> viewModel.updateAssist { it.copy(researchPreparation = enabled) } }
                 AssistSwitch(stringResource(R.string.local_assist_screen_6), "Keeps exact complete records and source URLs. Originals remain available.", policy.evidenceSelection) { enabled -> viewModel.updateAssist { it.copy(evidenceSelection = enabled) } }
                 AssistSwitch(stringResource(R.string.local_assist_screen_7), "Creates a separate source-linked summary of already authorized text. Original evidence is never replaced.", policy.summarizeRetrievedText) { enabled -> viewModel.updateAssist { it.copy(summarizeRetrievedText = enabled) } }
@@ -109,9 +111,12 @@ internal fun LocalAssistScreen(viewModel: LocalRuntimeSettingsViewModel, onMarke
                     var seconds by remember(policy.taskTimeoutSeconds) { mutableStateOf(policy.taskTimeoutSeconds.toFloat()) }
                     var attempts by remember(policy.maxAttempts) { mutableStateOf(policy.maxAttempts.toFloat()) }
                     Text("Timeout: ${seconds.toInt()} seconds")
-                    Slider(seconds, { seconds = it }, valueRange = 2f..30f, steps = 27, onValueChangeFinished = { viewModel.updateAssist { it.copy(taskTimeoutSeconds = seconds.toInt()) } })
+                    Slider(seconds, { seconds = it }, valueRange = 2f..90f, steps = 87, onValueChangeFinished = { viewModel.updateAssist { it.copy(taskTimeoutSeconds = seconds.toInt()) } })
                     Text("Attempts per turn: ${attempts.toInt()}")
                     Slider(attempts, { attempts = it }, valueRange = 1f..8f, steps = 6, onValueChangeFinished = { viewModel.updateAssist { it.copy(maxAttempts = attempts.toInt()) } })
+                    var optionalWait by remember(policy.optionalWaitSeconds) { mutableStateOf(policy.optionalWaitSeconds.toFloat()) }
+                    Text("Optional response wait: ${optionalWait.toInt()} seconds. The primary continues with original evidence when this expires; worker timeouts remain separate.")
+                    Slider(optionalWait, { optionalWait = it }, valueRange = 1f..60f, onValueChangeFinished = { viewModel.updateAssist { it.copy(optionalWaitSeconds = optionalWait.toInt()) } })
                     var waitSeconds by remember(policy.queueWaitSeconds) { mutableStateOf(policy.queueWaitSeconds.toFloat()) }
                     Text("Queue wait: ${waitSeconds.toInt()} seconds")
                     Slider(waitSeconds, { waitSeconds = it }, valueRange = 1f..60f, onValueChangeFinished = { viewModel.updateAssist { it.copy(queueWaitSeconds = waitSeconds.toInt()) } })

@@ -193,7 +193,7 @@ fun SettingScreen(
                     ) {
                         SettingsDestination(
                             icon = Icons.Rounded.BugReport,
-                            title = stringResource(R.string.settings_diagnostics),
+                            title = "Activity",
                             onClick = onNavigateToDebugDiagnostics
                         )
 

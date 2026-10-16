@@ -78,6 +78,7 @@ internal class ResearchDeliverySession(
             val repair = StringBuilder()
             var repairFailed = false
             var repairCompleted = false
+            var authorizationFailure: ProviderEvent.Failed? = null
             // One text-only repair; no discovery or external action is replayed.
             val instruction = context(delivery) + "\nRevise the report once. Correct these delivery issues: ${result.issues.joinToString()}. Write the entire report with no tool calls.\nUntrusted previous draft:\n" + text.take(24_000)
             try {
@@ -93,7 +94,10 @@ internal class ResearchDeliverySession(
                     }.collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> repair.append(event.text)
-                            is ProviderEvent.Failed -> repairFailed = true
+                            is ProviderEvent.Failed -> {
+                                repairFailed = true
+                                if (isAuthorizationFailure(event.message)) authorizationFailure = event
+                            }
                             ProviderEvent.Completed -> repairCompleted = true
                             else -> emit(event)
                         }
@@ -104,8 +108,13 @@ internal class ResearchDeliverySession(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (failure.message.orEmpty().startsWith("DISPATCH_POLICY_CHANGED") || failure.message.orEmpty().startsWith("PERMISSION_DENIED")) throw failure
+                if (isAuthorizationFailure(failure.message.orEmpty())) throw failure
                 repairFailed = true
+            }
+            // A revoked permission must not reveal a cached evidence fallback after the failed dispatch.
+            authorizationFailure?.let { denial ->
+                emit(denial)
+                return@flow
             }
             val repaired = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(repair.toString(), delivery) }
             text = if (!repairFailed && repairCompleted && repaired.accepted) repair.toString() else ResearchDeliveryValidator.fallback(delivery)
@@ -118,6 +127,12 @@ internal class ResearchDeliverySession(
     }
 
     companion object {
+        private fun isAuthorizationFailure(message: String): Boolean = listOf(
+            "DISPATCH_POLICY_CHANGED",
+            "PERMISSION_DENIED",
+            "SOURCE_PERMISSION_REVOKED",
+            "MEMORY_STALE"
+        ).any { message.contains(it, ignoreCase = true) }
         private const val MAX_REPORT_CHARACTERS = 100_000
     }
 }

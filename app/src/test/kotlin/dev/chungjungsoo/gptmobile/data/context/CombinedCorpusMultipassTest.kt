@@ -11,6 +11,15 @@ class CombinedCorpusMultipassTest {
     private fun turn(content: String, current: Boolean) =
         ConversationTurn(MessageV2(content = content, platformType = null), null, current)
 
+    @Test fun comprehensivePolicySurvivesTheMultipassHandoff() {
+        val input = "{\"original_request\":\"Write 100 words\",\"combination_policy\":\"COMPREHENSIVE\",\"contributions\":\"All four topics\"}"
+        val plan = CombinedCorpusMultipass.plan(listOf(turn(input, true)), "", TokenBudgetSettings(contextTokens = 4096, outputTokens = 256))
+        assertTrue(plan.comprehensive)
+        val final = plan.finalTurns(plan.passes.map { "All distinct topics and details retained." }).single().userMessage.content
+        assertTrue(final.contains("Combination policy: COMPREHENSIVE"))
+        assertTrue(final.contains("short original word goal must not remove topics"))
+    }
+
     @Test fun overflowSelectsBoundedInspectionRatherThanEvictingHistory() {
         val historical = "historical constraints with unique details ".repeat(200)
         val current = "{\"original_request\":\"Explain all details\",\"contributions\":\"${"unique ".repeat(1600)}\"}"

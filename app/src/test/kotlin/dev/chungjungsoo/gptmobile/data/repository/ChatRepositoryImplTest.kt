@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 22890)
-Total output lines: 1723
-
 package dev.chungjungsoo.gptmobile.data.repository
 
 import android.content.ContextWrapper
@@ -707,7 +704,265 @@ class ChatRepositoryImplTest {
             ResolvedAgentTool(
                 tool = mcpTool,
                 connectionUid = "search-server",
-             …2890 tokens truncated…               platformType = customPlatform.uid
+                connectionName = "Search MCP",
+                realToolName = "web_search",
+                modelToolName = mcpTool.definition.name,
+                shareableReadOnly = true
+            )
+        )
+        val repository = createRepository(
+            localRuntime = runtime,
+            localModelRepository = FakeLocalModelRepository(
+                downloadedPaths = mapOf("gemma3-1b-it-litert" to "/models/gemma-gpu.litertlm")
+            ),
+            modelCatalogRepository = FakeModelCatalogRepository(
+                listOf(CatalogEntry(id = "gemma3-1b-it-litert", capabilities = CatalogCapabilities(tools = false)))
+            ),
+            agentToolResolver = resolver
+        )
+
+        repository.completeChat(
+            userMessages = listOf(MessageV2(content = "What tools do you have?", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = localPlatform().copy(maxTokens = 512),
+            runId = "run-local-litert-tools"
+        ).toList()
+
+        assertEquals(
+            listOf("mcp__search__web_search"),
+            runtime.createConversationCalls.single().tools.map { it.name }.sorted()
+        )
+        assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
+    }
+
+    @Test
+    fun `groq token limit reports failure instead of completing with only thinking`() = runBlocking {
+        val groqAPI = FakeGroqAPI(
+            flowOf(
+                GroqChatCompletionChunk(
+                    choices = listOf(
+                        GroqChoice(
+                            index = 0,
+                            delta = GroqDelta(reasoning = "Still reasoning"),
+                            finishReason = "length"
+                        )
+                    )
+                )
+            )
+        )
+        val repository = createRepository(groqAPI = groqAPI)
+
+        val states = repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b"),
+            runId = "test-run"
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+
+        assertEquals(
+            listOf(
+                ApiState.Loading,
+                ApiState.Thinking("Still reasoning"),
+                ApiState.Error("Groq reached the model output limit before producing a final answer."),
+                ApiState.Done
+            ),
+            states
+        )
+    }
+
+    @Test
+    fun `groq raw think fallback populates thinking state`() = runBlocking {
+        val groqAPI = FakeGroqAPI(
+            flowOf(
+                GroqChatCompletionChunk(
+                    choices = listOf(
+                        GroqChoice(
+                            index = 0,
+                            delta = GroqDelta(content = "<think>Secret</think>\nVisible")
+                        )
+                    )
+                )
+            )
+        )
+        val repository = createRepository(groqAPI = groqAPI)
+
+        val states = repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = groqPlatform(reasoning = true, model = "qwen/qwen3-32b"),
+            runId = "test-run"
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+
+        assertEquals(
+            listOf(
+                ApiState.Loading,
+                ApiState.Thinking("Secret"),
+                ApiState.Success("Visible"),
+                ApiState.Done
+            ),
+            states
+        )
+    }
+
+    @Test
+    fun `groq reasoning disabled hides qwen reasoning`() = runBlocking {
+        val groqAPI = FakeGroqAPI(emptyFlow())
+        val repository = createRepository(groqAPI = groqAPI)
+
+        repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = groqPlatform(reasoning = false, model = "qwen/qwen3-32b"),
+            runId = "test-run"
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+
+        val request = groqAPI.lastRequest
+        assertEquals("hidden", request?.reasoningFormat)
+        assertNull(request?.includeReasoning)
+        assertNull(request?.reasoningEffort)
+    }
+
+    @Test
+    fun `groq reasoning disabled uses low effort and hides gpt oss reasoning output`() = runBlocking {
+        val groqAPI = FakeGroqAPI(emptyFlow())
+        val repository = createRepository(groqAPI = groqAPI)
+
+        repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = groqPlatform(reasoning = false, model = "openai/gpt-oss-20b"),
+            runId = "test-run"
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+
+        val request = groqAPI.lastRequest
+        assertNull(request?.reasoningFormat)
+        assertEquals(false, request?.includeReasoning)
+        assertEquals("low", request?.reasoningEffort)
+    }
+
+    @Test
+    fun `google request includes configured safety settings`() = runBlocking {
+        val googleAPI = FakeGoogleAPI(flowOf(GenerateContentResponse(candidates = listOf(Candidate(content = Content(parts = listOf(Part.text("Answer"))), finishReason = "STOP")))))
+        val repository = createRepository(googleAPI = googleAPI)
+
+        repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = googlePlatform(),
+            runId = "test-run"
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+
+        assertEquals(1, googleAPI.streamCalls)
+        assertEquals(
+            listOf(
+                GeminiSafetySettings.HARM_CATEGORY_HARASSMENT to GeminiSafetySettings.BLOCK_LOW_AND_ABOVE,
+                GeminiSafetySettings.HARM_CATEGORY_HATE_SPEECH to GeminiSafetySettings.BLOCK_MEDIUM_AND_ABOVE,
+                GeminiSafetySettings.HARM_CATEGORY_SEXUALLY_EXPLICIT to GeminiSafetySettings.BLOCK_ONLY_HIGH,
+                GeminiSafetySettings.HARM_CATEGORY_DANGEROUS_CONTENT to GeminiSafetySettings.BLOCK_NONE
+            ),
+            googleAPI.lastRequest?.safetySettings?.map { it.category to it.threshold }
+        )
+    }
+
+    @Test
+    fun `google prompt safety block emits error`() = runBlocking {
+        val repository = createRepository(
+            googleAPI = FakeGoogleAPI(
+                flowOf(
+                    GenerateContentResponse(
+                        promptFeedback = PromptFeedback(blockReason = "SAFETY")
+                    )
+                )
+            )
+        )
+
+        val states = repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = googlePlatform(),
+            runId = "test-run"
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+
+        assertEquals(
+            listOf(
+                ApiState.Loading,
+                ApiState.Error("Gemini safety settings blocked the prompt: SAFETY"),
+                ApiState.Done
+            ),
+            states
+        )
+    }
+
+    @Test
+    fun `google safety finish reason emits error`() = runBlocking {
+        val repository = createRepository(
+            googleAPI = FakeGoogleAPI(
+                flowOf(
+                    GenerateContentResponse(
+                        candidates = listOf(Candidate(finishReason = "SAFETY"))
+                    )
+                )
+            )
+        )
+
+        val states = repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = googlePlatform(),
+            runId = "test-run"
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+
+        assertEquals(
+            listOf(
+                ApiState.Loading,
+                ApiState.Error("Gemini safety settings blocked the response."),
+                ApiState.Done
+            ),
+            states
+        )
+    }
+
+    @Test
+    fun `failed historical turn is excluded from subsequent inline budget checks`() = runBlocking {
+        val openAIAPI = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Answer"), finishReason = "stop")))))))
+        val repository = createRepository(openAIAPI = openAIAPI)
+        val tempDir = kotlin.io.path.createTempDirectory("context-inline-budget").toFile().apply {
+            deleteOnExit()
+        }
+        val missingAttachmentFile = File(tempDir, "oversized-${UUID.randomUUID()}.png")
+        if (missingAttachmentFile.exists()) {
+            missingAttachmentFile.delete()
+        }
+        assertFalse(missingAttachmentFile.exists())
+        val failedTurnAttachment = ChatAttachment(
+            localFilePath = missingAttachmentFile.absolutePath,
+            preparedFilePath = missingAttachmentFile.absolutePath,
+            displayName = "oversized.png",
+            mimeType = "image/png",
+            sizeBytes = 13L * 1024 * 1024
+        )
+        val customPlatform = customPlatform()
+
+        val states = repository.completeChat(
+            userMessages = listOf(
+                MessageV2(
+                    id = 1,
+                    content = "",
+                    platformType = null,
+                    attachments = listOf(failedTurnAttachment)
+                ),
+                MessageV2(
+                    id = 2,
+                    content = "Try again with text only",
+                    platformType = null
+                )
+            ),
+            assistantMessages = listOf(
+                listOf(
+                    MessageV2(
+                        id = 11,
+                        content = "Error: These images are too large to upload safely on this provider.",
+                        platformType = customPlatform.uid
                     )
                 ),
                 listOf(

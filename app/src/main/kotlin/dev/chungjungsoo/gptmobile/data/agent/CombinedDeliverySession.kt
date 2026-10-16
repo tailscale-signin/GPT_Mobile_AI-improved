@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -32,13 +33,25 @@ internal class CombinedDeliverySession(
                 if (error is CancellationException) throw error
                 // Catch provider failures upstream only; collector failures must remain transparent.
                 emit(ProviderEvent.Failed("Combined synthesis stream failed. Buffered text and original contributions are retained."))
+            }.takeWhile { event ->
+                // Stop a rejected candidate upstream without throwing through the collector:
+                // a broken repair must not discard the last successfully audited draft.
+                if (terminal is ProviderEvent.Failed) {
+                    false
+                } else if (event is ProviderEvent.TextDelta && text.length.toLong() + event.text.length > maxCharacters) {
+                    terminal = ProviderEvent.Failed("Combined answer exceeds the configured delivery allowance. The retained draft and original contributions remain available.")
+                    false
+                } else if (event is ProviderEvent.ToolCall || event is ProviderEvent.ToolResult) {
+                    terminal = ProviderEvent.Failed("Combined coverage repair cannot execute tools. The retained draft and original contributions remain available.")
+                    false
+                } else {
+                    true
+                }
             }.collect { event ->
                 when (event) {
                     is ProviderEvent.TextDelta -> {
-                        check(text.length.toLong() + event.text.length <= maxCharacters) { "Combined answer exceeds the configured delivery allowance." }
                         text.append(event.text)
                     }
-                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Combined coverage repair cannot execute tools.")
                     is ProviderEvent.Failed -> terminal = event
                     ProviderEvent.Completed -> if (terminal == null) terminal = event
                     else -> emit(event)
@@ -84,13 +97,13 @@ internal class CombinedDeliverySession(
             validateAccess()
             if (repaired?.second != ProviderEvent.Completed || !repaired.first.startsWith(committedPrefix)) break
             val next = withContext(Dispatchers.Default) { coverage.check(repaired.first) }
-            onCoverage(next, true)
             val beforeMissing = checked.missing.toSet()
             val afterMissing = next.missing.toSet()
             // Decreasing an error count cannot excuse replacing previously covered facts.
             if (repaired.first == text || afterMissing.size >= beforeMissing.size || !beforeMissing.containsAll(afterMissing)) break
             text = repaired.first
             checked = next
+            onCoverage(checked, true)
         }
         validateAccess()
         if (text.isNotBlank()) emit(ProviderEvent.TextDelta(text))

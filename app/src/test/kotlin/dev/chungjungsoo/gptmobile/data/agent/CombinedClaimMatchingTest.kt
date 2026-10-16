@@ -81,4 +81,69 @@ class CombinedClaimMatchingTest {
         val scan = CombinedConflictDetector.scan(listOf(source("a", first), source("b", second)))
         assertTrue(scan.candidates.any { it.kind == "NUMERIC" })
     }
+
+    @Test fun contractionsSignedQuantitiesPercentagesAndBoundsCannotDisappear() {
+        val pairs = listOf(
+            "The treatment didn't improve patient survival after surgery." to "The treatment improved patient survival after surgery.",
+            "The station recorded temperatures of -12 degrees during winter." to "The station recorded temperatures of 12 degrees during winter.",
+            "The station recorded temperatures of 12.5 degrees during winter." to "The station recorded temperatures of 12,5 degrees during winter.",
+            "The trial reported recovery in 12% of patients after surgery." to "The trial reported recovery in 12 of the patients after surgery.",
+            "The council approved at least 12 houses near the river." to "The council approved at most 12 houses near the river.",
+            "The council approved 12 houses and 14 schools near the river." to "The council approved 14 houses and 12 schools near the river."
+        )
+        pairs.forEach { (original, changed) ->
+            assertFalse("Changed claim was accepted: $changed", CombinedContentCoverage(listOf(source("one", original))).check(changed).accepted)
+            assertTrue("Changed claim was coloured: $changed", combinedWordingSpans(changed, listOf(source("one", original))).isEmpty())
+        }
+    }
+
+    @Test fun exactSubstringCannotBypassContradictionGuards() {
+        val original = "The council approved 12 houses near the river."
+        val denied = "It is not true that the council approved 12 houses near the river."
+        assertFalse(CombinedContentCoverage(listOf(source("one", original))).check(denied).accepted)
+    }
+
+    @Test fun unrelatedSentencesCannotPoolTermsToInventCoverage() {
+        val original = "The council approved 12 houses near the river."
+        val changed = "The council approved 14 houses near the river. The mayor rejected 12 warehouses."
+        assertFalse(CombinedContentCoverage(listOf(source("one", original))).check(changed).accepted)
+    }
+
+    @Test fun numberFormattingNeverDeduplicatesDifferentQuantities() {
+        val rows = listOf(
+            source("positive", "The station recorded 12 degrees during winter."),
+            source("negative", "The station recorded -12 degrees during winter.")
+        )
+        val coverage = CombinedContentCoverage(rows)
+        assertEquals(2, coverage.units.size)
+        assertFalse(coverage.check(rows.first().content).accepted)
+    }
+
+    @Test fun sourceColourDoesNotClaimAnUnsupportedExtension() {
+        val original = "The council approved new houses near the river."
+        val extended = "The council approved new houses near the river and discovered alien spacecraft underground."
+        val spans = combinedWordingSpans(extended, listOf(source("one", original)))
+        assertTrue(spans.all { extended.substring(it.start, it.end) == original.removePrefix("The ").dropLast(1) })
+    }
+
+    @Test fun markupDoesNotJoinHeadingsOrSeparateListItemsIntoClaims() {
+        val rows = listOf(source("one", "## Local history\n\nThe council approved new houses near the river.\n\n- Solar panels power the local hospital\n- Electric buses serve the nearby villages"))
+        val answer = "The council approved new houses near the river. Solar panels power the local hospital. Electric buses serve the nearby villages."
+        assertTrue(CombinedContentCoverage(rows).check(answer).accepted)
+    }
+
+    @Test fun interruptedResponseNotesAreNeverRequiredOrColouredAsFacts() {
+        val fact = "The council approved new houses near the river."
+        val error = "Connection lost while receiving the final response."
+        val rows = listOf(source("one", "$fact\n\n[Response stopped: $error]"))
+        assertTrue(CombinedContentCoverage(rows).check(fact).accepted)
+        assertTrue(combinedWordingSpans(error, rows).isEmpty())
+    }
+
+    @Test fun softLineWrapsKeepTheWholeSourceClaim() {
+        val original = "The council approved new houses\nnear the river in the northern district."
+        val answer = "The council approved new houses near the river in the northern district."
+        assertEquals(1, CombinedContentCoverage(listOf(source("one", original))).units.size)
+        assertTrue(CombinedContentCoverage(listOf(source("one", original))).check(answer).accepted)
+    }
 }

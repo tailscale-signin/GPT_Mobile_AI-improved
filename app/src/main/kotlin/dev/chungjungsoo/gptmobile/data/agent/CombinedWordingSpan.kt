@@ -21,7 +21,7 @@ fun combinedWordingSpans(answer: String, sources: List<CombinedModelResponse>): 
 
     data class Indexed(val uid: String, val fingerprint: CombinedClaimMatcher.Fingerprint)
     val indexed = sources.flatMap { source ->
-        CombinedContentCoverage.sentences(ConversationSubject.withoutMetadata(source.content))
+        CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content))
             .map { Indexed(source.platformUid, CombinedClaimMatcher.fingerprint(it)) }
             .filter { it.fingerprint.terms.size >= 3 }
     }
@@ -56,7 +56,6 @@ fun combinedWordingSpans(answer: String, sources: List<CombinedModelResponse>): 
                         match == CombinedClaimMatcher.Match.EXACT || match == CombinedClaimMatcher.Match.PARAPHRASE
                     }.toList()
                     if (matchingIds.isNotEmpty()) {
-                        val matching = matchingIds.mapTo(linkedSetOf()) { indexed[it].uid }
                         val expected = matchingIds.flatMapTo(hashSetOf()) { id ->
                             indexed[id].fingerprint.terms + indexed[id].fingerprint.numbers
                         }
@@ -70,7 +69,17 @@ fun combinedWordingSpans(answer: String, sources: List<CombinedModelResponse>): 
                         if (relevant.isNotEmpty()) {
                             val colouredStart = start + relevant.first().range.first
                             val colouredEnd = start + relevant.last().range.last + 1
-                            result += CombinedWordingSpan(colouredStart + offset, colouredEnd + offset, matching)
+                            val clipped = CombinedClaimMatcher.fingerprint(visible.substring(colouredStart, colouredEnd))
+                            // Require support in both directions for the final coloured range;
+                            // matching an opener cannot assign its source to unrelated facts.
+                            val matching = matchingIds.filter { id ->
+                                val source = indexed[id].fingerprint
+                                CombinedClaimMatcher.match(source, clipped) >= CombinedClaimMatcher.Match.PARAPHRASE &&
+                                    CombinedClaimMatcher.match(clipped, source) >= CombinedClaimMatcher.Match.PARAPHRASE
+                            }.mapTo(linkedSetOf()) { indexed[it].uid }
+                            if (matching.isNotEmpty()) {
+                                result += CombinedWordingSpan(colouredStart + offset, colouredEnd + offset, matching)
+                            }
                         }
                     }
                 }

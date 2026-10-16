@@ -14,6 +14,7 @@ internal object CombinedClaimMatcher {
     data class Fingerprint(
         val terms: Set<String>,
         val numbers: Set<String>,
+        val orderedNumbers: List<String>,
         val negative: Boolean,
         val hedged: Boolean,
         val restrictions: Set<String>,
@@ -21,13 +22,15 @@ internal object CombinedClaimMatcher {
     )
 
     private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
-    private val numeric = Regex("(?<![\\p{L}\\d])(?:\\d{1,3}(?:[,\\u00a0 ]\\d{3})+|\\d+(?:\\.\\d+)?)(?![\\p{L}])")
+    private val numeric = Regex("(?<![\\p{L}\\d])[+−-]?(?:\\d{1,3}(?:[,\\u00a0 ]\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)(?:\\s*%)?(?![\\p{L}\\d])")
+    private val contraction = Regex("\\b([\\p{L}]+)n't\\b")
+    private val bound = Regex("\\b(at least|at most|more than|less than|no more than|no less than)\\b")
     private val stop = setOf(
         "a", "an", "and", "are", "as", "at", "be", "been", "by", "for", "from", "has",
         "have", "in", "into", "is", "it", "its", "of", "on", "or", "our", "that", "the",
         "their", "them", "there", "these", "this", "those", "to", "was", "were", "which",
         "while", "who", "with", "would", "not", "no", "never", "without", "only", "can",
-        "could", "may", "might", "perhaps", "possibly", "allegedly", "reportedly"
+        "could", "may", "might", "perhaps", "possibly", "allegedly", "reportedly", "did", "does", "do"
     )
     private val negatives = setOf("not", "no", "never", "without", "cannot", "didnt", "isnt", "wasnt")
     private val hedges = setOf("may", "might", "could", "perhaps", "possibly", "allegedly", "reportedly", "uncertain", "unverified")
@@ -39,7 +42,7 @@ internal object CombinedClaimMatcher {
         "finance" to "fund", "financ" to "fund", "fund" to "fund",
         "build" to "build", "built" to "build", "construction" to "build",
         "athenian" to "athens", "athens" to "athens",
-        "merchant" to "merchant", "trad" to "trade"
+        "merchant" to "merchant", "trad" to "trade", "approv" to "approve"
     )
 
     private fun canonical(token: String): String {
@@ -56,16 +59,28 @@ internal object CombinedClaimMatcher {
     }
 
     fun fingerprint(text: String): Fingerprint {
-        val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC)
+        val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT).replace('’', '\'')
+            .replace(contraction) { match ->
+                val auxiliary = when (val stem = match.groupValues[1]) {
+                    "ca" -> "can"
+                    "wo" -> "will"
+                    "sha" -> "shall"
+                    else -> stem
+                }
+                "$auxiliary not"
+            }
         val words = word.findAll(normalized).map { canonical(it.value) }.toList()
+        val quantities = numeric.findAll(normalized).map { match ->
+            match.value.replace(",", "").replace(" ", "").replace(160.toChar().toString(), "").replace('−', '-')
+                .removePrefix("+")
+        }.toList()
         return Fingerprint(
             terms = words.filter { it !in stop && it.none(Char::isDigit) }.toSet(),
-            numbers = numeric.findAll(normalized).map { match ->
-                match.value.replace(",", "").replace(" ", "").replace(160.toChar().toString(), "")
-            }.toSet(),
+            numbers = quantities.toSet(),
+            orderedNumbers = quantities,
             negative = words.any { it in negatives },
             hedged = words.any { it in hedges },
-            restrictions = words.filter { it in restrictions }.toSet(),
+            restrictions = words.filter { it in restrictions }.toSet() + bound.findAll(normalized).map { it.value.replace(" ", "") },
             ordered = words.filter { it !in stop }.joinToString(" ")
         )
     }
@@ -75,7 +90,9 @@ internal object CombinedClaimMatcher {
         if (source.negative != answer.negative) return Match.NONE
         if (source.hedged && !answer.hedged) return Match.NONE
         if (source.restrictions != answer.restrictions) return Match.NONE
-        if (source.numbers.isNotEmpty() && !answer.numbers.containsAll(source.numbers)) return Match.NONE
+        // A bag of numbers loses their associations (12 homes / 14 schools vs the reverse).
+        // Ambiguous reorderings remain unresolved instead of silently proving coverage.
+        if (source.numbers.isNotEmpty() && source.orderedNumbers != answer.orderedNumbers) return Match.NONE
         val overlap = source.terms.intersect(answer.terms).size
         val exact = source.ordered.isNotBlank() &&
             (" " + source.ordered + " " in " " + answer.ordered + " ") &&

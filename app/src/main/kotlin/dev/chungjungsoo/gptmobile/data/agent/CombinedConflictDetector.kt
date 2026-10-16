@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
-import dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 
 /** Candidates for editorial comparison, NOT established factual contradictions. */
@@ -27,7 +26,7 @@ internal object CombinedConflictDetector {
             val fingerprint: CombinedClaimMatcher.Fingerprint
         )
         val claims = sources.flatMap { source ->
-            CombinedContentCoverage.sentences(ConversationSubject.withoutMetadata(source.content))
+            CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content))
                 .filter { it.length >= 16 }
                 .map { Claim(source.platformUid, it, CombinedClaimMatcher.fingerprint(it)) }
         }

@@ -57,6 +57,7 @@ internal fun AssistantChronologicalContent(
     isError: Boolean = false,
     outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
     articleCards: @Composable (String) -> Unit = {},
+    combinedWording: CombinedWordingPresentation? = null,
     splitForPassageIndicators: Boolean = false,
     passageIndicators: @Composable (String) -> Unit = {}
 ) {
@@ -122,11 +123,11 @@ internal fun AssistantChronologicalContent(
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (isLoading) {
-                                    ChatMarkdown(outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                    ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {
                                     val blocks = remember(response, splitForPassageIndicators) { dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks(response, splitParagraphs = splitForPassageIndicators) }
                                     blocks.forEachIndexed { blockIndex, block ->
-                                        ChatMarkdown(outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                        ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                         passageIndicators(block.text)
                                         if (block.citationText.isNotBlank()) articleCards(block.citationText)
                                     }

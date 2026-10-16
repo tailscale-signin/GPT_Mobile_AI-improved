@@ -77,7 +77,7 @@ internal class CombinedDeliverySession(
             if (repaired?.second == ProviderEvent.Completed && repaired.first.startsWith(committedPrefix)) {
                 val next = withContext(Dispatchers.Default) { coverage.check(repaired.first) }
                 onCoverage(next, true)
-                if (next.accepted) {
+                if (next.accepted || next.missing.size < checked.missing.size) {
                     text = repaired.first
                     checked = next
                 }

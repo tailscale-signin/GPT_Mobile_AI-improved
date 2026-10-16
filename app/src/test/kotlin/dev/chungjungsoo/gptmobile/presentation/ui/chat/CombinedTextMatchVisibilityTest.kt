@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.DebugMetric
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

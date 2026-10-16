@@ -8,6 +8,7 @@ class NvidiaEndpointsTest {
     @Test
     fun normalizesHostedAndCustomDeploymentRoutesWithoutDuplicatingOperations() {
         assertEquals("https://integrate.api.nvidia.com/v1", NvidiaEndpoints.normalize("https://integrate.api.nvidia.com"))
+        assertEquals("https://integrate.api.nvidia.com/v1", NvidiaEndpoints.normalize("HTTPS://INTEGRATE.API.NVIDIA.COM"))
         assertEquals("https://integrate.api.nvidia.com/v1", NvidiaEndpoints.normalize("https://integrate.api.nvidia.com/v1/chat/completions"))
         assertEquals("https://integrate.api.nvidia.com/v1", NvidiaEndpoints.normalize("https://integrate.api.nvidia.com/v1/models"))
         assertEquals("http://localhost:8000/v1", NvidiaEndpoints.normalize("http://localhost:8000/v1/"))

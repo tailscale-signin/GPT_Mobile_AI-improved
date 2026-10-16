@@ -104,17 +104,35 @@ class CombinedResponseStateTest {
     }
 
 
+
     @Test
     fun `previously saved combined footer hides source labels without losing facts`() {
-        val saved = "Original synthesis.\\n\\n## Additional source details\\n\\n" +
-            "The passages below were not fully integrated by the synthesis model. " +
-            "They are retained from individual AI profiles, not independently verified facts.\\n\\n" +
-            "**From Gemini, Claude:**\\n\\nUnique fact about Tang China.\\n\\n" +
-            "**From Perplexity:**\\n\\nAnother distinct event."
-        val visible = combinedVisibleAnswer(saved.replace("\\\\n", "\\n"))
+        val saved = """
+            Original synthesis.
+
+            ## Additional source details
+
+            The passages below were not fully integrated by the synthesis model. They are retained from individual AI profiles, not independently verified facts.
+
+            **From Gemini, Claude:**
+
+            Unique fact about Tang China.
+
+            **From Perplexity:**
+
+            Another distinct event.
+        """.trimIndent()
+        val visible = combinedVisibleAnswer(saved)
         assertEquals(
-            "Original synthesis.\\n\\n## Further details\\n\\n" +
-                "Unique fact about Tang China.\\n\\nAnother distinct event.",
+            """
+                Original synthesis.
+
+                ## Further details
+
+                Unique fact about Tang China.
+
+                Another distinct event.
+            """.trimIndent(),
             visible
         )
         assertFalse(visible.contains("From Gemini"))

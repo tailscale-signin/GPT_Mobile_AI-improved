@@ -24,6 +24,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel()) {
     val detectedContext by model.detectedContext.collectAsStateWithLifecycle()
+    val selectedNvidia by model.lastInspectedNvidia.collectAsStateWithLifecycle()
     val deadlineProfile by model.deadlineProfile.collectAsStateWithLifecycle()
     val deadlineSettings by model.deadlineSettings.collectAsStateWithLifecycle()
     val profiles by model.profiles.collectAsStateWithLifecycle()
@@ -41,6 +42,11 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
             profiles.filter { it.enabled }.forEach { profile ->
                 Text(profile.name, Modifier.padding(top = 12.dp))
                 TextButton(enabled = !busy, onClick = { model.inspect(profile) }) { Text(stringResource(R.string.connection_doctor_dialog_label_3)) }
+            }
+            selectedNvidia?.let { profile ->
+                TextButton(enabled = !busy, onClick = { model.testNvidiaInference(profile) }) {
+                    Text("Test NVIDIA inference · may use API credits")
+                }
             }
             if (detectedContext != null) TextButton(enabled = !busy, onClick = model::applyDetectedContext) { Text(stringResource(R.string.context_apply_detected)) }
             if (busy) TextButton(onClick = model::cancel) { Text(stringResource(R.string.connection_doctor_dialog_label_5)) }

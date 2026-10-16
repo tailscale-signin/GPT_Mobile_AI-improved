@@ -11,6 +11,14 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.endpointLocality
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaInferenceProbe
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities
+import dev.chungjungsoo.gptmobile.data.ModelConstants
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
@@ -35,9 +43,37 @@ class ConnectionDoctorViewModel @Inject constructor(
     private val network: NetworkClient,
     private val gateway: GatewayAPI,
     private val runtime: LocalRuntime,
+    private val nvidiaProbe: NvidiaInferenceProbe,
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
     val detectedContext = MutableStateFlow<Pair<String, Int>?>(null)
+    val lastInspectedNvidia = MutableStateFlow<PlatformV2?>(null)
+
+    fun testNvidiaInference(profile: PlatformV2) = action {
+        check(profile.compatibleType == ClientType.NVIDIA) { "Select an NVIDIA profile." }
+        val connectionKey = profile.providerConnectionUid?.let { settings.getProviderCredentials(it) }
+        val key = ApiCredentialRotator.parseKeys(profile.token?.takeIf(String::isNotBlank) ?: connectionKey).firstOrNull()
+        if (key == null) {
+            finish("NVIDIA inference test needs a configured API key.")
+            return@action
+        }
+        val result = try {
+            nvidiaProbe.check(profile.apiUrl, key, profile.model)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            finish("NVIDIA inference test could not complete. Check connection, model availability and timeout.")
+            return@action
+        }
+        finish(
+            "NVIDIA inference test for ${profile.name} · ${profile.model}: HTTP ${result.status}. " +
+                if (result.visibleAnswer) {
+                    "A visible response was returned. Input tokens: ${result.inputTokens ?: "not reported"}; output tokens: ${result.outputTokens ?: "not reported"}."
+                } else {
+                    "No visible response was verified. A successful model listing alone does not prove inference access."
+                }
+        )
+    }
     val deadlineProfile = MutableStateFlow<PlatformV2?>(null)
     val deadlineSettings = MutableStateFlow(dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings())
 
@@ -76,6 +112,7 @@ class ConnectionDoctorViewModel @Inject constructor(
         job?.cancel()
     }
     fun inspect(profile: PlatformV2) = action {
+        lastInspectedNvidia.value = profile.takeIf { it.compatibleType == ClientType.NVIDIA }
         detectedContext.value = null
         deadlineProfile.value = profile.takeIf { it.compatibleType == ClientType.LLAMA }
         deadlineSettings.value = settings.getFeatureSettings().profileProgressDeadlines[profile.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
@@ -91,11 +128,16 @@ class ConnectionDoctorViewModel @Inject constructor(
             diagnosticReport.value = "Runtime phase: ${runtime.state.value.lifecycle}. Actual backend and artifact must pass their own readiness checks. This inspection does not load or download a model."
         } else {
             require(!profile.apiUrl.contains('?') && !profile.apiUrl.contains('@')) { "Use a clean provider URL and the credential field." }
-            val base = profile.apiUrl.trimEnd('/')
+            val base = profile.apiUrl.trimEnd('/').ifBlank {
+                if (profile.compatibleType == ClientType.NVIDIA) ModelConstants.NVIDIA_API_URL.trimEnd('/') else ""
+            }
+            val rawCredential = profile.token?.takeIf(String::isNotBlank)
+                ?: profile.providerConnectionUid?.let { settings.getProviderCredentials(it) }
+            val catalogKey = ApiCredentialRotator.parseKeys(rawCredential).firstOrNull()
             val modelsUrl = if (profile.compatibleType == ClientType.OLLAMA && !base.endsWith("/v1")) "$base/api/tags" else "$base/models"
             val discovery = try {
                 withTimeoutOrNull(5000L) {
-                    val response = network().get(modelsUrl) { profile.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) } }
+                    val response = network().get(modelsUrl) { catalogKey?.let { bearerAuth(it) } }
                     response.status.value to response.bodyAsText()
                 }
             } catch (cancelled: CancellationException) {
@@ -109,12 +151,28 @@ class ConnectionDoctorViewModel @Inject constructor(
                 val (status, modelBody) = discovery
                 lines += "Model discovery: HTTP $status (${modelBody.length} response characters)"
                 if (status == 200) {
+                    if (profile.compatibleType == ClientType.NVIDIA) {
+                        val catalogModels = runCatching {
+                            Json.parseToJsonElement(modelBody).jsonObject["data"]?.jsonArray
+                                ?.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.content }
+                        }.getOrNull()
+                        lines += when {
+                            catalogModels == null -> "NVIDIA model catalog format was not verified."
+                            profile.model in catalogModels -> "The selected model appears in NVIDIA's model catalog. Inference access is not verified."
+                            else -> "The selected model was not listed. It may not be accessible with this connection."
+                        }
+                    }
                     dev.chungjungsoo.gptmobile.data.context.discoverContextCeiling(modelBody, profile.model)?.let { ceiling ->
                         detectedContext.value = profile.uid to ceiling
                         lines += "Model catalog declares a context ceiling of $ceiling tokens. A verified serving allocation can constrain it further."
                     }
                 }
                 if (status in setOf(401, 403)) lines += "Authentication was rejected. Reconnect or replace the credential."
+            }
+            if (profile.compatibleType == ClientType.NVIDIA) {
+                val caps = NvidiaModelCapabilities.forModel(profile.model)
+                lines += "NVIDIA reasoning control: ${caps.reasoningControl}. Tool calling: ${caps.supportsTools ?: "unverified"}. Images: ${caps.supportsImages ?: "unverified"}."
+                lines += "Chat inference was not tested. Use the separate explicit NVIDIA inference test to make a small potentially billable request."
             }
             if (profile.compatibleType == ClientType.LLAMA) {
                 val capabilities = try {

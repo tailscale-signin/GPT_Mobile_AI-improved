@@ -10,7 +10,10 @@ import org.junit.Test
 
 class NvidiaRequestPolicyTest {
     private fun request(model: String) = ChatCompletionRequest(
-        model = model, messages = emptyList(), temperature = 0.6f, topK = 30
+        model = model,
+        messages = emptyList(),
+        temperature = 0.6f,
+        topK = 30
     )
 
     @Test

@@ -22,7 +22,7 @@ Input: app-diagnostics-3611955424703685780.jsonl, 7,740 exported records, app 0.
 - MediaPipe's feedback-tensor warning reports unsupported optional feedback for a multi-signature model; it is not evidence of failed inference.
 - OS process-exit reason 10 is not treated as proof of an app crash.
 
-Validation completed locally: 121 Python contract tests; Android resource preflight (28 XML files); Android regex checks; git diff whitespace check. Kotlin regressions cover one-room multi-chat creation, DNS recovery and reader-health behavior, and theme surface contrast. Android build/Kotlin test execution is blocked by Gradle distribution download network restrictions. No device verification or CI success is claimed. Publishing was blocked by automatic approval review and requires explicit user approval.
+Validation completed locally: 121 Python contract tests; Android resource preflight (28 XML files); Android regex checks; git diff whitespace check. Kotlin regressions cover one-room multi-chat creation, DNS recovery and reader-health behavior, and theme surface contrast. Android build/Kotlin test execution is blocked by Gradle distribution download network restrictions. No device verification or CI success is claimed. Publication initially required explicit approval; after approval, the branch was published through the connected GitHub integration.
 
 ## Combined Mode audit follow-up and home interaction changes
 
@@ -41,3 +41,5 @@ The same branch additionally implements:
 - In Multi-chat and Combined Mode a single themed profile dock sits below the shared input, above system navigation insets. It selects the response for the visible turn without changing broadcast recipients. It remains available while inspecting a contributor. Per-response tab rows are removed.
 
 Additional regression coverage exercises short word constraints, user-turn timezone, lexical false positives, chunk boundaries, malformed delivery records, joint ownership, canonical article provenance, no-evidence news, permission circuits, interrupted streams, selection gestures and dock placement. Android build and device verification must be checked in CI; source heuristics and model-declared semantic reviews are not an independent fact-checking service.
+
+The full-context overflow/multipass handoff also preserves user constraints and the PASSAGES_V2 contract, contributor registry, canonical citation registry and authoritative date/timezone. It no longer overrides short-answer requests. Local isolated JVM validation covers 22 core regression checks plus a quality-metadata serialization round-trip; these checks use lightweight surrounding model/test stubs and do not substitute for the Android CI suite.

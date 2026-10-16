@@ -197,6 +197,26 @@ interface AgentPersistenceDao {
         }
     }
 
+    /** Fresh user-authorized scope, without copying any saved response/evidence/attachments. */
+    @Transaction
+    suspend fun createEvidenceFreeRetry(sourceChatId: Int, question: String, profileUid: String, model: String, now: Long): ChatRoomV2 {
+        val source = requireNotNull(getChatRoom(sourceChatId)) { "The source conversation was deleted." }
+        require(question.isNotBlank() && profileUid.isNotBlank())
+        val draft = ChatRoomV2(
+            title = question.replace('\n', ' ').take(50),
+            enabledPlatform = listOf(profileUid),
+            activePlatform = listOf(profileUid),
+            createdAt = now,
+            updatedAt = now,
+            isTemporary = source.isTemporary
+        )
+        val room = draft.copy(id = insertChatRoom(draft).toInt())
+        val user = insertMessage(MessageV2(chatId = room.id, content = question, platformType = null, createdAt = now)).toInt()
+        insertMessage(MessageV2(chatId = room.id, content = "", platformType = profileUid, linkedMessageId = user, createdAt = now))
+        upsertModels(listOf(ChatPlatformModelV2(room.id, profileUid, model, now)))
+        return room
+    }
+
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
         request.queuedPromptId?.let { id ->
@@ -306,6 +326,24 @@ interface AgentPersistenceDao {
         }
         require(current.currentRunId == request.assistantMessage.currentRunId && current.ownershipFence == request.assistantMessage.ownershipFence) { "The answer slot changed; reload before retrying." }
         require(request.run.synthesisKey == null || previousRun?.status !in setOf("QUEUED", "RUNNING")) { "A Combined writer still owns this answer. Stop it before replacing the corpus." }
+        require(request.run.synthesisKey == null || previousRun?.synthesisKey == null || request.resumeCombinedFrom != null || request.replaceCombinedCorpus) {
+            "The Combined answer already owns a frozen corpus. Late source updates cannot replace it automatically."
+        }
+        if (request.freezeCombinedSources) {
+            val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null }
+            require(request.assistantMessage.combinedSources.isNotEmpty()) { "Combined sources are missing." }
+            request.assistantMessage.combinedSources.forEach { source ->
+                val row = requireNotNull(rows.singleOrNull { it.platformType == source.platformUid }) { "A Combined contributor changed." }
+                val sourceRun = row.currentRunId?.let { recoveryRun(it) }
+                require(
+                    row.combinedSources.isEmpty() &&
+                        (row.currentRunId == null || sourceRun?.status == "COMPLETED") &&
+                        dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(row.content).trim() == source.content.trim()
+                ) {
+                    "A Combined contribution is still settling. The inputs will be checked again before dispatch."
+                }
+            }
+        }
         val resumedPrefix = request.resumeCombinedFrom?.let { priorId ->
             val priorRun = requireNotNull(previousRun)
             require(priorId == priorRun.runId && priorRun.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) { "The Combined recovery owner changed." }

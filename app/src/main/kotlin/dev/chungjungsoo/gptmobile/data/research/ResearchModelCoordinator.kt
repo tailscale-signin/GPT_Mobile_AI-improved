@@ -25,7 +25,10 @@ data class ResearchModelEvent(
     val inputTokensEstimate: Int = 0,
     val outputTokensEstimate: Int = 0,
     val reason: String = "",
-    val independent: Boolean = false
+    val independent: Boolean = false,
+    val failurePhase: String = "",
+    val failureCategory: String = "",
+    val exceptionType: String = ""
 )
 
 internal data class ResearchModelReply(val text: String, val modelKey: String, val invocationId: String? = null, val independent: Boolean = false)
@@ -51,15 +54,28 @@ internal class ResearchModelCoordinator(
     private val wallClock: () -> Long = System::currentTimeMillis,
     private val monotonicClock: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
-    private val failures = mutableMapOf<String, Int>()
+    private data class CircuitKey(val profileUid: String, val modelKey: String, val stage: ResearchModelStage)
+    private data class FailureState(val count: Int, val retryAt: Long, val probe: Boolean = false)
+    private val failures = java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
-    val events: List<ResearchModelEvent> get() = history.toList()
+    val events: List<ResearchModelEvent> get() = synchronized(history) { history.toList() }
 
     private suspend fun record(event: ResearchModelEvent) {
-        history.removeAll { it.id == event.id }
-        history += event
-        if (history.size > 200) history.removeAt(0)
+        synchronized(history) {
+            history.removeAll { it.id == event.id }
+            history += event
+            if (history.size > 200) history.removeAt(0)
+        }
         onEvent(event)
+    }
+
+    private fun enterCircuit(key: CircuitKey): Boolean {
+        while (true) {
+            val previous = failures[key] ?: return true
+            if (previous.count < 2) return true
+            if (previous.probe || monotonicClock() < previous.retryAt) return false
+            if (failures.replace(key, previous, previous.copy(probe = true))) return true
+        }
     }
 
     val hasCandidates: Boolean get() = workers.isNotEmpty() || reviewer != null
@@ -70,37 +86,57 @@ internal class ResearchModelCoordinator(
         for (target in candidates) {
             if (!stillEnabled()) return null
             val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt))
-            if ((failures[target.profileUid] ?: 0) >= 2) {
+            val circuit = CircuitKey(target.profileUid, target.modelKey, stage)
+            if (!enterCircuit(circuit)) {
                 record(event.copy(outcome = "SKIPPED", reason = "MODEL_CIRCUIT_OPEN"))
                 continue
             }
+            fun failed() {
+                failures.compute(circuit) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
+            }
             val started = monotonicClock()
+            var phase = "READINESS"
             try {
                 if (withTimeoutOrNull(minOf(5000L, deadlineMillis)) { target.available() } != true) {
                     record(event.copy(outcome = "SKIPPED", reason = "MODEL_NOT_ADMITTED"))
                     continue
                 }
                 record(event.copy(outcome = "RUNNING"))
+                phase = "GENERATION"
                 val reply = withTimeoutOrNull(target.timeoutMillis ?: deadlineMillis) { target.generate(stage, prompt, cap) }
                 if (!stillEnabled()) {
                     record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
                     return null
                 }
                 if (reply == null || !valid(stage, parseDelegationObject(reply.text))) {
-                    failures[target.profileUid] = (failures[target.profileUid] ?: 0) + 1
+                    failed()
                     record(event.copy(outcome = if (reply == null) "TIMED_OUT" else "INVALID_RESPONSE", durationMs = elapsed(started), invocationId = reply?.invocationId, reason = if (reply == null) "MODEL_DEADLINE" else "SCHEMA_VALIDATION_FAILED"))
                     continue
                 }
-                failures.remove(target.profileUid)
+                failures.remove(circuit)
                 val independent = stage == ResearchModelStage.REVIEW && extractedBy.isNotBlank() && target.modelKey.isNotBlank() && target.modelKey != extractedBy
                 record(event.copy(outcome = "SUCCESS", durationMs = elapsed(started), invocationId = reply.invocationId, outputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(reply.text), independent = independent))
                 return reply.copy(modelKey = target.modelKey, independent = independent)
             } catch (cancelled: CancellationException) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PARENT_CANCELLED")) }
                 throw cancelled
-            } catch (_: Exception) {
-                failures[target.profileUid] = (failures[target.profileUid] ?: 0) + 1
-                record(event.copy(outcome = "FAILED", durationMs = elapsed(started), reason = "MODEL_EXECUTION_FAILED"))
+            } catch (error: Exception) {
+                failed()
+                record(
+                    event.copy(
+                        outcome = "FAILED",
+                        durationMs = elapsed(started),
+                        reason = "MODEL_EXECUTION_FAILED",
+                        failurePhase = phase,
+                        failureCategory = failureCategory(error),
+                        exceptionType = error.javaClass.simpleName.take(100)
+                    )
+                )
+            } finally {
+                // A canceled or inadmissible half-open probe must not strand the stage indefinitely.
+                failures.computeIfPresent(circuit) { _, state ->
+                    if (state.probe) state.copy(probe = false, retryAt = monotonicClock() + 30_000L) else state
+                }
             }
         }
         return null
@@ -109,6 +145,20 @@ internal class ResearchModelCoordinator(
     private fun elapsed(started: Long): Long = (monotonicClock() - started).coerceAtLeast(0)
 
     companion object {
+        /** Stable categories retain the cause without persisting source text or provider credentials. */
+        internal fun failureCategory(error: Exception): String {
+            val messages = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).joinToString(" ") { it.message.orEmpty() }
+            return when {
+                listOf("PERMISSION_DENIED", "SOURCE_PERMISSION_REVOKED", "DISPATCH_POLICY_CHANGED").any { messages.contains(it, true) } -> "AUTHORIZATION"
+                messages.contains("PROFILE_", true) -> "PROFILE_RESOLUTION"
+                messages.contains("interrupted inside native", true) || messages.contains("QUARANTIN", true) -> "RUNTIME_QUARANTINED"
+                error is IllegalArgumentException -> "ARGUMENT_VALIDATION"
+                messages.contains("429") || messages.contains("rate limit", true) -> "RATE_LIMITED"
+                messages.contains("503") || messages.contains("overload", true) -> "PROVIDER_OVERLOADED"
+                error is java.io.IOException -> "TRANSPORT"
+                else -> "PROVIDER_ADAPTER"
+            }
+        }
         internal fun valid(stage: ResearchModelStage, value: JsonObject?): Boolean = value != null &&
             when (stage) {
                 ResearchModelStage.PLAN -> value["questions"] is JsonArray && value["queries"] is JsonArray

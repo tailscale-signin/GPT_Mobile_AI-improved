@@ -578,7 +578,8 @@ internal class LocalDelegationCoordinator(
         val emptyResponse: Boolean,
         val reasoningOnly: Boolean,
         val malformedTool: Boolean,
-        val outputLimitFailure: Boolean
+        val outputLimitFailure: Boolean,
+        val configurationFailure: Boolean
     ) {
         val softEmpty: Boolean get() = emptyResponse || reasoningOnly || malformedTool
     }
@@ -645,7 +646,8 @@ internal class LocalDelegationCoordinator(
             emptyResponse = containsAny("EMPTY_RESPONSE"),
             reasoningOnly = containsAny("REASONING_ONLY_RESPONSE"),
             malformedTool = containsAny("Tool arguments were not valid JSON", "incomplete function call"),
-            outputLimitFailure = containsAny("OUTPUT_CAP_EXCEEDED", "DELEGATION_OUTPUT_CAP_NOT_ENFORCED") || isProviderOutputLimitFailure(message)
+            outputLimitFailure = containsAny("OUTPUT_CAP_EXCEEDED", "DELEGATION_OUTPUT_CAP_NOT_ENFORCED") || isProviderOutputLimitFailure(message),
+            configurationFailure = isDeterministicDelegateConfigurationFailure(message)
         )
     }
 
@@ -767,6 +769,7 @@ internal class LocalDelegationCoordinator(
             classified.authBlocked ||
                 classified.permanentlyUnavailable ||
                 classified.outputLimitFailure ||
+                classified.configurationFailure ||
                 nonRecoverable ||
                 (
                     allowFailover &&
@@ -804,6 +807,7 @@ internal class LocalDelegationCoordinator(
                 classified.authBlocked ||
                 classified.permanentlyUnavailable ||
                 classified.outputLimitFailure ||
+                classified.configurationFailure ||
                 nonRecoverable
         val fallback = if (!budgetExhausted && (allowFailover || terminalForTarget) && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
             recoveryCandidates(latest, failedUid).firstOrNull()

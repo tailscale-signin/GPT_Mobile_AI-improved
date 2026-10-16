@@ -274,7 +274,10 @@ class ModelCatalogParserTest {
         val gemma4 = visible.single { it.id == "gemma-4-e2b-it" }
         assertTrue(gemma4.supportedAccelerators.contains("npu"))
         assertTrue(gemma4.socToModelFiles.containsKey("Tensor G5"))
-        assertFalse(gemma4.socToModelFiles.containsKey("SM8750"))
+        val sm8750 = gemma4.socToModelFiles.getValue("SM8750")
+        assertEquals("gemma-4-E2B-it_qualcomm_sm8750.litertlm", sm8750.modelFile)
+        assertEquals(4096, sm8750.contextSize)
+        assertEquals("84b6978eff6e4eea02825bc2ee4ea48579f13109", sm8750.commitHash)
         assertEquals(1280, gemma4.socToModelFiles.getValue("Tensor G5").contextSize)
         assertEquals(8, gemma4.minRamGb)
     }

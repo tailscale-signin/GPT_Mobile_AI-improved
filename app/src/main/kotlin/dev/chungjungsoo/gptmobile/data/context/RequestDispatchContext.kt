@@ -59,13 +59,14 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
         runId?.let { owner ->
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_SERIALIZED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt.role), invocationId = invocationId, physicalAttempt = ordinal, physicalAttemptId = receipt.physicalAttemptId, inputTokens = receipt.promptTokens, outputTokens = receipt.outputTokens, safetyTokens = receipt.safetyTokens, contextTokens = receipt.contextTokens, measured = receipt.measurement == TokenMeasurementKind.SERVING_TOKENIZER)
         }
+        val attemptIncluded = mutableSetOf<String>()
         fun inspect(node: JsonElement, depth: Int) {
             if (depth > 32) return
             when (node) {
                 is JsonObject -> {
                     val assist = node["assist"] as? JsonArray
                     assist?.filterIsInstance<JsonObject>()?.filter { it in candidates }?.forEach { metadata ->
-                        includedProducers += AssistHandoffContract.producerIds(AgentToolResult("receipt", ToolResultContent.Json(JsonObject(emptyMap())), false, assistMetadata = listOf(metadata)))
+                        attemptIncluded += AssistHandoffContract.producerIds(AgentToolResult("receipt", ToolResultContent.Json(JsonObject(emptyMap())), false, assistMetadata = listOf(metadata)))
                     }
                     node.values.forEach { inspect(it, depth + 1) }
                 }
@@ -74,12 +75,17 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
                     // Trusted candidates include the complete claim, quote and source identity. A truncated
                     // packet, detached producer marker, or unrelated model text never counts as inclusion.
                     preparedEvidence.filter { node.content.contains(it.toString()) }.forEach { packet ->
-                        includedProducers += AssistHandoffContract.producerIds(AgentToolResult("prepared-receipt", ToolResultContent.Json(JsonObject(emptyMap())), false, assistMetadata = listOf(packet)))
+                        attemptIncluded += AssistHandoffContract.producerIds(AgentToolResult("prepared-receipt", ToolResultContent.Json(JsonObject(emptyMap())), false, assistMetadata = listOf(packet)))
                     }
                     if (node.content.startsWith('{')) runCatching { Json.parseToJsonElement(node.content) }.getOrNull()?.let { inspect(it, depth + 1) }
                 }
             }
         }
         runCatching { Json.parseToJsonElement(payload) }.getOrNull()?.let { inspect(it, 0) }
+        includedProducers += attemptIncluded
+        val offered = (candidates + preparedEvidence).flatMap { metadata ->
+            AssistHandoffContract.producerIds(AgentToolResult("offered", ToolResultContent.Json(JsonObject(emptyMap())), false, assistMetadata = listOf(metadata)))
+        }.toSet()
+        dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.handoff(runId, invocationId, receipt.physicalAttemptId, offered, attemptIncluded)
     }
 }

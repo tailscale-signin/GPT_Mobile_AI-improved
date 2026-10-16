@@ -18,7 +18,7 @@ data class RecoveryBlock(
     val policyRevision: String,
     val evidenceRevision: String,
     val affectedEvidenceIds: List<String>,
-    val allowedActions: List<String> = listOf("REVIEW_ACCESS", "RETRY_AFTER_AUTHORIZED_REVISION"),
+    val allowedActions: List<String> = listOf("REVIEW_ACCESS", "RETRY_AFTER_AUTHORIZED_REVISION", "START_WITHOUT_SAVED_EVIDENCE"),
     val message: String = RECOVERY_ACCESS_MESSAGE,
     val fingerprint: String,
     val attemptCount: Int = 1,

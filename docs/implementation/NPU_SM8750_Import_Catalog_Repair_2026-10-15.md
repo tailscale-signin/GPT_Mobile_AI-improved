@@ -25,3 +25,9 @@ The SM8750 Gemma 4 package is an NPU-compiled LiteRT-LM export. Profiles showed 
 - Device: install the branch APK, select the `Gemma 4 E2B · NPU` SM8750 package (or recovered legacy import), choose **Profile** policy and **Speculative decoding Off**, then issue a short plain-text prompt.
 - Capture `QNN_PROBE_RESULT`, `QNN_ENGINE_INIT_SUCCEEDED`, completion and nonempty token output. A successful load without generated text does not qualify the NPU.
 - Investigate any remaining QNN native driver/QAIRT/firmware error separately. Never pretend a CPU/GPU fallback ran the compiled NPU export.
+
+## Merge audit follow-up
+- Updated the hosted-catalog regression to verify the new SM8750 filename, context limit and pinned revision; its old assertion incorrectly required that variant to be absent.
+- Preserve the saved original SoC identity when a legacy content-addressed import is re-imported under a generic filename. Metadata is reused only for the same model ID and LiteRT-LM type, so a different model cannot inherit NPU eligibility.
+- Integrated current main, including the Combined/Local Assist and composer-readiness repairs, before final CI.
+- 33 isolated JVM catalogue, accelerator and package tests pass, along with changed-file Kotlin lint and whitespace checks. The harness substitutes Android/build configuration and excludes the unrelated Hub-network result test; full Android CI remains the merge gate. Physical SM8750 inference still requires the device checks above.

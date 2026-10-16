@@ -94,6 +94,20 @@ class LocalModelPackagesTest {
         assertTrue(LocalAccelerators.isNpuEligible(recovered.supportedAccelerators, recovered.socToModelFiles, "SM8750"))
     }
 
+    @Test fun renamedDuplicatePreservesLegacyNpuIdentityOnlyForTheSameModel() {
+        val prior = CatalogEntry(
+            id = "local_legacy",
+            displayName = "gemma-4-E2B-it_qualcomm_sm8750",
+            variantLabel = "LITERT_LM"
+        )
+        val retained = LocalModelPackages.forImportedLiteRtModel(prior.id, "renamed.litertlm", "model.litertlm", 500L, prior)
+        assertEquals(prior.displayName, retained.displayName)
+        assertEquals(listOf("npu"), retained.supportedAccelerators)
+        assertEquals("model.litertlm", retained.socToModelFiles.getValue("SM8750").modelFile)
+        val unrelated = LocalModelPackages.forImportedLiteRtModel("local_other", "renamed.litertlm", "model.litertlm", 500L, prior)
+        assertFalse(unrelated.supportedAccelerators.contains("npu"))
+    }
+
     @Test fun genericImportAndParentDirectoryNeverProvideNpuEvidence() {
         val generic = LocalModelPackages.forImportedLiteRtModel(
             "local_generic",

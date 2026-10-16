@@ -80,12 +80,21 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     override fun getHardwareState() = DeviceHardwareGovernor.inspectHardwareState(context)
     override fun loadedEngineSpec() = state.value.engineSpec
 
+    private suspend fun nativeRouteIdentity(modelPath: String, accelerator: String?): String =
+        "native-route:" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(modelPath, LocalAccelerators.normalize(accelerator), 1)).toString()
+
+    override suspend fun preflightModel(modelPath: String, accelerator: String?) {
+        check(quarantinedBinder?.isBinderAlive != true) { "NATIVE_SESSION_QUARANTINED: waiting for the cancelled worker process to stop; no new inference was dispatched" }
+        readiness.assertNativeAllowed(nativeRouteIdentity(modelPath, accelerator))
+    }
+
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = execute("INSPECT", text = modelPath).capabilities
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
         val identity = readinessIdentity(spec, settings.getFeatureSettings())
         command(RuntimeWire("VERIFY_RESET", UUID.randomUUID().toString(), generation = generation, spec = spec))
         readiness.reset(identity)
+        readiness.reset(nativeRouteIdentity(spec.modelPath, spec.accelerator))
     }
 
     private suspend fun readinessIdentity(spec: LocalEngineSpec, snapshot: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings): String {
@@ -96,6 +105,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         if (isEngineLoaded(spec)) return
+        preflightModel(spec.modelPath, spec.accelerator)
         val snapshot = settings.getFeatureSettings()
         val packet = RuntimeWire("LOAD", UUID.randomUUID().toString(), generation = generation, spec = spec, settings = snapshot, preferredBackend = settings.getLocalRuntimeBackend())
         val artifact = java.io.File(spec.modelPath)
@@ -107,6 +117,9 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                 if (!isEngineLoaded(spec)) command(packet, timeoutMs = 180_000)
             }
         } catch (error: Exception) {
+            if (error !is kotlinx.coroutines.CancellationException && error.message.orEmpty().contains("interrupted inside native code", true)) {
+                readiness.rememberNativeInterruption(nativeRouteIdentity(spec.modelPath, spec.accelerator))
+            }
             mutableState.value = state.value.copy(lifecycle = "FAILED", fallbackReason = error.message)
             throw error
         }

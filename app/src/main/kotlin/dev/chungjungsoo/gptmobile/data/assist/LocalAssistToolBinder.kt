@@ -24,7 +24,9 @@ internal object LocalAssistToolBinder {
         status: suspend (AssistTaskState) -> Unit = {},
         policySnapshot: EffectiveAssistPolicy? = null,
         supportsPrimaryRuntime: Boolean = true,
-        workflowOwnsAssistance: Boolean = false
+        workflowOwnsAssistance: Boolean = false,
+        allowPerTurnTool: Boolean = false,
+        admitPerTurnTool: (dev.chungjungsoo.gptmobile.data.agent.AgentTool) -> dev.chungjungsoo.gptmobile.data.agent.AgentTool = { it }
     ): List<ResolvedAgentTool> {
         val expected = AssistTaskState(taskId = "expected:$turnId", profileUid = policy.profileUid, policySnapshot = policySnapshot)
         if (!enabled) {
@@ -54,6 +56,17 @@ internal object LocalAssistToolBinder {
         val assist = AssistCoordinator(goal, {
             profileAllowed(target) && eligible(target)
         }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) })
-        return tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
+        val bound = tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
+        if (!allowPerTurnTool || !policy.perTurnQueryPlanning) return bound
+        // An intentional planning tool permits assistance before external search produces evidence.
+        // The only source is this turn's authorized user goal, never arbitrary model arguments.
+        val planning = AssistTurnPlanningTool(goal)
+        val planner = AssistCoordinator(
+            goal, { profileAllowed(target) && eligible(target) }, { task -> generate(target, task, 1024) }, notice,
+            policy.validated().copy(evidenceSelection = false, summarizeRetrievedText = false, proposeQueries = true),
+            { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint,
+            { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) }
+        )
+        return bound + ResolvedAgentTool(admitPerTurnTool(planner.bind(planning, "current-turn-plan:${target.uid}")), null, "Local Assist", planning.definition.name, planning.definition.name)
     }
 }

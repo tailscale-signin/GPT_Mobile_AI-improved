@@ -100,6 +100,7 @@ internal fun CombinedContributionInspector(
 ) {
     var open by remember { mutableStateOf(false) }
     var openedAnswer by remember { mutableStateOf("") }
+    Text(stringResource(R.string.combined_text_match_hint), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp))
     TextButton(onClick = {
         openedAnswer = answer
         open = true
@@ -154,6 +155,10 @@ internal fun CombinedContributionInspector(
                         Text(stringResource(R.string.combined_support_class, selected.supportClass.name), style = MaterialTheme.typography.titleMedium)
                         Text(stringResource(R.string.combined_comparison_coverage, selected.compared, selected.expected))
                         if (selected.supportClass == ClaimSupportClass.UNKNOWN) Text(stringResource(R.string.combined_support_unknown))
+                        CombinedPassageIndicators(selected.text, sources, identities) { uid ->
+                            open = false
+                            onOpenContribution(uid)
+                        }
                         selected.warning?.let { Text(it) }
                     }
                     items(selected.spanIds.toList(), key = { it }) { id ->

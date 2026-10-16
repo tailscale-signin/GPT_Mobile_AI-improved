@@ -45,7 +45,12 @@ internal class AssistCoordinator(
             val prepared = (authorized as? PreparableAgentTool)?.prepareExecution(callId, arguments) ?: { authorized.execute(callId, arguments) }
             return {
                 val acquired = prepared()
-                LocalAssistQueue.run(policy.validated().queueWaitSeconds * 1000L) { reduceShared(acquired, authority) } ?: run {
+                val requested = policy.validated()
+                val started = (System.nanoTime() / 1_000_000L)
+                LocalAssistQueue.run(minOf(requested.queueWaitSeconds, requested.optionalWaitSeconds) * 1000L) {
+                    val remaining = (requested.optionalWaitSeconds * 1000L - ((System.nanoTime() / 1_000_000L) - started)).coerceAtLeast(1)
+                    reduceShared(acquired, authority, remaining)
+                } ?: run {
                     publish(AssistTaskState(taskId = UUID.randomUUID().toString(), admission = AssistAdmission.ELIGIBLE, execution = AssistExecution.SKIPPED, reason = "HELPER_QUEUE_DEADLINE"))
                     acquired
                 }
@@ -64,7 +69,7 @@ internal class AssistCoordinator(
 
     private suspend fun publish(task: AssistTaskState) = status(task.copy(sequence = sequence.incrementAndGet(), profileUid = policy.profileUid, physicalAttempts = attempts.get()))
 
-    private suspend fun reduceShared(result: AgentToolResult, authority: String): AgentToolResult {
+    private suspend fun reduceShared(result: AgentToolResult, authority: String, optionalAllowanceMillis: Long): AgentToolResult {
         if (turnId.isBlank() || result.assistMetadata.isNotEmpty()) return reduceOnce(result, authority)
         val source = ToolResultEnvelope.element(result.retainedContent ?: result.content)
         val fingerprint = runtimeFingerprint()
@@ -82,7 +87,7 @@ internal class AssistCoordinator(
         var subscriberTimedOut = false
         val shared = try {
             val requested = policy.validated()
-            val allowance = (requested.queueWaitSeconds + requested.taskTimeoutSeconds + if (requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY) requested.loadTimeoutSeconds else 0) * 1000L
+            val allowance = minOf(optionalAllowanceMillis, (requested.queueWaitSeconds + requested.taskTimeoutSeconds + if (requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY) requested.loadTimeoutSeconds else 0) * 1000L)
             val outcome = kotlinx.coroutines.withTimeoutOrNull(allowance) {
                 // The shared producer owns native cleanup. Detaching this subscriber never joins it.
                 Unit to sharedWork.await(key, subscriber) { flight ->
@@ -99,7 +104,9 @@ internal class AssistCoordinator(
         }
         publish(
             subscription.copy(
-                execution = if (shared == null) {
+                execution = if (subscriberTimedOut) {
+                    AssistExecution.TIMED_OUT
+                } else if (shared == null) {
                     AssistExecution.CANCELLED
                 } else if (shared.assistMetadata.isNotEmpty()) {
                     AssistExecution.COMPLETED
@@ -107,7 +114,9 @@ internal class AssistCoordinator(
                     AssistExecution.SKIPPED
                 },
                 delivery = if (shared?.assistMetadata?.isNotEmpty() == true) AssistDelivery.VALIDATED else AssistDelivery.NONE,
-                reason = if (shared == null) {
+                reason = if (subscriberTimedOut) {
+                    "OPTIONAL_WAIT_DEADLINE"
+                } else if (shared == null) {
                     "SUBSCRIBER_REVOKED"
                 } else if (shared.assistMetadata.isNotEmpty()) {
                     "SHARED_ARTIFACT_VALIDATED"
@@ -153,6 +162,7 @@ internal class AssistCoordinator(
             publishStatus(task.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "PHYSICAL_ATTEMPT_ALLOWANCE"))
             return result
         }
+        publishStatus(task.copy(execution = AssistExecution.PREPARING, reason = "CHECKING_RUNTIME_READINESS"))
         if (!warmEligible()) {
             val observed = AssistReadinessResolver.state.value.takeIf { it.profileUid == policy.profileUid }
             task = task.copy(modelLoaded = observed?.modelLoaded, requestedAccelerator = observed?.requestedAccelerator, observedAccelerator = observed?.observedAccelerator, observedBackend = observed?.observedBackend)

@@ -12,6 +12,7 @@ data class AppFeatureSettings(
     val newChatBackgroundPrices: Boolean = false,
     val manualPrices: List<dev.chungjungsoo.gptmobile.data.pricing.ManualPrice> = emptyList(),
     val compactChatList: Boolean = false,
+    val combinedComprehensive: Boolean = true,
     val lastChatProfileUids: List<String> = emptyList(),
     val lastChatMode: String = "STANDARD",
     val smoothStreaming: Boolean = true,
@@ -83,6 +84,7 @@ data class AppFeatureSettings(
         AppFeature.NEW_CHAT_COMMUNITY -> copy(newChatCommunity = enabled)
         AppFeature.NEW_CHAT_BACKGROUND_PRICES -> copy(newChatBackgroundPrices = enabled)
         AppFeature.COMPACT_CHAT_LIST -> copy(compactChatList = enabled)
+        AppFeature.COMBINED_COMPREHENSIVE -> copy(combinedComprehensive = enabled)
         AppFeature.SMOOTH_STREAMING -> copy(smoothStreaming = enabled)
         AppFeature.CENTER_UNREAD -> copy(centerUnread = enabled)
         AppFeature.RESPONSE_ANIMATION -> copy(responseAnimation = enabled)
@@ -175,6 +177,7 @@ enum class AppFeature(
     NEW_CHAT_PRICE_REFRESH("Automatically Refresh Provider Prices", "Refresh due public pricing metadata while New Chat is open. This does not make an inference request."),
     NEW_CHAT_COMMUNITY("Use Community Benchmark Fallback", "Read self-reported public scores only when no personal result matches. Never publish your results."),
     NEW_CHAT_BACKGROUND_PRICES("Refresh Prices in the Background", "Check eligible provider catalogues approximately every six hours. Requires visible prices and automatic refresh."),
+    COMBINED_COMPREHENSIVE("Comprehensive Combined Answers", "Preserve distinct material from all contributors and check for omissions, allowing a longer answer than the original length goal. Turn off to prioritize the original request’s length. Frozen runs keep their original policy."),
     COMPACT_CHAT_LIST("Compact Conversation List", "Show a smaller conversation preview while preserving accessible actions."),
     SMOOTH_STREAMING("Follow Streaming Responses", "Keep the latest text visible until you scroll up."),
     CENTER_UNREAD("Center Unread Responses", "Open new replies at their beginning, in the middle of the screen."),

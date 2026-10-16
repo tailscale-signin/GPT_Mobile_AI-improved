@@ -82,7 +82,15 @@ class MemoryEnrichmentQueue @Inject constructor(
     }
 
     fun enqueue(message: MessageV2) {
-        diagnosticsScope.launch(kotlinx.coroutines.Dispatchers.IO) { enqueueEligible(message) }
+        diagnosticsScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                enqueueEligible(message)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_ENQUEUE_FAILED · message=${message.id} · persistedWorkRetained=${waitingStore(context).contains(message.id.toString())}", "W")
+            }
+        }
     }
 
     private suspend fun enqueueEligible(message: MessageV2) {
@@ -101,7 +109,12 @@ class MemoryEnrichmentQueue @Inject constructor(
             return
         }
         val hash = digest(message.content)
-        if (completedStore(context).getString(message.id.toString(), null) == completionKey(message.chatId, hash)) return
+        if (completedStore(context).getString(message.id.toString(), null) == completionKey(message.chatId, hash)) {
+            clearWaiting(context, message.id)
+            return
+        }
+        // Persist the source reference before asynchronous WorkManager admission can fail or the process can exit.
+        markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to hash))
         val request = OneTimeWorkRequestBuilder<MemoryEnrichmentWorker>()
             .setInputData(workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to hash, "runtimeFingerprint" to runtimeFingerprint(runtime)))
             .setInitialDelay(15, TimeUnit.SECONDS)
@@ -113,7 +126,13 @@ class MemoryEnrichmentQueue @Inject constructor(
         // WorkManager persists only references and a digest, never user message text.
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_ENQUEUE_REQUESTED · candidateWork=${request.id} · policy=KEEP · message=${message.id} · constraint=BATTERY_NOT_LOW · initialDelayMs=15000 · persisted=true · backoff=EXPONENTIAL_30000")
         val manager = WorkManager.getInstance(context)
-        manager.enqueueUniqueWork(uniqueName(message.id, hash), ExistingWorkPolicy.KEEP, request)
+        val operation = manager.enqueueUniqueWork(uniqueName(message.id, hash), ExistingWorkPolicy.KEEP, request)
+        operation.result.addListener({
+            // The future has completed before this listener runs; get() does not wait here.
+            runCatching { operation.result.get() }.onFailure {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_ENQUEUE_FAILED · message=${message.id} · persistedWorkRetained=true", "W")
+            }
+        }, java.util.concurrent.Executor { it.run() })
     }
 
     fun cancelChat(chatId: Int) {
@@ -152,7 +171,7 @@ class MemoryEnrichmentQueue @Inject constructor(
         }
         internal fun waitingStore(context: Context) = context.getSharedPreferences("memory-enrichment-waiting", Context.MODE_PRIVATE)
         internal fun markWaiting(context: Context, data: androidx.work.Data) {
-            waitingStore(context).edit().putString(data.getInt("messageId", 0).toString(), "${data.getInt("chatId", 0)}:${data.getString("hash")}").commit()
+            check(waitingStore(context).edit().putString(data.getInt("messageId", 0).toString(), "${data.getInt("chatId", 0)}:${data.getString("hash")}").commit()) { "Cannot persist pending memory enrichment" }
         }
         internal fun clearWaiting(context: Context, messageId: Int) {
             waitingStore(context).edit().remove(messageId.toString()).apply()

@@ -115,6 +115,16 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         }
     }
     suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
+    suspend fun authorizeOrThrow(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
+        if (authorize(connectionId, runId, callId, tool, arguments, schema)) return true
+        val connection = connections.getConnection(connectionId)
+        val current = dao.observe("$runId:$callId").first()
+        val duplicate = current?.state in setOf("EXECUTING", "COMPLETED", "OUTCOME_UNKNOWN", "INTERRUPTED") ||
+            connection?.let { dao.previousMatchingAction(runId, it.name, tool, ScopedToolGrant.canonicalHash(arguments), "$runId:$callId") } != null
+        if (duplicate) throw ToolAuthorizationRejected("DUPLICATE_ACTION", "A matching action is already pending, dispatched or has an uncertain outcome. Inspect its saved receipt before repeating it; changing permission will not repeat it.")
+        throw ToolAuthorizationRejected("AUTH_REQUIRED", "Tool permission was denied or is no longer available. Review this tool's source and destination grants before retrying.")
+    }
+
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
         val nativeEntry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(connectionId)
         if (nativeEntry != null && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.supports(nativeEntry)) {

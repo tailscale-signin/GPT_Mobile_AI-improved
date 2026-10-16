@@ -229,6 +229,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var firstToolRecorded = false
             var visibleBytes = 0L
             var reasoningBytes = 0L
+            var providerReasoningTokens: Int? = null
             var finishReason: String? = null
             var settingsConfirmed = false
             var status = "INTERRUPTED"
@@ -270,6 +271,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                                 output = if (event.outputSource == "runtime_reported" && outputSource != "runtime_reported") event.outputTokens ?: output else mergeUsageCount(output, event.outputTokens, event.cumulative)
                                 if (event.inputTokens != null && event.inputSource != "unavailable") inputSource = event.inputSource
                                 if (event.outputTokens != null && event.outputSource != "unavailable") outputSource = event.outputSource
+                                providerReasoningTokens = mergeUsageCount(providerReasoningTokens, event.reasoningTokens, event.cumulative)
                                 actualRuntime = event.actualRuntime ?: actualRuntime
                                 finishReason = event.finishReason?.take(80) ?: finishReason
                                 settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
@@ -333,7 +335,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                     }
                     dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = input != null && output != null)
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             dao.save(

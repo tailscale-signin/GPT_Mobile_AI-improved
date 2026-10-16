@@ -51,11 +51,8 @@ internal fun combinedSynthesisInputs(
         )
     }
     if (sources.isEmpty()) return null
-    if (synthesis != null &&
-        runs[synthesis.currentRunId]?.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) &&
-        synthesis.combinedSources.map { it.platformUid to it.content.trim() } == sources.map { it.platformUid to it.content.trim() }
-    ) {
-        return null
-    }
+    // A persisted editor owns the frozen corpus, including after failure or completion.
+    // Late helper updates require explicit user recovery; never silently replace the final answer.
+    if (synthesis != null) return null
     return sources
 }

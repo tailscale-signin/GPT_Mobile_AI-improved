@@ -326,12 +326,13 @@ class ChatRepositoryImpl(
             { runtimeEligibleForAssist(target, policy) },
             { task -> delegateToProfile(target, task, 128, root, root, delegationInputBudget(target, 128), { event -> event.invocationId?.let { invocation = it } }, allowTools = false, requestRole = "assist") },
             {},
-            policy.copy(evidenceSelection = true, summarizeRetrievedText = false, proposeQueries = false, maxAttempts = 1),
+            policy.copy(evidenceSelection = true, summarizeRetrievedText = false, proposeQueries = false, maxAttempts = 1, optionalWaitSeconds = 60),
             { settingRepository.getFeatureSettings().assistEnabled() && settingRepository.getFeatureSettings().effectiveAssistPolicy() == features.effectiveAssistPolicy() && settingRepository.getFeatureSettings().localAssistPolicy.preparation == features.localAssistPolicy.preparation && settingRepository.fetchPlatformV2s().any { it == target } },
             root,
             { invocation },
             contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
-            runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.runtimeFingerprint(localRuntime) }
+            runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.runtimeFingerprint(localRuntime) },
+            status = { dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(root, it) }
         )
         val original = dev.chungjungsoo.gptmobile.data.assist.AssistTestFixture.tool()
         val result = coordinator.bind(original).execute(root, JsonObject(emptyMap()))
@@ -714,6 +715,9 @@ class ChatRepositoryImpl(
             val entry = modelCatalogRepository.getCachedVisibleEntries().firstOrNull { it.id == selected.modelId }
                 ?.let { entry -> selected.record?.let { dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.forInstalledFile(entry, it.fileName) } ?: entry }
             capacity = minOf(capacity, dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens(Int.MAX_VALUE, target.accelerator.orEmpty(), entry, deviceSocModel, localRuntime.deviceRamGb))
+            localRuntime.admittedEngineSpec()?.takeIf {
+                it.modelPath == selected.path && it.accelerator == dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)
+            }?.let { capacity = minOf(capacity, it.maxTokens) }
             localRuntime.getAdaptiveThrottlingPolicy().maxTokensClamp?.let { capacity = minOf(capacity, it) }
         }
         if (capacity == Int.MAX_VALUE) return Int.MAX_VALUE
@@ -741,7 +745,7 @@ class ChatRepositoryImpl(
                         false
                     } else {
                         resolved.connectionUid?.let { uid ->
-                            toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                            toolApprovals?.authorizeOrThrow(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
                         } ?: true
                     }
                 }
@@ -860,7 +864,8 @@ class ChatRepositoryImpl(
             allowTools = childTools.isNotEmpty() || allowGatewayLocalTools,
             // Prefer visible output for reviewers, follow-ups and models that already
             // spent a worker request entirely on reasoning.
-            allowReasoning = !concise,
+            // Concision is a prompt preference. llama.cpp Auto must not become strict Off.
+            allowReasoning = target.compatibleType == ClientType.LLAMA || !concise,
             allowGatewayLocalTools = allowGatewayLocalTools,
             requestRole = requestRole,
             attemptId = attemptId
@@ -868,7 +873,7 @@ class ChatRepositoryImpl(
         val bounded = target.copy(
             batchMode = false,
             model = if (target.compatibleType == ClientType.OPENROUTER) target.model.removeSuffix(":batch") else target.model,
-            reasoning = if (concise) false else target.reasoning,
+            reasoning = if (concise && target.compatibleType != ClientType.LLAMA) false else target.reasoning,
             disableAllTools = childTools.isEmpty() && !allowGatewayLocalTools,
             systemPrompt = boundedSystemPrompt
         )
@@ -879,7 +884,7 @@ class ChatRepositoryImpl(
                 openAICompatibleAdapter.openSession(turns, bounded, constraints)
             ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded, constraints)
             ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded, constraints)
-            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, childTools, constraints)
+            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, childTools, constraints, progressSettings = settingRepository.getFeatureSettings().profileProgressDeadlines[bounded.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings())
         }.withDeviceLocation(
             clientType = bounded.compatibleType,
             userPrompt = task,
@@ -1151,9 +1156,22 @@ class ChatRepositoryImpl(
         runId: String,
         chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = flow {
+        if (platform.compatibleType == ClientType.LITERT_LM) {
+            try {
+                val selection = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
+                localRuntime.preflightModel(selection.path, platform.accelerator)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AppLogRecorder.record("LocalModel", "LOCAL_PREFLIGHT_TERMINAL · stage=parent_readiness · status=REJECTED · exception=${failure.javaClass.simpleName} · profileUid=${platform.uid} · nativeDispatched=false", "W")
+                emit(ApiState.Error(failure.message ?: "Local model readiness check failed. Review Local AI before retrying."))
+                emit(ApiState.Done)
+                return@flow
+            }
+        }
         val fence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
         emitAll(preparedCompleteChat(userMessages, assistantMessages, platform, runId, chatToolConfig, fence))
-    }
+    }.flowOn(Dispatchers.Default)
 
     private fun preparedCompleteChat(
         userMessages: List<MessageV2>,
@@ -1821,12 +1839,20 @@ class ChatRepositoryImpl(
                         candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
                         enabled = runFeatures.assistEnabled(),
                         supportsPrimaryRuntime = platform.compatibleType != ClientType.LITERT_LM,
+                        allowPerTurnTool = supportsTools && !platform.disableAllTools && !platform.disableLocalTools && chatToolConfig?.allToolsDisabled != true && !synthesisRun && !resumeWriterOnly && taskRecovery?.primaryOnly != true && !localResearch && !reviewedPreparationUnavailable,
+                        admitPerTurnTool = { planningTool -> toolBudget.bind(planningTool) },
                         workflowOwnsAssistance = explicitResearch && !localResearch && runFeatures.effectiveAssistPolicy().researchPreparation,
                         policy = runFeatures.effectiveAssistPolicy(),
                         policySnapshot = runFeatures.resolveAssistPolicy(),
                         goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                         turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
-                        eligible = { target -> measurePreparation(runId, PreparationPhase.READINESS) { runtimeEligibleForAssist(target, runFeatures.effectiveAssistPolicy()) } },
+                        // Optional tool processing never starts a cold native load on remote chat's path.
+                        // Foreground preloading and explicit research/test preparation own cold loads.
+                        eligible = { target ->
+                            measurePreparation(runId, PreparationPhase.READINESS) {
+                                runtimeEligibleForAssist(target, runFeatures.effectiveAssistPolicy().copy(preparation = dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY))
+                            }
+                        },
                         profileAllowed = { original ->
                             settingRepository.fetchPlatformV2s().any { current ->
                                 current.uid == original.uid &&
@@ -1842,12 +1868,21 @@ class ChatRepositoryImpl(
                         producerInvocationId = { latestAssistInvocationId },
                         contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
                         runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.research.researchHash("${localRuntime.state.value.backend}|${localRuntime.state.value.engineSpec}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}") },
-                        status = { emit(ApiState.AssistStatus(it)) },
+                        status = {
+                            dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
+                            emit(ApiState.AssistStatus(it))
+                        },
                         stillEnabled = {
                             val live = settingRepository.getFeatureSettings()
                             live.assistEnabled() && live.effectiveAssistPolicy() == runFeatures.effectiveAssistPolicy() && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
                         }
                     )
+                    // The helper tool is created after initial catalogue admission. Admit its schema
+                    // through the same context planner or finalRequestTools will silently remove it.
+                    boundedTools.firstOrNull { it.modelToolName == "local_assist_plan" && it.connectionUid == null }?.let { planning ->
+                        exposedTools = exposedTools + planning
+                        contextPlan = planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                    }
                     val delegationConfig = effectiveDelegationSettings()
                     val aggregatedTools = prepareSearchStage(boundedTools, behavior, localResearch, delegationConfig, acquisitionBudget, searchPolicy, runId, platform.uid)
                     delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }
@@ -1918,7 +1953,10 @@ class ChatRepositoryImpl(
                                     val text = generateDelegate(target, prompt, cap, inputCap = delegationInputBudget(target, cap), progress = { it.invocationId?.let { id -> invocationId = id } }, allowTools = false, requestRole = if (target.compatibleType == ClientType.LITERT_LM) "assist" else "research-${stage.name.lowercase(java.util.Locale.ROOT)}")
                                     dev.chungjungsoo.gptmobile.data.research.ResearchModelReply(text, dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.resolve(target).canonical.orEmpty(), invocationId)
                                 },
-                                onAssistStatus = { emit(ApiState.AssistStatus(it)) }
+                                onAssistStatus = {
+                                    dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
+                                    emit(ApiState.AssistStatus(it))
+                                }
                             )
                             val research = dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflow(
                                 directConfig,
@@ -2130,7 +2168,7 @@ class ChatRepositoryImpl(
         val rebuild = rebuildFence.canRebuild(error, attempt)
         if (rebuild) {
             AppLogRecorder.record("Admission", "POLICY_REBUILD · run=$runId · attempt=1 · physicalDispatches=0")
-            emit(ApiState.Notice("Settings changed during preparation. Updating the request."))
+            emit(ApiState.Notice("Settings or memory changed during preparation. Updating the request."))
         }
         rebuild
     }.catch { error ->
@@ -2217,7 +2255,7 @@ class ChatRepositoryImpl(
                     false
                 } else {
                     resolved.connectionUid?.let { uid ->
-                        toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
+                        toolApprovals?.authorizeOrThrow(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
                     } ?: true
                 }
             }
@@ -2454,7 +2492,8 @@ class ChatRepositoryImpl(
                         deliveryPlatform,
                         if (textOnly) emptyList() else effectiveTools.map { it.tool },
                         deliveryConstraints,
-                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
+                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true),
+                        progressSettings = progressSettings
                     )
                 }
             }
@@ -2506,7 +2545,8 @@ class ChatRepositoryImpl(
                 latestUser?.content.orEmpty()
             }
         )
-        val remainingWordGoal = wordGoal?.let { (it - previousAnswerWords).coerceAtLeast(0) }
+        val comprehensiveEditorial = editorialPass && dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(latestUser?.content.orEmpty())
+        val remainingWordGoal = wordGoal?.takeUnless { comprehensiveEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
         val continuationLimit = if (editorialPass) {
             dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(latestUser?.content.orEmpty(), requestConstraints.outputLimit(platform.maxTokens), remainingWordGoal)
         } else {
@@ -2527,6 +2567,15 @@ class ChatRepositoryImpl(
             require(platform.compatibleType == ClientType.LITERT_LM || plan.frozenTurns.none { it.assistantMessage?.containsLocalOnlyMemory() == true }) {
                 "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history."
             }
+            val inspectionCheckpoint = dev.chungjungsoo.gptmobile.data.context.CombinedInspectionCheckpoint(
+                workspace,
+                plan,
+                requestPlatform.systemPrompt.orEmpty(),
+                limits,
+                "${platform.uid}:${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)}:${dispatchAuthority.revision}",
+                latestUser?.chatId ?: 0,
+                runId
+            )
             dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassSession(
                 plan = plan,
                 system = requestPlatform.systemPrompt.orEmpty(),
@@ -2534,16 +2583,24 @@ class ChatRepositoryImpl(
                 open = { turns, kind, passCap ->
                     openPrimarySession(turns, kind, textOnly = true, passOutputTokens = passCap)
                 },
-                onFinalContext = { turns -> multipassFinalTurns.set(turns) }
+                onFinalContext = { turns -> multipassFinalTurns.set(turns) },
+                restoreInspection = inspectionCheckpoint::restore,
+                saveInspection = inspectionCheckpoint::save,
+                validateCheckpointAccess = {
+                    dispatchAuthority.validate()
+                    if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                    factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                }
             )
         } ?: openPrimarySession(contextPlan.turns)
-        val initialSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
+        val continuedSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
             firstSession,
             maxContinuations = continuationLimit,
             targetWords = remainingWordGoal,
             recoverTransientFailures = contextPlan.multipass == null,
             initialDraft = restoredDraft,
             allowInternalToolRecovery = editorialPass,
+            continueEmptyOutput = editorialPass,
             effectiveOutputCap = resolvedOutputCap,
             maxAnswerCharacters = budgetSettings.responseCharacterLimit,
             saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
@@ -2552,7 +2609,7 @@ class ChatRepositoryImpl(
                 multipassFinalTurns.get() ?: contextPlan.turns,
                 (if (draft.isBlank()) "\n\nThe previous attempt wrote no visible answer. Write the complete answer from the original task, frozen evidence and full outline, starting with its first section. " else "\n\nContinue the unfinished answer from its exact stopping point, using completed evidence only. ") +
                     "Do not repeat the introduction, facts, headings or any tool action already completed. Keep the shared outline and chronological order. " +
-                    (wordGoal?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
+                    (wordGoal?.takeUnless { comprehensiveEditorial }?.let { "The total answer should be approximately $it words; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.countWords(draft)} words are already written. Develop the remaining sections to meet that goal without padding or inventing facts. " } ?: "Finish the remaining requirements. ") +
                     "If evidence is missing, state the gap. Start with a paragraph break only when the previous paragraph is complete.",
                 checkpoint?.continuationContext(draft) ?: draft,
                 exchanges
@@ -2564,6 +2621,34 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
             }
             openPrimarySession(continuationPlan.turns, "output_limit_continuation", textOnly = true)
+        }
+        val initialSession = if (comprehensiveEditorial) {
+            val frozen = requireNotNull(frozenResume) { "Combined delivery requires the frozen input snapshot." }
+            dev.chungjungsoo.gptmobile.data.agent.CombinedDeliverySession(
+                continuedSession,
+                frozen.sources,
+                maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 } ?: 1_048_576,
+                committedPrefix = restoredDraft,
+                validateAccess = {
+                    dispatchAuthority.validate()
+                    if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
+                    factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
+                },
+                onCoverage = { result, repaired ->
+                    AppLogRecorder.record("Combined", "CONTENT_COVERAGE · runId=$runId · units=${result.total} · missing=${result.missing.size} · repaired=$repaired · semanticCoverageVerified=false")
+                }
+            ) { draft, missing ->
+                val repairTurns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
+                    multipassFinalTurns.get() ?: contextPlan.turns,
+                    dev.chungjungsoo.gptmobile.data.agent.combinedCoverageRepairInstruction(missing),
+                    draft,
+                    emptyList()
+                )
+                val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(repairTurns, requestPlatform.systemPrompt.orEmpty(), limits)
+                openPrimarySession(admitted.turns, "combined_coverage_repair", textOnly = true)
+            }
+        } else {
+            continuedSession
         }
         val session = if (followUps != null && latestUser != null) {
             dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(initialSession, followUps) { handoff, draft, exchanges ->
@@ -2744,7 +2829,9 @@ class ChatRepositoryImpl(
                     is ProviderEvent.LocalMetrics -> Unit
                     is ProviderEvent.RequestConfigured -> Unit
                     is ProviderEvent.Usage -> {
-                        emit(ApiState.TokenUsage(providerEvent.inputTokens, providerEvent.outputTokens, providerEvent.totalTokens))
+                        if (providerEvent.inputTokens != null || providerEvent.outputTokens != null || providerEvent.totalTokens != null) {
+                            emit(ApiState.TokenUsage(providerEvent.inputTokens, providerEvent.outputTokens, providerEvent.totalTokens))
+                        }
                         providerEvent.inputTokens?.let {
                             accumulatedInputTokens = if (providerEvent.cumulative) maxOf(accumulatedInputTokens, it.toLong()) else accumulatedInputTokens + it
                             hasInputTokenUsage = true
@@ -3278,6 +3365,11 @@ class ChatRepositoryImpl(
         )
 
         return chatRoom
+    }
+
+    override suspend fun createEvidenceFreeRetry(sourceChatId: Int, question: String, profile: PlatformV2): ChatRoomV2 {
+        check(settingRepository.fetchPlatformV2s().any { it.uid == profile.uid && it.enabled }) { "The selected profile is no longer enabled." }
+        return agentPersistenceDao.createEvidenceFreeRetry(sourceChatId, question, profile.uid, profile.model, System.currentTimeMillis() / 1000)
     }
 
     override suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2 {

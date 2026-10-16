@@ -233,7 +233,15 @@ class ProviderEventAssemblerTest {
     fun `Gemini usage includes reasoning output without inventing unknown usage`() {
         val fixture = """{"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":8,"thoughtsTokenCount":6,"totalTokenCount":26}}"""
         val events = GeminiEventMapper.accept(NetworkClient.json.decodeFromString<GenerateContentResponse>(fixture))
-        assertEquals(ProviderEvent.Usage(12, 14, 26), events.filterIsInstance<ProviderEvent.Usage>().single())
+        assertEquals(ProviderEvent.Usage(12, 14, 26, reasoningTokens = 6), events.filterIsInstance<ProviderEvent.Usage>().single())
         assertTrue(GeminiEventMapper.accept(GenerateContentResponse()).filterIsInstance<ProviderEvent.Usage>().isEmpty())
+    }
+
+    @Test fun responsesOutputLimitPreservesReasonAndReportedReasoningUsage() {
+        val fixture = """{"type":"response.incomplete","response":{"id":"r1","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":20,"output_tokens":4096,"total_tokens":4116,"output_tokens_details":{"reasoning_tokens":4000}}}}"""
+        val events = OpenAIResponsesEventAssembler().accept(NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(fixture))
+        assertEquals(4000, events.filterIsInstance<ProviderEvent.Usage>().first().reasoningTokens)
+        assertEquals("max_tokens", events.filterIsInstance<ProviderEvent.Usage>().last().finishReason)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("output limit"))
     }
 }

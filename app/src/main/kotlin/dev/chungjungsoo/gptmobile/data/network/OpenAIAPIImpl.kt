@@ -184,7 +184,7 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                         }
                         if (response.status.value in listOf(429, 502, 503, 504)) {
-                            throw ProviderHttpFailure(response.status.value, if (response.status.value == 429) ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]) else ProviderRetryPolicy.retryAfterMillis(response.headers[HttpHeaders.RetryAfter].orEmpty(), System.currentTimeMillis()))
+                            throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]))
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
@@ -433,7 +433,7 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                         }
                         if (response.status.value in listOf(429, 502, 503, 504)) {
-                            throw ProviderHttpFailure(response.status.value, if (response.status.value == 429) ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]) else ProviderRetryPolicy.retryAfterMillis(response.headers[HttpHeaders.RetryAfter].orEmpty(), System.currentTimeMillis()))
+                            throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]))
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 

@@ -193,6 +193,7 @@ fun ChatScreen(
     chatViewModel: ChatViewModel = hiltViewModel(),
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
+    onReviewEvidenceAccess: () -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null
 ) {
@@ -299,6 +300,28 @@ fun ChatScreen(
         if (chatRoom.id > 0) {
             chatViewModel.markCurrentChatViewed()
         }
+    }
+    var dismissedRecovery by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
+    val recoveryTurn = groupedMessages.assistantMessages.lastIndex
+    val blockedResponse = groupedMessages.assistantMessages.lastOrNull()?.withIndex()?.firstOrNull { (_, message) ->
+        message.currentRunId != null && message.timeline.any { it.recoveryBlock?.generationId == message.currentRunId }
+    }
+    val recoveryBlock = blockedResponse?.value?.let { message -> message.timeline.lastOrNull { it.recoveryBlock?.generationId == message.currentRunId }?.recoveryBlock }
+    val recoveryKey = recoveryBlock?.let { "${it.generationId}:${it.fingerprint}" }
+    if (recoveryBlock != null && recoveryKey != dismissedRecovery && blockedResponse != null && loadingStates.none { it == ChatViewModel.LoadingState.Loading }) {
+        EvidenceRecoveryDialog(
+            recoveryBlock,
+            onDismiss = { dismissedRecovery = recoveryKey },
+            onReviewAccess = onReviewEvidenceAccess,
+            onRetry = {
+                dismissedRecovery = recoveryKey
+                chatViewModel.retryChat(recoveryTurn, blockedResponse.index)
+            },
+            onWithoutEvidence = {
+                dismissedRecovery = recoveryKey
+                chatViewModel.retryWithoutSavedEvidence(recoveryTurn, blockedResponse.index)
+            }
+        )
     }
     val disabledPlatformUids by chatViewModel.disabledPlatformUids.collectAsStateWithLifecycle()
     val nextMessageProfileUid by chatViewModel.nextMessageProfileUid.collectAsStateWithLifecycle()
@@ -1179,7 +1202,7 @@ private fun ChatMessagePair(
                 if (hasCombinedTabs) {
                     CombinedProfileBubbles(
                         profiles = combinedProfiles,
-                        identities = if (debugMode) debugSettings.profileAttributionColors else emptyMap(),
+                        identities = debugSettings.profileAttributionColors,
                         primaryUid = assistantMessages.getOrNull(combinedSynthesisIndex)?.platformType,
                         selectedUid = selectedProfile?.uid,
                         combinedStatus = combinedStatus,
@@ -1217,7 +1240,7 @@ private fun ChatMessagePair(
                         }
                     }
                 }
-                if (hasCombinedTabs && debugMode && selectedProfile == null) {
+                if (hasCombinedTabs && selectedProfile == null) {
                     val synthesis = assistantMessages.getOrNull(combinedSynthesisIndex)
                     CombinedContributionInspector(
                         answer = assistantContent,
@@ -1249,7 +1272,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
-                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { debugMode && isSourceResponse },
+                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
                     debugMemorySources = debugMemorySources,
@@ -1261,6 +1284,12 @@ private fun ChatMessagePair(
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
                     conversationId = selectedAssistantMessage?.chatId,
+                    splitForPassageIndicators = hasCombinedTabs && selectedProfile == null,
+                    passageIndicators = { segment ->
+                        if (hasCombinedTabs && selectedProfile == null) {
+                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), debugSettings.profileAttributionColors, onCombinedProfileClick)
+                        }
+                    },
                     articleCards = { segment ->
                         if (debugSettings.researchFeature.articleCards) {
                             selectedAssistantMessage?.let { articleMessage ->

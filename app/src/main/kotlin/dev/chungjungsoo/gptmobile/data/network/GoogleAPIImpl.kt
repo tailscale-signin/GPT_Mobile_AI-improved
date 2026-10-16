@@ -127,6 +127,7 @@ class GoogleAPIImpl @Inject constructor(
                         )
                     }
                 ) {
+                    ProviderCooldown.await(config)
                     val admittedPayload = requestPreparation.prepare(NetworkClient.json.encodeToString(request), config, model, null)
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
@@ -143,7 +144,7 @@ class GoogleAPIImpl @Inject constructor(
                                 errorBody
                             )
                             if (response.status.value in TRANSIENT_HTTP_STATUSES && !receivedPayload) {
-                                throw IllegalStateException("HTTP ${response.status.value}: ${errorBody.take(240)}")
+                                throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]))
                             }
 
                             val errorMessage = try {

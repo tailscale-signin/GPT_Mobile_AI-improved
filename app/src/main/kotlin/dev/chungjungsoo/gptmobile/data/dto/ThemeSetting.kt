@@ -71,5 +71,5 @@ object ThemePresets {
         SavedThemeProfile("Mint", CustomThemePalette(0xFF216B55, 0xFF43685E, 0xFFF1FCF6, 0xFFE0F1E8), ThemeMode.LIGHT),
         SavedThemeProfile("Sky", CustomThemePalette(0xFF245C9E, 0xFF53688F, 0xFFF4F9FF, 0xFFE5EEFA), ThemeMode.LIGHT),
         SavedThemeProfile("Daylight", CustomThemePalette(0xFF006A7A, 0xFF65558F, 0xFFF5FAFC, 0xFFEAF1F5), ThemeMode.LIGHT)
-    ).map { it.copy(id = "builtin:" + it.name.lowercase(java.util.Locale.ROOT)) }
+    ).map { it.copy(id = "builtin:" + it.name.lowercase(java.util.Locale.ROOT)) } + RenovationPalettes.profiles
 }

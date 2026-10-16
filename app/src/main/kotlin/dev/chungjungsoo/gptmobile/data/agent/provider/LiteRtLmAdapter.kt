@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -94,7 +95,8 @@ class LiteRtLmAdapter(
         platform: PlatformV2,
         tools: List<AgentTool> = emptyList(),
         constraints: RequestConstraints = RequestConstraints(),
-        fallbackSystemPrompt: String? = null
+        fallbackSystemPrompt: String? = null,
+        progressSettings: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
     ): AgentProviderSession {
         require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
         val boundTools = tools
@@ -117,6 +119,14 @@ class LiteRtLmAdapter(
                 val resolvedModelId = selection.modelId
                 val installedRecord = selection.record
                 val modelPath = selection.path
+                try {
+                    localRuntime.preflightModel(modelPath, platform.accelerator)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (blocked: Exception) {
+                    send(ProviderEvent.Failed(blocked.message ?: "Local runtime readiness check failed"))
+                    return@channelFlow
+                }
                 val catalogEntry = entries.firstOrNull { it.id == resolvedModelId }
                     ?.let { entry -> installedRecord?.let { LocalModelPackages.forInstalledFile(entry, it.fileName) } ?: entry }
                 LocalModelCompatibility.installedPackageIssue(catalogEntry?.downloadUrl.orEmpty(), modelPath)?.let { reason ->
@@ -686,7 +696,7 @@ class LiteRtLmAdapter(
                     send(ProviderEvent.Failed(if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message))
                 }
             }
-        }
+        }.withProgressWatchdog(settings = progressSettings)
     }
 
     /** All native inference shares the holder's cancellable FIFO queue and lease. */

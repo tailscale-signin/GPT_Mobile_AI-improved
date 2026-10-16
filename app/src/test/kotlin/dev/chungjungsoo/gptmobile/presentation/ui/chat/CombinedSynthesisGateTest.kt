@@ -14,7 +14,7 @@ class CombinedSynthesisGateTest {
         val source = CombinedModelResponse(platformUid = "one", platformName = "One", modelName = "model", content = "original evidence")
         assertTrue(gate.reserve(7, listOf(source)))
         assertFalse(gate.reserve(7, listOf(source.copy())))
-        assertTrue(gate.reserve(7, listOf(source.copy(content = "new evidence"))))
+        assertFalse(gate.reserve(7, listOf(source.copy(content = "new evidence"))))
         gate.reset(7)
         assertTrue(gate.reserve(7, listOf(source.copy(content = "new evidence"))))
     }
@@ -36,6 +36,8 @@ class CombinedSynthesisGateTest {
         assertTrue(gate.reserve(91, first))
         // The retry has been admitted and cannot be repeated after persistence.
         assertFalse(gate.reserve(91, first))
+        assertFalse(gate.reserve(91, changed))
+        gate.reset(91)
         assertTrue(gate.reserve(91, changed))
         // A stale failure from an older revision must not erase the current generation.
         assertFalse(gate.abandonUncommitted(91, first))

@@ -21,7 +21,10 @@ internal class CombinedCorpusMultipassSession(
     private val system: String,
     private val limits: TokenBudgetSettings,
     private val open: suspend (List<ConversationTurn>, String, Int?) -> AgentProviderSession,
-    private val onFinalContext: (List<ConversationTurn>) -> Unit
+    private val onFinalContext: (List<ConversationTurn>) -> Unit,
+    private val restoreInspection: suspend (CombinedCorpusInspectionPass) -> String? = { null },
+    private val saveInspection: suspend (CombinedCorpusInspectionPass, String) -> Unit = { _, _ -> },
+    private val validateCheckpointAccess: suspend () -> Unit = {}
 ) : AgentProviderSession {
     override fun streamRound(
         tools: List<AgentToolDefinition>,
@@ -32,6 +35,13 @@ internal class CombinedCorpusMultipassSession(
         }
         val reports = mutableListOf<String>()
         plan.passes.forEach { pass ->
+            validateCheckpointAccess()
+            val restored = restoreInspection(pass)
+            if (restored != null && restored.isNotBlank() && restored.length <= 65_536) {
+                reports += restored
+                emit(ProviderEvent.Notice("Restored completed corpus inspection ${pass.ordinal}/${plan.passes.size}."))
+                return@forEach
+            }
             emit(ProviderEvent.Notice("Inspecting frozen corpus ${pass.ordinal}/${plan.passes.size} with the pinned primary."))
             val physical = open(listOf(pass.turn), "combined_corpus_inspection", plan.inspectionOutputTokens)
             val report = StringBuilder()
@@ -68,8 +78,11 @@ internal class CombinedCorpusMultipassSession(
                         "did not provide a complete visible report; original content was retained."
                 )
             }
+            validateCheckpointAccess()
+            saveInspection(pass, report.toString())
             reports += report.toString()
         }
+        validateCheckpointAccess()
         val finalTurns = try {
             ContextBudgetService.planFullInput(plan.finalTurns(reports), system, limits).turns
         } catch (capacity: IllegalArgumentException) {

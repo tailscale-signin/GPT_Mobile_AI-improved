@@ -1089,4 +1089,6 @@
     <string name="bubble_context">Context</string>
     <string name="backup_expand_category">Expand category</string>
     <string name="backup_collapse_category">Collapse category</string>
+    <string name="combined_text_match_hint">Source badges identify identical wording in the original contributions. Paraphrased support and exclusive ownership remain unverified.</string>
+    <string name="combined_text_match_passage">Text match: “%1$s”</string>
 </resources>

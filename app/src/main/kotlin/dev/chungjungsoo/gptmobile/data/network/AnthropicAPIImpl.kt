@@ -112,50 +112,59 @@ class AnthropicAPIImpl @Inject constructor(
             flow<MessageResponseChunk> {
                 val endpoint = config.buildEndpoint("messages")
 
-                val admittedPayload = requestPreparation.prepare(json.encodeToString(messageRequest), config, messageRequest.model, null)
-                networkClient().preparePost(endpoint) {
-                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
-                    contentType(ContentType.Application.Json)
-                    setBody(admittedPayload)
-                    accept(ContentType.Text.EventStream)
-                    headers {
-                        append(API_KEY_HEADER, config.token ?: "")
-                        append(VERSION_HEADER, ANTHROPIC_VERSION)
-                        append(BETA_HEADER, anthropicBetaHeader(config.anthropicBetaFeatures))
-                    }
-                }.execute { response ->
-                    if (!response.status.isSuccess()) {
-                        val errorBody = response.body<String>()
-                        throwIfToolDefinitionsRejected(
-                            response.status.value,
-                            !messageRequest.tools.isNullOrEmpty(),
-                            errorBody
-                        )
+                ResilientStreamingClient.executeWithRetry(
+                    config = ResilientStreamingClient.RetryConfig(maxAttempts = 3),
+                    shouldRetry = { !receivedPayload }
+                ) {
+                    ProviderCooldown.await(config)
+                    val admittedPayload = requestPreparation.prepare(json.encodeToString(messageRequest), config, messageRequest.model, null)
+                    networkClient().preparePost(endpoint) {
+                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
+                        contentType(ContentType.Application.Json)
+                        setBody(admittedPayload)
+                        accept(ContentType.Text.EventStream)
+                        headers {
+                            append(API_KEY_HEADER, config.token ?: "")
+                            append(VERSION_HEADER, ANTHROPIC_VERSION)
+                            append(BETA_HEADER, anthropicBetaHeader(config.anthropicBetaFeatures))
+                        }
+                    }.execute { response ->
+                        if (!response.status.isSuccess()) {
+                            if (response.status.value in setOf(429, 502, 503, 504, 529)) {
+                                throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[io.ktor.http.HttpHeaders.RetryAfter]))
+                            }
+                            val errorBody = response.body<String>()
+                            throwIfToolDefinitionsRejected(
+                                response.status.value,
+                                !messageRequest.tools.isNullOrEmpty(),
+                                errorBody
+                            )
 
-                        val errorMessage = try {
-                            val errorResponse = json.decodeFromString<AnthropicErrorResponse>(errorBody)
-                            errorResponse.error.message
-                        } catch (_: Exception) {
-                            "HTTP ${response.status.value}: $errorBody"
+                            val errorMessage = try {
+                                val errorResponse = json.decodeFromString<AnthropicErrorResponse>(errorBody)
+                                errorResponse.error.message
+                            } catch (_: Exception) {
+                                "HTTP ${response.status.value}: $errorBody"
+                            }
+
+                            emit(ErrorResponseChunk(error = ErrorDetail(type = "api_error", message = errorMessage)))
+                            return@execute
                         }
 
-                        emit(ErrorResponseChunk(error = ErrorDetail(type = "api_error", message = errorMessage)))
-                        return@execute
-                    }
+                        val channel = response.bodyAsChannel()
+                        while (!channel.isClosedForRead) {
+                            val line = channel.readLine() ?: break
+                            val data = SseUtils.extractSseData(line) ?: continue
 
-                    val channel = response.bodyAsChannel()
-                    while (!channel.isClosedForRead) {
-                        val line = channel.readLine() ?: break
-                        val data = SseUtils.extractSseData(line) ?: continue
-
-                        val chunk = try {
-                            json.decodeFromString<MessageResponseChunk>(data)
-                        } catch (_: kotlinx.serialization.SerializationException) {
-                            // Skip malformed payloads, never exceptions from downstream emit.
-                            continue
+                            val chunk = try {
+                                json.decodeFromString<MessageResponseChunk>(data)
+                            } catch (_: kotlinx.serialization.SerializationException) {
+                                // Skip malformed payloads, never exceptions from downstream emit.
+                                continue
+                            }
+                            receivedPayload = true
+                            emit(chunk)
                         }
-                        receivedPayload = true
-                        emit(chunk)
                     }
                 }
             }.catch { e ->

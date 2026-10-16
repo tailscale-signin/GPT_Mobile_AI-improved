@@ -232,7 +232,10 @@ class LocalModelRepositoryImpl(
                             id = result.record.catalogEntryId,
                             originalFileName = fileName,
                             installedFileName = result.record.fileName,
-                            sizeInBytes = result.sizeBytes
+                            sizeInBytes = result.sizeBytes,
+                            previousEntry = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.readFromDirectory(
+                                File(result.absoluteFilePath).parentFile!!
+                            )
                         )
                     )
                 }

@@ -56,11 +56,15 @@ object LocalModelPackages {
         id: String,
         originalFileName: String,
         installedFileName: String,
-        sizeInBytes: Long
+        sizeInBytes: Long,
+        previousEntry: CatalogEntry? = null
     ): CatalogEntry = forInstalledFile(
         CatalogEntry(
             id = id,
-            displayName = originalFileName.substringBeforeLast('.'),
+            // A renamed duplicate must not erase the only SoC evidence retained by a legacy import.
+            displayName = previousEntry?.takeIf {
+                it.id == id && it.variantLabel.equals("LITERT_LM", ignoreCase = true) && npuSoc(it.displayName) != null
+            }?.displayName ?: originalFileName.substringBeforeLast('.'),
             sizeInBytes = sizeInBytes,
             familyId = id,
             variantLabel = "LITERT_LM",

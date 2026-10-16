@@ -5,11 +5,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class PreparationStrategy { BALANCED, MINIMAL_RESOURCES }
 
-/** Pilot defaults stay off until physical-device acceptance gates have passed. */
+/** Bounded metadata readiness is enabled on new installs; existing persisted settings stay authoritative. */
 @Serializable
 data class ReadinessSettings(
     val version: Int = 1,
-    val enabled: Boolean = false,
+    val enabled: Boolean = true,
     val predictMemory: Boolean = false,
     val warmMeteredNetworks: Boolean = false,
     val strategy: PreparationStrategy = PreparationStrategy.BALANCED,

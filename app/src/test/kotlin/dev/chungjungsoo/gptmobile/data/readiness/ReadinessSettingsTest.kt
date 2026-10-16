@@ -4,12 +4,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadinessSettingsTest {
-    @Test fun oldSettingsRemainConservativeAndPreferencesRoundTrip() {
+    @Test fun newSettingsEnableSafeWarmupButNotDraftPrediction() {
         val legacy = Json.decodeFromString<ReadinessSettings>("{}")
-        assertFalse(legacy.enabled)
+        assertTrue(legacy.enabled)
         assertFalse(legacy.predictMemory)
         assertFalse(legacy.warmMeteredNetworks)
         val selected = legacy.copy(enabled = true, predictMemory = true, strategy = PreparationStrategy.MINIMAL_RESOURCES, cacheGeneration = 4)

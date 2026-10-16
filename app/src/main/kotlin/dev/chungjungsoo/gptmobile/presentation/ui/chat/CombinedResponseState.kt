@@ -112,9 +112,9 @@ internal fun combinedAnswerStatus(
 }
 
 /**
- * Previously generated answers may contain the old recovery footer with
- * per-model names. Suppress those UI-only labels without modifying the stored
- * answer or its immutable combinedSources, so coverage and Debug inspection work.
+ * Legacy delivery files can contain an old per-model recovery footer.
+ * Remove only its UI labels; the stored answer and frozen combined sources
+ * remain available to Debug and coverage inspection.
  */
 internal fun combinedVisibleAnswer(answer: String): String {
     val heading = Regex("(?m)^## Additional source details\\s*$")
@@ -122,14 +122,11 @@ internal fun combinedVisibleAnswer(answer: String): String {
     val body = answer.substring(0, match.range.first).trimEnd()
     val appendix = answer.substring(match.range.last + 1)
         .replace(
-            Regex("(?m)^The passages below were not fully integrated by the synthesis model\\.\\s*The passages? are retained.*(?:\\r?\\n)?"),
-            ""
-        )
-        .replace(
-            Regex("(?m)^They are retained from individual AI profiles, not independently verified facts\\.\\s*$"),
+            "The passages below were not fully integrated by the synthesis model. " +
+                "They are retained from individual AI profiles, not independently verified facts.",
             ""
         )
         .replace(Regex("(?m)^\\*\\*From [^\\r\\n]{1,180}:\\*\\*\\s*$"), "")
         .trim()
-    return if (appendix.isBlank()) body else "$body\\n\\n## Further details\\n\\n$appendix".replace("\\n", "\n")
+    return if (appendix.isBlank()) body else "$body\n\n## Further details\n\n$appendix"
 }

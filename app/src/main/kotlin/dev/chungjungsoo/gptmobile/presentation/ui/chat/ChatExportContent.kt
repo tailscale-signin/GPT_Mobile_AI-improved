@@ -13,13 +13,14 @@ enum class ChatExportFormat(val extension: String, val mimeType: String) {
 }
 
 /** Only the selected AI response revision is exported. Activity and prompts are separate data. */
-internal fun assistantExportText(message: MessageV2, format: ChatExportFormat): String {
+internal fun assistantExportText(message: MessageV2, format: ChatExportFormat, debugMode: Boolean = false): String {
     val text = message.effectiveContent().ifBlank {
         message.effectiveTimeline().filter { it.type == AssistantTimelineItemType.TEXT }.joinToString("") { it.content }
     }
     val response = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(ThinkingParser.extractThinking(text).response).trim()
-    if (format == ChatExportFormat.MARKDOWN) return response
-    return response
+    val visible = if (message.isCombinedSynthesis()) combinedVisibleAnswer(response, debugMode) else response
+    if (format == ChatExportFormat.MARKDOWN) return visible
+    return visible
         .replace(Regex("(?m)^\\s*```[^\\n]*$"), "")
         .replace(Regex("(?m)^\\s*#{1,6}\\s+"), "")
         .replace(Regex("!?\\[([^\\]]+)]\\(([^)]+)\\)")) { "${it.groupValues[1]} (${it.groupValues[2]})" }

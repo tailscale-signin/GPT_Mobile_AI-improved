@@ -2,62 +2,67 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import java.text.BreakIterator
 import java.util.Locale
 
-/** Textual lineage only: matching wording is not a verification of the underlying claim. */
+/** Source-aligned wording/claim hints, never qualified semantic verification. */
 data class CombinedWordingSpan(val start: Int, val end: Int, val profileUids: Set<String>)
 
 /**
- * Index contiguous five-word phrases, retaining every submitter. Offsets always refer to
- * the original UTF-16 answer, including emoji and Markdown; normalization never shifts them.
- * Overlapping matches are partitioned so shared wording cannot acquire an exclusive colour.
+ * Colour meaningful answer claims, not arbitrary shared five-word openers.
+ * Compare every competing contributor before assigning exclusive ownership; multi-source
+ * contributions remain neutral in the prose renderer and are inspectable in Debug Mode.
+ * UTF-16 ranges always refer to the original answer, not transformed Markdown.
  */
 fun combinedWordingSpans(answer: String, sources: List<CombinedModelResponse>): List<CombinedWordingSpan> {
-    val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
     val visible = ConversationSubject.withoutMetadata(answer)
     val offset = answer.length - visible.length
     if (offset < 0 || !answer.endsWith(visible)) return emptyList()
-    val words = word.findAll(visible).toList()
-    if (words.size < 5) return emptyList()
-    // Bound indexing work for very large retained corpora; no truncated attribution is published.
-    if (answer.length.toLong() + sources.sumOf { it.content.length.toLong() } > 262_144L) return emptyList()
-    fun key(window: List<MatchResult>) = window.joinToString(" ") { it.value.lowercase(Locale.ROOT) }
-    val index = HashMap<String, MutableSet<String>>()
-    sources.forEach { source ->
-        val text = ConversationSubject.withoutMetadata(source.content)
-        word.findAll(text).toList().windowed(5).forEach { window ->
-            // Never join unrelated paragraphs into a phrase.
-            if ('\n' !in text.substring(window.first().range.first, window.last().range.last + 1)) {
-                index.getOrPut(key(window)) { linkedSetOf() }.add(source.platformUid)
-            }
+
+    data class Indexed(val uid: String, val fingerprint: CombinedClaimMatcher.Fingerprint)
+    val indexed = sources.flatMap { source ->
+        CombinedContentCoverage.sentences(ConversationSubject.withoutMetadata(source.content))
+            .map { Indexed(source.platformUid, CombinedClaimMatcher.fingerprint(it)) }
+            .filter { it.fingerprint.terms.size >= 3 }
+    }
+    if (indexed.isEmpty()) return emptyList()
+
+    // Index by distinctive terms to avoid quadratic comparisons for long combined essays.
+    val byTerm = HashMap<String, MutableList<Int>>()
+    indexed.forEachIndexed { i, source ->
+        source.fingerprint.terms.forEach { term ->
+            byTerm.getOrPut(term) { mutableListOf() }.add(i)
         }
     }
-    val events = sortedMapOf<Int, MutableList<Pair<String, Int>>>()
-    words.windowed(5).forEach { window ->
-        val start = window.first().range.first
-        val end = window.last().range.last + 1
-        if (end - start >= 24 && '\n' !in visible.substring(start, end)) {
-            index[key(window)]?.forEach { uid ->
-                events.getOrPut(start + offset) { mutableListOf() }.add(uid to 1)
-                events.getOrPut(end + offset) { mutableListOf() }.add(uid to -1)
-            }
-        }
-    }
-    val active = mutableMapOf<String, Int>()
     val result = mutableListOf<CombinedWordingSpan>()
-    var previous = 0
-    events.forEach { (position, changes) ->
-        val profiles = active.filterValues { it > 0 }.keys.toSet()
-        if (position > previous && profiles.isNotEmpty()) {
-            val last = result.lastOrNull()
-            if (last?.end == previous && last.profileUids == profiles) {
-                result[result.lastIndex] = last.copy(end = position)
-            } else {
-                result += CombinedWordingSpan(previous, position, profiles)
+    var cursor = 0
+    visible.lineSequence().forEach { line ->
+        if (line.isNotBlank() && !line.trimStart().startsWith("#") &&
+            !line.trimStart().startsWith(96.toChar().toString().repeat(3))) {
+            val iterator = BreakIterator.getSentenceInstance(Locale.ROOT).apply { setText(line) }
+            var localStart = iterator.first()
+            var localEnd = iterator.next()
+            while (localEnd != BreakIterator.DONE) {
+                var start = cursor + localStart
+                var end = cursor + localEnd
+                while (start < end && !visible[start].isLetterOrDigit()) start++
+                while (end > start && !visible[end - 1].isLetterOrDigit()) end--
+                if (end > start && end - start >= 24) {
+                    val claim = CombinedClaimMatcher.fingerprint(visible.substring(start, end))
+                    val candidates = claim.terms.asSequence().flatMap { byTerm[it].orEmpty().asSequence() }.distinct()
+                    val matching = candidates.mapNotNull { id ->
+                        val match = CombinedClaimMatcher.match(indexed[id].fingerprint, claim)
+                        indexed[id].uid.takeIf { match == CombinedClaimMatcher.Match.EXACT || match == CombinedClaimMatcher.Match.PARAPHRASE }
+                    }.toSet()
+                    if (matching.isNotEmpty()) {
+                        result += CombinedWordingSpan(start + offset, end + offset, matching)
+                    }
+                }
+                localStart = localEnd
+                localEnd = iterator.next()
             }
         }
-        changes.forEach { (uid, delta) -> active[uid] = (active[uid] ?: 0) + delta }
-        previous = position
+        cursor += line.length + 1
     }
     return result
 }

@@ -37,8 +37,9 @@ fun combinedWordingSpans(answer: String, sources: List<CombinedModelResponse>): 
     val result = mutableListOf<CombinedWordingSpan>()
     var cursor = 0
     visible.lineSequence().forEach { line ->
-        if (line.isNotBlank() && !line.trimStart().startsWith("#") &&
-            !line.trimStart().startsWith(96.toChar().toString().repeat(3))) {
+        val trimmed = line.trimStart()
+        val eligible = line.isNotBlank() && !trimmed.startsWith("#") && !trimmed.startsWith(96.toChar().toString().repeat(3))
+        if (eligible) {
             val iterator = BreakIterator.getSentenceInstance(Locale.ROOT).apply { setText(line) }
             var localStart = iterator.first()
             var localEnd = iterator.next()

@@ -326,12 +326,13 @@ class ChatRepositoryImpl(
             { runtimeEligibleForAssist(target, policy) },
             { task -> delegateToProfile(target, task, 128, root, root, delegationInputBudget(target, 128), { event -> event.invocationId?.let { invocation = it } }, allowTools = false, requestRole = "assist") },
             {},
-            policy.copy(evidenceSelection = true, summarizeRetrievedText = false, proposeQueries = false, maxAttempts = 1),
+            policy.copy(evidenceSelection = true, summarizeRetrievedText = false, proposeQueries = false, maxAttempts = 1, optionalWaitSeconds = 60),
             { settingRepository.getFeatureSettings().assistEnabled() && settingRepository.getFeatureSettings().effectiveAssistPolicy() == features.effectiveAssistPolicy() && settingRepository.getFeatureSettings().localAssistPolicy.preparation == features.localAssistPolicy.preparation && settingRepository.fetchPlatformV2s().any { it == target } },
             root,
             { invocation },
             contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
-            runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.runtimeFingerprint(localRuntime) }
+            runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.runtimeFingerprint(localRuntime) },
+            status = { dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(root, it) }
         )
         val original = dev.chungjungsoo.gptmobile.data.assist.AssistTestFixture.tool()
         val result = coordinator.bind(original).execute(root, JsonObject(emptyMap()))
@@ -714,6 +715,9 @@ class ChatRepositoryImpl(
             val entry = modelCatalogRepository.getCachedVisibleEntries().firstOrNull { it.id == selected.modelId }
                 ?.let { entry -> selected.record?.let { dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.forInstalledFile(entry, it.fileName) } ?: entry }
             capacity = minOf(capacity, dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens(Int.MAX_VALUE, target.accelerator.orEmpty(), entry, deviceSocModel, localRuntime.deviceRamGb))
+            localRuntime.admittedEngineSpec()?.takeIf {
+                it.modelPath == selected.path && it.accelerator == dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)
+            }?.let { capacity = minOf(capacity, it.maxTokens) }
             localRuntime.getAdaptiveThrottlingPolicy().maxTokensClamp?.let { capacity = minOf(capacity, it) }
         }
         if (capacity == Int.MAX_VALUE) return Int.MAX_VALUE
@@ -860,7 +864,8 @@ class ChatRepositoryImpl(
             allowTools = childTools.isNotEmpty() || allowGatewayLocalTools,
             // Prefer visible output for reviewers, follow-ups and models that already
             // spent a worker request entirely on reasoning.
-            allowReasoning = !concise,
+            // Concision is a prompt preference. llama.cpp Auto must not become strict Off.
+            allowReasoning = target.compatibleType == ClientType.LLAMA || !concise,
             allowGatewayLocalTools = allowGatewayLocalTools,
             requestRole = requestRole,
             attemptId = attemptId
@@ -868,7 +873,7 @@ class ChatRepositoryImpl(
         val bounded = target.copy(
             batchMode = false,
             model = if (target.compatibleType == ClientType.OPENROUTER) target.model.removeSuffix(":batch") else target.model,
-            reasoning = if (concise) false else target.reasoning,
+            reasoning = if (concise && target.compatibleType != ClientType.LLAMA) false else target.reasoning,
             disableAllTools = childTools.isEmpty() && !allowGatewayLocalTools,
             systemPrompt = boundedSystemPrompt
         )
@@ -1834,12 +1839,20 @@ class ChatRepositoryImpl(
                         candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
                         enabled = runFeatures.assistEnabled(),
                         supportsPrimaryRuntime = platform.compatibleType != ClientType.LITERT_LM,
+                        allowPerTurnTool = !platform.disableAllTools && !platform.disableLocalTools && chatToolConfig?.allToolsDisabled != true && !synthesisRun,
+                        admitPerTurnTool = { planningTool -> toolBudget.bind(planningTool) },
                         workflowOwnsAssistance = explicitResearch && !localResearch && runFeatures.effectiveAssistPolicy().researchPreparation,
                         policy = runFeatures.effectiveAssistPolicy(),
                         policySnapshot = runFeatures.resolveAssistPolicy(),
                         goal = effectiveUserMessages.lastOrNull()?.effectiveContent().orEmpty(),
                         turnId = if (runFeatures.sharedReadOnlyToolCalls) turnKey else runId,
-                        eligible = { target -> measurePreparation(runId, PreparationPhase.READINESS) { runtimeEligibleForAssist(target, runFeatures.effectiveAssistPolicy()) } },
+                        // Optional tool processing never starts a cold native load on remote chat's path.
+                        // Foreground preloading and explicit research/test preparation own cold loads.
+                        eligible = { target ->
+                            measurePreparation(runId, PreparationPhase.READINESS) {
+                                runtimeEligibleForAssist(target, runFeatures.effectiveAssistPolicy().copy(preparation = dev.chungjungsoo.gptmobile.data.assist.AssistPreparation.WARM_ONLY))
+                            }
+                        },
                         profileAllowed = { original ->
                             settingRepository.fetchPlatformV2s().any { current ->
                                 current.uid == original.uid &&
@@ -1855,7 +1868,10 @@ class ChatRepositoryImpl(
                         producerInvocationId = { latestAssistInvocationId },
                         contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
                         runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.research.researchHash("${localRuntime.state.value.backend}|${localRuntime.state.value.engineSpec}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}") },
-                        status = { emit(ApiState.AssistStatus(it)) },
+                        status = {
+                            dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
+                            emit(ApiState.AssistStatus(it))
+                        },
                         stillEnabled = {
                             val live = settingRepository.getFeatureSettings()
                             live.assistEnabled() && live.effectiveAssistPolicy() == runFeatures.effectiveAssistPolicy() && (!runFeatures.sharedReadOnlyToolCalls || live.sharedReadOnlyToolCalls)
@@ -1931,7 +1947,10 @@ class ChatRepositoryImpl(
                                     val text = generateDelegate(target, prompt, cap, inputCap = delegationInputBudget(target, cap), progress = { it.invocationId?.let { id -> invocationId = id } }, allowTools = false, requestRole = if (target.compatibleType == ClientType.LITERT_LM) "assist" else "research-${stage.name.lowercase(java.util.Locale.ROOT)}")
                                     dev.chungjungsoo.gptmobile.data.research.ResearchModelReply(text, dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.resolve(target).canonical.orEmpty(), invocationId)
                                 },
-                                onAssistStatus = { emit(ApiState.AssistStatus(it)) }
+                                onAssistStatus = {
+                                    dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
+                                    emit(ApiState.AssistStatus(it))
+                                }
                             )
                             val research = dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflow(
                                 directConfig,

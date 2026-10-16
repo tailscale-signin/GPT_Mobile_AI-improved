@@ -47,6 +47,7 @@ fun AppFeatureSettings.resolveAssistPolicy(): EffectiveAssistPolicy {
         evidenceSelection = requested.evidenceSelection && (!active || tuning.evidenceHandoff),
         summarizeRetrievedText = requested.summarizeRetrievedText && (!active || tuning.assistCompression),
         preparation = if (active && !(tuning.coldLoadAssist && tuning.mode in setOf(OptimizationMode.MAXIMUM_SAVINGS, OptimizationMode.CUSTOM))) AssistPreparation.WARM_ONLY else requested.preparation,
+        optionalWaitSeconds = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(1, requested.optionalWaitSeconds) else requested.optionalWaitSeconds,
         queueWaitSeconds = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(1, requested.queueWaitSeconds) else requested.queueWaitSeconds,
         maxAttempts = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(1, requested.maxAttempts) else requested.maxAttempts,
         taskTimeoutSeconds = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(3, requested.taskTimeoutSeconds) else requested.taskTimeoutSeconds

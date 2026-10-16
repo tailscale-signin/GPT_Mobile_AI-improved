@@ -233,13 +233,15 @@ class CombinedDeliverySessionTest {
         var rounds = 0
         val wrapper = CombinedDeliverySession(session(rows[0].content), rows, 100_000, validateAccess = {}) { _, _ ->
             rounds++
-            if (rounds == 1) session(rows.take(2).joinToString("\n\n") { it.content })
-            else session(rows.drop(1).joinToString("\n\n") { it.content })
+            if (rounds == 1) {
+                session(rows.take(2).joinToString("\n\n") { it.content })
+            } else {
+                session(rows.drop(1).joinToString("\n\n") { it.content })
+            }
         }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, rounds)
         assertEquals(rows.take(2).joinToString("\n\n") { it.content }, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
         assertTrue(events.last() is ProviderEvent.Failed)
     }
-
 }

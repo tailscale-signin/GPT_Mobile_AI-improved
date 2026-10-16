@@ -116,7 +116,7 @@ internal class CombinedDeliverySession(
             validateAccess()
             if (rewritten?.terminal == ProviderEvent.Completed && rewritten.text.isNotBlank()) {
                 val next = withContext(Dispatchers.Default) { policy.violations(rewritten.text) }
-                if (next.size < violations.size) {
+                if (next.isEmpty() || next.size < violations.size) {
                     accepted = rewritten
                     violations = next
                 }

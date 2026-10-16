@@ -116,7 +116,10 @@ internal class CombinedDeliverySession(
             validateAccess()
             if (rewritten?.terminal == ProviderEvent.Completed && rewritten.text.isNotBlank()) {
                 val next = withContext(Dispatchers.Default) { policy.violations(rewritten.text) }
-                if (next.isEmpty() || next.size < violations.size) {
+                val retryCeiling = policy.maximumWords ?: policy.targetWords
+                val retryFitsRequestedLength = next.none { it.startsWith("WORD_") } &&
+                    (retryCeiling == null || visibleWordCount(rewritten.text) <= retryCeiling)
+                if (retryFitsRequestedLength || next.size < violations.size) {
                     accepted = rewritten
                     violations = next
                 }

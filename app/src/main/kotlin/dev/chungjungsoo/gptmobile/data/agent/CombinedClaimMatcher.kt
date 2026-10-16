@@ -95,7 +95,8 @@ internal object CombinedClaimMatcher {
         val sameTopic = shared >= 3 && shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.72
         if (!sameTopic) return false
         val numberDisagreement = first.numbers.isNotEmpty() && second.numbers.isNotEmpty() &&
-            first.numbers.intersect(second.numbers).isEmpty()
+            first.numbers.subtract(second.numbers).isNotEmpty() &&
+            second.numbers.subtract(first.numbers).isNotEmpty()
         val polarityDisagreement = first.negative != second.negative
         return numberDisagreement || polarityDisagreement
     }

@@ -93,8 +93,24 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             val unsupportedMethod = error.code == -32601 && error.status in setOf(200, 400, 404, 405)
             val legacyHttpResponse = error.status in setOf(400, 404, 405) && error.code !in MODERN_ERRORS
             if (unsupportedMethod || legacyHttpResponse) {
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=legacy_fallback · connection=${config.connectionUid}")
-                null
+                // Some POST-only MCP servers reject the optional server/discover extension
+                // but implement tools/list normally. Probe a read-only POST before the SDK
+                // attempts an unsupported GET/SSE legacy handshake.
+                val postOnly = if (error.status == 400 && error.code == null) {
+                    kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                        runCatching { rpc(config, "tools/list", JsonObject(emptyMap())) }.getOrNull()
+                    }
+                } else null
+                if (postOnly?.get("tools") is JsonArray) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=post_only_supported · connection=${config.connectionUid}")
+                    buildJsonObject {
+                        put("supportedVersions", JsonArray(listOf(JsonPrimitive(VERSION))))
+                        put("capabilities", buildJsonObject { put("tools", JsonObject(emptyMap())) })
+                    }
+                } else {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=legacy_fallback · connection=${config.connectionUid}")
+                    null
+                }
             } else {
                 throw error
             }

@@ -279,7 +279,7 @@ object AppLogRecorder {
                 record(
                     "AnrTraceSummary",
                     "exitTime=${exit.timestamp} · mainAppFrames=${frames.size} · trace=${if (frames.isEmpty()) "not_available_or_no_app_frames" else "sanitized"}" +
-                        if (frames.isEmpty()) "" else "\\n" + frames.joinToString("\\n"),
+                        if (frames.isEmpty()) "" else "\n" + frames.joinToString("\n"),
                     "W"
                 )
                 preferences.edit().putLong("last_sanitized_anr", exit.timestamp).apply()

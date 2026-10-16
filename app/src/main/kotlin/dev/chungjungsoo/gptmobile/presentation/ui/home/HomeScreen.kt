@@ -137,6 +137,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -300,37 +301,32 @@ fun HomeScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(archiveSnackbarState) },
         topBar = {
-            HomeTopBar(
-                chatListState = chatListState,
-                scrollBehavior = scrollBehavior,
-                selectedChatCount = selectedChatCount,
-                canDuplicate = selectedChat != null && !activeChatIds.contains(selectedChat.id),
-                onCloseSelectionMode = closeSelection,
-                onDuplicateClick = {
-                    homeViewModel.duplicateSelectedChat()
-                    Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
-                },
-                onArchiveClick = homeViewModel::archiveSelectedChats,
-                onSelectAllClick = homeViewModel::selectAllChats,
-                onDeleteClick = homeViewModel::openDeleteWarningDialog,
-                onSettingClick = settingOnClick,
-                onSearchToggle = {
-                    if (chatListState.isSearchMode) {
-                        closeSearch()
-                    } else {
-                        homeViewModel.enableSearchMode()
-                    }
-                },
-                onSearchQueryChanged = homeViewModel::updateSearchQuery,
-                searchQuery = searchQuery
-            )
-        },
-        floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (completedGenerations.isNotEmpty()) {
+            Column {
+                HomeTopBar(
+                    chatListState = chatListState,
+                    scrollBehavior = scrollBehavior,
+                    selectedChatCount = selectedChatCount,
+                    canDuplicate = selectedChat != null && !activeChatIds.contains(selectedChat.id),
+                    onCloseSelectionMode = closeSelection,
+                    onDuplicateClick = {
+                        homeViewModel.duplicateSelectedChat()
+                        Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
+                    },
+                    onArchiveClick = homeViewModel::archiveSelectedChats,
+                    onSelectAllClick = homeViewModel::selectAllChats,
+                    onDeleteClick = homeViewModel::openDeleteWarningDialog,
+                    onSettingClick = settingOnClick,
+                    onSearchToggle = {
+                        if (chatListState.isSearchMode) {
+                            closeSearch()
+                        } else {
+                            homeViewModel.enableSearchMode()
+                        }
+                    },
+                    onSearchQueryChanged = homeViewModel::updateSearchQuery,
+                    searchQuery = searchQuery
+                )
+                if (completedGenerations.isNotEmpty() && !chatListState.isSelectionMode) {
                     val knownChats = remember(chatListState.chats, archivedChats) {
                         (chatListState.chats + archivedChats).associateBy { it.id }
                     }
@@ -347,6 +343,13 @@ fun HomeScreen(
                         }
                     )
                 }
+            }
+        },
+        floatingActionButton = {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
                     NewChatButton(onClick = navigateToNewChat)
                 }

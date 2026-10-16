@@ -131,7 +131,7 @@ internal fun MultiChatWorkspaceScreen(
                             label = { Text(names[room.id] ?: room.title) },
                             onClick = {
                                 selectedChatId = room.id
-                                innerNav.navigate("lane/" + room.id + "?enabled=" + room.enabledPlatform.joinToString(",") + "&mode=STANDARD") {
+                                innerNav.navigate("lane_" + room.id) {
                                     popUpTo(innerNav.graph.startDestinationId) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
@@ -151,25 +151,34 @@ internal fun MultiChatWorkspaceScreen(
                     val first = remember(rooms) { rooms.first() }
                     NavHost(
                         navController = innerNav,
-                        startDestination = "lane/" + first.id + "?enabled=" + first.enabledPlatform.joinToString(",") + "&mode=STANDARD",
+                        startDestination = "lane_" + first.id,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        composable(
-                            route = "lane/{chatRoomId}?enabled={enabledPlatforms}&mode={conversationMode}",
-                            arguments = listOf(
-                                navArgument("chatRoomId") { type = NavType.IntType },
-                                navArgument("enabledPlatforms") { defaultValue = "" },
-                                navArgument("conversationMode") { defaultValue = "STANDARD" }
-                            )
-                        ) { entry ->
-                            val child: ChatViewModel = hiltViewModel(entry)
-                            ChatScreen(
-                                chatViewModel = child,
-                                onBackAction = onBack,
-                                onReviewEvidenceAccess = onReviewEvidenceAccess,
-                                onNavigateToLocalModels = onNavigateToLocalModels,
-                                onOpenConversation = onOpenConversation
-                            )
+                        rooms.forEach { room ->
+                            composable(
+                                route = "lane_" + room.id,
+                                arguments = listOf(
+                                    navArgument("chatRoomId") {
+                                        type = NavType.IntType
+                                        defaultValue = room.id
+                                    },
+                                    navArgument("enabledPlatforms") {
+                                        defaultValue = room.enabledPlatform.joinToString(",")
+                                    },
+                                    navArgument("conversationMode") {
+                                        defaultValue = "STANDARD"
+                                    }
+                                )
+                            ) { entry ->
+                                val child: ChatViewModel = hiltViewModel(entry)
+                                ChatScreen(
+                                    chatViewModel = child,
+                                    onBackAction = onBack,
+                                    onReviewEvidenceAccess = onReviewEvidenceAccess,
+                                    onNavigateToLocalModels = onNavigateToLocalModels,
+                                    onOpenConversation = onOpenConversation
+                                )
+                            }
                         }
                     }
                 }

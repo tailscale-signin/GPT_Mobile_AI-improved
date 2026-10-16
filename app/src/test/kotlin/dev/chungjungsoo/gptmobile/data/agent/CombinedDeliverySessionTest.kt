@@ -146,7 +146,10 @@ class CombinedDeliverySessionTest {
                 if (it is ProviderEvent.Notice && it.message == "repair progress") throw consumerFailure
             }
         }.exceptionOrNull()
-        assertTrue(failure === consumerFailure)
+        assertEquals(consumerFailure.javaClass, failure?.javaClass)
+        assertEquals(consumerFailure.message, failure?.message)
+        // Coroutine debug stack recovery can copy the exception across the repair timeout boundary.
+        assertTrue(failure === consumerFailure || failure?.cause === consumerFailure)
     }
 
     @Test fun repairCannotRewriteAnAlreadyCommittedPrefix() = runTest {

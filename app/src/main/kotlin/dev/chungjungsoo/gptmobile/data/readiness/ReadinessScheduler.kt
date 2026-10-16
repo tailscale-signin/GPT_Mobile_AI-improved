@@ -11,21 +11,30 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
-/** No caller joins speculative cancellation. Accepted sends never acquire these permits. */
+/** Speculation uses separate bounded network/local lanes; accepted Send takes neither permit. */
+enum class ReadinessResource { NETWORK, LOCAL }
+
 @Singleton
 class ReadinessScheduler @Inject constructor(@dev.chungjungsoo.gptmobile.di.ReadinessScope private val scope: CoroutineScope) {
     private val jobs = ConcurrentHashMap<String, Job>()
     private val network = Semaphore(2)
+    private val local = Semaphore(1)
+
     fun request(key: String, eligible: () -> Boolean, work: suspend () -> Unit) {
+        requestFor(key, eligible, ReadinessResource.NETWORK, work)
+    }
+
+    fun requestFor(key: String, eligible: () -> Boolean, resource: ReadinessResource, work: suspend () -> Unit) {
         synchronized(jobs) {
-            if (jobs[key]?.isActive == true || jobs.size >= 8 || !eligible()) return
+            if (jobs[key]?.isActive == true || jobs.size >= 12 || !eligible()) return
+            val lane = if (resource == ReadinessResource.LOCAL) local else network
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
-                    network.withPermit { if (eligible()) work() }
+                    lane.withPermit { if (eligible()) work() }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    // Quiet metadata failure; required acquisition retains its own visible error.
+                    // Optional preparation failure does not turn into a Send error.
                 }
             }
             jobs[key] = job
@@ -33,7 +42,13 @@ class ReadinessScheduler @Inject constructor(@dev.chungjungsoo.gptmobile.di.Read
             job.start()
         }
     }
+
     fun cancelSpeculation() {
-        jobs.values.toList().forEach { it.cancel() }
+        val cancelled = synchronized(jobs) {
+            jobs.values.toList().also { jobs.clear() }
+        }
+        // Cancellation cleanup may be dispatched later. Old jobs must not consume the
+        // next generation's admission slots; completion still removes by job identity.
+        cancelled.forEach { it.cancel() }
     }
 }

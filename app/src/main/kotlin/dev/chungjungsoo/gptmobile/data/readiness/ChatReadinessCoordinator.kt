@@ -37,12 +37,13 @@ class ChatReadinessCoordinator @Inject constructor(
     private val runtime: LocalRuntime,
     private val memory: MemoryPreviewCoordinator,
     private val scheduler: ReadinessScheduler,
+    private val transport: ProviderTransportWarmer,
     @dev.chungjungsoo.gptmobile.di.ReadinessScope private val scope: CoroutineScope
 ) {
     private val hardwareAllowed = MutableStateFlow(false)
     private val started = AtomicBoolean()
     private val uiReady = ReadinessHints.uiReady
-    private val selected = ReadinessHints.profiles.combine(ReadinessHints.networkEpoch) { profiles, _ -> profiles }
+    private val selected = combine(ReadinessHints.profiles, ReadinessHints.networkEpoch, ReadinessHints.composerEngaged) { profiles, _, focused -> profiles to focused }
     fun usableUi() {
         ReadinessHints.usableUi()
     }
@@ -83,13 +84,29 @@ class ChatReadinessCoordinator @Inject constructor(
                 .collectLatest { (state, availability) ->
                     scheduler.cancelSpeculation()
                     memory.clear()
-                    val (features, profiles, hints) = state
-                    if (!availability.first) return@collectLatest
-                    delay(500)
+                    val (features, profiles, selection) = state
+                    val (hints, composerEngaged) = selection
+                    if (!availability.first || !features.readiness.enabled) return@collectLatest
+                    if (!composerEngaged) delay(500)
                     if (!idle()) return@collectLatest
-                    val targets = (hints + features.lastChatProfileUids).distinct().mapNotNull { uid -> profiles.firstOrNull { it.uid == uid && it.enabled } }.take(if (features.readiness.strategy == PreparationStrategy.MINIMAL_RESOURCES) 1 else 2)
-                    if (features.readiness.enabled) scheduler.request("memory-metadata", ::idle) { memory.warmMetadata() }
-                    if (features.readiness.enabled && networkAllowed(features.readiness.warmMeteredNetworks)) {
+                    val count = when {
+                        composerEngaged -> 4
+                        features.readiness.strategy == PreparationStrategy.MINIMAL_RESOURCES -> 1
+                        else -> 2
+                    }
+                    val targets = (hints + features.lastChatProfileUids).distinct().mapNotNull { uid ->
+                        profiles.firstOrNull { it.uid == uid && it.enabled }
+                    }.take(count)
+                    scheduler.requestFor("memory-metadata", ::idle, ReadinessResource.LOCAL) { memory.warmMetadata() }
+                    if (networkAllowed(features.readiness.warmMeteredNetworks)) {
+                        // Prime the shared inference transport first. Never send a draft, API credential or token.
+                        if (composerEngaged) {
+                            targets.filter { it.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.forEach { profile ->
+                                scheduler.request("provider:${profile.uid}", ::idle) {
+                                    transport.warm(profile.apiUrl, ReadinessHints.networkEpoch.value, ReadinessInvalidation.epoch)
+                                }
+                            }
+                        }
                         targets.forEach { profile ->
                             if (features.remoteMcpConnections) scheduler.request("mcp:${profile.uid}", ::idle) { tools.warmSelectedCatalogues(profile.uid, if (features.readiness.strategy == PreparationStrategy.MINIMAL_RESOURCES) 1 else 4) }
                         }
@@ -99,8 +116,8 @@ class ChatReadinessCoordinator @Inject constructor(
                     val requested = features.localAssistPolicy
                     // Explicit preload is separate from per-task cold loading. Never auto-select/download weights.
                     val target = profiles.firstOrNull { it.uid == requested.profileUid && effective.effective.allowsProcessing(it) }
-                    if (effective.enabled && requested.preloadInForeground && requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY && target != null) {
-                        scheduler.request("helper:${target.uid}", ::idle) {
+                    if (!composerEngaged && effective.enabled && requested.preloadInForeground && requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY && target != null) {
+                        scheduler.requestFor("helper:${target.uid}", ::idle, ReadinessResource.LOCAL) {
                             if (!helper.eligible(target, effective.effective.copy(preparation = requested.preparation))) {
                                 helper.recoveryRetryAtMillis?.let { until ->
                                     delay((until - android.os.SystemClock.elapsedRealtime()).coerceIn(1, 30_000))

@@ -10,6 +10,35 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ReadinessSchedulerTest {
+    @Test fun cancelledGenerationCannotConsumeReplacementAdmissionSlots() = runTest {
+        val scheduler = ReadinessScheduler(backgroundScope)
+        repeat(12) { scheduler.request("old-$it", { true }) { awaitCancellation() } }
+        runCurrent()
+        scheduler.cancelSpeculation()
+        var warmed = 0
+        // Submit before cancellation handlers get a dispatcher turn, as the configuration collector does.
+        repeat(4) { scheduler.request("new-$it", { true }) { warmed++ } }
+        runCurrent()
+        assertEquals(4, warmed)
+    }
+
+    @Test fun oldCompletionCannotRemoveReplacementWithSameKey() = runTest {
+        val scheduler = ReadinessScheduler(backgroundScope)
+        scheduler.request("profile", { true }) { awaitCancellation() }
+        runCurrent()
+        scheduler.cancelSpeculation()
+        var started = 0
+        scheduler.request("profile", { true }) {
+            started++
+            awaitCancellation()
+        }
+        runCurrent()
+        scheduler.request("profile", { true }) { started++ }
+        runCurrent()
+        assertEquals(1, started)
+        scheduler.cancelSpeculation()
+    }
+
     @Test fun duplicateHintsCoalesceAndNetworkConcurrencyIsBounded() = runTest {
         val scheduler = ReadinessScheduler(backgroundScope)
         val release = CompletableDeferred<Unit>()

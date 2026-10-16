@@ -67,8 +67,9 @@ internal class CombinedDeliverySession(
         var repairRounds = 0
         while (!checked.accepted && repairRounds < maxRepairRounds.coerceIn(0, 8)) {
             repairRounds++
-            emit(ProviderEvent.Notice("Auditing " + checked.missing.size + " unresolved claims (" +
-                checked.tentativeMatches + " uncertain paraphrases); repair pass " + repairRounds + "."))
+            val notice = "Auditing " + checked.missing.size + " unresolved claims (" +
+                checked.tentativeMatches + " uncertain paraphrases); repair pass " + repairRounds + "."
+            emit(ProviderEvent.Notice(notice))
             val repaired = withTimeoutOrNull(90_000L) {
                 val attempt = try {
                     repair(text, checked.missing)

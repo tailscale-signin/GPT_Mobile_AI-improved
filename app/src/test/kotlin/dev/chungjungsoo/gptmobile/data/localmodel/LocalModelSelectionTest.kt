@@ -13,6 +13,7 @@ import org.junit.rules.TemporaryFolder
 
 class LocalModelSelectionTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
+
     @Test
     fun `missing download fails preflight without starting a download`() {
         val repo = FakeLocalModelRepository()

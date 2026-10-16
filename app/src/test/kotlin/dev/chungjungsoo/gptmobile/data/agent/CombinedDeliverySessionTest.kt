@@ -263,7 +263,7 @@ class CombinedDeliverySessionTest {
         assertEquals(2, rounds)
         val delivered = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(delivered.startsWith(rows.take(2).joinToString("\n\n") { it.content }))
-        assertTrue(delivered.contains("## Additional source details"))
+        assertTrue(delivered.contains("## Further details"))
         assertTrue(delivered.contains(rows[2].content))
         assertTrue(delivered.contains(rows[3].content))
         assertEquals(ProviderEvent.Completed, events.last())
@@ -299,7 +299,7 @@ class CombinedDeliverySessionTest {
         assertTrue(events.none { it is ProviderEvent.ToolCall })
         val delivered = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(delivered.startsWith(original))
-        assertTrue(delivered.contains("## Additional source details"))
+        assertTrue(delivered.contains("## Further details"))
         assertTrue(delivered.contains(rows[1].content))
         assertEquals(ProviderEvent.Completed, events.last())
     }

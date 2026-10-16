@@ -15,6 +15,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val candidates = definitions.associateBy { it.name }.toMutableMap()
     private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
+
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
     private val acquiredQueryKeys = mutableSetOf<String>()
     override val definition = AgentToolDefinition(
@@ -59,9 +60,11 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             val alreadyFetched = synchronized(this) { key in acquiredQueryKeys }
             if (!alreadyFetched) {
                 val acquired = acquireCold.invoke(query, names)
-                if (acquired.isNotEmpty()) synchronized(this) {
-                    acquired.forEach { candidates[it.name] = it }
-                    acquiredQueryKeys += key
+                if (acquired.isNotEmpty()) {
+                    synchronized(this) {
+                        acquired.forEach { candidates[it.name] = it }
+                        acquiredQueryKeys += key
+                    }
                 }
             }
         }

@@ -128,7 +128,9 @@ internal class ResearchDeliverySession(
             val sectioned = if (!repairedAccepted && delivery.detail != ResearchReportDetail.BRIEF) {
                 emit(ProviderEvent.Notice("Writing the remaining research sections in smaller, source-checked segments."))
                 trySectionedRepair(delivery, context(delivery))
-            } else null
+            } else {
+                null
+            }
             val sectionedAccepted = sectioned != null
             text = when {
                 repairedAccepted -> repair.toString()
@@ -145,7 +147,6 @@ internal class ResearchDeliverySession(
         emit(ProviderEvent.TextDelta(text))
         emit(ProviderEvent.Completed)
     }
-
 
     /** Each chapter is a separate tool-free request; it may fail without losing captured evidence. */
     private suspend fun trySectionedRepair(packet: ResearchDeliveryPacket, sourceContext: String): String? {

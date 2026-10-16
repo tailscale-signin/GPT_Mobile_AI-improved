@@ -100,7 +100,9 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                     kotlinx.coroutines.withTimeoutOrNull(5_000L) {
                         runCatching { rpc(config, "tools/list", JsonObject(emptyMap())) }.getOrNull()
                     }
-                } else null
+                } else {
+                    null
+                }
                 if (postOnly?.get("tools") is JsonArray) {
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=post_only_supported · connection=${config.connectionUid}")
                     buildJsonObject {

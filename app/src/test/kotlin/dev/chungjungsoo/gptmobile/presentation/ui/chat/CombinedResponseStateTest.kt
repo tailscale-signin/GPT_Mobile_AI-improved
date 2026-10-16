@@ -103,8 +103,6 @@ class CombinedResponseStateTest {
         assertEquals("AI 1", combinedProfileLabel("🚀 ★ ---", "AI 1"))
     }
 
-
-
     @Test
     fun `previously saved combined footer hides source labels without losing facts`() {
         val saved = """

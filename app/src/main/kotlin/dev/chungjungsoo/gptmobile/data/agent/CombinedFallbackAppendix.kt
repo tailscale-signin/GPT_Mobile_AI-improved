@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+/** Stable, explicit boundary for debug-only recovery excerpts. */
+internal const val COMBINED_RECOVERY_MARKER = "<!-- gptmobile:combined-recovery:v1 -->"
+
 /**
  * Last-resort deterministic source preservation after editorial synthesis and repair.
  * These are unverified source excerpts, not an endorsement or an inferred fact merge.
@@ -14,7 +17,7 @@ internal fun appendMissingCombinedPassages(
     if (draft.length >= maxCharacters) return null
     // Retain every missing fact without displaying source-profile names. Provenance
     // remains in the frozen combined sources for colour mapping and Debug inspection.
-    val tail = StringBuilder("\n\n## Further details\n\n")
+    val tail = StringBuilder("\n\n$COMBINED_RECOVERY_MARKER\n\n## Further details\n\n")
     for (unit in missing) {
         val passage = "${unit.text}\n\n"
         if (draft.length.toLong() + tail.length + passage.length > maxCharacters.toLong()) return null

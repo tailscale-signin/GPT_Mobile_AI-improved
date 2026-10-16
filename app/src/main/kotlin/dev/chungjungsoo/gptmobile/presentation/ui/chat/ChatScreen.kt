@@ -1103,7 +1103,7 @@ private fun ChatMessagePair(
     val isSourceResponse = selectedProfile != null
     val isCombinedConversation = hasCombinedTabs && !isSourceResponse
     // Keep profile-coloured prose visible in chat; verbose match diagnostics are opt-in and debug-only.
-    val showCombinedTextMatches = isCombinedConversation && debugMode && debugSettings.debugShowCombinedTextMatches
+    val showCombinedTextMatches = shouldShowCombinedTextMatchDiagnostics(isCombinedConversation, debugMode, debugSettings)
     val combinedStatus = combinedAnswerStatus(assistantMessages.getOrNull(combinedSynthesisIndex), combinedProfiles, agentRunsById)
     val targetAssistantIndex = assistantMessages.indexOfFirst { targetMessageId > 0 && it.id == targetMessageId }
     val displayPlatformIndex = when {

@@ -74,7 +74,7 @@ class ProfileAttributionPaletteTest {
         val surfaces = listOf(Color.White, Color.Black, Color(0xFF141218), Color(0xFFFEF7FF), Color(0xFF808080), Color(0xFF236054), Color(0xFFFFD7BC))
         for (surface in surfaces) {
             for (hue in 0 until 360) {
-                val color = ProfileAttributionPalette.foreground(ProfileColorIdentity(hue = hue, marker = 1), surface)
+                val color = ProfileAttributionPalette.foreground(ProfileColorIdentity(hue = hue, marker = 0), surface)
                 assertTrue("hue $hue", ProfileAttributionPalette.contrast(color, surface) >= 4.5)
                 assertEquals(1f, color.alpha)
             }

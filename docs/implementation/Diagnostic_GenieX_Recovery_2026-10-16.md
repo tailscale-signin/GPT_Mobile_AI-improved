@@ -19,7 +19,9 @@ This branch integrates the pending Combined Mode and Qualcomm import changes plu
 3. Record actual native worker backend and accelerator, model basename, load time, worker PSS, first-token elapsed time, and timeout reason, without logging full model prompts or private paths.
 4. Permit at most three policy snapshot rebuilds while the physical-dispatch fence is still clean. Once any provider/tool/native action begins, policy changes continue to fail closed.
 5. The standard APK refuses GenieX manifests. It does not relabel a generic llama.cpp CPU session as a GenieX SDK session. The dedicated preview artifact remains an explicit package/SDK dependency.
-6. Include regression tests for prefill windows, safe policy retries, native artifact gating, source coverage, provenance colouring and Qualcomm imports.
+6. If editorial Combined Mode repair still omits source passages, append only the missing frozen passages in a visibly labelled **unverified source details** section. Preserve the selected repair's improvements, exact source wording, committed prefix, provenance, user permissions and output character limit. Never claim semantic verification or make a new provider call for the appendix.
+7. Keep an artifact/backend-level durable quarantine for deterministic tensor mismatches so repeated tuning variations cannot restart the same incompatible export. Only explicit Verify load resets it.
+8. Include regression tests for prefill windows, safe policy retries, native artifact gating, source coverage and appendix, provenance colouring and Qualcomm imports.
 
 ## Validation gates
 

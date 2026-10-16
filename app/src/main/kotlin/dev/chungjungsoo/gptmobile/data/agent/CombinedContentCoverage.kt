@@ -6,12 +6,23 @@ import java.text.BreakIterator
 import java.text.Normalizer
 import java.util.Locale
 
-/** A conservative omission detector, not semantic entailment or scientific verification. */
+/**
+ * Claim-level coverage hints built from frozen source sentences. High-confidence lexical
+ * paraphrases count as represented, but semantic entailment / source truth is not certified.
+ * Ambiguous wording stays pending, never silently accepted as full coverage.
+ */
 internal class CombinedContentCoverage(sources: List<CombinedModelResponse>) {
     data class Unit(val text: String, val profileUids: Set<String>)
-    data class Result(val total: Int, val missing: List<Unit>) {
+    data class Result(
+        val total: Int,
+        val missing: List<Unit>,
+        val exactMatches: Int = 0,
+        val paraphraseMatches: Int = 0,
+        val tentativeMatches: Int = 0
+    ) {
         val accepted: Boolean get() = total > 0 && missing.isEmpty()
     }
+
     val units: List<Unit> = sources.flatMap { source ->
         sentences(sourceCoverageText(source.content)).filter { tokens(it).isNotEmpty() }
             .map { Unit(it, setOf(source.platformUid)) }
@@ -20,25 +31,39 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>) {
     }
 
     fun check(answer: String): Result {
+        // Match against actual answer claims as well as longer paragraphs: a good editor
+        // can integrate two originals into one complex sentence without copying either.
         val paragraphs = answer.split(Regex("\n\\s*\n")).filter(String::isNotBlank)
-        val candidates = paragraphs.map { normalized(it) to tokens(it).toSet() }
+        val candidates = (sentences(answer) + paragraphs).distinct().map {
+            val normalized = normalized(it)
+            normalized to CombinedClaimMatcher.fingerprint(it)
+        }
         if (units.size.toLong() * candidates.size > 1_000_000L) return Result(units.size, units)
-        val missing = units.filter { unit ->
-            val source = normalized(unit.text)
-            val words = tokens(unit.text)
-            val values = words.filter { word -> word.any(Char::isDigit) }.toSet()
-            val qualifiers = words.filter { it in qualificationWords }.toSet()
-            candidates.none { (text, present) ->
-                (" $source " in " $text ") ||
-                    (
-                        words.toSet().count { it in present }.toDouble() / words.toSet().size >= 0.85 &&
-                            values.all { it in present } &&
-                            qualifiers == present.filter { it in qualificationWords }.toSet() &&
-                            words.windowed(3).any { it.joinToString(" ") in text }
-                        )
+        val missing = mutableListOf<Unit>()
+        var exact = 0
+        var paraphrases = 0
+        var tentative = 0
+        units.forEach { unit ->
+            val phrase = normalized(unit.text)
+            val source = CombinedClaimMatcher.fingerprint(unit.text)
+            val matched = candidates.asSequence().map { (candidateText, fingerprint) ->
+                if (phrase.isNotBlank() && (" " + phrase + " " in " " + candidateText + " ")) {
+                    CombinedClaimMatcher.Match.EXACT
+                } else {
+                    CombinedClaimMatcher.match(source, fingerprint)
+                }
+            }.maxByOrNull { it.ordinal } ?: CombinedClaimMatcher.Match.NONE
+            when (matched) {
+                CombinedClaimMatcher.Match.EXACT -> exact++
+                CombinedClaimMatcher.Match.PARAPHRASE -> paraphrases++
+                CombinedClaimMatcher.Match.POSSIBLE -> {
+                    tentative++
+                    missing += unit
+                }
+                CombinedClaimMatcher.Match.NONE -> missing += unit
             }
         }
-        return Result(units.size, missing)
+        return Result(units.size, missing, exact, paraphrases, tentative)
     }
 
     companion object {
@@ -49,7 +74,6 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>) {
             return followUps.find(text)?.let { text.substring(0, it.range.first) } ?: text
         }
         private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
-        private val qualificationWords = setOf("not", "never", "no", "without", "except", "only", "may", "might", "uncertain", "unverified", "unknown")
         private val noise = setOf("the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "for", "by", "with", "from", "as", "is", "was", "were", "it", "its", "that", "this", "these", "those")
         internal fun normalized(text: String): String = word.findAll(Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)).joinToString(" ") { it.value }
         private fun tokens(text: String): List<String> = normalized(text).split(' ').filter { it.isNotBlank() && it !in noise }

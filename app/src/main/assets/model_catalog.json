@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "revision": 20261012,
+  "revision": 20261015,
   "models": [
     {
       "id": "gemma3-1b-it",
@@ -161,6 +161,14 @@
           "sizeInBytes": 3113545589,
           "contextSize": 1280,
           "sha256": "af1082986639ecde7db95d91be6fe54f8b6b458104734c5bafc204e69d6852dc"
+        },
+        "SM8750": {
+          "modelFile": "gemma-4-E2B-it_qualcomm_sm8750.litertlm",
+          "downloadUrl": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/84b6978eff6e4eea02825bc2ee4ea48579f13109/gemma-4-E2B-it_qualcomm_sm8750.litertlm?download=true",
+          "commitHash": "84b6978eff6e4eea02825bc2ee4ea48579f13109",
+          "sizeInBytes": 3016294400,
+          "contextSize": 4096,
+          "sha256": "41dd675fbe735b6029012b5576a5716bac614fd8156de0128db4c9dff3cebd4e"
         }
       },
       "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",

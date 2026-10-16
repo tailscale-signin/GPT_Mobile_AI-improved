@@ -1102,6 +1102,8 @@ private fun ChatMessagePair(
     val selectedProfile = combinedProfiles.firstOrNull { it.uid == selectedCombinedProfileUid }.takeIf { hasCombinedTabs }
     val isSourceResponse = selectedProfile != null
     val isCombinedConversation = hasCombinedTabs && !isSourceResponse
+    // Keep profile-coloured prose visible in chat; verbose match diagnostics are opt-in and debug-only.
+    val showCombinedTextMatches = isCombinedConversation && debugMode && debugSettings.debugShowCombinedTextMatches
     val combinedStatus = combinedAnswerStatus(assistantMessages.getOrNull(combinedSynthesisIndex), combinedProfiles, agentRunsById)
     val targetAssistantIndex = assistantMessages.indexOfFirst { targetMessageId > 0 && it.id == targetMessageId }
     val displayPlatformIndex = when {
@@ -1240,7 +1242,7 @@ private fun ChatMessagePair(
                         }
                     }
                 }
-                if (hasCombinedTabs && selectedProfile == null) {
+                if (showCombinedTextMatches) {
                     val synthesis = assistantMessages.getOrNull(combinedSynthesisIndex)
                     CombinedContributionInspector(
                         answer = assistantContent,
@@ -1294,9 +1296,9 @@ private fun ChatMessagePair(
                     } else {
                         null
                     },
-                    splitForPassageIndicators = hasCombinedTabs && selectedProfile == null,
+                    splitForPassageIndicators = showCombinedTextMatches,
                     passageIndicators = { segment ->
-                        if (hasCombinedTabs && selectedProfile == null) {
+                        if (showCombinedTextMatches) {
                             CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), debugSettings.profileAttributionColors, onCombinedProfileClick)
                         }
                     },

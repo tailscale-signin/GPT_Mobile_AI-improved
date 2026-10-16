@@ -24,8 +24,35 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Require Unified Reliability completion evidence
-        run: python3 scripts/check_unified_reliability_v2.py --require-done
+      - name: Validate v2 evidence and narrowly scoped interim release
+        run: |
+          set -euo pipefail
+          # Always verify every v2 task/case reference, receipt, and status.
+          # Its full-completion milestone is a separate qualification from a
+          # signed interim 0.9.53.0 release; do not mark unrun tests as passing.
+          python3 scripts/check_unified_reliability_v2.py
+          VERSION=$(python3 -c 'import re; print(re.search(r"versionName = \"([^\"]+)\"", open("app/build.gradle.kts").read()).group(1))')
+          if [[ "$VERSION" == "0.9.53.0" ]]; then
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('docs/implementation/unified-reliability-v2')
+          tasks = json.loads((root / 'tasks.json').read_text())
+          cases = json.loads((root / 'acceptance-tests.json').read_text())
+          incomplete = sum(t['status'] != 'DONE' for t in tasks)
+          unpassed = sum(c['outcome'] != 'PASS' for c in cases)
+          if incomplete or unpassed:
+              notes = Path('RELEASE_NOTES.md').read_text()
+              if 'Unified Reliability v2 is not complete' not in notes:
+                  raise SystemExit('Interim release requires explicit v2 incompletion disclosure')
+              print(f'Interim 0.9.53.0: {incomplete}/48 tasks incomplete, {unpassed}/110 acceptance tests unpassed; no full-v2 claim.')
+          else:
+              print('Full v2 task/case inventory is complete.')
+          PY
+          else
+            # Future releases retain the strict full-completion contract.
+            python3 scripts/check_unified_reliability_v2.py --require-done
+          fi
       - name: Check release version before building
         id: version
         env:

@@ -16,6 +16,11 @@
 - Improve Local Assist recovery, readiness/error reporting, model admission and cancellation handling.
 - Repair diagnostic/runtime failure paths, including native prefill, GenieX routing and Combined response reliability.
 
+## Release scope and remaining qualification
+- **Unified Reliability v2 is not complete.** Its tracked program remains at 0/48 tasks marked DONE, and 11/110 acceptance cases marked PASS (99 unrun) as of October 16, 2026.
+- v0.9.53.0 is an **interim application release**, not certification of the entire Unified Reliability v2 feature program; no pending device or provider tests have been represented as successful.
+- Release artifact publication remains conditional on actual Android unit tests, release lint/AAR compatibility, native JNI and 16 KB AAB validation, previous signing-certificate continuity, and matching package/version/source identity.
+
 ## Release and Google Play
 - Application ID: `dev.melo.gptmobile.improved` (unchanged, for upgrade continuity).
 - Minimum SDK: 31. Target SDK: 37, meeting Google Play's October 2026 API-level requirement of 36 or higher.

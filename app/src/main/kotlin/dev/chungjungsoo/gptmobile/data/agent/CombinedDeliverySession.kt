@@ -96,7 +96,7 @@ internal class CombinedDeliverySession(
         if (checked.accepted && text.startsWith(committedPrefix)) {
             emit(ProviderEvent.Completed)
         } else {
-            emit(ProviderEvent.Failed("COMBINED_COVERAGE_INCOMPLETE: The draft still omits or cannot account for ${checked.missing.size} of ${checked.total} frozen source passages after one repair. Original contributions remain available; this is not a fully combined answer."))
+            emit(ProviderEvent.Failed("COMBINED_COVERAGE_INCOMPLETE: The draft still omits or cannot account for ${checked.missing.size} of ${checked.total} frozen source passages after $repairRounds audited repair pass(es). Original contributions remain available; this is not a fully combined answer."))
         }
     }
 }

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
+import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime
 import java.nio.charset.CharacterCodingException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +22,15 @@ class GgufRuntimeContractTest {
         assertEquals("", decoder.append(byteArrayOf(0xf0.toByte(), 0x9f.toByte())))
         assertFalse(decoder.isComplete())
         assertThrows(CharacterCodingException::class.java) { decoder.append(byteArrayOf(0x20)) }
+    }
+
+    @Test fun standardBuildCannotClaimGenieXIsInstalledViaGenericGguf() {
+        if (!dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
+            val error = assertThrows(IllegalStateException::class.java) {
+                RuntimeCapabilityRegistry.requireRuntime(ArtifactRuntime.GENIEX_LLAMA_CPP)
+            }
+            assertTrue(error.message.orEmpty().contains("GenieX preview"))
+        }
     }
 
     @Test fun packagingIsSeparateFromDeviceQualification() {

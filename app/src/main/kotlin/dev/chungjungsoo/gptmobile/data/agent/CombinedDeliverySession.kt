@@ -18,6 +18,7 @@ internal class CombinedDeliverySession(
     private val committedPrefix: String = "",
     private val validateAccess: suspend () -> Unit,
     private val onCoverage: suspend (CombinedContentCoverage.Result, Boolean) -> Unit = { _, _ -> },
+    private val maxRepairRounds: Int = 4,
     private val repair: suspend (String, List<CombinedContentCoverage.Unit>) -> AgentProviderSession
 ) : AgentProviderSession {
     override val handlesToolsInternally = base.handlesToolsInternally
@@ -60,8 +61,14 @@ internal class CombinedDeliverySession(
         var text = draft
         var checked = withContext(Dispatchers.Default) { coverage.check(text) }
         onCoverage(checked, false)
-        if (!checked.accepted) {
-            emit(ProviderEvent.Notice("Repairing omitted material from ${checked.missing.size} of ${checked.total} source passages."))
+        // A single rewrite often repairs one source while accidentally dropping another.
+        // Continue only on strictly monotonic, no-regression coverage gains. Every attempt
+        // sees the complete frozen source corpus and the latest accepted draft.
+        var repairRounds = 0
+        while (!checked.accepted && repairRounds < maxRepairRounds.coerceIn(0, 8)) {
+            repairRounds++
+            emit(ProviderEvent.Notice("Auditing " + checked.missing.size + " unresolved claims (" +
+                checked.tentativeMatches + " uncertain paraphrases); repair pass " + repairRounds + "."))
             val repaired = withTimeoutOrNull(90_000L) {
                 val attempt = try {
                     repair(text, checked.missing)
@@ -74,14 +81,15 @@ internal class CombinedDeliverySession(
                 attempt?.let { collect(it) }
             }
             validateAccess()
-            if (repaired?.second == ProviderEvent.Completed && repaired.first.startsWith(committedPrefix)) {
-                val next = withContext(Dispatchers.Default) { coverage.check(repaired.first) }
-                onCoverage(next, true)
-                if (next.accepted || next.missing.size < checked.missing.size) {
-                    text = repaired.first
-                    checked = next
-                }
-            }
+            if (repaired?.second != ProviderEvent.Completed || !repaired.first.startsWith(committedPrefix)) break
+            val next = withContext(Dispatchers.Default) { coverage.check(repaired.first) }
+            onCoverage(next, true)
+            val beforeMissing = checked.missing.toSet()
+            val afterMissing = next.missing.toSet()
+            // Decreasing an error count cannot excuse replacing previously covered facts.
+            if (repaired.first == text || afterMissing.size >= beforeMissing.size || !beforeMissing.containsAll(afterMissing)) break
+            text = repaired.first
+            checked = next
         }
         validateAccess()
         if (text.isNotBlank()) emit(ProviderEvent.TextDelta(text))

@@ -61,7 +61,7 @@ internal object CombinedClaimMatcher {
         return Fingerprint(
             terms = words.filter { it !in stop && it.none(Char::isDigit) }.toSet(),
             numbers = numeric.findAll(normalized).map { match ->
-                match.value.replace(",", "").replace(" ", "").replace("\\u00a0", "")
+                match.value.replace(",", "").replace(" ", "").replace(160.toChar().toString(), "")
             }.toSet(),
             negative = words.any { it in negatives },
             hedged = words.any { it in hedges },
@@ -102,7 +102,7 @@ internal object CombinedClaimMatcher {
         val sameTopic = shared >= 3 && (
             shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.72 ||
                 (shared >= 4 && shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.45)
-            )
+        )
         if (!sameTopic) return false
         val numberDisagreement = first.numbers.isNotEmpty() && second.numbers.isNotEmpty() &&
             first.numbers.subtract(second.numbers).isNotEmpty() &&

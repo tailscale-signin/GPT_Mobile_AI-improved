@@ -18,14 +18,22 @@ internal object LocalModelMetadata {
         File(directory, FILE_NAME).writeText(json.encodeToString(entry))
     }
 
+    fun readFromDirectory(directory: File): CatalogEntry? {
+        val metadata = File(directory, FILE_NAME)
+        if (!metadata.isFile || metadata.length() > 256 * 1024) return null
+        return runCatching { json.decodeFromString<CatalogEntry>(metadata.readText()) }.getOrNull()
+    }
+
     fun read(context: Context): List<CatalogEntry> {
         val roots = listOfNotNull(context.filesDir, context.getExternalFilesDir(null)).distinctBy { it.canonicalPath }
         return roots.flatMap { File(it, "models").listFiles().orEmpty().toList() }.filter { it.isDirectory }.flatMap { model ->
             model.listFiles().orEmpty().filter { it.isDirectory }.mapNotNull { revision ->
-                val file = File(revision, FILE_NAME)
-                if (!file.isFile || file.length() > 256 * 1024) return@mapNotNull null
-                runCatching { json.decodeFromString<CatalogEntry>(file.readText()) }.getOrNull()
-                    ?.takeIf { it.id == model.name }
+                readFromDirectory(revision)?.takeIf { it.id == model.name }?.let { entry ->
+                    val stored = revision.listFiles().orEmpty()
+                        .singleOrNull { it.isFile && it.name.endsWith(".litertlm", ignoreCase = true) }
+                    // Repair legacy catalog metadata in memory without copying weights.
+                    if (stored != null) LocalModelPackages.forInstalledFile(entry, stored.name) else entry
+                }
             }
         }
     }

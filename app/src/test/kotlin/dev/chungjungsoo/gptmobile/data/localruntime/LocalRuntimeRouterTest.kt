@@ -1,12 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
+import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.toList
@@ -15,11 +18,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 @org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [34], application = android.app.Application::class)
 class LocalRuntimeRouterTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
 
     private lateinit var qnnRuntime: FakeLocalRuntime
     private lateinit var liteRtRuntime: FakeLocalRuntime
@@ -90,6 +96,24 @@ class LocalRuntimeRouterTest {
         qnnRuntime.failLoadEngineIf = { IllegalStateException("NPU unavailable") }
         val failure = runCatching { router.loadEngine(testEngineSpec().copy(modelPath = "/models/gemma_SM8750.litertlm")) }.exceptionOrNull()
         assertTrue(failure!!.message!!.contains("GPU / CPU edition"))
+        assertTrue(liteRtRuntime.loadEngineCalls.isEmpty())
+    }
+
+    @Test
+    fun legacyImportedNpuNeverFallsBackToGpuWhenQnnFails() = runTest {
+        val folder = temporaryFolder.newFolder("local_legacy", "local")
+        val file = File(folder, "model.litertlm").apply { writeText("LITERTLM fixture") }
+        LocalModelMetadata.save(
+            folder,
+            CatalogEntry(
+                id = "local_legacy",
+                displayName = "gemma-4-E2B-it_qualcomm_sm8750",
+                variantLabel = "LITERT_LM"
+            )
+        )
+        qnnRuntime.failLoadEngineIf = { IllegalStateException("QNN initialization failed") }
+        val failure = runCatching { router.loadEngine(testEngineSpec().copy(modelPath = file.absolutePath)) }.exceptionOrNull()
+        assertTrue(failure is LocalNpuPackageException)
         assertTrue(liteRtRuntime.loadEngineCalls.isEmpty())
     }
 

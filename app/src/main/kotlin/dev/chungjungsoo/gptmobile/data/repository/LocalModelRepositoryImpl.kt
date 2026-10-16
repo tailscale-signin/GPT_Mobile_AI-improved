@@ -228,14 +228,14 @@ class LocalModelRepositoryImpl(
                 if (result.record.fileName != "manifest.json") {
                     dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.save(
                         File(result.absoluteFilePath).parentFile!!,
-                        CatalogEntry(
+                        dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.forImportedLiteRtModel(
                             id = result.record.catalogEntryId,
-                            displayName = fileName.substringBeforeLast('.'),
+                            originalFileName = fileName,
+                            installedFileName = result.record.fileName,
                             sizeInBytes = result.sizeBytes,
-                            familyId = result.record.catalogEntryId,
-                            variantLabel = "LITERT_LM",
-                            runtimeRequirement = "litert-lm",
-                            supportedAccelerators = emptyList()
+                            previousEntry = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata.readFromDirectory(
+                                File(result.absoluteFilePath).parentFile!!
+                            )
                         )
                     )
                 }

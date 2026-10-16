@@ -32,7 +32,7 @@ internal fun combinedSynthesisPrompt(
     sharedEvidence?.let { put("shared_evidence", it.json()) }
     val conflictScan = CombinedConflictDetector.scan(sources)
     put("conflict_scan_complete", conflictScan.complete)
-    put("potential_conflicts", JsonArray(conflictScan.candidates.map { candidate ->
+    val conflictEntries = conflictScan.candidates.map { candidate ->
         buildJsonObject {
             put("left_profile_uid", candidate.leftUid)
             put("right_profile_uid", candidate.rightUid)
@@ -40,7 +40,8 @@ internal fun combinedSynthesisPrompt(
             put("left_excerpt", candidate.leftText.take(768))
             put("right_excerpt", candidate.rightText.take(768))
         }
-    }))
+    }
+    put("potential_conflicts", JsonArray(conflictEntries))
     put(
         "contributions",
         JsonArray(

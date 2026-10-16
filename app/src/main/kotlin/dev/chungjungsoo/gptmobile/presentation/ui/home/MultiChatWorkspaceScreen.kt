@@ -61,6 +61,8 @@ class MultiChatWorkspaceViewModel @Inject constructor(
     private val workspaceId: Int = checkNotNull(savedStateHandle["rootChatId"])
     private val _rooms = MutableStateFlow<List<ChatRoomV2>>(emptyList())
     val rooms = _rooms.asStateFlow()
+    private val _laneNames = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val laneNames = _laneNames.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
@@ -76,6 +78,10 @@ class MultiChatWorkspaceViewModel @Inject constructor(
                 val byId = (chats.fetchChatListV2() + chats.fetchArchivedChatListV2()).associateBy { it.id }
                 val resolved = ids.mapNotNull(byId::get)
                 check(resolved.isNotEmpty()) { "The workspace no longer has any available conversations." }
+                val profiles = settings.fetchPlatformV2s().associateBy { it.uid }
+                _laneNames.value = resolved.associate { room ->
+                    room.id to (room.enabledPlatform.firstOrNull()?.let { profiles[it]?.name } ?: room.title)
+                }
                 _rooms.value = resolved
                 _error.value = null
             } catch (e: Exception) {
@@ -95,6 +101,7 @@ internal fun MultiChatWorkspaceScreen(
     viewModel: MultiChatWorkspaceViewModel = hiltViewModel()
 ) {
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
+    val names by viewModel.laneNames.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     var selectedChatId by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(rooms) {
@@ -121,7 +128,7 @@ internal fun MultiChatWorkspaceScreen(
                     rooms.forEach { room ->
                         FilterChip(
                             selected = selectedChatId == room.id,
-                            label = { Text(room.title) },
+                            label = { Text(names[room.id] ?: room.title) },
                             onClick = {
                                 selectedChatId = room.id
                                 innerNav.navigate("lane/" + room.id + "?enabled=" + room.enabledPlatform.joinToString(",") + "&mode=STANDARD") {

@@ -190,7 +190,8 @@ class NewChatViewModel @Inject constructor(
                 val nextRoute = if (choice == NewChatType.MULTI_CHAT) {
                     selected.forEach { uid ->
                         val profile = available.first { it.uid == uid }
-                        created += chats.createDraftChat(listOf(uid), mode, profile.name)
+                        val title = if (created.isEmpty()) "Multi-chat · " + selected.size + " AIs" else profile.name
+                        created += chats.createDraftChat(listOf(uid), mode, title)
                     }
                     val rootId = created.first().id
                     settings.mutateFeatureSettings {

@@ -21,6 +21,7 @@ internal object CombinedClaimMatcher {
     )
 
     private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
+    private val numeric = Regex("(?<![\\p{L}\\d])(?:\\d{1,3}(?:[,\\u00a0 ]\\d{3})+|\\d+(?:\\.\\d+)?)(?![\\p{L}])")
     private val stop = setOf(
         "a", "an", "and", "are", "as", "at", "be", "been", "by", "for", "from", "has",
         "have", "in", "into", "is", "it", "its", "of", "on", "or", "our", "that", "the",
@@ -59,7 +60,9 @@ internal object CombinedClaimMatcher {
         val words = word.findAll(normalized).map { canonical(it.value) }.toList()
         return Fingerprint(
             terms = words.filter { it !in stop && it.none(Char::isDigit) }.toSet(),
-            numbers = words.filter { it.any(Char::isDigit) }.toSet(),
+            numbers = numeric.findAll(normalized).map { match ->
+                match.value.replace(",", "").replace(" ", "").replace("\\u00a0", "")
+            }.toSet(),
             negative = words.any { it in negatives },
             hedged = words.any { it in hedges },
             restrictions = words.filter { it in restrictions }.toSet(),
@@ -96,7 +99,10 @@ internal object CombinedClaimMatcher {
     fun possibleConflict(first: Fingerprint, second: Fingerprint): Boolean {
         if (first.terms.size < 3 || second.terms.size < 3) return false
         val shared = first.terms.intersect(second.terms).size
-        val sameTopic = shared >= 3 && shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.72
+        val sameTopic = shared >= 3 && (
+            shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.72 ||
+                (shared >= 4 && shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.45)
+            )
         if (!sameTopic) return false
         val numberDisagreement = first.numbers.isNotEmpty() && second.numbers.isNotEmpty() &&
             first.numbers.subtract(second.numbers).isNotEmpty() &&

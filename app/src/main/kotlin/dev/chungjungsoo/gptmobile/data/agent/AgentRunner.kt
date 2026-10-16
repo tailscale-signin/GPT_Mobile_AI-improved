@@ -328,7 +328,7 @@ class AgentRunner(
             val noNewTools = calls.isNotEmpty() &&
                 calls.all { it.name == ProgressiveToolCatalog.NAME } &&
                 allResults.all { result ->
-                    result.isError || ((result.content as? ToolResultContent.Json)?.value?.get("catalog_unchanged")?.toString() == "true")
+                    result.isError || (((result.content as? ToolResultContent.Json)?.value as? kotlinx.serialization.json.JsonObject)?.get("catalog_unchanged")?.toString() == "true")
                 }
             unproductiveDiscoveryRounds = if (noNewTools) unproductiveDiscoveryRounds + 1 else 0
             val repeatedDiscoveryStalled = unproductiveDiscoveryRounds >= 2

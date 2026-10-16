@@ -116,8 +116,8 @@ private fun SmartReadinessPanel(settings: dev.chungjungsoo.gptmobile.data.readin
     var expanded by remember { mutableStateOf(false) }
     SettingsPanel("Smart Readiness") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Prepare while app is open", Modifier.weight(1f))
-            SettingsHelpIcon("Prepares selected tool metadata while idle. Sending never waits for optional warmup. Pilot default is off pending device validation.", title = "Smart Readiness")
+            Text("Prepare when typing", Modifier.weight(1f))
+            SettingsHelpIcon("Prepares selected provider connections, tool metadata and memory infrastructure before Send. Draft text is never sent. Optional preparation cannot hold up your message. Metered-network preference is respected.", title = "Smart Readiness")
             Switch(settings.enabled, { enabled -> viewModel.updateReadiness { it.copy(enabled = enabled) } })
         }
         androidx.compose.material3.TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide options" else "Options") }

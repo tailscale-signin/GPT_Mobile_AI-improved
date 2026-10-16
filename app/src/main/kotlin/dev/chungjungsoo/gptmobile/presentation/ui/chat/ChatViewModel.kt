@@ -395,8 +395,17 @@ class ChatViewModel @Inject constructor(
     init {
         fetchChatRoom()
         viewModelScope.launch {
-            combine(_chatRoom.distinctUntilChangedBy { listOf(it.id, it.isTemporary, it.parentChatId, it.branchMessageId, it.activePlatform, it.conversationMode) }, _enabledPlatformsInApp) { room, profiles -> room to profiles }.collectLatest { (room, profiles) ->
-                if (!leavingConversation) dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(profiles.filter { it.uid in room.activePlatform && it.enabled }.map { it.uid })
+            combine(
+                _chatRoom.distinctUntilChangedBy { listOf(it.id, it.isTemporary, it.parentChatId, it.branchMessageId, it.activePlatform, it.conversationMode) },
+                _enabledPlatformsInApp,
+                nextMessageProfileUid
+            ) { room, profiles, nextUid -> Triple(room, profiles, nextUid) }.collectLatest { (room, profiles, nextUid) ->
+                val available = profiles.filter { it.uid in room.activePlatform && it.enabled }.map { it.uid }
+                if (!leavingConversation) {
+                    dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(
+                        (listOfNotNull(nextUid).filter { it in available } + available).distinct()
+                    )
+                }
                 memoryPreview?.clear()
             }
         }

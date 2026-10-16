@@ -87,6 +87,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -196,6 +197,17 @@ fun ChatScreen(
     onInspectContext: ((Int, String) -> Unit)? = null
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    // Only a focus bit and non-empty flag are observed on the UI thread.
+    androidx.compose.runtime.DisposableEffect(chatViewModel) {
+        onDispose { dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.clearComposer() }
+    }
+    LaunchedEffect(chatViewModel) {
+        snapshotFlow { chatViewModel.question.text.isNotEmpty() }
+            .distinctUntilChanged()
+            .collect { hasDraft ->
+                dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.composerDraftChanged(hasDraft)
+            }
+    }
     val branchNavigation by chatViewModel.branchNavigation.collectAsStateWithLifecycle()
     LaunchedEffect(branchNavigation) {
         branchNavigation?.let {
@@ -790,7 +802,8 @@ fun ChatScreen(
                         onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
                         onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
                         onFileRetry = chatViewModel::retrySelectedFile,
-                        onCancelButtonClick = chatViewModel::cancelActiveRuns
+                        onCancelButtonClick = chatViewModel::cancelActiveRuns,
+                        onComposerFocusChanged = dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints::composerFocusChanged
                     ) {
                         if (!requestedNotificationPermission &&
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -1624,6 +1637,7 @@ fun ChatInputBox(
     onFileRemoved: (String) -> Unit = {},
     onCancelButtonClick: () -> Unit = {},
     onFileRetry: (String) -> Unit = {},
+    onComposerFocusChanged: (Boolean) -> Unit = {},
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -1673,7 +1687,7 @@ fun ChatInputBox(
                 }
                 BasicTextField(
                     state = inputState,
-                    modifier = Modifier.fillMaxWidth().background(inputColor),
+                    modifier = Modifier.fillMaxWidth().background(inputColor).onFocusChanged { onComposerFocusChanged(it.isFocused) },
                     enabled = chatEnabled,
                     textStyle = mergedStyle,
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),

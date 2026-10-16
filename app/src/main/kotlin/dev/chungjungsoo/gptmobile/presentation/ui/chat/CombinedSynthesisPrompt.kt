@@ -48,6 +48,7 @@ internal fun combinedSynthesisPrompt(
                 buildJsonObject {
                     put("id", "C${index + 1}")
                     put("profile", source.platformName)
+                    put("profile_uid", source.platformUid)
                     put("model", source.modelName)
                     put("completion_status", source.completionStatus)
                     put("quality_score", source.qualityScore.coerceIn(0, 100))

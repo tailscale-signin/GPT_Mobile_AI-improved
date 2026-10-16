@@ -8,14 +8,14 @@ object NvidiaEndpoints {
     fun normalize(raw: String): String {
         val supplied = raw.trim().ifBlank { ModelConstants.NVIDIA_API_URL }.trimEnd('/')
         val uri = URI(supplied)
-        val scheme = uri.scheme?.lowercase()
-        require(scheme in setOf("https", "http") && !uri.host.isNullOrBlank()) {
+        val scheme = requireNotNull(uri.scheme) { "NVIDIA API endpoint must be a valid HTTP(S) URL." }.lowercase()
+        val host = requireNotNull(uri.host) { "NVIDIA API endpoint must be a valid HTTP(S) URL." }.lowercase()
+        require(scheme in setOf("https", "http") && host.isNotBlank()) {
             "NVIDIA API endpoint must be a valid HTTP(S) URL."
         }
         require(uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null) {
             "Put NVIDIA credentials in the key field, not in the URL."
         }
-        val host = uri.host
         if (host.equals("integrate.api.nvidia.com", ignoreCase = true)) {
             require(scheme == "https" && uri.port in setOf(-1, 443)) {
                 "The hosted NVIDIA API requires HTTPS."

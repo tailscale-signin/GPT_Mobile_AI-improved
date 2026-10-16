@@ -53,6 +53,7 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaRequestPolicy
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
@@ -226,6 +227,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         // These values are invariant for the whole session. Resolve them once here
         // instead of rebuilding a very large streamRound state machine every round.
         val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
+        val isNvidia = platform.compatibleType == ClientType.NVIDIA
         val isOllama = platform.compatibleType == ClientType.OLLAMA
         val isLlama = platform.compatibleType == ClientType.LLAMA
         val llamaReasoning = if (isLlama) {
@@ -456,7 +458,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                             },
                             sessionId = openRouterSessionId,
                             options = parsedOllamaOptions
-                        )
+                        ).let { baseRequest ->
+                            if (isNvidia) NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning, constraints.allowReasoning) else baseRequest
+                        }
                         val assembler = ChatCompletionsEventAssembler()
                         var lastFinishReason: String? = null
 
@@ -633,7 +637,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                             }
                         }
 
-                        val llamaReasoningParser = if (isLlama) GroqReasoningParser() else null
+                        // NVIDIA NIMs can return reasoning_content or inline <think> blocks.
+                        val llamaReasoningParser = if (isLlama || isNvidia) GroqReasoningParser() else null
                         var deliveredPayload = false
 
                         openAIAPI.streamChatCompletion(request, platform.timeout, requestConfig)

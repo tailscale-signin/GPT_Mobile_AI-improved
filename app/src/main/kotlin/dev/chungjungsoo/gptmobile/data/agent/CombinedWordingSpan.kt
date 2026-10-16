@@ -51,12 +51,27 @@ fun combinedWordingSpans(answer: String, sources: List<CombinedModelResponse>): 
                 if (end > start && end - start >= 24) {
                     val claim = CombinedClaimMatcher.fingerprint(visible.substring(start, end))
                     val candidates = claim.terms.asSequence().flatMap { byTerm[it].orEmpty().asSequence() }.distinct()
-                    val matching = candidates.mapNotNull { id ->
+                    val matchingIds = candidates.filter { id ->
                         val match = CombinedClaimMatcher.match(indexed[id].fingerprint, claim)
-                        indexed[id].uid.takeIf { match == CombinedClaimMatcher.Match.EXACT || match == CombinedClaimMatcher.Match.PARAPHRASE }
-                    }.toSet()
-                    if (matching.isNotEmpty()) {
-                        result += CombinedWordingSpan(start + offset, end + offset, matching)
+                        match == CombinedClaimMatcher.Match.EXACT || match == CombinedClaimMatcher.Match.PARAPHRASE
+                    }.toList()
+                    if (matchingIds.isNotEmpty()) {
+                        val matching = matchingIds.mapTo(linkedSetOf()) { indexed[it].uid }
+                        val expected = matchingIds.flatMapTo(hashSetOf()) { id ->
+                            indexed[id].fingerprint.terms + indexed[id].fingerprint.numbers
+                        }
+                        // Leave unrelated math, labels and trailing code neutral. The source
+                        // lineage should colour only the meaningful claim inside the paragraph.
+                        val words = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
+                        val relevant = words.findAll(visible.substring(start, end)).filter { word ->
+                            val fingerprint = CombinedClaimMatcher.fingerprint(word.value)
+                            fingerprint.terms.any { it in expected } || fingerprint.numbers.any { it in expected }
+                        }.toList()
+                        if (relevant.isNotEmpty()) {
+                            val colouredStart = start + relevant.first().range.first
+                            val colouredEnd = start + relevant.last().range.last + 1
+                            result += CombinedWordingSpan(colouredStart + offset, colouredEnd + offset, matching)
+                        }
                     }
                 }
                 localStart = localEnd

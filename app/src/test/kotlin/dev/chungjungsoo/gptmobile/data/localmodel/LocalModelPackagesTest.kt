@@ -67,7 +67,6 @@ class LocalModelPackagesTest {
         assertTrue(LocalAccelerators.isNpuEligible(installed.supportedAccelerators, installed.socToModelFiles, "SM8650"))
     }
 
-
     @Test fun freshImportedSm8750ArtifactSelectsNpuAndNeverGpu() {
         val name = "gemma-4-E2B-it_qualcomm_sm8750.litertlm"
         val imported = LocalModelPackages.forImportedLiteRtModel("local_abc", name, name, 3016294400L)
@@ -97,13 +96,21 @@ class LocalModelPackagesTest {
 
     @Test fun genericImportAndParentDirectoryNeverProvideNpuEvidence() {
         val generic = LocalModelPackages.forImportedLiteRtModel(
-            "local_generic", "gemma-4-E2B-it.litertlm", "gemma-4-E2B-it.litertlm", 500L
+            "local_generic",
+            "gemma-4-E2B-it.litertlm",
+            "gemma-4-E2B-it.litertlm",
+            500L
         )
         assertFalse(generic.supportedAccelerators.contains("npu"))
         val folder = temporaryFolder.newFolder("local_other", "local")
         val stored = File(folder, "model.litertlm").apply { writeText("LITERTLM fixture") }
         LocalModelMetadata.save(
-            folder, CatalogEntry(id = "local_other", displayName = "gemma-4-E2B-it", variantLabel = "LITERT_LM")
+            folder,
+            CatalogEntry(
+                id = "local_other",
+                displayName = "gemma-4-E2B-it",
+                variantLabel = "LITERT_LM"
+            )
         )
         assertFalse(LocalModelPackages.isCompiledNpuPackage(stored.absolutePath))
         assertFalse(LocalModelPackages.isNpuFile("/models/qualcomm_sm8750/gemma.litertlm"))

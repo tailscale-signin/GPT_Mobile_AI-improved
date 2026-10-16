@@ -187,12 +187,13 @@ class LocalAcceleratorsTest {
         assertEquals(null, sm8750.unavailableReason)
     }
 
-
     @Test
     fun hostedGemma4E2bPublishesPinnedSm8750Export() {
         val gemma = hostedEntry("gemma-4-e2b-it")
         val npu = LocalAccelerators.choices(
-            gemma.supportedAccelerators, gemma.socToModelFiles, "SM8750"
+            gemma.supportedAccelerators,
+            gemma.socToModelFiles,
+            "SM8750"
         ).single { it.accelerator == LocalAccelerators.NPU }
         assertTrue(npu.enabled)
         val variant = gemma.socToModelFiles.getValue("SM8750")

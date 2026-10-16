@@ -2,10 +2,10 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -98,7 +98,6 @@ class LocalRuntimeRouterTest {
         assertTrue(failure!!.message!!.contains("GPU / CPU edition"))
         assertTrue(liteRtRuntime.loadEngineCalls.isEmpty())
     }
-
 
     @Test
     fun legacyImportedNpuNeverFallsBackToGpuWhenQnnFails() = runTest {

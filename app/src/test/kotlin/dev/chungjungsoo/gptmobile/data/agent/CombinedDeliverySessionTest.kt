@@ -218,4 +218,131 @@ class CombinedDeliverySessionTest {
         assertFalse(comprehensiveCombinedEnvelope("{}"))
         assertTrue(comprehensiveCombinedEnvelope("{\"combination_policy\":\"COMPREHENSIVE\"}"))
     }
+
+    @Test fun claimAuditKeepsRepairingWhileUniqueCoverageMakesProgress() = runTest {
+        val rows = listOf(
+            CombinedModelResponse("a", "A", content = "Athens built naval ships from the proceeds of silver mines."),
+            CombinedModelResponse("b", "B", content = "Tang merchants carried ceramics across the Silk Road."),
+            CombinedModelResponse("c", "C", content = "Egyptian scribes measured annual grain taxes."),
+            CombinedModelResponse("d", "D", content = "Roman engineers constructed aqueducts for distant towns.")
+        )
+        var rounds = 0
+        val initial = rows[0].content
+        val wrapper = CombinedDeliverySession(session(initial), rows, 100_000, validateAccess = {}) { draft, missing ->
+            rounds++
+            assertTrue(missing.isNotEmpty())
+            assertTrue(draft.startsWith(initial))
+            session(rows.take(rounds + 1).joinToString("\n\n") { it.content })
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(3, rounds)
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(rows.joinToString("\n\n") { it.content }, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun shrinkingMissingCountCannotJustifyDroppingPreviouslyCoveredClaim() = runTest {
+        val rows = listOf(
+            CombinedModelResponse("a", "A", content = "Athens built naval ships from silver mines."),
+            CombinedModelResponse("b", "B", content = "Tang merchants traded silk with Persian caravans."),
+            CombinedModelResponse("c", "C", content = "Egyptian scribes recorded yearly grain taxes."),
+            CombinedModelResponse("d", "D", content = "Roman engineers supplied distant towns with aqueducts.")
+        )
+        var rounds = 0
+        val wrapper = CombinedDeliverySession(session(rows[0].content), rows, 100_000, validateAccess = {}) { _, _ ->
+            rounds++
+            if (rounds == 1) {
+                session(rows.take(2).joinToString("\n\n") { it.content })
+            } else {
+                session(rows.drop(1).joinToString("\n\n") { it.content })
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, rounds)
+        val delivered = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(delivered.startsWith(rows.take(2).joinToString("\n\n") { it.content }))
+        assertTrue(delivered.contains("## Additional source details"))
+        assertTrue(delivered.contains(rows[2].content))
+        assertTrue(delivered.contains(rows[3].content))
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test fun oversizedRepairRetainsTheAuditedDraft() = runTest {
+        val original = "Athens funded naval ships through silver mines."
+        val missing = "Tang merchants traded silk with Persian caravans."
+        val rows = listOf(CombinedModelResponse("a", "A", content = original), CombinedModelResponse("b", "B", content = missing))
+        val wrapper = CombinedDeliverySession(session(original), rows, 150, validateAccess = {}) { _, _ -> session("x".repeat(151)) }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        val delivered = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(delivered.startsWith(original))
+        assertFalse(delivered.contains("## Additional source details"))
+        assertFalse(delivered.contains(rows[1].content))
+        assertTrue(events.last() is ProviderEvent.Failed)
+    }
+
+    @Test fun toolAttemptDuringRepairCannotDropDraftOrExecuteAction() = runTest {
+        val original = "Athens funded naval ships through silver mines."
+        val rows = listOf(CombinedModelResponse("a", "A", content = original), CombinedModelResponse("b", "B", content = "Tang merchants traded silk with Persian caravans."))
+        var afterTool = false
+        val badRepair = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.ToolCall("one", "unexpected", kotlinx.serialization.json.buildJsonObject {}))
+                afterTool = true
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val wrapper = CombinedDeliverySession(session(original), rows, 1000, validateAccess = {}) { _, _ -> badRepair }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertFalse(afterTool)
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        val delivered = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(delivered.startsWith(original))
+        assertTrue(delivered.contains("## Additional source details"))
+        assertTrue(delivered.contains(rows[1].content))
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test fun rejectedRepairCannotReplaceCoverageTelemetry() = runTest {
+        val rows = listOf(
+            CombinedModelResponse("a", "A", content = "Athens funded naval ships through silver mines."),
+            CombinedModelResponse("b", "B", content = "Tang merchants traded silk with Persian caravans."),
+            CombinedModelResponse("c", "C", content = "Egyptian scribes recorded yearly grain taxes.")
+        )
+        val reported = mutableListOf<Pair<CombinedContentCoverage.Result, Boolean>>()
+        val wrapper = CombinedDeliverySession(session(rows.first().content), rows, 2000, validateAccess = {}, onCoverage = { result, repaired -> reported += result to repaired }) { _, _ ->
+            session(rows.drop(1).joinToString(" ") { it.content })
+        }
+        wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, reported.size)
+        assertEquals(setOf("b", "c"), reported.first().first.missing.flatMap { it.profileUids }.toSet())
+        assertFalse(reported.first().second)
+        assertTrue(reported.last().first.accepted)
+        assertTrue(reported.last().second)
+    }
+
+    @Test fun outputLimitedRepairContinuesBeforeCoverageIsPublished() = runTest {
+        val original = "Athens funded naval ships through silver mines."
+        val added = "Tang merchants traded silk with Persian caravans."
+        val rows = listOf(CombinedModelResponse("a", "A", content = original), CombinedModelResponse("b", "B", content = added))
+        val limited = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                assertTrue(tools.isEmpty())
+                emit(ProviderEvent.TextDelta(original))
+                emit(ProviderEvent.Usage(outputTokens = 100, finishReason = "length"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        var continuations = 0
+        val wrapper = CombinedDeliverySession(session(original), rows, 1000, validateAccess = {}) { _, _ ->
+            OutputLimitRecoverySession(limited, maxContinuations = 2, allowInternalToolRecovery = true) { partial, exchanges ->
+                continuations++
+                assertEquals(original, partial)
+                assertTrue(exchanges.isEmpty())
+                session("\n\n$added")
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, continuations)
+        assertEquals("$original\n\n$added", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
 }

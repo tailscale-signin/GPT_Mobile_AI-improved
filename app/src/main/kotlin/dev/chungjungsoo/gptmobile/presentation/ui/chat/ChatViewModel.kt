@@ -2238,7 +2238,7 @@ class ChatViewModel @Inject constructor(
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
         val selectedUids = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType }
         val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
-            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, comprehensive = featureSettings.value.combinedComprehensive)
+            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
             val lineage = dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(selectedUids, attributedSources)
             val inventory = dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventory.freeze(attributedSources)
             prompt to kotlinx.serialization.json.Json.encodeToString(

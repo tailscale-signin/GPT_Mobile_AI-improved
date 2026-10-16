@@ -12,13 +12,21 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedSynthesisPromptTest {
-    @Test fun comprehensivePolicyIsExplicitAndRequestLengthRemainsAnOption() {
-        val sources = listOf(CombinedModelResponse("p", "P", content = "Full contribution"))
-        assertEquals("COMPREHENSIVE", Json.parseToJsonElement(combinedSynthesisPrompt("100 words", sources)).jsonObject.getValue("combination_policy").jsonPrimitive.content)
-        assertEquals("REQUEST_LENGTH", Json.parseToJsonElement(combinedSynthesisPrompt("100 words", sources, comprehensive = false)).jsonObject.getValue("combination_policy").jsonPrimitive.content)
+    @Test fun comprehensivePolicyIgnoresWordCountCompressionWithoutDroppingInput() {
+        val sources = listOf(
+            CombinedModelResponse("p", "P", content = "Fact from primary."),
+            CombinedModelResponse("q", "Q", content = "Distinct fact from secondary.")
+        )
+        val prompt = Json.parseToJsonElement(combinedSynthesisPrompt("Reply in 50 words", sources)).jsonObject
+        assertEquals("COMPREHENSIVE", prompt.getValue("combination_policy").jsonPrimitive.content)
+        assertEquals("Reply in 50 words", prompt.getValue("original_request").jsonPrimitive.content)
+        assertEquals(2, prompt.getValue("contributions").jsonArray.size)
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("no application-imposed answer length"))
+        assertFalse(COMBINED_SYNTHESIS_INSTRUCTION.contains("REQUEST_LENGTH"))
     }
 
     @Test fun everyOriginalSurvivesJsonFramingIncludingLongEndingsAndConflictingDates() {
@@ -35,6 +43,19 @@ class CombinedSynthesisPromptTest {
             assertEquals("C${index + 1}", rows[index].jsonObject.getValue("id").jsonPrimitive.content)
             assertEquals(source.content, rows[index].jsonObject.getValue("response").jsonPrimitive.content)
         }
+    }
+
+    @Test fun conflictCandidatesAreLabeledAsUnverifiedNotWinningModelVotes() {
+        val sources = listOf(
+            CombinedModelResponse("one", "One", content = "The council approved 12 houses in 1930."),
+            CombinedModelResponse("two", "Two", content = "The council approved 14 houses in 1930.")
+        )
+        val prompt = Json.parseToJsonElement(combinedSynthesisPrompt("Explain the outcome", sources)).jsonObject
+        assertEquals("COMPREHENSIVE", prompt.getValue("combination_policy").jsonPrimitive.content)
+        val conflicts = prompt.getValue("potential_conflicts").jsonArray
+        assertEquals(1, conflicts.size)
+        assertEquals("NUMERIC", conflicts.single().jsonObject.getValue("kind").jsonPrimitive.content)
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("UNVERIFIED lexical candidates"))
     }
 
     @Test fun excludesTransportErrorsFromUsablePartialContributions() {

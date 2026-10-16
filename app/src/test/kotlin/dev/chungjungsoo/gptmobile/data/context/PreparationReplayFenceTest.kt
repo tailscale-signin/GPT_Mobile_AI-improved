@@ -14,6 +14,17 @@ class PreparationReplayFenceTest {
         assertFalse(fence.canRebuild(stale, 0))
     }
 
+    @Test fun policyChangesRebuildUpToThreeTimesButNeverAfterDispatch() {
+        val fence = PreparationReplayFence()
+        val stale = IllegalStateException("DISPATCH_POLICY_CHANGED: permissions changed")
+        assertTrue(fence.canRebuild(stale, 0))
+        assertTrue(fence.canRebuild(stale, 1))
+        assertTrue(fence.canRebuild(stale, 2))
+        assertFalse(fence.canRebuild(stale, 3))
+        fence.dispatched()
+        assertFalse(fence.canRebuild(stale, 0))
+    }
+
     @Test fun arbitraryInputErrorsAndPermissionDenialsNeverReplay() {
         val fence = PreparationReplayFence()
         assertFalse(fence.canRebuild(IllegalArgumentException("invalid input"), 0))

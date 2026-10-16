@@ -42,11 +42,13 @@ class LocalOutputAllocationTest {
         assertTrue(!text.contains("Old text ".repeat(1000)))
     }
 
-    @Test fun policyRebuildIsSingleAttemptAndNeverReplaysSideEffects() {
+    @Test fun policyRebuildHasThreePreDispatchAttemptsAndNeverReplaysSideEffects() {
         val fence = PreparationReplayFence()
         val stale = IllegalStateException("DISPATCH_POLICY_CHANGED: test")
         assertTrue(fence.canRebuild(stale, 0))
-        assertTrue(!fence.canRebuild(stale, 1))
+        assertTrue(fence.canRebuild(stale, 1))
+        assertTrue(fence.canRebuild(stale, 2))
+        assertTrue(!fence.canRebuild(stale, 3))
         assertTrue(!fence.canRebuild(IllegalStateException("PERMISSION_DENIED"), 0))
         fence.dispatched()
         assertTrue(!fence.canRebuild(stale, 0))

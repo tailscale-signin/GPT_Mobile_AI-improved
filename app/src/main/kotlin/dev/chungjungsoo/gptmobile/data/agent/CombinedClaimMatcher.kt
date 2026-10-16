@@ -16,6 +16,7 @@ internal object CombinedClaimMatcher {
         val numbers: Set<String>,
         val negative: Boolean,
         val hedged: Boolean,
+        val restrictions: Set<String>,
         val ordered: String
     )
 
@@ -29,6 +30,7 @@ internal object CombinedClaimMatcher {
     )
     private val negatives = setOf("not", "no", "never", "without", "cannot", "didnt", "isnt", "wasnt")
     private val hedges = setOf("may", "might", "could", "perhaps", "possibly", "allegedly", "reportedly", "uncertain", "unverified")
+    private val restrictions = setOf("only", "except", "unless", "atmost", "atleast", "maximum", "minimum")
     private val aliases = mapOf(
         "railway" to "rail", "railroad" to "rail", "rail" to "rail",
         "conscript" to "conscript", "conscription" to "conscript",
@@ -60,6 +62,7 @@ internal object CombinedClaimMatcher {
             numbers = words.filter { it.any(Char::isDigit) }.toSet(),
             negative = words.any { it in negatives },
             hedged = words.any { it in hedges },
+            restrictions = words.filter { it in restrictions }.toSet(),
             ordered = words.filter { it !in stop }.joinToString(" ")
         )
     }
@@ -68,6 +71,7 @@ internal object CombinedClaimMatcher {
     fun match(source: Fingerprint, answer: Fingerprint): Match {
         if (source.negative != answer.negative) return Match.NONE
         if (source.hedged && !answer.hedged) return Match.NONE
+        if (source.restrictions != answer.restrictions) return Match.NONE
         if (source.numbers.isNotEmpty() && !answer.numbers.containsAll(source.numbers)) return Match.NONE
         val overlap = source.terms.intersect(answer.terms).size
         val exact = source.ordered.isNotBlank() &&

@@ -119,7 +119,7 @@ private data class PreparedChatMarkdown(
     val parsed: ParsedChatMarkdown = ParsedChatMarkdown(emptyList(), emptyList()),
     val markdown: String = "",
     val memoryRanges: List<IntRange> = emptyList(),
-    val profileSpans: List<MappedProfileSpan> = emptyList()
+    val profileIndex: ProfileSpanIndex = ProfileSpanIndex(emptyList())
 )
 
 @OptIn(FlowPreview::class)
@@ -172,7 +172,7 @@ fun ChatMarkdown(
                     } else {
                         emptyList()
                     }
-                    PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), profileSpans.sortedBy { it.start })
+                    PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))
                 }
                 rendered = prepared
                 val now = android.os.SystemClock.elapsedRealtime()
@@ -231,7 +231,7 @@ fun ChatMarkdown(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
-    val annotator = remember(memoryRanges, rendered.profileSpans, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
+    val annotator = remember(memoryRanges, rendered.profileIndex, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)

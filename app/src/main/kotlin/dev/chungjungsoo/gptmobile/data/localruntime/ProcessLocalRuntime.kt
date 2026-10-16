@@ -123,6 +123,12 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             if (error !is kotlinx.coroutines.CancellationException && error.message.orEmpty().contains("interrupted inside native code", true)) {
                 readiness.rememberNativeInterruption(nativeRouteIdentity(spec.modelPath, spec.accelerator))
             }
+            if (error !is kotlinx.coroutines.CancellationException && LocalReadinessRegistry.deterministicFailure(error)) {
+                // One unsupported tensor is enough to disqualify this artifact/backend;
+                // tuning tweaks must not repeatedly crash the native worker.
+                readiness.rememberIncompatibleRoute(nativeRouteIdentity(spec.modelPath, spec.accelerator))
+                AppLogRecorder.record("LocalModel", "INCOMPATIBLE_ROUTE_QUARANTINED · accelerator=${spec.accelerator} · nativeDispatched=false_for_future_attempts", "W")
+            }
             mutableState.value = state.value.copy(lifecycle = "FAILED", fallbackReason = error.message)
             throw error
         }

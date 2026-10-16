@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.COMBINED_RECOVERY_MARKER
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -120,7 +123,9 @@ class CombinedResponseStateTest {
 
             Another distinct event.
         """.trimIndent()
-        val visible = combinedVisibleAnswer(saved)
+        val normal = combinedVisibleAnswer(saved, debugMode = false)
+        assertEquals("Original synthesis.", normal)
+        val visible = combinedVisibleAnswer(saved, debugMode = true)
         assertEquals(
             """
                 Original synthesis.
@@ -140,9 +145,53 @@ class CombinedResponseStateTest {
     @Test
     fun `combined response text without a legacy footer is unchanged`() {
         val alreadyClean = "A source-independent finding from Tang China.\\n\\n## Further details\\n\\nImportant example."
-        assertEquals(alreadyClean, combinedVisibleAnswer(alreadyClean))
+        assertEquals(alreadyClean, combinedVisibleAnswer(alreadyClean, debugMode = false))
     }
 
+    @Test
+    fun `marked recovered passages appear only in Debug Mode and marker never leaks`() {
+        val stored = "Primary combined answer.\n\n$COMBINED_RECOVERY_MARKER\n\n## Further details\n\nAdditional fact retained from another response."
+        val normal = combinedVisibleAnswer(stored, debugMode = false)
+        val debug = combinedVisibleAnswer(stored, debugMode = true)
+
+        assertEquals("Primary combined answer.", normal)
+        assertEquals(
+            "Primary combined answer.\n\n## Further details\n\nAdditional fact retained from another response.",
+            debug
+        )
+        assertFalse(normal.contains("Additional fact"))
+        assertFalse(debug.contains(COMBINED_RECOVERY_MARKER))
+    }
+
+    @Test
+    fun `normal Combined headings are not mistakenly treated as recovered material`() {
+        val answer = "This is the final answer.\n\n## Further details\n\nA legitimate part of the final synthesis."
+        assertEquals(answer, combinedVisibleAnswer(answer, debugMode = false))
+        assertEquals(answer, combinedVisibleAnswer(answer, debugMode = true))
+    }
+
+    @Test
+    fun `chronological timeline does not bypass filtered Combined source material`() {
+        val timeline = listOf(
+            AssistantTimelineItem(AssistantTimelineItemType.TEXT, "Partial text"),
+            AssistantTimelineItem(AssistantTimelineItemType.NOTICE, "Completed editorial review"),
+            AssistantTimelineItem(AssistantTimelineItemType.TEXT, "Additional source material")
+        )
+        val result = combinedVisibleTimeline(timeline, "Only the main combined answer")
+        assertEquals(2, result.size)
+        assertEquals(AssistantTimelineItemType.NOTICE, result.first().type)
+        assertEquals("Completed editorial review", result.first().content)
+        assertEquals(AssistantTimelineItemType.TEXT, result.last().type)
+        assertEquals("Only the main combined answer", result.last().content)
+        assertFalse(result.any { it.content.contains("Additional source material") })
+    }
+
+    @Test
+    fun `legacy or absent timeline continues to use safely filtered fallback text`() {
+        val unavailable = listOf(AssistantTimelineItem(AssistantTimelineItemType.LEGACY_ORDER))
+        assertEquals(unavailable, combinedVisibleTimeline(unavailable, "filtered"))
+        assertEquals(emptyList<AssistantTimelineItem>(), combinedVisibleTimeline(emptyList(), "filtered"))
+    }
     private fun profiles(
         responses: List<MessageV2>,
         participating: Set<String> = setOf("lead", "other"),

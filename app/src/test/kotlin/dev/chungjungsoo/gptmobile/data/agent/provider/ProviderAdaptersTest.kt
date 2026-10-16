@@ -582,11 +582,13 @@ class ProviderAdaptersTest {
     @Test
     fun `NVIDIA keeps reasoning out of visible answer text`() = runBlocking {
         val chunk = ChatCompletionChunk(
-            choices = listOf(Choice(
-                index = 0,
-                delta = Delta(content = "<think>draft analysis</think>Final answer."),
-                finishReason = "stop"
-            ))
+            choices = listOf(
+                Choice(
+                    index = 0,
+                    delta = Delta(content = "<think>draft analysis</think>Final answer."),
+                    finishReason = "stop"
+                )
+            )
         )
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
         val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())

@@ -11,10 +11,10 @@ import android.os.IBinder
 import android.os.Message
 import android.os.SystemClock
 import android.os.Messenger
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.RuntimeWire
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.RuntimeWireTransport
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.WireConversation
-import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaEndpoints
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +42,9 @@ object ApiKeyValidator {
                 if (base.isNotEmpty()) "$base/api/tags" else "http://localhost:11434/api/tags"
             }
             ClientType.NVIDIA -> {
-                val base = apiUrl.trim().ifBlank { dev.chungjungsoo.gptmobile.data.ModelConstants.NVIDIA_API_URL }.trimEnd('/')
+                val base = runCatching { NvidiaEndpoints.normalize(apiUrl) }.getOrElse {
+                    return@withContext ValidationResult.Error("Invalid NVIDIA API URL.")
+                }
                 "$base/models"
             }
             ClientType.FREE, ClientType.CUSTOM -> {

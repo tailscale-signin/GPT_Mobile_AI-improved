@@ -18,6 +18,7 @@ jobs:
   apk:
     name: Build draft review APK
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     env:
       OBX_DISABLE_ANALYTICS: 'true'
     steps:
@@ -30,8 +31,17 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
-      - name: Build APK and compile device regressions
-        run: ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:compileBenchmarkKotlin :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace
+      # Separate invocations release compiler/KSP memory between build variants.
+      # Bound each phase so a stalled compiler cannot occupy a runner for six hours.
+      - name: Build review APK
+        timeout-minutes: 30
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --console=plain
+      - name: Compile device regressions
+        timeout-minutes: 25
+        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain
+      - name: Compile benchmark regressions
+        timeout-minutes: 30
+        run: ./gradlew :app:compileBenchmarkKotlin :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain
       - name: Verify packaged local runtime and privacy
         run: |
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk

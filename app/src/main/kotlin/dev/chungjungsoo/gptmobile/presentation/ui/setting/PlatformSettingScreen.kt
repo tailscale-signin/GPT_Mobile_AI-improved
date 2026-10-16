@@ -208,6 +208,19 @@ fun PlatformSettingScreen(
                     val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.supportsTools == true
                     val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
                     ProfileIdentityCard(platformData)
+                    if (platformData.compatibleType == ClientType.NVIDIA) {
+                        val capabilities = dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities.forModel(platformData.model)
+                        val reasoningDescription = when (capabilities.reasoningControl) {
+                            dev.chungjungsoo.gptmobile.data.nvidia.NvidiaReasoningControl.EFFORT -> "Low/medium reasoning effort; fully off is unavailable"
+                            dev.chungjungsoo.gptmobile.data.nvidia.NvidiaReasoningControl.TEMPLATE -> "Reasoning on/off through model template"
+                            dev.chungjungsoo.gptmobile.data.nvidia.NvidiaReasoningControl.UNKNOWN -> "Reasoning controls unverified for this model"
+                        }
+                        Text(
+                            text = "NVIDIA · $reasoningDescription. Model listings do not verify chat or tool access.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Column(Modifier.padding(horizontal = 16.dp)) {
                         SettingsTabs(listOf("Profile", "Tools", "Advanced"), profileTab) { profileTab = it }
                     }
@@ -712,7 +725,16 @@ fun PlatformSettingScreen(
                     if (!isLocalPlatform && !isFreePlatform) {
                         APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
                         APIKeyDialog(dialogState, platformData.token, settingViewModel)
-                        if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
+                        if (platformData.compatibleType == ClientType.NVIDIA && dialogState.isApiModelDialogOpen) {
+                            NvidiaModelPickerDialog(
+                                apiUrl = platformData.apiUrl,
+                                apiKey = platformData.token.orEmpty(),
+                                connectionUid = platformData.providerConnectionUid,
+                                currentModel = platformData.model,
+                                onDismiss = settingViewModel::closeApiModelDialog,
+                                onModelSelected = settingViewModel::updateApiModel
+                            )
+                        } else if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
                             OpenRouterModelPickerDialog(
                                 currentModel = platformData.model,
                                 connectionUid = platformData.providerConnectionUid,

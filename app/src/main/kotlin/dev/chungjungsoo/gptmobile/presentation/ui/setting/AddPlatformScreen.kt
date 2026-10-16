@@ -104,6 +104,7 @@ fun AddPlatformScreen(
     var maxToolCallsText by remember { mutableStateOf("50") }
     var showSuggestedModels by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
+    var showNvidiaPicker by remember { mutableStateOf(false) }
     var showLlamaPicker by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
@@ -489,6 +490,16 @@ fun AddPlatformScreen(
                         }
                     }
 
+                    if (clientType == ClientType.NVIDIA) {
+                        OutlinedButton(
+                            onClick = { showNvidiaPicker = true },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        ) {
+                            Icon(Icons.Rounded.List, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                            Text("Browse NVIDIA models")
+                        }
+                    }
+
                     if (clientType == ClientType.OPENROUTER) {
                         OutlinedButton(
                             onClick = { showOpenRouterPicker = true },
@@ -596,6 +607,17 @@ fun AddPlatformScreen(
         )
     }
 
+    if (showNvidiaPicker) {
+        NvidiaModelPickerDialog(
+            apiUrl = apiUrl,
+            apiKey = apiTokens.firstOrNull { it.isNotBlank() }.orEmpty(),
+            connectionUid = selectedConnectionUid,
+            currentModel = model,
+            onDismiss = { showNvidiaPicker = false },
+            onModelSelected = { model = it }
+        )
+    }
+
     if (showOpenRouterPicker) {
         OpenRouterModelPickerDialog(
             currentModel = model,
@@ -622,7 +644,7 @@ private fun suggestedModels(clientType: ClientType): List<String> = when (client
     ClientType.OPENAI -> ModelConstants.openaiModels.toList()
     ClientType.ANTHROPIC -> ModelConstants.anthropicModels.toList()
     ClientType.GOOGLE -> ModelConstants.googleModels.toList()
-    ClientType.NVIDIA -> listOf(ModelConstants.NVIDIA_DEFAULT_MODEL)
+    ClientType.NVIDIA -> dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities.suggestedModelIds
     ClientType.GROQ -> ModelConstants.groqModels.toList()
     ClientType.OLLAMA -> ModelConstants.ollamaModels.toList()
     ClientType.LLAMA -> ModelConstants.llamaModels.toList()

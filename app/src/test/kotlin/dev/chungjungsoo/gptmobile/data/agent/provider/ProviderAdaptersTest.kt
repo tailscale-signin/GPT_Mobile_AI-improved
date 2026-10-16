@@ -42,6 +42,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseObject
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
+import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
@@ -556,6 +557,66 @@ class ProviderAdaptersTest {
             assertEquals(cap, api.chatRequests.single().maxTokens)
             assertEquals(minOf(1024, cap).toString(), api.configs.single().extraHeaders["X-Gateway-Intermediate-Max-Tokens"])
         }
+    }
+
+    @Test
+    fun `NVIDIA request controls are transmitted across compatible adapter roles`() = runBlocking {
+        for ((model, reasoningEnabled, allowed, expectedEffort) in listOf(
+            listOf("openai/gpt-oss-20b", true, true, "medium"),
+            listOf("openai/gpt-oss-20b", true, false, "low")
+        )) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.NVIDIA).copy(model = model as String, reasoning = reasoningEnabled as Boolean), RequestConstraints(allowReasoning = allowed as Boolean, requestRole = "reviewer"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(expectedEffort, api.chatRequests.single().reasoningEffort)
+            assertEquals("NVIDIA", api.configs.single().providerType)
+        }
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.NVIDIA).copy(model = "nvidia/nemotron-3-super-120b-a12b", reasoning = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("false", api.chatRequests.single().chatTemplateKwargs?.get("enable_thinking").toString())
+    }
+
+    @Test
+    fun `NVIDIA keeps reasoning out of visible answer text`() = runBlocking {
+        val chunk = ChatCompletionChunk(
+            choices = listOf(
+                Choice(
+                    index = 0,
+                    delta = Delta(content = "<think>draft analysis</think>Final answer."),
+                    finishReason = "stop"
+                )
+            )
+        )
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.NVIDIA).copy(model = "nvidia/nemotron-3-super-120b-a12b"))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Final answer.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.filterIsInstance<ProviderEvent.ThinkingDelta>().any { it.text.contains("draft analysis") })
+    }
+
+    @Test
+    fun `known text only NVIDIA models reject image attachments before dispatch`() = runBlocking {
+        val image = ChatAttachment(
+            localFilePath = "image.png",
+            preparedFilePath = "",
+            displayName = "image.png",
+            mimeType = "image/png",
+            sizeBytes = 4
+        )
+        val withImage = turns().map { it.copy(userMessage = it.userMessage.copy(attachments = listOf(image))) }
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        try {
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(withImage, platform(ClientType.NVIDIA).copy(model = "openai/gpt-oss-20b"))
+            fail("Expected image capability rejection")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message.orEmpty().contains("text only"))
+        }
+        assertTrue(api.chatRequests.isEmpty())
     }
 
     @Test

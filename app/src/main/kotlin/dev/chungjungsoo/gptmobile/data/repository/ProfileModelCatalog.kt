@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.repository
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
+import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaEndpoints
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -38,7 +39,7 @@ class ProfileModelCatalog(private val client: OkHttpClient = sharedClient) {
                 ClientType.OPENROUTER -> "https://openrouter.ai/api/v1"
                 else -> error("Configure this provider's API address first.")
             }
-        }.trimEnd('/')
+        }.trimEnd('/').let { if (type == ClientType.NVIDIA) NvidiaEndpoints.normalize(it) else it }
         val root = base.removeSuffix("/chat/completions").removeSuffix("/responses").removeSuffix("/messages")
         val normalizedRoot = if (type == ClientType.GOOGLE && !Regex("/v[0-9]+(?:beta[0-9]*)?$").containsMatchIn(root)) "$root/v1beta" else root
         val endpoint = if (type == ClientType.OLLAMA) root.removeSuffix("/api").removeSuffix("/v1") + "/api/tags" else "$normalizedRoot/models"

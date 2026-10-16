@@ -143,6 +143,7 @@ class ChatExportTest {
             assistantExportText(message, ChatExportFormat.MARKDOWN, debugMode = true)
         )
     }
+
     @Test
     fun persistableMessages_filtersOutEmptyUnsentDrafts() {
         val user1 = MessageV2(chatId = 1, content = "Question 1", platformType = null)

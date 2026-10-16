@@ -99,7 +99,7 @@ class LocalRuntimeRouter(
                     if (error !is Exception && error !is LinkageError) throw error
                     qnnRuntime.unloadEngine()
                     if (error is LocalModelConfigurationException) throw error
-                    if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) {
+                    if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isCompiledNpuPackage(spec.modelPath)) {
                         throw LocalNpuPackageException(error)
                     }
                     if (!featureSettings().qnnAutomaticFallback) {
@@ -155,7 +155,7 @@ class LocalRuntimeRouter(
             }
         }
         val failure = LocalLoadFailure(attempts + exclusions, primaryError)
-        if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isNpuFile(spec.modelPath)) {
+        if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isCompiledNpuPackage(spec.modelPath)) {
             throw LocalNpuPackageException(failure)
         }
         throw failure

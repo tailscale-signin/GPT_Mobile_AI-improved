@@ -80,6 +80,8 @@ class LocalModelLocatorTest {
         assertTrue(targetFile.exists())
         assertEquals(2048L, targetFile.length())
         assertEquals(LocalModelStatus.READY, success.record.status)
+        assertEquals("custom_model.litertlm", success.record.fileName)
+        assertEquals("custom_model.litertlm", targetFile.name)
     }
 
     @Test

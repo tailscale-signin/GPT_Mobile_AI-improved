@@ -207,19 +207,26 @@ object LocalModelLocator {
                     relativeDir = LocalModelDownloadPaths.relativeDirectory(catalogEntryId, LOCAL_COMMIT_HASH)
                     val destination = File(targetModelsRootDir, relativeDir)
                     check(destination.mkdirs() || destination.isDirectory)
-                    finalFile = File(destination, "model.litertlm")
-                    if (finalFile.isFile) {
-                        check(PackageDigest.sha256(finalFile, checkCurrent) == hash) { "Existing content identity does not match" }
+                    // Keep the source filename (including Qualcomm/SoC suffix).
+                    // Content-hash identity still deduplicates renamed copies.
+                    val existing = destination.listFiles().orEmpty()
+                        .filter { it.isFile && it.name.endsWith(".litertlm", ignoreCase = true) && it.length() == validation.sizeBytes }
+                        .firstOrNull { PackageDigest.sha256(it, checkCurrent) == hash }
+                    finalFile = existing ?: File(destination, fileName)
+                    if (existing != null) {
                         targetFile.delete()
-                    } else if (!targetFile.renameTo(finalFile)) {
+                    } else if (finalFile.exists() || !targetFile.renameTo(finalFile)) {
                         targetFile.delete()
-                        return LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.DESTINATION_WRITE_FAILED, "Could not finalize imported model")
+                        return LocalModelImportResult.Failure(
+                            LocalModelImportResult.Failure.Reason.DESTINATION_WRITE_FAILED,
+                            "Could not safely finalize imported model"
+                        )
                     }
                     targetDir.deleteRecursively()
                     val record = LocalModelRecord(
                         catalogEntryId = catalogEntryId,
                         commitHash = LOCAL_COMMIT_HASH,
-                        fileName = "model.litertlm",
+                        fileName = finalFile.name,
                         relativeDirectory = relativeDir,
                         status = LocalModelStatus.READY
                     )

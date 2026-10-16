@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.ui.graphics.Color
 import dev.chungjungsoo.gptmobile.data.agent.ValidatedCombinedProvenance
+import dev.chungjungsoo.gptmobile.data.agent.combinedWordingSpans
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 
 const val ATTRIBUTION_MARKDOWN_PARSER_VERSION = "chat-markdown-source-map-v1"
@@ -23,6 +25,12 @@ data class MarkdownProvenancePresentation(
     val profileColors: Map<String, Color>
 )
 
+/** Wording colours are separate from qualified semantic provenance. Shared wording stays neutral. */
+data class CombinedWordingPresentation(
+    val sources: List<CombinedModelResponse>,
+    val profileColors: Map<String, Color>
+)
+
 data class MappedProfileSpan(val start: Int, val end: Int, val profileUid: String)
 
 data class MarkdownSourceMap(
@@ -30,6 +38,29 @@ data class MarkdownSourceMap(
     val markdownDigest: String,
     val runs: List<MarkdownSourceRun>
 ) {
+    fun wordingSpans(original: String, markdown: String, sources: List<CombinedModelResponse>): List<MappedProfileSpan> {
+        if (answerDigest != researchHash(original) || markdownDigest != researchHash(markdown)) return emptyList()
+        if (runs.any {
+                it.sourceStart < 0 ||
+                    it.sourceEnd > original.length ||
+                    it.length <= 0 ||
+                    it.transformedStart < 0 ||
+                    it.transformedStart.toLong() + it.length > markdown.length ||
+                    original.substring(it.sourceStart, it.sourceEnd) != markdown.substring(it.transformedStart, it.transformedStart + it.length)
+            }
+        ) {
+            return emptyList()
+        }
+        return combinedWordingSpans(original, sources).flatMap { span ->
+            val uid = span.profileUids.singleOrNull() ?: return@flatMap emptyList()
+            runs.mapNotNull { run ->
+                val start = maxOf(span.start, run.sourceStart)
+                val end = minOf(span.end, run.sourceEnd)
+                if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, uid)
+            }
+        }
+    }
+
     /** No raw source offset is handed to the renderer. Invalid/stale maps produce no overrides. */
     fun exclusiveSpans(
         original: String,

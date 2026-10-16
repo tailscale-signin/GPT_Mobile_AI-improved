@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.QualcommSocSupport
+import java.io.File
 
 /** A compiled NPU package cannot be opened by the GPU/CPU backend. */
 object LocalModelPackages {
@@ -48,6 +49,47 @@ object LocalModelPackages {
         Regex("(?i)(?:npu|qualcomm|mediatek|tensor[_-]?g[0-9])").containsMatchIn(fileName.substringAfterLast('/'))
 
     /**
+     * An imported artifact has no remote catalog row. Its original name is
+     * candidate backend/SoC metadata, not a verified NPU execution result.
+     */
+    fun forImportedLiteRtModel(
+        id: String,
+        originalFileName: String,
+        installedFileName: String,
+        sizeInBytes: Long,
+        previousEntry: CatalogEntry? = null
+    ): CatalogEntry = forInstalledFile(
+        CatalogEntry(
+            id = id,
+            // A renamed duplicate must not erase the only SoC evidence retained by a legacy import.
+            displayName = previousEntry?.takeIf {
+                it.id == id && it.variantLabel.equals("LITERT_LM", ignoreCase = true) && npuSoc(it.displayName) != null
+            }?.displayName ?: originalFileName.substringBeforeLast('.'),
+            sizeInBytes = sizeInBytes,
+            familyId = id,
+            variantLabel = "LITERT_LM",
+            runtimeRequirement = "litert-lm"
+        ),
+        installedFileName
+    )
+
+    /**
+     * Pre-fix imports used a generic model.litertlm name. Recover the original
+     * identity only from app-owned metadata in the matching hash-ID directory.
+     */
+    fun isCompiledNpuPackage(modelPath: String): Boolean {
+        if (isNpuFile(modelPath)) return true
+        val file = File(modelPath)
+        if (!file.isFile || !file.name.equals("model.litertlm", ignoreCase = true)) return false
+        val revision = file.parentFile ?: return false
+        val installedEntry = LocalModelMetadata.readFromDirectory(revision) ?: return false
+        return installedEntry.id.startsWith("local_") &&
+            revision.parentFile?.name == installedEntry.id &&
+            installedEntry.variantLabel.equals("LITERT_LM", ignoreCase = true) &&
+            npuSoc(installedEntry.displayName) != null
+    }
+
+    /**
      * Accept an installed Qualcomm package when either the current catalog proves
      * an exact SoC variant or the artifact basename itself encodes this phone's
      * supported Snapdragon SoC. Dynamic Hub entries are intentionally not assumed
@@ -74,19 +116,35 @@ object LocalModelPackages {
 
     fun forInstalledFile(entry: CatalogEntry, fileName: String): CatalogEntry {
         if (fileName == "manifest.json" && entry.variantLabel.startsWith("GENIEX_")) return entry
-        if (!isNpuFile(fileName)) {
+        // Legacy manual imports retained the original basename in the manifest.
+        // Do not infer vendor support from parent directories or catalog titles.
+        val artifactName = if (
+            fileName.equals("model.litertlm", ignoreCase = true) &&
+            entry.id.startsWith("local_") &&
+            entry.variantLabel.equals("LITERT_LM", ignoreCase = true) &&
+            npuSoc(entry.displayName) != null
+        ) {
+            entry.displayName + ".litertlm"
+        } else {
+            fileName
+        }
+        if (!isNpuFile(artifactName)) {
             return entry.copy(
                 supportedAccelerators = entry.supportedAccelerators.filterNot { it.equals("npu", true) }.ifEmpty { listOf("gpu", "cpu") },
                 socToModelFiles = emptyMap()
             )
         }
-        val soc = npuSoc(fileName)
+        val soc = npuSoc(artifactName)
         return entry.copy(
             supportedAccelerators = listOf("npu"),
             socToModelFiles = entry.socToModelFiles.filterKeys {
                 soc == null || QualcommSocSupport.canonicalSoc(it).equals(soc, true)
             }.ifEmpty {
-                if (soc != null && QualcommSocSupport.htpVersion(soc) != null) mapOf(soc to SocVariant(modelFile = fileName)) else emptyMap()
+                if (soc != null && QualcommSocSupport.htpVersion(soc) != null) {
+                    mapOf(soc to SocVariant(modelFile = fileName))
+                } else {
+                    emptyMap()
+                }
             }
         )
     }

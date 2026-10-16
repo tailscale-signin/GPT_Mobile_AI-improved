@@ -12,7 +12,8 @@ internal suspend fun LocalModelRepository.resolveLocalModelSelection(modelId: St
     var id = modelId
     var record = getById(id)
     var path = resolveDownloadedPath(id)
-    val installedNpu = (record?.fileName ?: path)?.let(LocalModelPackages::isNpuFile) == true
+    val installedNpu = path?.let(LocalModelPackages::isCompiledNpuPackage)
+        ?: (record?.fileName?.let(LocalModelPackages::isNpuFile) == true)
     if (!wantsNpu && (path == null || installedNpu)) {
         id = "$modelId-litert"
         path = resolveDownloadedPath(id)
@@ -25,7 +26,7 @@ internal suspend fun LocalModelRepository.resolveLocalModelSelection(modelId: St
             "This Local Model is not downloaded. Download it from Settings → Local Models."
         }
     }
-    check(wantsNpu || !LocalModelPackages.isNpuFile(path)) {
+    check(wantsNpu || !LocalModelPackages.isCompiledNpuPackage(path)) {
         "The selected download is an NPU package. Download its GPU / CPU edition to use this accelerator."
     }
     return LocalModelSelection(id, record, path)

@@ -257,6 +257,7 @@ fun OpponentChatBubble(
     onContinueClick: (() -> Unit)? = null,
     onActionClick: ((String) -> Unit)? = null,
     articleCards: @Composable (String) -> Unit = {},
+    combinedWording: CombinedWordingPresentation? = null,
     splitForPassageIndicators: Boolean = false,
     passageIndicators: @Composable (String) -> Unit = {}
 ) {
@@ -438,6 +439,7 @@ fun OpponentChatBubble(
                         expanded = activityExpanded,
                         onExpandedChange = { activityExpanded = it },
                         articleCards = articleCards,
+                        combinedWording = combinedWording,
                         splitForPassageIndicators = splitForPassageIndicators,
                         passageIndicators = passageIndicators
                     )

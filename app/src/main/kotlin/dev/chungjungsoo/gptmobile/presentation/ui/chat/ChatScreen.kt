@@ -1284,6 +1284,16 @@ private fun ChatMessagePair(
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
                     conversationId = selectedAssistantMessage?.chatId,
+                    combinedWording = if (hasCombinedTabs && selectedProfile == null) {
+                        CombinedWordingPresentation(
+                            assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(),
+                            debugSettings.profileAttributionColors.mapValues { (_, identity) ->
+                                ProfileAttributionPalette.foreground(identity, MaterialTheme.colorScheme.surface)
+                            }
+                        )
+                    } else {
+                        null
+                    },
                     splitForPassageIndicators = hasCombinedTabs && selectedProfile == null,
                     passageIndicators = { segment ->
                         if (hasCombinedTabs && selectedProfile == null) {

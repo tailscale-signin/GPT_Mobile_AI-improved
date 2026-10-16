@@ -1,0 +1,31 @@
+{
+  "request": "Give a short summary of a culture from history.",
+  "sources": [
+    {
+      "platformUid": "profile-1",
+      "platformName": "Profile 1",
+      "content": "Athens used wealth from silver mines to fund public works and naval power."
+    },
+    {
+      "platformUid": "profile-2",
+      "platformName": "Profile 2",
+      "content": "Tang Dynasty China welcomed Persian merchants and Japanese monks along the Silk Road."
+    },
+    {
+      "platformUid": "profile-3",
+      "platformName": "Profile 3",
+      "content": "Athens excluded women and enslaved people from political participation."
+    },
+    {
+      "platformUid": "profile-4",
+      "platformName": "Profile 4",
+      "content": "Athenian playwrights staged tragedies during religious festivals."
+    },
+    {
+      "platformUid": "profile-5",
+      "platformName": "Profile 5",
+      "content": "Which culture would you like to explore next?"
+    }
+  ],
+  "selectedAnswer": "Athens used wealth from silver mines to fund public works and naval power. Athens excluded women and enslaved people from political participation. Athenian playwrights staged tragedies during religious festivals."
+}

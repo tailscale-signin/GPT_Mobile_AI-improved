@@ -19,6 +19,20 @@ class MarkdownSourceMapTest {
     }
 
     @Test
+    fun wordingColoursFollowRealMarkdownTransformsAndRejectStaleAnswers() {
+        val sentence = "Silver mines funded public works and naval power in ancient Athens."
+        val source = "<!-- chat_subject: Culture -->\n😀 **$sentence** ${'$'}x^2${'$'}\n\n${'$'}${'$'}y+z${'$'}${'$'}"
+        val rows = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("one", "One", content = sentence))
+        val (markdown, map) = mapped(source)
+        val spans = map.wordingSpans(source, markdown, rows)
+        assertTrue(spans.isNotEmpty())
+        assertEquals("Silver mines funded public works and naval power in ancient Athens", spans.joinToString("") { markdown.substring(it.start, it.end) })
+        assertTrue(map.wordingSpans(source + "changed", markdown, rows).isEmpty())
+        assertTrue(map.wordingSpans(source, markdown, rows + rows.single().copy(platformUid = "two")).isEmpty())
+        assertTrue(map.copy(runs = listOf(MarkdownSourceRun(0, -1, 5, 0))).wordingSpans(source, markdown, rows).isEmpty())
+    }
+
+    @Test
     fun `actual math transformation preserves Unicode prose offsets and excludes generated placeholders`() {
         val source = "<!-- chat_subject: Test -->\n😀 é שלום **before** ${'$'}x^2${'$'} [after](https://example.org).\n\n${'$'}${'$'}y+z${'$'}${'$'}\n\nآخر tail."
         val (markdown, map) = mapped(source)

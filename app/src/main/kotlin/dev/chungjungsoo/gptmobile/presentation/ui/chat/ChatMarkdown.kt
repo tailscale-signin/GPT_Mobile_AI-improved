@@ -117,6 +117,7 @@ fun ChatMarkdown(
     streaming: Boolean = false,
     proseColor: Color? = null,
     provenance: MarkdownProvenancePresentation? = null,
+    wording: CombinedWordingPresentation? = null,
     outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
     modifier: Modifier = Modifier
 ) {
@@ -126,16 +127,18 @@ fun ChatMarkdown(
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     var rendered by remember(contentIdentity) { mutableStateOf(PreparedChatMarkdown()) }
     var lastTraceAt by remember(contentIdentity) { mutableLongStateOf(0L) }
-    LaunchedEffect(contentIdentity, content, streaming, memoryValues, provenance, outputTrace) {
+    LaunchedEffect(contentIdentity, content, streaming, memoryValues, provenance, wording, outputTrace) {
         // Publish parsing, transformed text and highlight ranges together. Old snapshots
         // stay visible while cancellable preparation runs away from the UI thread.
         rendered = withContext(Dispatchers.Default) {
             val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)
             val parsed = parseChatMarkdown(visibleSource, cacheResult = !streaming)
-            val mapped = provenance?.let { buildMappedMarkdown(content, visibleSource, parsed, displayMathNonce) }
+            val mapped = if (provenance != null || wording != null) buildMappedMarkdown(content, visibleSource, parsed, displayMathNonce) else null
             val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
             val profileSpans = if (provenance != null && mapped != null) {
                 mapped.second.exclusiveSpans(content, combined, provenance.validated, provenance.corpusDigest, provenance.policyRevision)
+            } else if (wording != null && mapped != null) {
+                mapped.second.wordingSpans(content, combined, wording.sources)
             } else {
                 emptyList()
             }
@@ -196,7 +199,7 @@ fun ChatMarkdown(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
-    val annotator = remember(memoryRanges, rendered.profileSpans, provenance, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
+    val annotator = remember(memoryRanges, rendered.profileSpans, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)
@@ -216,7 +219,7 @@ fun ChatMarkdown(
                     profileSpans.forEach { span ->
                         val start = maxOf(startOffset, span.start)
                         val end = minOf(endOffset, span.end)
-                        val color = provenance?.profileColors?.get(span.profileUid)
+                        val color = (provenance?.profileColors ?: wording?.profileColors)?.get(span.profileUid)
                         if (start < end && color != null) addStyle(SpanStyle(color = color), outputStart + start - startOffset, outputStart + end - startOffset)
                     }
                 }

@@ -13,7 +13,7 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>) {
         val accepted: Boolean get() = total > 0 && missing.isEmpty()
     }
     val units: List<Unit> = sources.flatMap { source ->
-        sentences(ConversationSubject.withoutMetadata(source.content)).filter { tokens(it).isNotEmpty() }
+        sentences(sourceCoverageText(source.content)).filter { tokens(it).isNotEmpty() }
             .map { Unit(it, setOf(source.platformUid)) }
     }.groupBy { normalized(it.text) }.values.map { copies ->
         Unit(copies.first().text, copies.flatMap { it.profileUids }.toSet())
@@ -42,6 +42,12 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>) {
     }
 
     companion object {
+        // The app's trailing suggestion block is conversational UI, not source facts to preserve.
+        private val followUps = Regex("(?im)\\n\\s*\\n(?:\\*\\*)?Next questions:(?:\\*\\*)?\\s*\\n(?=\\s*[-*])")
+        private fun sourceCoverageText(content: String): String {
+            val text = ConversationSubject.withoutMetadata(content)
+            return followUps.find(text)?.let { text.substring(0, it.range.first) } ?: text
+        }
         private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
         private val qualificationWords = setOf("not", "never", "no", "without", "except", "only", "may", "might", "uncertain", "unverified", "unknown")
         private val noise = setOf("the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "for", "by", "with", "from", "as", "is", "was", "were", "it", "its", "that", "this", "these", "those")

@@ -111,6 +111,7 @@ class AgentRunner(
         var replayTokens = 0L
         var observedToolCalls = 0
         var stormFinalizationAttempted = false
+        var unproductiveDiscoveryRounds = 0
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
@@ -169,8 +170,8 @@ class AgentRunner(
             val round = collectRound(session, exposedDefinitions, exchanges, (limits.maxObservedToolCalls.coerceIn(1, 1024) - observedToolCalls).coerceAtLeast(0))
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
-                AppLogRecorder.record("Agent", "TOOL_BATCH_OVERSIZE · observed=${round.observedCalls} · admitted=${round.calls.size} · suppressedAtLeast=1 · totalObserved=$observedToolCalls · dispatchOwner=${if (session.handlesToolsInternally) "native" else "none"}", "W")
-                emit(AgentRunEvent.Notice("An oversized or invalid tool batch was stopped. Completed results remain available for the final answer.", persistent = true))
+                AppLogRecorder.record("Agent", "TOOL_BATCH_OVERSIZE · rejectedBatchObserved=${round.observedCalls} · permittedPerRound=${limits.maxToolCallsPerRound} · cumulativeObserved=$observedToolCalls · dispatched=0", "W")
+                emit(AgentRunEvent.Notice("An oversized or invalid tool batch was stopped before dispatch. Retry with at most ${limits.maxToolCallsPerRound} calls per batch; completed evidence remains available.", persistent = true))
                 if (stormFinalizationAttempted || session.handlesToolsInternally || !limits.allowToolStormFinalization) {
                     emit(failed("TOOL_BATCH_OVERSIZE: partial answer and completed evidence retained. The provider did not honor tool-free finalization."))
                     return
@@ -322,6 +323,15 @@ class AgentRunner(
                     isError = true
                 )
             }.toMutableList()
+            // Discovery that leaves the advertised set unchanged is not research progress.
+            // After two such rounds, preserve evidence and force a tool-free answer.
+            val noNewTools = calls.isNotEmpty() &&
+                calls.all { it.name == ProgressiveToolCatalog.NAME } &&
+                allResults.all { result ->
+                    result.isError || ((result.content as? ToolResultContent.Json)?.value?.get("catalog_unchanged")?.toString() == "true")
+                }
+            unproductiveDiscoveryRounds = if (noNewTools) unproductiveDiscoveryRounds + 1 else 0
+            val repeatedDiscoveryStalled = unproductiveDiscoveryRounds >= 2
             val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
             val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
             val sharedCallBudgetResult = allResults
@@ -343,6 +353,7 @@ class AgentRunner(
                 limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
             val unavailableCallsOnly = executableCalls.isEmpty() && calls.isNotEmpty() && hostSuppressedIds.isEmpty()
             val mustFinalize = unavailableCallsOnly ||
+                repeatedDiscoveryStalled ||
                 roundLimitReached ||
                 contextNearLimit ||
                 outputBudgetExhausted ||
@@ -353,6 +364,11 @@ class AgentRunner(
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
                 emit(AgentRunEvent.Notice("Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
+            } else if (repeatedDiscoveryStalled) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                finalResponseRequested = true
+                emit(AgentRunEvent.Notice("No new tools became available after repeated discovery. Summarizing the evidence already collected.", persistent = false))
             } else if (roundLimitReached) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
@@ -417,6 +433,7 @@ class AgentRunner(
             if (mustFinalize && allResults.isNotEmpty()) {
                 allResults[allResults.lastIndex] = when {
                     unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
+                    repeatedDiscoveryStalled -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
                     roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
                     contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
                     outputBudgetExhausted && toolCallBudgetExhausted ->

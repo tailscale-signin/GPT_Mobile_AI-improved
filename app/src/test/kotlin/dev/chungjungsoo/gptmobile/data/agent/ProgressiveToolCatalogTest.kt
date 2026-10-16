@@ -34,6 +34,28 @@ class ProgressiveToolCatalogTest {
         assertTrue(catalog.selected(tools).size <= ProgressiveToolCatalog.INITIAL_TOOLS)
     }
 
+    @Test fun coldToolDiscoveryReusesPreviouslyFetchedCatalogPerRun() = runTest {
+        var fetches = 0
+        val catalog = ProgressiveToolCatalog(tools, "task", acquireCold = { _, _ ->
+            fetches++
+            listOf(AgentToolDefinition("external_tool", "External", JsonObject(emptyMap())))
+        })
+        val query = JsonObject(mapOf("query" to JsonPrimitive("external_tool")))
+        catalog.execute("first", query)
+        catalog.execute("repeat", query)
+        assertEquals(1, fetches)
+        assertTrue(catalog.selected(tools + AgentToolDefinition("external_tool", "External", JsonObject(emptyMap()))).any { it.name == "external_tool" })
+    }
+
+    @Test fun unchangedDiscoveryIsExplicitlyReported() = runTest {
+        val catalog = ProgressiveToolCatalog(tools.take(3), "task_1")
+        val query = JsonObject(mapOf("names" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("task_1")))))
+        catalog.execute("first", query)
+        val result = catalog.execute("again", query)
+        assertTrue(result.content.toString().contains("catalog_unchanged"))
+        assertTrue(result.content.toString().contains("true"))
+    }
+
     @Test fun catalogDoesNotReplaceSmallOrCollidingToolSets() {
         assertNull(ProgressiveToolCatalog.create(tools.take(8), "task"))
         assertNull(ProgressiveToolCatalog.create(tools + AgentToolDefinition(ProgressiveToolCatalog.NAME, "Existing tool", JsonObject(emptyMap())), "task"))

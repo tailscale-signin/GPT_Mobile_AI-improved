@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.COMBINED_RECOVERY_MARKER
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -126,6 +127,21 @@ class ChatExportTest {
             )
         )
         assertEquals("Visible answer", assistantExportText(message, ChatExportFormat.MARKDOWN))
+    }
+
+    @Test
+    fun combinedRecoverySourcesAreDebugOnlyInRegularChatExports() {
+        val message = MessageV2(
+            content = "Main synthesis.\n\n$COMBINED_RECOVERY_MARKER\n\n## Further details\n\nRecovered source passage.",
+            platformType = "main",
+            currentRunId = "combined-synthesis:final"
+        )
+        assertEquals("Main synthesis.", assistantExportText(message, ChatExportFormat.MARKDOWN))
+        assertEquals("Main synthesis.", assistantExportText(message, ChatExportFormat.PLAIN_TEXT))
+        assertEquals(
+            "Main synthesis.\n\n## Further details\n\nRecovered source passage.",
+            assistantExportText(message, ChatExportFormat.MARKDOWN, debugMode = true)
+        )
     }
 
     @Test

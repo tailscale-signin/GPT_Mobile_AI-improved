@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.COMBINED_RECOVERY_MARKER
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
@@ -108,5 +111,62 @@ internal fun combinedAnswerStatus(
     } else {
         // The combined answer is still waiting for its synthesis run, even if every source just completed.
         CombinedResponseStatus.GENERATING
+    }
+}
+
+/**
+ * Fallback excerpts remain in the persisted answer for coverage and diagnosis.
+ * Only Debug Mode exposes them in the chat UI.
+ *
+ * Legacy messages use "Additional source details"; new deliveries use an
+ * explicit marker so ordinary "Further details" headings are left intact.
+ */
+internal fun combinedVisibleAnswer(answer: String, debugMode: Boolean): String {
+    val marked = combinedRecoveryBoundary.find(answer)
+    if (marked != null) {
+        val mainAnswer = answer.substring(0, marked.range.first).trimEnd()
+        if (!debugMode) return mainAnswer
+        val appendix = answer.substring(marked.range.last + 1).trim()
+        return if (appendix.isEmpty()) mainAnswer else "$mainAnswer\n\n$appendix"
+    }
+
+    val legacy = legacyCombinedRecoveryHeading.find(answer) ?: return answer
+    val mainAnswer = answer.substring(0, legacy.range.first).trimEnd()
+    if (!debugMode) return mainAnswer
+
+    val appendix = answer.substring(legacy.range.last + 1)
+        .replace(
+            "The passages below were not fully integrated by the synthesis model. " +
+                "They are retained from individual AI profiles, not independently verified facts.",
+            ""
+        )
+        .replace(legacyCombinedSourceLine, "")
+        .trim()
+        .replace(Regex("\n{3,}"), "\n\n")
+    return if (appendix.isEmpty()) mainAnswer else "$mainAnswer\n\n## Further details\n\n$appendix"
+}
+
+private val combinedRecoveryBoundary = Regex("(?m)^" + Regex.escape(COMBINED_RECOVERY_MARKER) + "[ \\t]*\\r?$")
+private val legacyCombinedRecoveryHeading = Regex("(?m)^## Additional source details[ \\t]*\\r?$")
+private val legacyCombinedSourceLine = Regex("(?m)^\\*\\*From [^\\r\\n]{1,180}:\\*\\*[ \\t]*\\r?$")
+
+/**
+ * Chronological TEXT events can bypass filtered fallbackText. Combined synthesis
+ * produces one editorial answer: retain all other events and show that answer
+ * once at the last TEXT position, not a copy of its unfiltered stored value.
+ */
+internal fun combinedVisibleTimeline(
+    timeline: List<AssistantTimelineItem>,
+    visibleAnswer: String
+): List<AssistantTimelineItem> {
+    if (timeline.isEmpty() || timeline.any { it.type == AssistantTimelineItemType.LEGACY_ORDER }) return timeline
+    val lastText = timeline.indexOfLast { it.type == AssistantTimelineItemType.TEXT }
+    if (lastText < 0) return timeline + AssistantTimelineItem(AssistantTimelineItemType.TEXT, visibleAnswer)
+    return timeline.mapIndexedNotNull { index, item ->
+        when {
+            item.type != AssistantTimelineItemType.TEXT -> item
+            index == lastText -> item.copy(content = visibleAnswer)
+            else -> null
+        }
     }
 }

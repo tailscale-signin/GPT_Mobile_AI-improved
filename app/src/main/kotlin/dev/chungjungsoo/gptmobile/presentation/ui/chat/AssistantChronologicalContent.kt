@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,9 +34,19 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.research.feature.ResearchResponseBlock
+import dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+
+private data class PreparedResearchBlocks(
+    val response: String,
+    val splitParagraphs: Boolean,
+    val blocks: List<ResearchResponseBlock>
+)
 
 /** One disclosure controls the entire process; response text remains readable while collapsed. */
 @Composable
@@ -123,15 +134,31 @@ internal fun AssistantChronologicalContent(
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (isLoading) {
-                                    ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                    ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {
-                                    val blocks = remember(response, splitForPassageIndicators) { dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks(response, splitParagraphs = splitForPassageIndicators) }
-                                    blocks.forEachIndexed { blockIndex, block ->
-                                        ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
-                                        passageIndicators(block.text)
-                                        if (block.citationText.isNotBlank()) articleCards(block.citationText)
+                                    if (!splitForPassageIndicators && !debugSettings.researchFeature.articleCards) {
+                                        // Standard and Combined replies without citation cards use
+                                        // one Markdown tree: no paragraph splitting or extra work.
+                                        ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                    } else {
+                                        val prepared by produceState<PreparedResearchBlocks?>(null, response, splitForPassageIndicators) {
+                                            value = withContext(Dispatchers.Default) {
+                                                PreparedResearchBlocks(response, splitForPassageIndicators, researchResponseBlocks(response, splitParagraphs = splitForPassageIndicators))
+                                            }
+                                        }
+                                        val blocks = prepared?.takeIf { it.response == response && it.splitParagraphs == splitForPassageIndicators }?.blocks
+                                        if (blocks == null) {
+                                            // Keep prose responsive while preparing citation boundaries.
+                                            ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:pending"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index:pending", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                        } else {
+                                            blocks.forEachIndexed { blockIndex, block ->
+                                                ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                                passageIndicators(block.text)
+                                                if (block.citationText.isNotBlank()) articleCards(block.citationText)
+                                            }
+                                            if (blocks.none { it.citationText.isNotBlank() }) articleCards(citationText)
+                                        }
                                     }
-                                    if (blocks.none { it.citationText.isNotBlank() }) articleCards(citationText)
                                 }
                             }
                         }

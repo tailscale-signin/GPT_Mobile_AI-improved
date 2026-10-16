@@ -109,7 +109,7 @@ internal class CombinedDeliverySession(
             // Never silently select the "best" model. If a bounded editorial retry
             // still omits passages, preserve missing source wording transparently.
             val appended = withContext(Dispatchers.Default) {
-                appendMissingCombinedPassages(text, checked.missing, sources, maxCharacters)
+                appendMissingCombinedPassages(text, checked.missing, maxCharacters)
             }
             if (appended != null && appended.startsWith(committedPrefix)) {
                 val next = withContext(Dispatchers.Default) { coverage.check(appended) }
@@ -117,7 +117,7 @@ internal class CombinedDeliverySession(
                 if (next.accepted) {
                     text = appended
                     checked = next
-                    emit(ProviderEvent.Notice("Combined synthesis retained missing source passages in an unverified source section."))
+                    emit(ProviderEvent.Notice("Combined synthesis retained additional uncovered details without profile labels."))
                 }
             }
         }

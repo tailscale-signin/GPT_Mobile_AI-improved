@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
-import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+/** Stable, explicit boundary for debug-only recovery excerpts. */
+internal const val COMBINED_RECOVERY_MARKER = "<!-- gptmobile:combined-recovery:v1 -->"
 
 /**
  * Last-resort deterministic source preservation after editorial synthesis and repair.
@@ -10,20 +11,15 @@ import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 internal fun appendMissingCombinedPassages(
     draft: String,
     missing: List<CombinedContentCoverage.Unit>,
-    sources: List<CombinedModelResponse>,
     maxCharacters: Int
 ): String? {
     if (missing.isEmpty()) return draft
     if (draft.length >= maxCharacters) return null
-    val names = sources.associate { it.platformUid to it.platformName.replace(Regex("[\\r\\n#*`\\[\\]<>]"), "").trim().take(80) }
-    val tail = StringBuilder(
-        "\n\n## Additional source details\n\n" +
-            "The passages below were not fully integrated by the synthesis model. " +
-            "They are retained from individual AI profiles, not independently verified facts.\n\n"
-    )
+    // Retain every missing fact without displaying source-profile names. Provenance
+    // remains in the frozen combined sources for colour mapping and Debug inspection.
+    val tail = StringBuilder("\n\n$COMBINED_RECOVERY_MARKER\n\n## Further details\n\n")
     for (unit in missing) {
-        val profiles = unit.profileUids.sorted().joinToString(", ") { uid -> names[uid]?.takeIf(String::isNotBlank) ?: "Profile" }
-        val passage = "**From $profiles:**\n\n${unit.text}\n\n"
+        val passage = "${unit.text}\n\n"
         if (draft.length.toLong() + tail.length + passage.length > maxCharacters.toLong()) return null
         tail.append(passage)
     }

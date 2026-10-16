@@ -1488,7 +1488,7 @@ class ChatViewModel @Inject constructor(
         }
         val exported = groupPersistedMessages(completeWindowMessages(_groupedMessages.value), enabledPlatformsInChat, _chatRoom.value.id)
         val content = exported.assistantMessages.flatten()
-            .map { assistantExportText(it, format) }
+            .map { assistantExportText(it, format, debugMode = debugMode.value) }
             .filter(String::isNotBlank)
             .joinToString("\n\n")
         val safeTitle = chatRoom.value.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)

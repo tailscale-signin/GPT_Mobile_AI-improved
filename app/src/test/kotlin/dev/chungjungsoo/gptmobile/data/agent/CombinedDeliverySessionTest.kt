@@ -63,12 +63,15 @@ class CombinedDeliverySessionTest {
         assertTrue(events.none { it is ProviderEvent.Failed })
     }
 
-    @Test fun unproductiveRepairRetainsAllFrozenSourcesInLabelledAppendix() = runTest {
+    @Test fun unproductiveRepairRetainsAllFrozenSourcesWithoutProfileLabels() = runTest {
         val wrapper = CombinedDeliverySession(session(winner), sources, 100_000, validateAccess = {}) { _, _ -> session(winner) }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
         val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(answer.startsWith(winner))
-        assertTrue(answer.contains("## Additional source details"))
+        assertTrue(answer.contains("## Further details"))
+        assertTrue(answer.contains(COMBINED_RECOVERY_MARKER))
+        assertFalse(answer.contains("**From "))
+        assertFalse(answer.contains("individual AI profiles"))
         assertTrue(CombinedContentCoverage(sources).check(answer).accepted)
         assertTrue(events.any { it == ProviderEvent.Completed })
         assertTrue(events.none { it is ProviderEvent.Failed })
@@ -260,7 +263,7 @@ class CombinedDeliverySessionTest {
         assertEquals(2, rounds)
         val delivered = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(delivered.startsWith(rows.take(2).joinToString("\n\n") { it.content }))
-        assertTrue(delivered.contains("## Additional source details"))
+        assertTrue(delivered.contains("## Further details"))
         assertTrue(delivered.contains(rows[2].content))
         assertTrue(delivered.contains(rows[3].content))
         assertEquals(ProviderEvent.Completed, events.last())
@@ -296,7 +299,7 @@ class CombinedDeliverySessionTest {
         assertTrue(events.none { it is ProviderEvent.ToolCall })
         val delivered = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(delivered.startsWith(original))
-        assertTrue(delivered.contains("## Additional source details"))
+        assertTrue(delivered.contains("## Further details"))
         assertTrue(delivered.contains(rows[1].content))
         assertEquals(ProviderEvent.Completed, events.last())
     }

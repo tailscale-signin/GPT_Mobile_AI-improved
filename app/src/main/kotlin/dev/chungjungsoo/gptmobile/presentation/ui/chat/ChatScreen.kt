@@ -1098,6 +1098,22 @@ private fun ChatMessagePair(
     } else {
         emptyList()
     }
+    val combinedIdentities = remember(combinedProfiles, debugSettings.profileAttributionColors) {
+        if (!combinedMode) {
+            emptyMap()
+        } else {
+            ProfileAttributionPalette.forSelection(
+                combinedProfiles.map { it.uid },
+                debugSettings.profileAttributionColors
+            )
+        }
+    }
+    val attributionSurface = MaterialTheme.colorScheme.surface
+    val attributionColors = remember(combinedIdentities, attributionSurface) {
+        combinedIdentities.mapValues { (_, identity) ->
+            ProfileAttributionPalette.foreground(identity, attributionSurface)
+        }
+    }
     val hasCombinedTabs = combinedMode && (combinedSynthesisIndex >= 0 || combinedProfiles.size > 1)
     val selectedProfile = combinedProfiles.firstOrNull { it.uid == selectedCombinedProfileUid }.takeIf { hasCombinedTabs }
     val isSourceResponse = selectedProfile != null
@@ -1114,11 +1130,13 @@ private fun ChatMessagePair(
     val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
     val responseInsetPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
+    val rawAssistantContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
-        else -> dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
+        isCombinedConversation -> combinedVisibleAnswer(rawAssistantContent, debugMode)
+        else -> rawAssistantContent
     }
     val assistantThoughts = if (isCombinedConversation && !synthesisStarted) {
         ""
@@ -1128,7 +1146,13 @@ private fun ChatMessagePair(
     val assistantTimeline = if (isCombinedConversation && !synthesisStarted) {
         emptyList()
     } else {
-        selectedAssistantMessage?.effectiveTimeline().orEmpty()
+        selectedAssistantMessage?.effectiveTimeline().orEmpty().let { timeline ->
+            if (isCombinedConversation && rawAssistantContent != assistantContent) {
+                combinedVisibleTimeline(timeline, assistantContent)
+            } else {
+                timeline
+            }
+        }
     }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
@@ -1204,7 +1228,7 @@ private fun ChatMessagePair(
                 if (hasCombinedTabs) {
                     CombinedProfileBubbles(
                         profiles = combinedProfiles,
-                        identities = debugSettings.profileAttributionColors,
+                        identities = combinedIdentities,
                         primaryUid = assistantMessages.getOrNull(combinedSynthesisIndex)?.platformType,
                         selectedUid = selectedProfile?.uid,
                         combinedStatus = combinedStatus,
@@ -1248,7 +1272,7 @@ private fun ChatMessagePair(
                         answer = assistantContent,
                         sources = synthesis?.combinedSources.orEmpty(),
                         selectedProfileUids = combinedProfiles.map { it.uid },
-                        identities = debugSettings.profileAttributionColors,
+                        identities = combinedIdentities,
                         primaryUid = synthesis?.platformType,
                         onOpenContribution = onCombinedProfileClick
                     )
@@ -1274,7 +1298,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
-                    profileColorIdentity = selectedProfile?.uid?.let(debugSettings.profileAttributionColors::get).takeIf { isSourceResponse },
+                    profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
                     debugMemorySources = debugMemorySources,
@@ -1286,12 +1310,11 @@ private fun ChatMessagePair(
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
                     conversationId = selectedAssistantMessage?.chatId,
+                    showSourceBar = !isCombinedConversation,
                     combinedWording = if (hasCombinedTabs && selectedProfile == null) {
                         CombinedWordingPresentation(
                             assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(),
-                            debugSettings.profileAttributionColors.mapValues { (_, identity) ->
-                                ProfileAttributionPalette.foreground(identity, MaterialTheme.colorScheme.surface)
-                            }
+                            attributionColors
                         )
                     } else {
                         null
@@ -1299,7 +1322,7 @@ private fun ChatMessagePair(
                     splitForPassageIndicators = showCombinedTextMatches,
                     passageIndicators = { segment ->
                         if (showCombinedTextMatches) {
-                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), debugSettings.profileAttributionColors, onCombinedProfileClick)
+                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), combinedIdentities, onCombinedProfileClick)
                         }
                     },
                     articleCards = { segment ->

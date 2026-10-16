@@ -9,10 +9,12 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Message
+import android.os.SystemClock
 import android.os.Messenger
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.RuntimeWire
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.RuntimeWireTransport
 import dev.chungjungsoo.gptmobile.data.localruntime.ipc.WireConversation
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -111,6 +113,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val artifact = java.io.File(spec.modelPath)
         check(artifact.isFile || artifact.isDirectory) { "MISSING_ASSET: Download or relink the selected model before running it." }
         val identity = readinessIdentity(spec, snapshot)
+        val loadStartedAtMs = SystemClock.elapsedRealtime()
         try {
             mutableState.value = state.value.copy(lifecycle = "LOADING")
             readiness.qualify(identity) {
@@ -125,6 +128,13 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         }
         requestedSpec = spec
         tuning = snapshot.localEngineTuning()
+        // Profile-compatibleType is not native execution evidence. Record the worker's
+        // reported backend and actual admitted accelerator after LOAD succeeds.
+        val native = state.value
+        AppLogRecorder.record(
+            "LocalModel",
+            "ENGINE_READY · backend=${native.backend ?: "UNKNOWN"} · requestedAccelerator=${spec.accelerator} · actualAccelerator=${native.engineSpec?.accelerator ?: "UNKNOWN"} · loadMs=${SystemClock.elapsedRealtime() - loadStartedAtMs} · model=${artifact.name} · workerPssBytes=${processPssBytes ?: -1} · processIsolated=${native.processIsolated}"
+        )
     }
 
     override suspend fun createConversation(config: LocalConversationConfig) {
@@ -148,12 +158,39 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val packet = RuntimeWire("GENERATE", UUID.randomUUID().toString(), sessionId, generation, text = text, images = images)
         val request = Pending(packet, LocalEventBuffer())
         pending[packet.requestId] = request
+        val startedAtMs = SystemClock.elapsedRealtime()
+        var receivedNativeToken = false
         try {
             send(packet)
-            // The run's progress watchdog and explicit user deadline own generation time.
-            // A productive native stream must not acquire an unrelated ten-minute cutoff.
+            // A native engine can remain in PREFILL with no callbacks indefinitely.
+            // Bound only the zero-token interval: productive decoding keeps its
+            // existing progress watchdog, and native work is NEVER replayed here.
             while (true) {
-                val event = request.events!!.take() ?: break
+                val next = if (receivedNativeToken) {
+                    true to request.events!!.take()
+                } else {
+                    val remaining = LocalPrefillDeadline.remainingMs(startedAtMs, SystemClock.elapsedRealtime(), text.length)
+                    if (remaining <= 0L) null else withTimeoutOrNull(remaining) { true to request.events!!.take() }
+                }
+                if (next == null) {
+                    val engine = state.value
+                    val elapsed = SystemClock.elapsedRealtime() - startedAtMs
+                    AppLogRecorder.record(
+                        "LocalModel",
+                        "LOCAL_PREFILL_TIMEOUT · backend=${engine.backend ?: "UNKNOWN"} · accelerator=${engine.engineSpec?.accelerator ?: "UNKNOWN"} · elapsedMs=$elapsed · workerPssBytes=${processPssBytes ?: -1} · nativeOutputTokens=0 · action=cancel_and_quarantine_if_unresponsive",
+                        "E"
+                    )
+                    throw IllegalStateException("LOCAL_PREFILL_TIMEOUT: The native engine produced no tokens after ${elapsed / 1000}s. Generation was cancelled; check the selected backend and model compatibility, then retry manually.")
+                }
+                val event = next.second ?: break
+                if (!receivedNativeToken && (event is LocalRuntimeEvent.TextDelta || event is LocalRuntimeEvent.ThinkingDelta)) {
+                    receivedNativeToken = true
+                    val engine = state.value
+                    AppLogRecorder.record(
+                        "LocalModel",
+                        "LOCAL_FIRST_TOKEN · backend=${engine.backend ?: "UNKNOWN"} · accelerator=${engine.engineSpec?.accelerator ?: "UNKNOWN"} · elapsedMs=${SystemClock.elapsedRealtime() - startedAtMs} · workerPssBytes=${processPssBytes ?: -1}"
+                    )
+                }
                 emit(event)
             }
             request.finished.await()

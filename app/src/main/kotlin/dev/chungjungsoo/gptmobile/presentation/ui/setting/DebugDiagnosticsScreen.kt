@@ -278,4 +278,5 @@ internal fun AppFeatureSettings.shows(metric: DebugMetric): Boolean = when (metr
     DebugMetric.REVIEWER_TRACE -> debugShowReviewerTrace
     DebugMetric.MEMORY_RECALL -> debugShowMemoryRecall
     DebugMetric.TOKEN_COMPARISON -> debugShowTokenComparison
+    DebugMetric.COMBINED_TEXT_MATCHES -> debugShowCombinedTextMatches
 }

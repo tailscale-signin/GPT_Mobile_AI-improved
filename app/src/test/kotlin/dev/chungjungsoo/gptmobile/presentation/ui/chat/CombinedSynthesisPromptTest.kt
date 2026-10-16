@@ -12,13 +12,21 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedSynthesisPromptTest {
-    @Test fun comprehensivePolicyIsExplicitAndRequestLengthRemainsAnOption() {
-        val sources = listOf(CombinedModelResponse("p", "P", content = "Full contribution"))
-        assertEquals("COMPREHENSIVE", Json.parseToJsonElement(combinedSynthesisPrompt("100 words", sources)).jsonObject.getValue("combination_policy").jsonPrimitive.content)
-        assertEquals("REQUEST_LENGTH", Json.parseToJsonElement(combinedSynthesisPrompt("100 words", sources, comprehensive = false)).jsonObject.getValue("combination_policy").jsonPrimitive.content)
+    @Test fun comprehensivePolicyIgnoresWordCountCompressionWithoutDroppingInput() {
+        val sources = listOf(
+            CombinedModelResponse("p", "P", content = "Fact from primary."),
+            CombinedModelResponse("q", "Q", content = "Distinct fact from secondary.")
+        )
+        val prompt = Json.parseToJsonElement(combinedSynthesisPrompt("Reply in 50 words", sources)).jsonObject
+        assertEquals("COMPREHENSIVE", prompt.getValue("combination_policy").jsonPrimitive.content)
+        assertEquals("Reply in 50 words", prompt.getValue("original_request").jsonPrimitive.content)
+        assertEquals(2, prompt.getValue("contributions").jsonArray.size)
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("no application-imposed answer length"))
+        assertFalse(COMBINED_SYNTHESIS_INSTRUCTION.contains("REQUEST_LENGTH"))
     }
 
     @Test fun everyOriginalSurvivesJsonFramingIncludingLongEndingsAndConflictingDates() {

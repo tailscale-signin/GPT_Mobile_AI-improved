@@ -543,13 +543,20 @@ class McpClientManager internal constructor(
 
             val connectStartedAtMs = nowMs()
             val endpointHost = runCatching { URI(config.endpointUrl).host }.getOrNull().orEmpty()
-            AppLogRecorder.record("MCP", "Connect started · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$sessionConnectTimeoutMs")
+            // Remote services may negotiate TLS and initialize slowly. Keep explicit short
+            // test/user overrides and local gateway timeouts unchanged.
+            val effectiveSessionTimeoutMs = if (sessionConnectTimeoutMs >= 15_000L && config.endpointUrl.startsWith("https://", ignoreCase = true)) {
+                maxOf(sessionConnectTimeoutMs, 30_000L)
+            } else {
+                sessionConnectTimeoutMs
+            }
+            AppLogRecorder.record("MCP", "Connect started · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs")
             val result = runCatching {
                 val transport = StreamableHttpClientTransport(httpClient, config.endpointUrl) {
                     timeout {
                         connectTimeoutMillis = transportConnectTimeoutMs
-                        requestTimeoutMillis = sessionConnectTimeoutMs + 2_000
-                        socketTimeoutMillis = sessionConnectTimeoutMs + 2_000
+                        requestTimeoutMillis = effectiveSessionTimeoutMs + 2_000
+                        socketTimeoutMillis = effectiveSessionTimeoutMs + 2_000
                     }
                     config.authorizationHeader?.let { header(HttpHeaders.Authorization, it) }
                     config.googleApiKey?.let { header("X-Goog-Api-Key", it) }
@@ -564,15 +571,19 @@ class McpClientManager internal constructor(
                 )
                 interactions?.let { handler -> client.setElicitationHandler { handler.request(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(config.endpointUrl), it) } }
                 try {
-                    val connected = withTimeoutOrNull(sessionConnectTimeoutMs) {
+                    val connected = withTimeoutOrNull(effectiveSessionTimeoutMs) {
                         client.connect(transport)
                         true
                     }
                     check(connected == true) { "MCP connection timed out. Check the server address and VPN connection, then retry." }
                     AppLogRecorder.record("MCP", "Connect completed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs}")
                     Session(key, client)
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
+                    // Parent cancellation is not a server outage and must not trip the MCP circuit.
+                    throw cancelled
                 } catch (error: Exception) {
-                    AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$sessionConnectTimeoutMs · ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
+                    AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
                     withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
                     if (generateSequence(error as Throwable) { it.cause }.any { it is StreamableHttpError && it.code == 404 }) {
                         configurationFailures[config.connectionUid] = key
@@ -595,7 +606,7 @@ class McpClientManager internal constructor(
             }
             result.fold(
                 onSuccess = { recordSuccess(config.connectionUid, latencyMs = nowMs() - connectStartedAtMs, observation = observation) },
-                onFailure = { error -> if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error, observation = observation) }
+                onFailure = { error -> if (recordFailures && error !is CancellationException && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error, observation = observation) }
             )
             return result.getOrThrow()
         }

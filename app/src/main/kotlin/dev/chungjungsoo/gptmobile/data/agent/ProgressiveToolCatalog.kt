@@ -15,6 +15,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val candidates = definitions.associateBy { it.name }.toMutableMap()
     private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
+
+    // A catalog lives for one run: repeated discovery should not refetch the same cold source.
+    private val acquiredQueryKeys = mutableSetOf<String>()
     override val definition = AgentToolDefinition(
         NAME,
         "Search other authorized tools by task or exact names. Call this when the currently advertised tools cannot perform a task. Found tools become available next round. This cannot grant permissions or install tools.",
@@ -50,10 +53,20 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
-        if (query.isNotBlank() || names.isNotEmpty()) {
-            // The required acquisition suspends outside the catalogue monitor.
-            val acquired = acquireCold?.invoke(query, names).orEmpty()
-            synchronized(this) { acquired.forEach { candidates[it.name] = it } }
+        if ((query.isNotBlank() || names.isNotEmpty()) && acquireCold != null) {
+            // Cache only successful acquisitions. Offline or empty catalogs remain retryable.
+            // Never suspend while holding the selection monitor.
+            val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
+            val alreadyFetched = synchronized(this) { key in acquiredQueryKeys }
+            if (!alreadyFetched) {
+                val acquired = acquireCold.invoke(query, names)
+                if (acquired.isNotEmpty()) {
+                    synchronized(this) {
+                        acquired.forEach { candidates[it.name] = it }
+                        acquiredQueryKeys += key
+                    }
+                }
+            }
         }
         return selectResult(callId, arguments)
     }
@@ -65,6 +78,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
         val undiscovered = if (query.isNotBlank()) ranked(query).filterNot { it.name in discovered } else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
+        val previousActive = active.toSet()
         val selected = window(found + active.mapNotNull(candidates::get))
         active.clear()
         active.addAll(selected.map { it.name })
@@ -89,6 +103,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             put("authorized_tool_count", candidates.size)
             put("remaining_tool_count", candidates.size - discovered.size)
             put("advertised_tool_count", active.size)
+            put("catalog_unchanged", previousActive == active)
+            put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
+            if (previousActive == active) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")
         }
         AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = false)
     }

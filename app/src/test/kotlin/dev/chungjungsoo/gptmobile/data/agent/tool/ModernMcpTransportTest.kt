@@ -65,6 +65,43 @@ class ModernMcpTransportTest {
         }
     }
 
+    @Test fun postOnlyServerWithoutDiscoverExtensionDoesNotAttemptLegacyGetSse() = runBlocking {
+        val methods = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                if (request.method.value == "GET") {
+                    methods += "GET"
+                    return@MockEngine respond("", HttpStatusCode.MethodNotAllowed)
+                }
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val method = body.getValue("method").jsonPrimitive.content
+                methods += method
+                if (method == "server/discover") {
+                    respond("Unsupported extension", HttpStatusCode.BadRequest)
+                } else {
+                    val result = if (method == "tools/list") {
+                        obj("""{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}""")
+                    } else {
+                        obj("""{"content":[{"type":"text","text":"ok"}]}""")
+                    }
+                    respond(
+                        buildJsonObject {
+                            put("id", body.getValue("id"))
+                            put("result", result)
+                        }.toString(),
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
+            }
+        ).use { client ->
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            assertEquals(listOf("echo"), manager.listTools(config).map { it.name })
+            assertEquals(listOf("server/discover", "tools/list", "tools/list"), methods)
+            assertFalse("GET" in methods)
+            manager.closeAll()
+        }
+    }
+
     @Test fun legacyAdvertisedVersionsFallBackAndCacheTheDecision() = runBlocking {
         var requests = 0
         HttpClient(

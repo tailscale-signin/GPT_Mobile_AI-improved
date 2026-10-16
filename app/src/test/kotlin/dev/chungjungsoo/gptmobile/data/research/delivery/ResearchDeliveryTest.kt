@@ -175,6 +175,96 @@ class ResearchDeliveryTest {
         assertEquals(1, events.count { it == ProviderEvent.Completed })
     }
 
+    @Test fun completedResearchDisablesToolsDuringFirstFinalDraft() = runTest {
+        val complete = packet().copy(snapshot = packet().snapshot.copy(complete = true))
+        var toolsAdvertised = -1
+        var requestedToolFree = false
+        val writer = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                toolsAdvertised = tools.size
+                emit(ProviderEvent.TextDelta("A short invalid draft"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val session = ResearchDeliverySession(writer, { complete }) { _, toolFree ->
+            requestedToolFree = requestedToolFree || toolFree
+            writer
+        }
+        session.streamRound(listOf(AgentToolDefinition("external", "External", kotlinx.serialization.json.JsonObject(emptyMap()))), emptyList()).toList()
+        assertTrue(requestedToolFree)
+        assertEquals(0, toolsAdvertised)
+    }
+
+    @Test fun detailedReportRetriesInToolFreeChaptersBeforeEvidenceFallback() = runTest {
+        val detailed = packet().copy(detail = ResearchReportDetail.DETAILED)
+        var generated = 0
+        val headerOne = """
+            ## Executive findings
+            Partial coverage. Independent review is not available.
+
+            ## Scientific background
+            No verified scientific background is available.
+
+            ## Leading studies
+            A study is captured [S1]; only its source passage was reviewed.
+
+            ## Latest papers
+            The unread paper [S2] was not read; retrieval failed.
+        """.trimIndent()
+        val headerTwo = """
+            ## Comparison of evidence
+            No verified comparison is available.
+
+            ## Safety and limitations
+            Safety evidence is not verified.
+
+            ## Research gaps and outlook
+            Independent research gaps remain unverified.
+
+            ## References
+            [S1] https://example.org/study
+            [S2] https://example.org/surgery
+        """.trimIndent()
+        val writer = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                generated++
+                val answer = when (generated) {
+                    3 -> headerOne
+                    4 -> headerTwo
+                    else -> "Unsupported unsourced draft."
+                }
+                emit(ProviderEvent.TextDelta(answer))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val session = ResearchDeliverySession(writer, { detailed }) { _, _ -> writer }
+        val output = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+        assertEquals(4, generated)
+        assertTrue(output.contains("## Executive findings"))
+        assertTrue(output.contains("## References"))
+        assertFalse(output.contains("captured passage"))
+    }
+
+    @Test fun completeResearchPreservesOnlyTheLocalSavedEvidenceReader() = runTest {
+        val complete = packet().copy(snapshot = packet().snapshot.copy(complete = true))
+        val advertised = mutableListOf<String>()
+        val writer = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                advertised += tools.map { it.name }
+                emit(ProviderEvent.TextDelta("Unsupported draft"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val session = ResearchDeliverySession(writer, { complete }) { _, _ -> writer }
+        val tools = listOf(
+            AgentToolDefinition("read_recovery_context", "Read saved work", kotlinx.serialization.json.JsonObject(emptyMap())),
+            AgentToolDefinition("read_url", "Read network URL", kotlinx.serialization.json.JsonObject(emptyMap())),
+            AgentToolDefinition("discover_available_tools", "Find external tools", kotlinx.serialization.json.JsonObject(emptyMap()))
+        )
+        session.streamRound(tools, emptyList()).toList()
+        assertEquals(listOf("read_recovery_context"), advertised)
+    }
+
     @Test fun revokedRepairNeverReleasesCachedEvidenceFallback() = runTest {
         val invalid = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {

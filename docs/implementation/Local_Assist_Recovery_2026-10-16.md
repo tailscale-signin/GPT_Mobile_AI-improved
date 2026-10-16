@@ -30,4 +30,6 @@ The new `local_assist_plan` was bound after initial context admission, so `final
 
 Combined delivery now converts upstream stream exceptions into an explicit failed delivery while preserving the buffered original draft. Failed repair text cannot overwrite that draft. Cancellation, downstream collector failures and live access checks remain authoritative.
 
+The transactional Combined freeze now matches UI admission for imported/legacy contributions without run IDs. Contributions with a run ID still require that exact completed run; a missing or active run remains rejected. A Room regression covers both cases and preserves the exact-content freeze check.
+
 Validation: 61 isolated recovery/Combined JVM tests, 23 isolated Assist/admission tests, 116 Python script tests, Kotlin lint for changed files, Android regex and Room schema checks passed. Two new Combined stream tests failed before the fix and pass after it. The repository integration test requires Android CI; isolated JVM harnesses do not replace that gate or physical-device qualification.

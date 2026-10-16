@@ -337,7 +337,7 @@ interface AgentPersistenceDao {
                 val sourceRun = row.currentRunId?.let { recoveryRun(it) }
                 require(
                     row.combinedSources.isEmpty() &&
-                        sourceRun?.status == "COMPLETED" &&
+                        (row.currentRunId == null || sourceRun?.status == "COMPLETED") &&
                         dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(row.content).trim() == source.content.trim()
                 ) {
                     "A Combined contribution is still settling. The inputs will be checked again before dispatch."

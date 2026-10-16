@@ -20,6 +20,32 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class CombinedOwnershipTest {
+    @Test fun legacyContributionsCanBeFrozenButMissingActiveRunRecordsCannot() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
+        try {
+            val user = MessageV2(id = 2, chatId = 1, content = "History", platformType = null)
+            val primary = MessageV2(id = 3, chatId = 1, content = "Imported primary topic", platformType = "primary", linkedMessageId = 2)
+            val helper = MessageV2(id = 4, chatId = 1, content = "Imported helper topic", platformType = "helper", linkedMessageId = 2)
+            db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Combined"))
+            db.messageDao().addMessages(user, primary, helper.copy(currentRunId = "missing-run"))
+            val frozen = primary.copy(
+                combinedSources = listOf(
+                    dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = primary.content),
+                    dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("helper", "Helper", content = helper.content)
+                )
+            )
+            val dao = db.agentPersistenceDao()
+            val request = PersistAgentRetryRequest(user, frozen, AgentRunDraft("combined-synthesis:legacy", "primary", "provider", "model", synthesisKey = "legacy"), freezeCombinedSources = true)
+            assertTrue(runCatching { dao.persistAgentRetry(request) }.exceptionOrNull() is IllegalArgumentException)
+            assertEquals(null, dao.recoveryRun(request.run.runId))
+            db.messageDao().editMessages(helper)
+            val accepted = dao.persistAgentRetry(request)
+            assertEquals(listOf(primary.content, helper.content), accepted.assistantMessage.combinedSources.map { it.content })
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun sourceChangesBeforeTheFreezeAreRejectedWithoutCreatingAnEditor() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         try {

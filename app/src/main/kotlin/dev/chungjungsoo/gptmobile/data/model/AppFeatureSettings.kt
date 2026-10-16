@@ -16,6 +16,10 @@ data class AppFeatureSettings(
     val combinedComprehensive: Boolean = true,
     val lastChatProfileUids: List<String> = emptyList(),
     val lastChatMode: String = "STANDARD",
+    /** Research purpose persists independently of the current research toggle. */
+    val researchChatIds: Set<Int> = emptySet(),
+    /** Root chat id to ordered, independently persisted child chat ids. */
+    val multiChatWorkspaces: Map<Int, List<Int>> = emptyMap(),
     val smoothStreaming: Boolean = true,
     val centerUnread: Boolean = true,
     val responseAnimation: Boolean = true,

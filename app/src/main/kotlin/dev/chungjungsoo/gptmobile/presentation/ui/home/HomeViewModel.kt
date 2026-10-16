@@ -414,9 +414,31 @@ class HomeViewModel @Inject constructor(
 
     private fun searchChats(query: String) {
         viewModelScope.launch {
-            val rawChats = chatRepository.searchChatsV2(query)
-            allChats = rawChats
+            val hidden = hiddenWorkspaceChildIds()
+            allChats = chatRepository.searchChatsV2(query).filterNot { it.id in hidden }
             publishFolderChats()
+        }
+    }
+
+    private suspend fun hiddenWorkspaceChildIds(): Set<Int> {
+        val groups = settingRepository.getFeatureSettings().multiChatWorkspaces
+        return groups.values.flatten().toSet() - groups.keys
+    }
+
+    private suspend fun workspaceRooms(chat: ChatRoomV2): List<ChatRoomV2> {
+        val memberIds = settingRepository.getFeatureSettings().multiChatWorkspaces[chat.id] ?: return listOf(chat)
+        val byId = (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).associateBy { it.id }
+        return memberIds.mapNotNull(byId::get).ifEmpty { listOf(chat) }
+    }
+
+    private suspend fun forgetWorkspaceMappings(rooms: List<ChatRoomV2>) {
+        val ids = rooms.mapTo(mutableSetOf()) { it.id }
+        settingRepository.mutateFeatureSettings { features ->
+            features.copy(
+                multiChatWorkspaces = features.multiChatWorkspaces.filterKeys { it !in ids },
+                researchChatIds = features.researchChatIds - ids,
+                conversationResearch = features.conversationResearch.filterKeys { it !in ids }
+            )
         }
     }
 
@@ -453,20 +475,23 @@ class HomeViewModel @Inject constructor(
             val selectedChats = _chatListState.value.chats.filterIndexed { index, _ ->
                 _chatListState.value.selectedChats.getOrElse(index) { false }
             }
-
-            val chats = agentRunCoordinator.withChatGate(selectedChats.map { it.id }) {
-                selectedChats.forEach { agentRunCoordinator.cancelChatAndJoin(it.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED) }
-                chatRepository.deleteChatsV2(selectedChats)
-                chatRepository.fetchChatListV2()
+            val expanded = selectedChats.flatMap { workspaceRooms(it) }.distinctBy { it.id }
+            agentRunCoordinator.withChatGate(expanded.map { it.id }) {
+                expanded.forEach { agentRunCoordinator.cancelChatAndJoin(it.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED) }
+                chatRepository.deleteChatsV2(expanded)
             }
-            val sorted = sortChats(chats)
-            _chatListState.update { it.copy(chats = sorted) }
+            forgetWorkspaceMappings(expanded)
             disableSelectionMode()
+            fetchChats()
         }
     }
 
     fun openConversation(room: ChatRoomV2, onOpen: (ChatRoomV2, Int?) -> Unit) {
         viewModelScope.launch {
+            if (room.id in settingRepository.getFeatureSettings().multiChatWorkspaces) {
+                onOpen(room, null)
+                return@launch
+            }
             val target = if (room.id in conversationReadStateStore.unreadChatIds.value) {
                 chatRepository.newestAssistantMessageId(room.id)
             } else {
@@ -487,20 +512,24 @@ class HomeViewModel @Inject constructor(
     }
 
     fun deleteChat(chatRoom: ChatRoomV2) {
-        conversationReadStateStore.remove(chatRoom.id)
-        completionStore.clearChat(chatRoom.id)
         viewModelScope.launch {
-            agentRunCoordinator.withChatGate(chatRoom.id) {
-                agentRunCoordinator.cancelChatAndJoin(chatRoom.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
-                chatRepository.deleteChatsV2(listOf(chatRoom))
+            val members = workspaceRooms(chatRoom)
+            members.forEach {
+                conversationReadStateStore.remove(it.id)
+                completionStore.clearChat(it.id)
             }
+            agentRunCoordinator.withChatGate(members.map { it.id }) {
+                members.forEach { agentRunCoordinator.cancelChatAndJoin(it.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED) }
+                chatRepository.deleteChatsV2(members)
+            }
+            forgetWorkspaceMappings(members)
             fetchChats()
         }
     }
 
     fun archiveChat(chatRoom: ChatRoomV2) {
         viewModelScope.launch {
-            chatRepository.setChatArchived(chatRoom.id, isArchived = true)
+            workspaceRooms(chatRoom).forEach { chatRepository.setChatArchived(it.id, isArchived = true) }
             fetchChats()
             fetchArchivedChats()
         }
@@ -508,27 +537,20 @@ class HomeViewModel @Inject constructor(
 
     fun unarchiveChat(chatRoom: ChatRoomV2) {
         viewModelScope.launch {
-            chatRepository.setChatArchived(chatRoom.id, isArchived = false)
+            workspaceRooms(chatRoom).forEach { chatRepository.setChatArchived(it.id, isArchived = false) }
             fetchChats()
             fetchArchivedChats()
         }
     }
 
     fun deleteArchivedChat(chatRoom: ChatRoomV2) {
-        conversationReadStateStore.remove(chatRoom.id)
-        completionStore.clearChat(chatRoom.id)
-        viewModelScope.launch {
-            agentRunCoordinator.withChatGate(chatRoom.id) {
-                agentRunCoordinator.cancelChatAndJoin(chatRoom.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED)
-                chatRepository.deleteChatsV2(listOf(chatRoom))
-            }
-            fetchArchivedChats()
-        }
+        deleteChat(chatRoom)
     }
 
     fun fetchArchivedChats() {
         viewModelScope.launch {
-            val archived = chatRepository.fetchArchivedChatListV2()
+            val hidden = hiddenWorkspaceChildIds()
+            val archived = chatRepository.fetchArchivedChatListV2().filterNot { it.id in hidden }
             _archivedChats.update { archived }
         }
     }
@@ -577,24 +599,26 @@ class HomeViewModel @Inject constructor(
     fun fetchChats() {
         viewModelScope.launch {
             var rawChats = chatRepository.fetchChatListV2()
+            val hidden = hiddenWorkspaceChildIds()
+            val visibleChats = rawChats.filterNot { it.id in hidden }
 
             // Keep the main screen manageable without aggressively hiding history.
             // Once more than 20 chats are visible, archive alternating oldest eligible
             // conversations until the visible count returns to 20. Pinned/favorite and
             // actively generating chats are never selected for automatic archival.
-            if (rawChats.size > MAX_MAIN_CHAT_COUNT) {
+            if (visibleChats.size > MAX_MAIN_CHAT_COUNT) {
                 val archiveTargets = automaticArchiveTargets(
-                    chats = rawChats.filter { it.id !in folderMembers },
+                    chats = visibleChats.filter { it.id !in folderMembers },
                     activeIds = _activeChatIds.value,
                     maxVisible = MAX_MAIN_CHAT_COUNT
                 )
-                archiveTargets.forEach { chatRepository.setChatArchived(it.id, isArchived = true) }
+                archiveTargets.forEach { root -> workspaceRooms(root).forEach { chatRepository.setChatArchived(it.id, isArchived = true) } }
                 if (archiveTargets.isNotEmpty()) {
                     rawChats = chatRepository.fetchChatListV2()
                 }
             }
 
-            allChats = rawChats
+            allChats = rawChats.filterNot { it.id in hidden }
             publishFolderChats()
             fetchArchivedChats()
 

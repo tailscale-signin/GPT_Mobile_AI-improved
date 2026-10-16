@@ -186,11 +186,19 @@ fun HomeScreen(
     homeViewModel: HomeViewModel = hiltViewModel(),
     settingOnClick: () -> Unit = {},
     onExistingChatClick: (chatRoom: ChatRoomV2, targetMessageId: Int?) -> Unit = { _, _ -> },
-    navigateToNewChat: (enabledPlatforms: List<String>, conversationMode: String) -> Unit = { _, _ -> }
+    navigateToNewChat: () -> Unit = {},
+    navigateToWorkspace: (Int) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val homeFeatures by homeViewModel.featureSettings.collectAsStateWithLifecycle()
+    val openExistingChat: (ChatRoomV2, Int?) -> Unit = { room, target ->
+        if (target == null && homeFeatures.multiChatWorkspaces.containsKey(room.id)) {
+            navigateToWorkspace(room.id)
+        } else {
+            onExistingChatClick(room, target)
+        }
+    }
     val currentTab by homeViewModel.currentTab.collectAsStateWithLifecycle()
     val chatListState by homeViewModel.chatListState.collectAsStateWithLifecycle()
     val showSelectModelDialog by homeViewModel.showSelectModelDialog.collectAsStateWithLifecycle()
@@ -331,21 +339,13 @@ fun HomeScreen(
                         onOpen = { item ->
                             homeViewModel.consumeCompletedGeneration(item.runId)
                             homeViewModel.getChatRoom(item.chatId) { room ->
-                                if (room != null) onExistingChatClick(room, item.assistantMessageId)
+                                if (room != null) openExistingChat(room, item.assistantMessageId)
                             }
                         }
                     )
                 }
                 if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                    NewChatButton(expanded = listState.isScrollingUp(), onClick = {
-                        val enabledApiTypes = platformState.filter { it.enabled }.map { it.uid }
-                        if (enabledApiTypes.size == 1) {
-                            // Navigate to new chat directly if only one platform is enabled
-                            navigateToNewChat(enabledApiTypes, ConversationMode.STANDARD)
-                        } else {
-                            homeViewModel.openSelectModelDialog()
-                        }
-                    })
+                    NewChatButton(expanded = listState.isScrollingUp(), onClick = navigateToNewChat)
                 }
             }
         }
@@ -503,7 +503,7 @@ fun HomeScreen(
                                             if (chatListState.isSelectionMode) {
                                                 homeViewModel.selectChat(idx)
                                             } else {
-                                                homeViewModel.openConversation(chatRoom, onExistingChatClick)
+                                                homeViewModel.openConversation(chatRoom, openExistingChat)
                                             }
                                         },
                                         onItemLongClick = {
@@ -549,7 +549,7 @@ fun HomeScreen(
                                         profileLabels = chatProfileLabels,
                                         isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
                                         onItemClick = {
-                                            homeViewModel.openConversation(chatRoom, onExistingChatClick)
+                                            homeViewModel.openConversation(chatRoom, openExistingChat)
                                         },
                                         onItemLongClick = {},
                                         revealingLabels = dragging,
@@ -636,7 +636,7 @@ fun HomeScreen(
                                         platformState = platformState,
                                         onUnarchiveChat = { room -> homeViewModel.unarchiveChat(room) },
                                         onDeleteChat = { room -> homeViewModel.deleteArchivedChat(room) },
-                                        onChatClick = { room -> homeViewModel.openConversation(room, onExistingChatClick) },
+                                        onChatClick = { room -> homeViewModel.openConversation(room, openExistingChat) },
                                         modifier = Modifier.padding(bottom = 80.dp)
                                     )
                                 }
@@ -777,7 +777,7 @@ fun HomeScreen(
                     homeViewModel.getChatRoom(detailMessage.chatId) { targetChat ->
                         selectedDetailMessage = null
                         if (targetChat != null) {
-                            onExistingChatClick(targetChat, detailMessage.id)
+                            openExistingChat(targetChat, detailMessage.id)
                         }
                     }
                 },
@@ -801,7 +801,7 @@ fun HomeScreen(
                 onDismissRequest = { homeViewModel.closeSelectModelDialog() },
                 onConfirmation = { platforms, conversationMode ->
                     homeViewModel.rememberChatSelection(platforms, conversationMode)
-                    navigateToNewChat(platforms, conversationMode)
+                    navigateToNewChat()
                     homeViewModel.closeSelectModelDialog()
                 },
                 onPlatformSelect = { homeViewModel.togglePlatformSelection(it) },

@@ -1299,7 +1299,11 @@ class ChatRepositoryImpl(
             val preparationStarted = System.nanoTime()
             emit(ApiState.Loading)
             emit(ApiState.ProgressCheckpoint("Preparing the response and checking the available context."))
-            try {
+            // Isolate the heavyweight preparation state machine from the enclosing
+            // coroutine exception table. On Android ART, oversized inlined suspend
+            // methods have aborted with an invalid exception PC during native errors.
+            // The helper keeps the same authorized snapshot and the same finally path.
+            suspend fun executePreparedRequest() {
                 if (platform.compatibleType == ClientType.FREE) {
                     validateFreeRequest(platform, effectiveUserMessages, assistantMessages)
                     emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))
@@ -1377,7 +1381,7 @@ class ChatRepositoryImpl(
                 if (resumeWriterOnly) writerFailures.recheck(platform)
                 writerFailures.blocked(platform)?.let { failure ->
                     emit(ApiState.Error("Final writer unavailable. ${failure.message()} Saved evidence is retained. Check the connection, then use Retry failed stage for an explicit recheck, or choose an approved writer."))
-                    return@authorizedRun
+                    return
                 }
                 var recovery: dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext? = null
                 var contextTurns = measurePreparation(runId, PreparationPhase.NORMALIZATION) {
@@ -1430,7 +1434,7 @@ class ChatRepositoryImpl(
                 val roleAdmission = dev.chungjungsoo.gptmobile.data.delegation.DelegationAdmissionResolver.resolve(admittedPolicy, admittedProfiles, platform)
                 if (admittedPolicy.enabled && taskRecovery?.primaryOnly != true && !resumeWriterOnly && roleAdmission.blocked) {
                     emit(ApiState.Error(roleAdmission.explanation))
-                    return@authorizedRun
+                    return
                 }
                 if (admittedPolicy.enabled && taskRecovery?.primaryOnly != true && !resumeWriterOnly && roleAdmission.warning != null) emit(ApiState.Notice(roleAdmission.warning, persistent = true))
                 admittedTemplate = admittedPolicy.templateRole?.let { dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate.from(admittedPolicy) }
@@ -1585,7 +1589,7 @@ class ChatRepositoryImpl(
                     AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=preparation · explicit=${taskRecovery != null}", "W")
                     if (taskRecovery != null) {
                         emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recoveryDenied))
-                        return@authorizedRun
+                        return
                     }
                     // Fresh chat input is independent of the denied saved work. Do not
                     // reuse its text, receipts or research, but still allow a new answer.
@@ -1692,7 +1696,7 @@ class ChatRepositoryImpl(
                         is dev.chungjungsoo.gptmobile.data.agent.RecoveryPrefix.Blocked -> {
                             AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=context", "W")
                             emit(ApiState.Error(access.reason.message, recoveryBlock = access.reason))
-                            return@authorizedRun
+                            return
                         }
                     }
                     contextTurns = contextTurns.map { turn ->
@@ -2125,6 +2129,9 @@ class ChatRepositoryImpl(
                         }
                     )
                 }
+            }
+            try {
+                executePreparedRequest()
             } catch (cancelled: CancellationException) {
                 delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.CANCELED
                 throw cancelled

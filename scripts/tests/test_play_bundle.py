@@ -54,8 +54,10 @@ class PlayBundlePreflightTest(unittest.TestCase):
             checker.check_bundle(self.bundle)
 
     def test_skips_only_qualcomm_dsp_skeletons(self):
+        elf32 = bytearray(fake_elf(164))
+        elf32[4] = 1
         self.assertFalse(checker.check_library(
-            "base/lib/arm64-v8a/libQnnHtpV79Skel.so", fake_elf(164), "arm64-v8a"
+            "base/lib/arm64-v8a/libQnnHtpV79Skel.so", bytes(elf32), "arm64-v8a"
         ))
         with self.assertRaisesRegex(ValueError, "unexpected host machine"):
             checker.check_library(

@@ -68,7 +68,7 @@ internal class LocalReadinessRegistry(private val directory: File? = null) {
                 val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(key)
                 val temporary = File(root, "$digest.tmp")
                 temporary.outputStream().use { output ->
-                    output.write("INCOMPATIBLE\\n$digest".replace("\\\\n", "\\n").toByteArray(Charsets.UTF_8))
+                    output.write("INCOMPATIBLE\n$digest".toByteArray(Charsets.UTF_8))
                     output.fd.sync()
                 }
                 Files.move(temporary.toPath(), File(root, digest).toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)

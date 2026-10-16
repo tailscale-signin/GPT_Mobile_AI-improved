@@ -144,7 +144,7 @@ class CombinedResponseStateTest {
 
     @Test
     fun `combined response text without a legacy footer is unchanged`() {
-        val alreadyClean = "A source-independent finding from Tang China.\\n\\n## Further details\\n\\nImportant example."
+        val alreadyClean = "A source-independent finding from Tang China.\n\n## Further details\n\nImportant example."
         assertEquals(alreadyClean, combinedVisibleAnswer(alreadyClean, debugMode = false))
     }
 
@@ -192,6 +192,7 @@ class CombinedResponseStateTest {
         assertEquals(unavailable, combinedVisibleTimeline(unavailable, "filtered"))
         assertEquals(emptyList<AssistantTimelineItem>(), combinedVisibleTimeline(emptyList(), "filtered"))
     }
+
     private fun profiles(
         responses: List<MessageV2>,
         participating: Set<String> = setOf("lead", "other"),

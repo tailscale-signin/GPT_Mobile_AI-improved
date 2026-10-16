@@ -1103,7 +1103,8 @@ private fun ChatMessagePair(
             emptyMap()
         } else {
             ProfileAttributionPalette.forSelection(
-                combinedProfiles.map { it.uid }, debugSettings.profileAttributionColors
+                combinedProfiles.map { it.uid },
+                debugSettings.profileAttributionColors
             )
         }
     }

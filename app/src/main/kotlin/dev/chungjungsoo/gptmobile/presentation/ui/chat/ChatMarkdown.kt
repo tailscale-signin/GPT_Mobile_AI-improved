@@ -81,6 +81,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -151,9 +153,13 @@ fun ChatMarkdown(
         // Coalesce rapid streaming deltas before parsing large Markdown on a worker.
         // A later delta cancels stale render preparation; the latest complete
         // response is never dropped when streaming finishes.
-        snapshotFlow { latestRequest.value }
-            .sample(MARKDOWN_PREPARATION_SAMPLE_MS)
-            .collectLatest { request ->
+        val requests = snapshotFlow { latestRequest.value }
+        // Live deltas are rate-limited, but saved messages and final answers
+        // render immediately rather than waiting for the next sample tick.
+        merge(
+            requests.filter { it.streaming }.sample(MARKDOWN_PREPARATION_SAMPLE_MS),
+            requests.filter { !it.streaming }
+        ).collectLatest { request ->
                 val prepared = withContext(Dispatchers.Default) {
                     val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
                     val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)

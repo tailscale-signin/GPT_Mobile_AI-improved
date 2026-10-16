@@ -27,13 +27,20 @@ class DirectResearchModelFactoryTest {
             val policy = LocalAssistPolicy(permissionVersion = 1, profilePermissions = mapOf(local.uid to if (allowed) AssistProcessingPermission.ALLOWED else AssistProcessingPermission.DENIED))
             val features = AppFeatureSettings(localAssist = true, localAssistPolicy = policy, executionPolicy = ExecutionPolicy(mode = OptimizationMode.OFF))
             val invoked = mutableListOf<String>()
+            val statuses = mutableListOf<dev.chungjungsoo.gptmobile.data.assist.AssistTaskState>()
             val worker = DirectResearchModelFactory.create(primary, profiles, features, ModelDelegationSettings(), java.util.UUID.randomUUID().toString(), { profiles }, { features }, { true }, { _, _ -> true }, { target, _, _, _ ->
                 PhysicalAttemptBoundary.dispatch()
                 invoked += target.uid
                 ResearchModelReply("""{"questions":[],"queries":[]}""", "", "inv")
-            })
+            }, onAssistStatus = { statuses += it })
             assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
             assertEquals(listOf(if (allowed) "local" else "primary"), invoked)
+            if (allowed) {
+                assertEquals(dev.chungjungsoo.gptmobile.data.assist.AssistDelivery.PRODUCED, statuses.last().delivery)
+                assertFalse(statuses.any { it.delivery == dev.chungjungsoo.gptmobile.data.assist.AssistDelivery.VALIDATED })
+            } else {
+                assertTrue(statuses.isEmpty())
+            }
         }
     }
 

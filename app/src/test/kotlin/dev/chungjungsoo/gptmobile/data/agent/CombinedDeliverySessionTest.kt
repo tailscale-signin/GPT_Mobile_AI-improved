@@ -69,6 +69,7 @@ class CombinedDeliverySessionTest {
         val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(answer.startsWith(winner))
         assertTrue(answer.contains("## Further details"))
+        assertTrue(answer.contains(COMBINED_RECOVERY_MARKER))
         assertFalse(answer.contains("**From "))
         assertFalse(answer.contains("individual AI profiles"))
         assertTrue(CombinedContentCoverage(sources).check(answer).accepted)

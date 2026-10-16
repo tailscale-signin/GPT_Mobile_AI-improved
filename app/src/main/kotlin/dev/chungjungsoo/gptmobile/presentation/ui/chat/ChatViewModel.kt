@@ -279,6 +279,10 @@ class ChatViewModel @Inject constructor(
     private val _availableChatTools = MutableStateFlow<List<AvailableChatTool>>(emptyList())
     val availableChatTools = _availableChatTools.asStateFlow()
 
+    // Initialized before the init block launches immediate coroutines. The tool loader writes this state.
+    private val _academicGateways = MutableStateFlow<Map<String, String>>(emptyMap())
+    val academicGateways = _academicGateways.asStateFlow()
+
     private val _chatPlatformModels = MutableStateFlow<Map<String, String>>(emptyMap())
     val chatPlatformModels = _chatPlatformModels.asStateFlow()
 
@@ -757,8 +761,6 @@ class ChatViewModel @Inject constructor(
 
     private val conversationDelegationMutex = Mutex()
 
-    private val _academicGateways = MutableStateFlow<Map<String, String>>(emptyMap())
-    val academicGateways = _academicGateways.asStateFlow()
 
     fun setConversationResearch(value: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) {
         _chatToolConfig.update { it.copy(research = value.normalized()) }
@@ -906,7 +908,8 @@ class ChatViewModel @Inject constructor(
 
     private fun loadAvailableChatTools() {
         viewModelScope.launch {
-            val connections = toolConnectionRepository.getAllConnections()
+            try {
+                val connections = withContext(Dispatchers.IO) { toolConnectionRepository.getAllConnections() }
             _academicGateways.value = connections.filter { it.alias == "deep_research" }.associate { it.connectionUid to it.name }
             val profiles = settingRepository.fetchPlatformV2s().filter { it.uid in _activePlatformUids.value && !it.disableAllTools }
             val features = settingRepository.getFeatureSettings()
@@ -958,6 +961,19 @@ class ChatViewModel @Inject constructor(
                         )
                     }
                 }
+            }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // A damaged database entry, revoked credential or inaccessible MCP service must not
+                // cancel viewModelScope or crash a newly opened chat.
+                android.util.Log.w("ChatViewModel", "Tool catalog unavailable; continuing without remote tools", error)
+                _academicGateways.value = emptyMap()
+                _availableChatTools.value = listOf(
+                    AvailableChatTool("web_search", "Web search", "All enabled web search engines", "Multi-engine", false),
+                    AvailableChatTool("device_location", "Device location", "Phone GPS location", "Built-in", false)
+                )
+                _attachmentNotice.value = "Some tools are temporarily unavailable. Chat is still ready."
             }
         }
     }

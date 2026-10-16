@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -36,7 +37,11 @@ internal class ResearchDeliverySession(
         var overflow = false
         val draft = StringBuilder()
         emit(ProviderEvent.Notice("Preparing the research report and checking its citations."))
-        (if (initialContext.isEmpty()) base else create(initialContext, false)).streamRound(tools, exchanges).transformWhile { event ->
+        // A complete captured corpus is ready for writing: it must not reopen tool execution.
+        // Incomplete acquisition still retains its authorized tool rounds.
+        val writeOnly = evidence?.snapshot?.complete == true
+        val draftSession = if (initialContext.isEmpty()) base else create(initialContext, writeOnly)
+        draftSession.streamRound(if (writeOnly) emptyList() else tools, if (writeOnly) emptyList() else exchanges).transformWhile { event ->
             if (event is ProviderEvent.TextDelta && draft.length + event.text.length > MAX_REPORT_CHARACTERS) {
                 overflow = true
                 false
@@ -117,13 +122,76 @@ internal class ResearchDeliverySession(
                 return@flow
             }
             val repaired = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(repair.toString(), delivery) }
-            text = if (!repairFailed && repairCompleted && repaired.accepted) repair.toString() else ResearchDeliveryValidator.fallback(delivery)
-            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${!repairFailed && repairCompleted && repaired.accepted} · structuralIssues=${repaired.issues.joinToString()} · semanticCoverageVerified=false")
+            val repairedAccepted = !repairFailed && repairCompleted && repaired.accepted
+            // Long reports often overflow a provider's per-answer cap. Two isolated
+            // text-only sections preserve evidence without redoing the acquisition.
+            val sectioned = if (!repairedAccepted && delivery.detail != ResearchReportDetail.BRIEF) {
+                emit(ProviderEvent.Notice("Writing the remaining research sections in smaller, source-checked segments."))
+                trySectionedRepair(delivery, context(delivery))
+            } else null
+            val sectionedAccepted = sectioned != null
+            text = when {
+                repairedAccepted -> repair.toString()
+                sectionedAccepted -> sectioned
+                else -> ResearchDeliveryValidator.fallback(delivery)
+            }
+            if (!repairedAccepted && !sectionedAccepted) {
+                emit(ProviderEvent.Notice("The generated report did not pass evidence checks. Delivering a clearly labelled partial evidence report instead."))
+            }
+            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · structuralIssues=${repaired.issues.joinToString()} · semanticCoverageVerified=false")
         } else {
             AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=false")
         }
         emit(ProviderEvent.TextDelta(text))
         emit(ProviderEvent.Completed)
+    }
+
+
+    /** Each chapter is a separate tool-free request; it may fail without losing captured evidence. */
+    private suspend fun trySectionedRepair(packet: ResearchDeliveryPacket, sourceContext: String): String? {
+        val sections = ResearchDeliveryPacket.SECTIONS.chunked(4)
+        val report = StringBuilder()
+        for ((index, headings) in sections.withIndex()) {
+            val part = StringBuilder()
+            var complete = false
+            val instruction = sourceContext +
+                "\nWrite ONLY the following report sections (Markdown ## headings), in order: " +
+                headings.joinToString("; ") +
+                ". This is chapter ${index + 1} of ${sections.size}. " +
+                "Use only source IDs and URLs from the packet. Cite scientific paragraphs with [S-id] markers. " +
+                "For unread sources explicitly state that only metadata was available. " +
+                "Do not call tools or write any sections assigned to another chapter."
+            try {
+                val finished = withTimeoutOrNull(30_000L) {
+                    create(instruction, true).streamRound(emptyList(), emptyList()).collect { event ->
+                        when (event) {
+                            is ProviderEvent.TextDelta -> {
+                                if (part.length + event.text.length > MAX_REPORT_CHARACTERS / 2) {
+                                    throw IllegalStateException("Sectioned report output exceeded character limit")
+                                }
+                                part.append(event.text)
+                            }
+                            is ProviderEvent.ToolCall -> throw IllegalStateException("Sectioned writer attempted a tool call")
+                            is ProviderEvent.Failed -> throw IllegalStateException(event.message)
+                            ProviderEvent.Completed -> complete = true
+                            else -> Unit
+                        }
+                    }
+                    true
+                }
+                if (finished != true || !complete || part.isBlank()) return null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // A revoked research permission must abort delivery, never expose cached text.
+                if (isAuthorizationFailure(error.message.orEmpty())) throw error
+                return null
+            }
+            if (report.isNotEmpty()) report.append("\n\n")
+            report.append(part)
+        }
+        val proposed = report.toString()
+        return proposed.takeIf { ResearchDeliveryValidator.validate(it, packet).accepted }
     }
 
     companion object {

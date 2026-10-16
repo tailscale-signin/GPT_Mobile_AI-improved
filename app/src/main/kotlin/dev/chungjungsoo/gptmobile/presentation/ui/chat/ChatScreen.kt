@@ -427,7 +427,6 @@ fun ChatScreen(
     ) { granted ->
         if (granted && sendAfterLocalNetworkPermission) {
             chatViewModel.askQuestion()
-            focusManager.clearFocus()
         } else if (!granted) {
             Toast.makeText(context, R.string.local_network_permission_required, Toast.LENGTH_SHORT).show()
         }
@@ -446,7 +445,6 @@ fun ChatScreen(
                 localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
             } else {
                 chatViewModel.askQuestion()
-                focusManager.clearFocus()
             }
         }
         sendAfterNotificationPermission = false
@@ -812,6 +810,57 @@ fun ChatScreen(
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
                         }
                     }
+                    if (chatRoom.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.STANDARD &&
+                        chatViewModel.enabledPlatformsInChat.size > 1
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                        ) {
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Text(
+                                    if (nextMessageProfileUid == null) {
+                                        "Message all active AIs · " + activePlatformUids.count { it !in disabledPlatformUids } + " profiles"
+                                    } else {
+                                        "Next message · " + (enabledPlatformLookup[nextMessageProfileUid]?.name ?: "Selected AI")
+                                    },
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    if (isIdle) "One input · Separate responses · Select a profile on any reply to compare" else {
+                                        "Responding · " + loadingStates.count { it != ChatViewModel.LoadingState.Idle } + " active · You can queue your next message"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Row(
+                                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    activePlatformUids.forEach { uid ->
+                                        val paused = uid in disabledPlatformUids
+                                        val running = loadingStates.getOrNull(chatViewModel.enabledPlatformsInChat.indexOf(uid)) == ChatViewModel.LoadingState.Loading
+                                        TextButton(onClick = { showProfileManagement = true }) {
+                                            Text(
+                                                (enabledPlatformLookup[uid]?.name ?: "AI") + " · " + when {
+                                                    paused -> "Paused"
+                                                    running -> "Responding"
+                                                    else -> "Ready"
+                                                },
+                                                color = when {
+                                                    paused -> MaterialTheme.colorScheme.secondary
+                                                    running -> MaterialTheme.colorScheme.primary
+                                                    else -> MaterialTheme.colorScheme.onPrimaryContainer
+                                                },
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     ChatInputBox(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -842,7 +891,6 @@ fun ChatScreen(
                             localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                         } else {
                             chatViewModel.askQuestion()
-                            focusManager.clearFocus()
                         }
                     }
                 }

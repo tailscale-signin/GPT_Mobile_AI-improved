@@ -138,6 +138,22 @@ class AndroidResearchWorkflowTest {
         else -> """{"verdict":"Supported"}"""
     }
 
+    @Test fun dnsFailuresRemainResumableInsteadOfExhaustingTheSource() = runBlocking {
+        val journal = Journal()
+        val offlineReader = reader { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("Read URL failed: DNS lookup could not resolve the hostname."), true)
+        }
+        val first = AndroidResearchWorkflow(config(1), listOf(search(), offlineReader), ::model, journal)
+            .run("Research https://example.org/research/1", "offline")
+        assertEquals(0, first.pagesRead)
+        assertEquals("Reader recovery needed", first.completionReason)
+        assertTrue(journal.snapshot!!.sources.any { it.status == "Deferred" })
+        val resumed = AndroidResearchWorkflow(config(1), listOf(search(), reader()), ::model, journal)
+            .run("Research https://example.org/research/1", "online")
+        assertTrue(resumed.pagesRead > 0)
+        assertTrue(journal.snapshot!!.sources.any { it.readable })
+    }
+
     @Test fun academicReadersReserveRemainingGoalAndReleaseFailedRead() = runBlocking {
         val journal = Journal()
         var reads = 0

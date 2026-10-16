@@ -187,29 +187,12 @@ class NewChatViewModel @Inject constructor(
                     }
                 }
                 val mode = choice.executionMode(selected.size)
-                val nextRoute = if (choice == NewChatType.MULTI_CHAT) {
-                    selected.forEach { uid ->
-                        val profile = available.first { it.uid == uid }
-                        val isRoot = created.isEmpty()
-                        val title = if (isRoot) "Multi-chat · " + selected.size + " AIs" else profile.name
-                        val room = chats.createDraftChat(listOf(uid), mode, title)
-                        created += room
-                        if (isRoot) chats.updateChatTitle(room, title, isCustomized = true)
-                    }
-                    val rootId = created.first().id
-                    settings.mutateFeatureSettings {
-                        it.copy(
-                            multiChatWorkspaces = it.multiChatWorkspaces + (rootId to created.map(ChatRoomV2::id)),
-                            lastChatMode = mode,
-                            lastChatProfileUids = selected
-                        )
-                    }
-                    "multi_chat_workspace/$rootId"
-                } else {
+                val nextRoute = run {
                     val primary = primaryUid.value.takeIf { it in selected } ?: selected.first()
                     val title = when (choice) {
                         NewChatType.RESEARCH -> "Research Chat"
                         NewChatType.COMBINED -> "Combined Chat"
+                        NewChatType.MULTI_CHAT -> "Multi-chat"
                         else -> "New Chat"
                     }
                     created += chats.createDraftChat(

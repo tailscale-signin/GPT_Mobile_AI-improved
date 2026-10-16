@@ -57,7 +57,10 @@ class ToolExecutionBudget(
             val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
             if (invalid.isNotEmpty()) {
                 failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", invalid.joinToString("; "))) }
+                val message = invalid.joinToString("; ") +
+                    ". No action was dispatched. Correct the arguments using this tool schema, then retry with a new call ID: " +
+                    tool.definition.inputSchema.toString().take(6000)
+                return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", message)) }
             }
             if (!tryAcquireCall()) {
                 val message = toolCallBudgetMessage()

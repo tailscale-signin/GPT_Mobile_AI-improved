@@ -21,6 +21,8 @@ class LocalModelTransactionalImportTest {
             val renamed = install("renamed.litertlm", bytes("first"))
             assertNotEquals(first.record.catalogEntryId, different.record.catalogEntryId)
             assertEquals(first.record, renamed.record)
+            assertEquals("same.litertlm", first.record.fileName)
+            assertEquals(first.absoluteFilePath, renamed.absoluteFilePath)
             assertTrue(File(first.absoluteFilePath).readBytes().contentEquals(bytes("first")))
             assertTrue(File(different.absoluteFilePath).readBytes().contentEquals(bytes("second")))
         } finally {

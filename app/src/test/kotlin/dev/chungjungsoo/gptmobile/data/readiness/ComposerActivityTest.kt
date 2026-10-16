@@ -10,10 +10,13 @@ class ComposerActivityTest {
         assertEquals(ComposerActivity.IDLE, ReadinessHints.composerActivity.value)
         ReadinessHints.composerFocusChanged(true)
         assertEquals(ComposerActivity.TYPING, ReadinessHints.composerActivity.value)
+        assertEquals(true, ReadinessHints.composerEngaged.value)
         ReadinessHints.composerDraftChanged(false)
         assertEquals(ComposerActivity.FOCUSED, ReadinessHints.composerActivity.value)
+        assertEquals(true, ReadinessHints.composerEngaged.value)
         ReadinessHints.composerFocusChanged(false)
         assertEquals(ComposerActivity.IDLE, ReadinessHints.composerActivity.value)
+        assertEquals(false, ReadinessHints.composerEngaged.value)
         ReadinessHints.clearComposer()
     }
 

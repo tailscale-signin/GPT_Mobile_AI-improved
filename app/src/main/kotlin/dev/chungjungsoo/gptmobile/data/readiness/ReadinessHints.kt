@@ -18,11 +18,13 @@ object ReadinessHints {
     private val ready = MutableStateFlow(false)
     private val selected = MutableStateFlow<List<String>>(emptyList())
     private val activity = MutableStateFlow(ComposerActivity.IDLE)
+    private val engaged = MutableStateFlow(false)
     private var focused = false
     private var hasDraft = false
     val uiReady = ready.asStateFlow()
     val profiles = selected.asStateFlow()
     val composerActivity = activity.asStateFlow()
+    val composerEngaged = engaged.asStateFlow()
 
     fun usableUi() {
         ready.value = true
@@ -52,6 +54,8 @@ object ReadinessHints {
     }
 
     private fun publishActivity() {
+        // Typing after focus is NOT another warmup trigger: keep in-flight socket work alive.
+        engaged.value = focused
         activity.value = when {
             !focused -> ComposerActivity.IDLE
             hasDraft -> ComposerActivity.TYPING

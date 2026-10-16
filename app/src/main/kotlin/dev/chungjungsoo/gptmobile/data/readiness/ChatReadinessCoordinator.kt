@@ -43,7 +43,7 @@ class ChatReadinessCoordinator @Inject constructor(
     private val hardwareAllowed = MutableStateFlow(false)
     private val started = AtomicBoolean()
     private val uiReady = ReadinessHints.uiReady
-    private val selected = combine(ReadinessHints.profiles, ReadinessHints.networkEpoch, ReadinessHints.composerActivity) { profiles, _, activity -> profiles to activity }
+    private val selected = combine(ReadinessHints.profiles, ReadinessHints.networkEpoch, ReadinessHints.composerEngaged) { profiles, _, focused -> profiles to focused }
     fun usableUi() {
         ReadinessHints.usableUi()
     }
@@ -85,12 +85,12 @@ class ChatReadinessCoordinator @Inject constructor(
                     scheduler.cancelSpeculation()
                     memory.clear()
                     val (features, profiles, selection) = state
-                    val (hints, composerActivity) = selection
+                    val (hints, composerEngaged) = selection
                     if (!availability.first || !features.readiness.enabled) return@collectLatest
-                    if (composerActivity == ComposerActivity.IDLE) delay(500)
+                    if (!composerEngaged) delay(500)
                     if (!idle()) return@collectLatest
                     val count = when {
-                        composerActivity != ComposerActivity.IDLE -> 4
+                        composerEngaged -> 4
                         features.readiness.strategy == PreparationStrategy.MINIMAL_RESOURCES -> 1
                         else -> 2
                     }
@@ -100,7 +100,7 @@ class ChatReadinessCoordinator @Inject constructor(
                     scheduler.requestFor("memory-metadata", ::idle, ReadinessResource.LOCAL) { memory.warmMetadata() }
                     if (networkAllowed(features.readiness.warmMeteredNetworks)) {
                         // Prime the shared inference transport first. Never send a draft, API credential or token.
-                        if (composerActivity != ComposerActivity.IDLE) {
+                        if (composerEngaged) {
                             targets.forEach { profile ->
                                 scheduler.request("provider:${profile.uid}", ::idle) {
                                     transport.warm(profile.apiUrl, ReadinessHints.networkEpoch.value, ReadinessInvalidation.epoch)
@@ -116,7 +116,7 @@ class ChatReadinessCoordinator @Inject constructor(
                     val requested = features.localAssistPolicy
                     // Explicit preload is separate from per-task cold loading. Never auto-select/download weights.
                     val target = profiles.firstOrNull { it.uid == requested.profileUid && effective.effective.allowsProcessing(it) }
-                    if (composerActivity == ComposerActivity.IDLE && effective.enabled && requested.preloadInForeground && requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY && target != null) {
+                    if (!composerEngaged && effective.enabled && requested.preloadInForeground && requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY && target != null) {
                         scheduler.requestFor("helper:${target.uid}", ::idle, ReadinessResource.LOCAL) {
                             if (!helper.eligible(target, effective.effective.copy(preparation = requested.preparation))) {
                                 helper.recoveryRetryAtMillis?.let { until ->

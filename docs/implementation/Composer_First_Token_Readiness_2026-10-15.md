@@ -5,7 +5,7 @@ Reduce new-chat tap-to-dispatch latency and time to first visible provider token
 
 ## Wiring
 - `ChatInputBox` publishes focus and `ChatScreen` observes only whether the draft is empty. Neither prewarm code nor network code receives the draft text.
-- `ChatReadinessCoordinator` reacts to focus/typing immediately rather than using the 500 ms idle delay. It prioritizes up to four enabled active/next-message profiles.
+- `ChatReadinessCoordinator` reacts to focus immediately rather than using the 500 ms idle delay. The first keystroke does not cancel or restart an already-warming connection. It prioritizes up to four enabled active/next-message profiles.
 - `ProviderTransportWarmer` issues a bounded (1.8-second) unauthenticated HEAD to the selected **public HTTPS origin only**, with no model request, query, path, token, credentials or draft. This uses the same Ktor/OkHttp pool as provider calls and skips private/local URLs.
 - Warm connection probes precede MCP catalogue requests; local memory metadata and user-approved Local Assist preload use a separate one-slot local preparation lane.
 - The scheduler coalesces repeated hints and limits network/local speculation. Foreground, network, thermal, permission-generation, configuration and active-send guards remain effective. None of this is joined by accepted Send.
